@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, Trash2, X } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -21,7 +21,10 @@ export function CategoryManager({ type, value, onChange }) {
   const [error, setError] = useState('');
 
   const onCreate = async (e) => {
+    // ⚠️ CRUCIAL : Empêche le rechargement de la page et la soumission du formulaire parent
     e.preventDefault();
+    e.stopPropagation();
+    
     setError('');
     if (!name.trim()) return setError('Nom requis.');
     setSaving(true);
@@ -37,7 +40,9 @@ export function CategoryManager({ type, value, onChange }) {
     }
   };
 
-  const onDelete = async (id) => {
+  const onDelete = async (e, id) => {
+    e.preventDefault();
+    e.stopPropagation();
     if (!confirm('Supprimer cette catégorie ? Les transactions existantes ne seront pas supprimées.')) return;
     await deleteCategory(user.uid, id);
   };
@@ -62,7 +67,7 @@ export function CategoryManager({ type, value, onChange }) {
             {cat.isCustom && (
               <button
                 type="button"
-                onClick={() => onDelete(cat.id)}
+                onClick={(e) => onDelete(e, cat.id)}
                 className="absolute -right-1 -top-1 hidden h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white shadow group-hover:flex"
                 aria-label="Supprimer"
               >
@@ -114,4 +119,4 @@ export function CategoryManager({ type, value, onChange }) {
       </Modal>
     </div>
   );
-  }
+}
