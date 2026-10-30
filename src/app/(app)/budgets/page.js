@@ -1,7 +1,8 @@
+/* eslint-disable react/no-unescaped-entities */
 'use client';
 
 import { useMemo, useState } from 'react';
-import { PiggyBank, Pencil } from 'lucide-react';
+import { PiggyBank, Pencil, Landmark } from 'lucide-react';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { Button } from '@/components/ui/Button';
@@ -11,6 +12,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { useAuth } from '@/hooks/useAuth';
 import { useBudgets } from '@/hooks/useBudgets';
 import { useExpenses } from '@/hooks/useExpenses';
+import { useIncomes } from '@/hooks/useIncomes';
 import { upsertBudget, deleteBudget } from '@/lib/firestore/budgets';
 import { EXPENSE_CATEGORIES } from '@/lib/constants';
 import { formatCurrency } from '@/lib/utils';
@@ -20,16 +22,27 @@ const todayMonth = () => new Date().toISOString().slice(0, 7);
 export default function BudgetsPage() {
   const { user } = useAuth();
   const [month, setMonth] = useState(todayMonth());
-  const { budgets } = useBudgets(month);
+  const [selectedIncome, setSelectedIncome] = useState('all');
+  
+  const { incomes } = useIncomes();
+  const { budgets } = useBudgets(month, selectedIncome);
   const { expenses } = useExpenses();
+
   const [editing, setEditing] = useState(null);
   const [amount, setAmount] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const monthExpenses = useMemo(
-    () => expenses.filter((e) => e.date?.startsWith(month)),
-    [expenses, month]
-  );
+  const monthIncomes = useMemo(() => incomes.filter(i => i.month === month), [incomes, month]);
+
+  const monthExpenses = useMemo(() => {
+    let filtered = expenses.filter((e) => e.date?.startsWith(month));
+    if (selectedIncome === 'all') {
+      filtered = filtered.filter(e => !e.incomeSourceId || e.incomeSourceId === 'all');
+    } else {
+      filtered = filtered.filter(e => e.incomeSourceId === selectedIncome);
+    }
+    return filtered;
+  }, [expenses, month, selectedIncome]);
 
   const spentByCategory = useMemo(() => {
     const map = {};
@@ -70,6 +83,7 @@ export default function BudgetsPage() {
           categoryId: editing.id,
           amount: value,
           month,
+          incomeSourceId: selectedIncome,
         });
       }
       setEditing(null);
@@ -87,12 +101,24 @@ export default function BudgetsPage() {
             {formatCurrency(totalSpent)} dépensés sur {formatCurrency(totalAllocated)} alloués
           </p>
         </div>
-        <input
-          type="month"
-          value={month}
-          onChange={(e) => setMonth(e.target.value)}
-          className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm"
-        />
+        <div className="flex flex-wrap gap-2">
+          <input
+            type="month"
+            value={month}
+            onChange={(e) => setMonth(e.target.value)}
+            className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm"
+          />
+          <select
+            value={selectedIncome}
+            onChange={(e) => setSelectedIncome(e.target.value)}
+            className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm max-w-[200px]"
+          >
+            <option value="all">Tous les revenus (Global)</option>
+            {monthIncomes.map(inc => (
+              <option key={inc.id} value={inc.id}>{inc.source}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {totalAllocated === 0 && (
@@ -153,6 +179,14 @@ export default function BudgetsPage() {
       >
         {editing && (
           <form onSubmit={onSave} className="space-y-3">
+            <div className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600 flex items-center gap-2">
+              <Landmark size={16} />
+              <span>
+                {selectedIncome === 'all' 
+                  ? 'Budget Global (Tous les revenus)' 
+                  : `Revenu : ${monthIncomes.find(i => i.id === selectedIncome)?.source}`}
+              </span>
+            </div>
             <Input
               label="Montant alloué (FCFA)"
               type="number"
@@ -173,4 +207,4 @@ export default function BudgetsPage() {
       </Modal>
     </div>
   );
-    }
+                                  }
