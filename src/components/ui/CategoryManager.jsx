@@ -21,9 +21,8 @@ export function CategoryManager({ type, value, onChange }) {
   const [error, setError] = useState('');
 
   const onCreate = async (e) => {
-    // ⚠️ CRUCIAL : Empêche le rechargement de la page et la soumission du formulaire parent
-    e.preventDefault();
-    e.stopPropagation();
+    e.preventDefault(); // Empêche le rechargement
+    e.stopPropagation(); // Empêche la propagation au formulaire parent
     
     setError('');
     if (!name.trim()) return setError('Nom requis.');
@@ -119,4 +118,4 @@ export function CategoryManager({ type, value, onChange }) {
       </Modal>
     </div>
   );
-}
+      }
