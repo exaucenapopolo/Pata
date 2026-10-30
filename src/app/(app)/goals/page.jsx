@@ -1,3 +1,4 @@
+/* eslint-disable react/no-unescaped-entities */
 'use client';
 
 import { useState, useMemo } from 'react';
@@ -108,8 +109,6 @@ function buildGoalAdvices(plan, balance, goalName) {
   return advices;
 }
 
-/* ═══════════ Modal de confirmation de retrait / annulation ═══════════ */
-
 function ConfirmWithdrawModal({ goal, actionType, onClose, onConfirm, busy }) {
   const deposits = useDeposits(goal.id);
   const plan = computeGoalPlan(goal, deposits);
@@ -120,22 +119,22 @@ function ConfirmWithdrawModal({ goal, actionType, onClose, onConfirm, busy }) {
 
   const waNumber = '14236752034';
   const waMessage = encodeURIComponent(
-    `Bonjour l'équipe Pata,\n\nJe souhaite ${isCancel ? 'annuler' : 'clôturer'} mon objectif d'épargne "${goal.name}".\n\n` +
+    `Bonjour l’équipe Pata,\n\nJe souhaite ${isCancel ? 'annuler' : 'clôturer'} mon objectif d’épargne "${goal.name}".\n\n` +
     `- Total épargné : ${formatCurrency(plan.totalDeposited)}\n` +
     `- Dettes (prêts) : ${formatCurrency(plan.totalDebt)}\n` +
-    (isCancel ? `- Pénalité d'annulation (10%) : ${formatCurrency(cancelPenalty)}\n` : '') +
+    (isCancel ? `- Pénalité d’annulation (10%) : ${formatCurrency(cancelPenalty)}\n` : '') +
     `- Net à recevoir : ${formatCurrency(netRefund)}\n\n` +
     `Merci de traiter ma demande.`
   );
 
   return (
-    <Modal open onClose={onClose} title={isCancel ? "Annuler l'objectif" : "Retirer mon épargne"}>
+    <Modal open onClose={onClose} title={isCancel ? "Annuler l’objectif" : "Retirer mon épargne"}>
       <div className="space-y-4">
         <div className="flex items-start gap-3 rounded-xl bg-slate-50 p-3">
           <Info className="mt-0.5 shrink-0 text-slate-500" size={18} />
           <p className="text-sm text-slate-700">
             {isCancel 
-              ? "Attention : annuler l'objectif entraîne une pénalité de 10% sur votre épargne totale pour non-respect de l'engagement." 
+              ? "Attention : annuler l’objectif entraîne une pénalité de 10% sur votre épargne totale pour non-respect de l’engagement." 
               : "Vous êtes sur le point de clôturer cet objectif atteint. Le montant net sera reversé sur votre portefeuille."}
           </p>
         </div>
@@ -153,7 +152,7 @@ function ConfirmWithdrawModal({ goal, actionType, onClose, onConfirm, busy }) {
           )}
           {isCancel && (
             <div className="flex justify-between text-sm text-red-600">
-              <span>Pénalité d'annulation (10%)</span>
+              <span>Pénalité d’annulation (10%)</span>
               <span className="font-medium">- {formatCurrency(cancelPenalty)}</span>
             </div>
           )}
@@ -185,8 +184,6 @@ function ConfirmWithdrawModal({ goal, actionType, onClose, onConfirm, busy }) {
     </Modal>
   );
 }
-
-/* ═══════════ Détail de l'objectif (Modal) ═══════════ */
 
 function GoalDetail({ goal, onClose, onAskWithdraw }) {
   const { user } = useAuth();
@@ -339,7 +336,7 @@ function GoalDetail({ goal, onClose, onAskWithdraw }) {
                 <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-center">
                   <p className="text-xs text-amber-700 mb-2">Aucun revenu enregistré ce mois-ci.</p>
                   <Button type="button" size="sm" onClick={() => router.push('/income')} className="w-full bg-amber-600 hover:bg-amber-700">
-                    Créer un revenu d'abord
+                    Créer un revenu d’abord
                   </Button>
                 </div>
               )}
@@ -412,8 +409,6 @@ function GoalDetail({ goal, onClose, onAskWithdraw }) {
   );
 }
 
-/* ═══════════ Formulaire Création / Édition ═══════════ */
-
 function GoalFormModal({ open, onClose, goal }) {
   const { user } = useAuth();
   const editing = !!goal;
@@ -455,7 +450,7 @@ function GoalFormModal({ open, onClose, goal }) {
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={editing ? "Modifier l'objectif" : "Nouvel objectif"} className="max-w-lg">
+    <Modal open={open} onClose={onClose} title={editing ? "Modifier l’objectif" : "Nouvel objectif"} className="max-w-lg">
       <form onSubmit={onSubmit} className="space-y-4">
         <Input label="Nom de l’objectif" required value={name} onChange={(e) => setName(e.target.value)} />
         <div><p className="mb-2 text-sm font-medium text-slate-700">Catégorie</p><CategoryManager type="goal" value={categoryId} onChange={setCategoryId} /></div>
@@ -494,8 +489,6 @@ function GoalFormModal({ open, onClose, goal }) {
     </Modal>
   );
 }
-
-/* ═══════════ Carte Objectif (Grande) ═══════════ */
 
 function GoalCard({ goal, onOpen, onEdit, onAskWithdraw }) {
   const { customCategories } = useCustomCategories('goal');
@@ -557,8 +550,6 @@ function GoalCard({ goal, onOpen, onEdit, onAskWithdraw }) {
   );
 }
 
-/* ═══════════ Page Principale ═══════════ */
-
 export default function GoalsPage() {
   const { user } = useAuth();
   const { goals } = useGoals();
@@ -566,7 +557,6 @@ export default function GoalsPage() {
   const [editingGoal, setEditingGoal] = useState(null);
   const [selected, setSelected] = useState(null);
   
-  // Nouveaux états pour le retrait / annulation
   const [confirmGoal, setConfirmGoal] = useState(null);
   const [confirmType, setConfirmType] = useState(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
@@ -607,7 +597,7 @@ export default function GoalsPage() {
   };
 
   const onDelete = async (id) => {
-    if (window.confirm("Supprimer cet objectif ? L'argent sera perdu (préférez Annuler).")) {
+    if (window.confirm("Supprimer cet objectif ? L’argent sera perdu (préférez Annuler).")) {
       await deleteGoal(user.uid, id);
     }
   };
