@@ -4,12 +4,13 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   TrendingUp, TrendingDown, Wallet, Target, PiggyBank, ChevronRight,
-  CheckCircle2, AlertTriangle, Lightbulb, Info,
+  CheckCircle2, AlertTriangle, Lightbulb, Info, Landmark
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { Card, CardTitle, CardValue } from '@/components/ui/Card';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { CategoryBadge } from '@/components/ui/CategoryBadge';
 import { useIncomes } from '@/hooks/useIncomes';
 import { useExpenses } from '@/hooks/useExpenses';
 import { useBudgets } from '@/hooks/useBudgets';
@@ -49,18 +50,9 @@ export default function DashboardPage() {
     return raw.split(' ')[0];
   }, [profile]);
 
-  const monthIncomes = useMemo(
-    () => incomes.filter((i) => i.month === month),
-    [incomes, month]
-  );
-  const monthExpenses = useMemo(
-    () => expenses.filter((e) => e.date?.startsWith(month)),
-    [expenses, month]
-  );
-  const prevExpenses = useMemo(
-    () => expenses.filter((e) => e.date?.startsWith(prevMonth(month))),
-    [expenses, month]
-  );
+  const monthIncomes = useMemo(() => incomes.filter((i) => i.month === month), [incomes, month]);
+  const monthExpenses = useMemo(() => expenses.filter((e) => e.date?.startsWith(month)), [expenses, month]);
+  const prevExpenses = useMemo(() => expenses.filter((e) => e.date?.startsWith(prevMonth(month))), [expenses, month]);
 
   const totalIncome = monthIncomes.reduce((s, i) => s + (i.amount || 0), 0);
   const totalExpense = monthExpenses.reduce((s, e) => s + (e.amount || 0), 0);
@@ -76,10 +68,22 @@ export default function DashboardPage() {
     return Object.entries(map)
       .map(([id, value]) => {
         const cat = resolveCategory(id, 'expense', customCategories);
-        return { name: cat?.label || id, value, color: cat?.color || '#94a3b8' };
+        return { id, name: cat?.label || id, value, color: cat?.color || '#94a3b8' };
       })
       .sort((a, b) => b.value - a.value);
   }, [monthExpenses, customCategories]);
+
+  // 🟢 NOUVEAU : Calcul des dépenses par source de revenu
+  const byIncomeSource = useMemo(() => {
+    const map = {};
+    monthExpenses.forEach((e) => {
+      const sourceName = e.incomeSourceName || 'Fonds Globaux';
+      map[sourceName] = (map[sourceName] || 0) + (e.amount || 0);
+    });
+    return Object.entries(map)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+  }, [monthExpenses]);
 
   const advices = useMemo(
     () => generateAdvice({
@@ -162,10 +166,7 @@ export default function DashboardPage() {
               <Lightbulb size={16} className="text-slate-400" />
               <CardTitle>Assistant</CardTitle>
             </div>
-            <Link
-              href="/reports"
-              className="flex items-center text-xs font-medium text-brand-600 hover:underline"
-            >
+            <Link href="/reports" className="flex items-center text-xs font-medium text-brand-600 hover:underline">
               Détails <ChevronRight size={14} />
             </Link>
           </div>
@@ -192,26 +193,13 @@ export default function DashboardPage() {
             </Link>
           </div>
           {byCategory.length === 0 ? (
-            <EmptyState
-              icon={Wallet}
-              title="Aucune dépense ce mois"
-              description="Ajoute ta première dépense pour voir la répartition."
-            />
+            <EmptyState icon={Wallet} title="Aucune dépense ce mois" description="Ajoute ta première dépense." />
           ) : (
             <div className="h-56">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie
-                    data={byCategory}
-                    dataKey="value"
-                    nameKey="name"
-                    innerRadius={45}
-                    outerRadius={75}
-                    paddingAngle={2}
-                  >
-                    {byCategory.map((entry, i) => (
-                      <Cell key={i} fill={entry.color} />
-                    ))}
+                  <Pie data={byCategory} dataKey="value" nameKey="name" innerRadius={45} outerRadius={75} paddingAngle={2}>
+                    {byCategory.map((entry, i) => <Cell key={i} fill={entry.color} />)}
                   </Pie>
                   <Tooltip formatter={(v) => formatCurrency(v)} />
                 </PieChart>
@@ -235,39 +223,27 @@ export default function DashboardPage() {
 
         <Card>
           <div className="mb-4 flex items-center justify-between">
-            <CardTitle>Objectifs en cours</CardTitle>
-            <Link href="/goals" className="flex items-center text-xs font-medium text-brand-600 hover:underline">
-              Gérer <ChevronRight size={14} />
-            </Link>
+            <CardTitle>Dépenses par source</CardTitle>
+            <Landmark size={16} className="text-slate-400" />
           </div>
-          {goals.length === 0 ? (
-            <EmptyState
-              icon={Target}
-              title="Aucun objectif"
-              description="Crée ton premier objectif d'épargne."
-            />
+          {byIncomeSource.length === 0 ? (
+            <EmptyState icon={Landmark} title="Aucune donnée" description="Liez vos dépenses à un revenu." />
           ) : (
             <ul className="space-y-3">
-              {goals.slice(0, 4).map((g) => {
-                const daysLeft = Math.max(
-                  0,
-                  Math.ceil((new Date(g.deadline) - new Date()) / 86400000)
-                );
-                return (
-                  <li
-                    key={g.id}
-                    className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5"
-                  >
-                    <div>
-                      <p className="text-sm font-semibold text-slate-800">{g.name}</p>
-                      <p className="text-xs text-slate-500">
-                        {formatCurrency(g.targetAmount)} — {daysLeft} j restants
-                      </p>
-                    </div>
-                    <Target size={18} className="text-brand-500" />
-                  </li>
-                );
-              })}
+              {byIncomeSource.map((s) => (
+                <li key={s.name} className="flex flex-col gap-1">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="font-medium text-slate-700">{s.name}</span>
+                    <span className="font-bold text-slate-900">{formatCurrency(s.value)}</span>
+                  </div>
+                  <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-brand-500 rounded-full" 
+                      style={{ width: `${(s.value / totalExpense) * 100}%` }} 
+                    />
+                  </div>
+                </li>
+              ))}
             </ul>
           )}
         </Card>
@@ -287,19 +263,20 @@ export default function DashboardPage() {
             {recentExpenses.map((e) => {
               const cat = resolveCategory(e.categoryId, 'expense', customCategories);
               return (
-                <li key={e.id} className="flex items-center justify-between py-2.5">
-                  <div>
-                    <p className="text-sm font-medium text-slate-800">
-                      {cat?.label || 'Autre'}
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      {formatDate(e.date)}
-                      {e.note ? ` — ${e.note}` : ''}
-                    </p>
+                <li key={e.id} className="flex items-center justify-between py-3">
+                  <div className="flex items-center gap-3">
+                    <CategoryBadge categoryId={e.categoryId} color={cat?.color} size="sm" />
+                    <div>
+                      <p className="text-sm font-semibold text-slate-800">{cat?.label || 'Autre'}</p>
+                      <p className="text-xs text-slate-500">{formatDate(e.date)}</p>
+                    </div>
                   </div>
-                  <span className="text-sm font-semibold text-slate-800">
-                    {formatCurrency(e.amount)}
-                  </span>
+                  <div className="text-right">
+                    <p className="text-sm font-bold text-slate-800">{formatCurrency(e.amount)}</p>
+                    {e.incomeSourceId !== 'all' && (
+                       <p className="text-[10px] text-slate-400">{e.incomeSourceName}</p>
+                    )}
+                  </div>
                 </li>
               );
             })}
@@ -308,4 +285,4 @@ export default function DashboardPage() {
       </Card>
     </div>
   );
-            }
+    }
