@@ -3,16 +3,16 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  LayoutDashboard, Wallet, TrendingUp, Target, BarChart3,
+  LayoutDashboard, Banknote, Wallet, Target, BarChart3,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const NAV = [
-  { href: '/dashboard', label: 'Accueil',   icon: LayoutDashboard },
-  { href: '/expenses',  label: 'Dépenses',  icon: Wallet },
-  { href: '/income',    label: 'Revenus',   icon: TrendingUp },
-  { href: '/goals',     label: 'Objectifs', icon: Target },
-  { href: '/reports',   label: 'Rapports',  icon: BarChart3 },
+  { href: '/dashboard', label: 'Accueil',    icon: LayoutDashboard },
+  { href: '/wallet',    label: 'Solde',      icon: Banknote },
+  { href: '/expenses',  label: 'Dépenses',   icon: Wallet },
+  { href: '/goals',     label: 'Objectifs',  icon: Target },
+  { href: '/reports',   label: 'Rapports',   icon: BarChart3 },
 ];
 
 export function MobileNav() {
@@ -37,4 +37,4 @@ export function MobileNav() {
       })}
     </nav>
   );
-   }
+}
