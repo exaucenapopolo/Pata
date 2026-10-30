@@ -1,7 +1,6 @@
 import {
   collection, addDoc, updateDoc, deleteDoc, doc,
-  onSnapshot, query, orderBy, serverTimestamp,
-  getDocs,
+  onSnapshot, query, orderBy, serverTimestamp, getDocs,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase/client';
 
@@ -23,12 +22,22 @@ export function subscribeDeposits(uid, goalId, cb) {
 }
 
 export async function createGoal(uid, data) {
+  const startDate = new Date().toISOString().slice(0, 10);
+  const durationDays = Math.max(1, Math.floor(Number(data.durationDays) || 30));
+  const frequencyDays = Math.max(1, Math.floor(Number(data.frequencyDays) || 7));
+  const deadline = new Date(
+    new Date(startDate).getTime() + durationDays * 86400000
+  ).toISOString().slice(0, 10);
+
   return addDoc(col(uid), {
-    name: data.name,
+    name: String(data.name || '').trim(),
     targetAmount: Number(data.targetAmount),
-    deadline: data.deadline,
+    categoryId: data.categoryId || 'savings',
+    startDate,
+    durationDays,
+    frequencyDays,
+    deadline,
     penaltyAmount: Number(data.penaltyAmount || 0),
-    startDate: new Date().toISOString().slice(0, 10),
     createdAt: serverTimestamp(),
   });
 }
@@ -47,6 +56,7 @@ export async function addDeposit(uid, goalId, { amount, date }) {
   return addDoc(depositsCol(uid, goalId), {
     amount: Number(amount),
     date: date || new Date().toISOString().slice(0, 10),
+    source: 'external',
     createdAt: serverTimestamp(),
   });
 }
