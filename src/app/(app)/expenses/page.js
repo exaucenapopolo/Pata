@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { CategoryManager } from '@/components/ui/CategoryManager';
-import { CategoryBadge } from '@/components/ui/CategoryBadge';
+import { CategoryImage } from '@/components/ui/CategoryImage';
 import { useAuth } from '@/hooks/useAuth';
 import { useExpenses } from '@/hooks/useExpenses';
 import { useIncomes } from '@/hooks/useIncomes';
@@ -109,7 +109,7 @@ export default function ExpensesPage() {
       }
       setOpen(false);
     } catch {
-      setError('Erreur lors de l\u2019enregistrement.');
+      setError('Erreur lors de l’enregistrement.');
     } finally {
       setSaving(false);
     }
@@ -179,7 +179,7 @@ export default function ExpensesPage() {
                   return (
                     <li key={e.id} className="flex items-center justify-between px-4 py-3">
                       <div className="flex items-center gap-3">
-                        <CategoryBadge categoryId={e.categoryId} color={cat?.color} size="md" />
+                        <CategoryImage categoryId={e.categoryId} image={cat?.image} size="md" />
                         <div>
                           <p className="text-sm font-semibold text-slate-800">{cat?.label || 'Autre'}</p>
                           <div className="flex items-center gap-2 mt-0.5">
@@ -250,7 +250,7 @@ export default function ExpensesPage() {
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">D'où vient cet argent ?</label>
+            <label className="mb-1 block text-sm font-medium text-slate-700">D’où vient cet argent ?</label>
             <select
               value={form.incomeSourceId}
               onChange={(e) => {
@@ -296,4 +296,4 @@ export default function ExpensesPage() {
       </Modal>
     </div>
   );
-                                    }
+  }
