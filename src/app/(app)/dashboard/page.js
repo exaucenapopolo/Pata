@@ -14,8 +14,9 @@ import { useIncomes } from '@/hooks/useIncomes';
 import { useExpenses } from '@/hooks/useExpenses';
 import { useBudgets } from '@/hooks/useBudgets';
 import { useGoals } from '@/hooks/useGoals';
+import { useProfile } from '@/hooks/useProfile';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
-import { generateAdvice, adviceStyle } from '@/lib/advisor';
+import { generateAdvice, adviceIconColor } from '@/lib/advisor';
 import { formatCurrency, formatDate, resolveCategory } from '@/lib/utils';
 
 const todayMonth = () => new Date().toISOString().slice(0, 7);
@@ -26,9 +27,10 @@ const prevMonth = (m) => {
 };
 
 const ADVICE_ICONS = {
-  check: CheckCircle2,
-  alert: AlertTriangle,
-  lightbulb: Lightbulb,
+  success: CheckCircle2,
+  danger: AlertTriangle,
+  warning: AlertTriangle,
+  tip: Lightbulb,
   info: Info,
 };
 
@@ -38,7 +40,14 @@ export default function DashboardPage() {
   const { expenses } = useExpenses();
   const { budgets } = useBudgets(month);
   const { goals } = useGoals();
+  const { profile } = useProfile();
   const { customCategories } = useCustomCategories('expense');
+
+  const userName = useMemo(() => {
+    const raw = profile?.displayName?.trim();
+    if (!raw) return 'toi';
+    return raw.split(' ')[0];
+  }, [profile]);
 
   const monthIncomes = useMemo(
     () => incomes.filter((i) => i.month === month),
@@ -80,8 +89,9 @@ export default function DashboardPage() {
       goals,
       totalIncome,
       customCategories,
+      userName,
     }),
-    [monthExpenses, prevExpenses, budgets, goals, totalIncome, customCategories]
+    [monthExpenses, prevExpenses, budgets, goals, totalIncome, customCategories, userName]
   );
 
   const recentExpenses = monthExpenses.slice(0, 5);
@@ -148,7 +158,10 @@ export default function DashboardPage() {
       {advices.length > 0 && (
         <Card>
           <div className="mb-3 flex items-center justify-between">
-            <CardTitle>Conseils de l&apos;assistant</CardTitle>
+            <div className="flex items-center gap-2">
+              <Lightbulb size={16} className="text-slate-400" />
+              <CardTitle>Assistant</CardTitle>
+            </div>
             <Link
               href="/reports"
               className="flex items-center text-xs font-medium text-brand-600 hover:underline"
@@ -156,20 +169,13 @@ export default function DashboardPage() {
               Détails <ChevronRight size={14} />
             </Link>
           </div>
-          <div className="space-y-2">
+          <div className="space-y-3">
             {advices.slice(0, 3).map((a) => {
-              const s = adviceStyle(a.type);
-              const Icon = ADVICE_ICONS[adviceTypeToIcon(a.type)] || Info;
+              const Icon = ADVICE_ICONS[a.type] || Info;
               return (
-                <div
-                  key={a.id}
-                  className={`flex items-start gap-2 rounded-xl border ${s.border} ${s.bg} p-3`}
-                >
-                  <Icon size={16} className={`mt-0.5 shrink-0 ${s.iconColor}`} />
-                  <div>
-                    <p className={`text-sm font-semibold ${s.titleColor}`}>{a.title}</p>
-                    <p className="text-xs text-slate-600">{a.message}</p>
-                  </div>
+                <div key={a.id} className="flex items-start gap-3">
+                  <Icon size={16} className={`mt-0.5 shrink-0 ${adviceIconColor(a.type)}`} />
+                  <p className="text-sm leading-relaxed text-slate-700">{a.message}</p>
                 </div>
               );
             })}
@@ -302,14 +308,4 @@ export default function DashboardPage() {
       </Card>
     </div>
   );
-}
-
-function adviceTypeToIcon(type) {
-  switch (type) {
-    case 'success': return 'check';
-    case 'danger':
-    case 'warning': return 'alert';
-    case 'tip': return 'lightbulb';
-    default: return 'info';
-  }
-                }
+            }
