@@ -1,3 +1,4 @@
+/* eslint-disable react/no-unescaped-entities */
 'use client';
 
 import { useState } from 'react';
@@ -61,6 +62,57 @@ function ProgressCircle({ value = 0, size = 140 }) {
   );
 }
 
+function buildGoalAdvices(plan, balance, goalName) {
+  if (!plan) return [];
+  const advices = [];
+
+  if (plan.isReached) {
+    advices.push({
+      type: 'success',
+      message: `Ton objectif « ${goalName} » est atteint. Tu peux retirer ton argent à tout moment depuis cet écran.`,
+    });
+    return advices;
+  }
+
+  if (plan.isLate && plan.totalDebt === 0) {
+    advices.push({
+      type: 'danger',
+      message: `Tu as ${plan.missedPayments} paiement${plan.missedPayments > 1 ? 's' : ''} manqué${plan.missedPayments > 1 ? 's' : ''}. Amende cumulée : ${formatCurrency(plan.penalty)}. Verse ${formatCurrency(plan.shortfall)} pour la stopper ou demande un micro-prêt.`,
+    });
+  } else if (plan.totalDeposited >= plan.expectedAmount) {
+    advices.push({
+      type: 'success',
+      message: `Tu es à jour : ${formatCurrency(plan.totalDeposited)} versés sur ${formatCurrency(plan.expectedAmount)} attendus. Continue comme ça.`,
+    });
+  } else {
+    advices.push({
+      type: 'info',
+      message: `Il te reste ${formatCurrency(plan.expectedAmount - plan.totalDeposited)} à verser pour être à jour sur ton plan.`,
+    });
+  }
+
+  if (plan.daysLeft > 0 && plan.daysLeft <= 3 && plan.progress < 100) {
+    advices.push({
+      type: 'warning',
+      message: `L&apos;objectif se termine dans ${plan.daysLeft} jour${plan.daysLeft > 1 ? 's' : ''}. Il manque ${formatCurrency(plan.remaining)}.`,
+    });
+  }
+
+  if (balance >= plan.amountPerPayment) {
+    advices.push({
+      type: 'tip',
+      message: `Ton solde couvre le prochain paiement de ${formatCurrency(plan.amountPerPayment)}. Verse directement.`,
+    });
+  } else if (balance === 0) {
+    advices.push({
+      type: 'tip',
+      message: 'Recharge ton portefeuille pour financer cet objectif en un clic.',
+    });
+  }
+
+  return advices;
+}
+
 function GoalDetail({ goal, onClose }) {
   const { user } = useAuth();
   const { profile } = useProfile();
@@ -68,6 +120,7 @@ function GoalDetail({ goal, onClose }) {
   const deposits = useDeposits(goal.id);
   const plan = computeGoalPlan(goal, deposits);
   const category = resolveCategory(goal.categoryId, 'goal', customCategories);
+  const advices = buildGoalAdvices(plan, profile?.balance || 0, goal.name);
 
   const [amount, setAmount] = useState('');
   const [repayAmount, setRepayAmount] = useState('');
@@ -98,10 +151,6 @@ function GoalDetail({ goal, onClose }) {
     } finally { setBusy(false); }
   };
 
-  const onFund = (e) => { e.preventDefault(); handleAction('fund-goal'.replace('-goal', ''), { amount: Number(amount) }); }; 
-  // Note : l'URL backend est /api/wallet/fund-goal, mais notre routeur gère /api/wallet/fund-goal donc on l'appelle direct.
-  // Attention, l'endpoint fund-goal est dans le routeur, donc handleAction('wallet/fund-goal') marcherait. Ici on utilise un hack pour l'URL. Utilisons l'appel direct pour le wallet.
-  
   const onFundFromWallet = async (e) => {
     e.preventDefault();
     setError(''); setSaving(true);
@@ -137,9 +186,9 @@ function GoalDetail({ goal, onClose }) {
             <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Épargné</p>
             <p className="mt-0.5 text-sm font-bold text-brand-600">{formatCurrency(plan.totalDeposited)}</p>
           </div>
-          <div className="rounded-xl bg-red-50 px-2 py-3 text-center">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-red-600">Dette (Prêt)</p>
-            <p className="mt-0.5 text-sm font-bold text-red-600">{formatCurrency(plan.totalDebt)}</p>
+          <div className={`rounded-xl px-2 py-3 text-center ${plan.totalDebt > 0 ? 'bg-red-50' : 'bg-slate-50'}`}>
+            <p className={`text-[10px] font-semibold uppercase tracking-wide ${plan.totalDebt > 0 ? 'text-red-600' : 'text-slate-500'}`}>Dette</p>
+            <p className={`mt-0.5 text-sm font-bold ${plan.totalDebt > 0 ? 'text-red-600' : 'text-slate-800'}`}>{formatCurrency(plan.totalDebt)}</p>
           </div>
         </div>
 
@@ -147,7 +196,7 @@ function GoalDetail({ goal, onClose }) {
           <div className="flex flex-col gap-2 rounded-xl border border-red-200 bg-red-50 p-3">
              <div className="flex items-start gap-2">
                 <Landmark size={16} className="mt-0.5 shrink-0 text-red-600" />
-                <p className="text-sm text-red-700">Tu as une dette de <strong>{formatCurrency(plan.totalDebt)}</strong> (incluant 5% d'intérêts). Elle sera déduite de ton épargne si tu retires. Tu peux la rembourser dès maintenant.</p>
+                <p className="text-sm text-red-700">Tu as une dette de <strong>{formatCurrency(plan.totalDebt)}</strong> (incluant 5% d&apos;intérêts). Elle sera déduite de ton épargne si tu retires. Tu peux la rembourser dès maintenant.</p>
              </div>
              <div className="flex gap-2 items-end mt-2">
                 <Input label="Montant à rembourser" type="number" min="1" value={repayAmount} onChange={e => setRepayAmount(e.target.value)} className="flex-1" />
@@ -156,6 +205,25 @@ function GoalDetail({ goal, onClose }) {
                 </Button>
              </div>
              {Number(repayAmount) > balance && <p className="text-xs text-red-600 mt-1">Ton solde est insuffisant pour ce montant.</p>}
+          </div>
+        )}
+
+        {advices.length > 0 && (
+          <div className="rounded-xl border border-slate-200 p-3.5">
+            <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+              <Lightbulb size={12} /> Assistant
+            </div>
+            <div className="space-y-2">
+              {advices.map((a, i) => {
+                const Icon = ADVICE_ICONS[a.type] || Info;
+                return (
+                  <div key={i} className="flex items-start gap-2">
+                    <Icon size={14} className={`mt-0.5 shrink-0 ${adviceIconColor(a.type)}`} />
+                    <p className="text-sm leading-relaxed text-slate-700">{a.message}</p>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -172,7 +240,7 @@ function GoalDetail({ goal, onClose }) {
             {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
             <div className="mt-3 text-center">
               <button type="button" onClick={() => setShowLoan(true)} className="text-xs font-semibold text-brand-600 hover:underline">
-                Solde insuffisant ? Demander un micro-prêt (5% d'intérêts)
+                Solde insuffisant ? Demander un micro-prêt (5% d&apos;intérêts)
               </button>
             </div>
           </form>
@@ -180,8 +248,8 @@ function GoalDetail({ goal, onClose }) {
 
         {showLoan && !plan.isReached && (
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-3.5">
-            <h4 className="text-sm font-semibold text-amber-800 mb-1">Micro-prêt d'urgence</h4>
-            <p className="text-xs text-amber-700 mb-3">Emprunte le montant exact de ton paiement pour éviter l'amende. 5% d'intérêts seront ajoutés à ta dette.</p>
+            <h4 className="text-sm font-semibold text-amber-800 mb-1">Micro-prêt d&apos;urgence</h4>
+            <p className="text-xs text-amber-700 mb-3">Emprunte le montant exact de ton paiement pour éviter l&apos;amende. 5% d&apos;intérêts seront ajoutés à ta dette.</p>
             <div className="flex gap-2 items-end">
               <Input label="Montant à emprunter" type="number" min="1" value={amount} onChange={e => setAmount(e.target.value)} className="flex-1" />
               <Button onClick={() => handleAction('borrow', { amount: Number(amount) }, 'Prêt accordé. Le montant a été ajouté à ton objectif.')} disabled={busy || !amount} className="bg-amber-600 hover:bg-amber-700">
@@ -196,12 +264,12 @@ function GoalDetail({ goal, onClose }) {
           {plan.isReached ? (
             <Button onClick={() => handleAction('withdraw', {}, 'Argent récupéré sur ton solde.')} className="w-full" disabled={busy}>
               <ArrowDownToLine size={16} />
-              {busy ? 'Traitement…' : `Retirer l'épargne nette`}
+              {busy ? 'Traitement…' : `Retirer l&apos;épargne nette`}
             </Button>
           ) : (
             <Button onClick={() => handleAction('cancel', {}, 'Objectif annulé.')} variant="outline" className="w-full text-red-600 hover:bg-red-50" disabled={busy}>
               <ShieldAlert size={16} />
-              {busy ? 'Traitement…' : 'Annuler l\u2019objectif (10% pénalité)'}
+              {busy ? 'Traitement…' : 'Annuler l&apos;objectif (10% pénalité)'}
             </Button>
           )}
         </div>
@@ -254,7 +322,6 @@ function GoalFormModal({ open, onClose, goal }) {
     e.preventDefault(); setError('');
     const target = Math.round(Number(targetAmount));
     if (!name.trim() || !target || durationDays < frequencyDays) return setError('Vérifie les informations.');
-
     setSaving(true);
     try {
       const payload = { name: name.trim(), targetAmount: target, categoryId, durationDays, frequencyDays, penaltyAmount: Math.max(MIN_PENALTY, Number(penaltyAmount)) };
@@ -302,7 +369,7 @@ function GoalFormModal({ open, onClose, goal }) {
 
         <Input label={`Amende par retard (min. ${formatCurrency(MIN_PENALTY)})`} type="number" min={MIN_PENALTY} value={penaltyAmount} onChange={(e) => setPenaltyAmount(e.target.value)} />
         {error && <p className="text-sm text-red-600">{error}</p>}
-        <Button type="submit" className="w-full" disabled={saving}>{saving ? 'Enregistrement…' : editing ? 'Mettre à jour' : "Créer l'objectif"}</Button>
+        <Button type="submit" className="w-full" disabled={saving}>{saving ? 'Enregistrement…' : editing ? 'Mettre à jour' : "Créer l&apos;objectif"}</Button>
       </form>
     </Modal>
   );
@@ -355,7 +422,7 @@ export default function GoalsPage() {
   const closeForm = () => { setOpen(false); setEditingGoal(null); };
 
   const onDelete = async (id) => {
-    if (!confirm('Supprimer cet objectif ? L\'argent sera perdu (préférez Annuler dans le suivi).')) return;
+    if (!confirm("Supprimer cet objectif ? L'argent sera perdu (préférez Annuler dans le suivi).")) return;
     await deleteGoal(user.uid, id);
   };
 
