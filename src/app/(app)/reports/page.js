@@ -1,7 +1,10 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Download, BarChart3, Wallet } from 'lucide-react';
+import {
+  Download, BarChart3, Wallet, CheckCircle2, AlertTriangle,
+  Lightbulb, Info,
+} from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, LineChart, Line, CartesianGrid,
@@ -11,20 +14,45 @@ import { Card, CardTitle } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useExpenses } from '@/hooks/useExpenses';
 import { useIncomes } from '@/hooks/useIncomes';
-import { EXPENSE_CATEGORIES } from '@/lib/constants';
-import { formatCurrency } from '@/lib/utils';
+import { useBudgets } from '@/hooks/useBudgets';
+import { useGoals } from '@/hooks/useGoals';
+import { useCustomCategories } from '@/hooks/useCustomCategories';
+import { generateAdvice, adviceStyle } from '@/lib/advisor';
+import { formatCurrency, resolveCategory } from '@/lib/utils';
 
 const todayMonth = () => new Date().toISOString().slice(0, 7);
 const todayYear = () => String(new Date().getFullYear());
 
+const prevMonth = (m) => {
+  const [y, mo] = m.split('-').map(Number);
+  const d = new Date(y, mo - 2, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+
+const ADVICE_ICONS = {
+  success: CheckCircle2,
+  danger: AlertTriangle,
+  warning: AlertTriangle,
+  tip: Lightbulb,
+  info: Info,
+};
+
 export default function ReportsPage() {
   const { expenses } = useExpenses();
   const { incomes } = useIncomes();
+  const { goals } = useGoals();
+  const { customCategories } = useCustomCategories('expense');
   const [month, setMonth] = useState(todayMonth());
   const [year, setYear] = useState(todayYear());
 
+  const { budgets } = useBudgets(month);
+
   const monthExpenses = useMemo(
     () => expenses.filter((e) => e.date?.startsWith(month)),
+    [expenses, month]
+  );
+  const prevExpenses = useMemo(
+    () => expenses.filter((e) => e.date?.startsWith(prevMonth(month))),
     [expenses, month]
   );
   const monthIncomes = useMemo(
@@ -34,6 +62,7 @@ export default function ReportsPage() {
 
   const totalExpense = monthExpenses.reduce((s, e) => s + e.amount, 0);
   const totalIncome = monthIncomes.reduce((s, i) => s + i.amount, 0);
+  const totalPrevExpense = prevExpenses.reduce((s, e) => s + e.amount, 0);
 
   const byCategory = useMemo(() => {
     const map = {};
@@ -42,11 +71,11 @@ export default function ReportsPage() {
     });
     return Object.entries(map)
       .map(([id, value]) => {
-        const c = EXPENSE_CATEGORIES.find((x) => x.id === id);
-        return { name: c?.label || id, value, color: c?.color || '#94a3b8' };
+        const cat = resolveCategory(id, 'expense', customCategories);
+        return { name: cat?.label || id, value, color: cat?.color || '#94a3b8' };
       })
       .sort((a, b) => b.value - a.value);
-  }, [monthExpenses]);
+  }, [monthExpenses, customCategories]);
 
   const yearEvolution = useMemo(() => {
     const months = Array.from({ length: 12 }, (_, i) => {
@@ -61,13 +90,25 @@ export default function ReportsPage() {
     });
   }, [expenses, year]);
 
+  const advices = useMemo(
+    () => generateAdvice({
+      expenses: monthExpenses,
+      previousExpenses: prevExpenses,
+      budgets,
+      goals,
+      totalIncome,
+      customCategories,
+    }),
+    [monthExpenses, prevExpenses, budgets, goals, totalIncome, customCategories]
+  );
+
   const top5 = byCategory.slice(0, 5);
 
   const exportCsv = () => {
     if (!monthExpenses.length) return;
     const header = 'Date,Montant,Categorie,Note';
     const rows = monthExpenses.map((e) => {
-      const cat = EXPENSE_CATEGORIES.find((c) => c.id === e.categoryId);
+      const cat = resolveCategory(e.categoryId, 'expense', customCategories);
       return `${e.date},${e.amount},"${cat?.label || e.categoryId}","${(e.note || '').replace(/"/g, '""')}"`;
     });
     const csv = [header, ...rows].join('\n');
@@ -85,7 +126,7 @@ export default function ReportsPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Rapports</h1>
-          <p className="text-sm text-slate-500">Analyse tes finances mois par mois.</p>
+          <p className="text-sm text-slate-500">Analyse et recommandations de ton assistant économique.</p>
         </div>
         <div className="flex gap-2">
           <input
@@ -104,12 +145,47 @@ export default function ReportsPage() {
         <Card>
           <CardTitle>Revenus du mois</CardTitle>
           <p className="mt-1 text-xl font-bold text-brand-600">{formatCurrency(totalIncome)}</p>
+          {totalIncome > 0 && (
+            <p className="mt-1 text-xs text-slate-500">
+              {totalIncome > 0 ? `${((1 - totalExpense / totalIncome) * 100).toFixed(0)} % épargné` : ''}
+            </p>
+          )}
         </Card>
         <Card>
           <CardTitle>Dépenses du mois</CardTitle>
           <p className="mt-1 text-xl font-bold text-red-500">{formatCurrency(totalExpense)}</p>
+          {totalPrevExpense > 0 && (
+            <p className="mt-1 text-xs text-slate-500">
+              {totalExpense >= totalPrevExpense ? '+' : ''}
+              {(((totalExpense - totalPrevExpense) / totalPrevExpense) * 100).toFixed(0)} % vs mois dernier
+            </p>
+          )}
         </Card>
       </div>
+
+      {advices.length > 0 && (
+        <Card>
+          <CardTitle className="mb-3">Analyse et conseils</CardTitle>
+          <div className="space-y-2">
+            {advices.map((a) => {
+              const s = adviceStyle(a.type);
+              const Icon = ADVICE_ICONS[a.type] || Info;
+              return (
+                <div
+                  key={a.id}
+                  className={`flex items-start gap-2 rounded-xl border ${s.border} ${s.bg} p-3`}
+                >
+                  <Icon size={16} className={`mt-0.5 shrink-0 ${s.iconColor}`} />
+                  <div>
+                    <p className={`text-sm font-semibold ${s.titleColor}`}>{a.title}</p>
+                    <p className="text-xs text-slate-600">{a.message}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
 
       <Card>
         <CardTitle className="mb-3">Évolution {year}</CardTitle>
@@ -176,4 +252,4 @@ export default function ReportsPage() {
       </div>
     </div>
   );
-    }
+      }
