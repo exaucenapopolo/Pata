@@ -86,11 +86,11 @@ export default function WalletPage() {
     setError('');
     const cleanPhone = phone.replace(/\D/g, '');
     if (cleanPhone.length < 9 || cleanPhone.length > 13) {
-      return setError('Numéro invalide (9 à 13 chiffres, sans indicatif).');
+      return setError('Numéro invalide.');
     }
     const amountNum = Math.round(Number(amount));
     if (!amountNum || amountNum < 100) {
-      return setError('Le montant minimum est de 100 FCFA.');
+      return setError('Minimum : 100 FCFA.');
     }
     setSubmitting(true);
     try {
@@ -98,11 +98,11 @@ export default function WalletPage() {
       const res = await fetch('/api/fapshi/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ amount: amountNum, phone: cleanPhone, description: 'Recharge Pata' }),
+        body: JSON.stringify({ amount: amountNum, phone: cleanPhone, description: 'Recharge de solde' }),
       });
       const data = await res.json();
       if (!data.success || !data.checkoutUrl) {
-        throw new Error(data.error || 'Impossible de démarrer le paiement.');
+        throw new Error(data.error || 'Paiement indisponible.');
       }
       window.location.href = data.checkoutUrl;
     } catch (err) {
@@ -116,7 +116,7 @@ export default function WalletPage() {
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Portefeuille</h1>
         <p className="text-sm text-slate-500">
-          Recharge par Mobile Money et finance tes objectifs d&apos;épargne.
+          Recharge ton solde et finance tes objectifs d&apos;épargne.
         </p>
       </div>
 
@@ -131,10 +131,10 @@ export default function WalletPage() {
       </Card>
 
       <Card>
-        <CardTitle className="mb-3">Nouvelle recharge Mobile Money</CardTitle>
+        <CardTitle className="mb-3">Recharger mon solde</CardTitle>
         <form onSubmit={onSubmit} className="space-y-3">
           <Input
-            label="Numéro Mobile Money (Orange / MTN)"
+            label="Numéro Mobile Money"
             type="tel"
             inputMode="numeric"
             value={phone}
@@ -168,20 +168,20 @@ export default function WalletPage() {
           </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
           <Button type="submit" className="w-full" disabled={submitting}>
-            <Plus size={16} /> {submitting ? 'Redirection…' : 'Recharger'}
+            <Plus size={16} /> {submitting ? 'Ouverture…' : 'Recharger'}
           </Button>
           <p className="text-xs text-slate-500">
-            Tu seras redirigé vers Fapshi pour valider le paiement Mobile Money. Ton solde est crédité automatiquement dès confirmation.
+            Le montant sera ajouté à ton solde dès que le paiement est confirmé.
           </p>
         </form>
       </Card>
 
       <Card>
         <div className="mb-3 flex items-center justify-between">
-          <CardTitle>Historique des recharges</CardTitle>
+          <CardTitle>Historique</CardTitle>
           {pendingDeposits.length > 0 && (
             <span className="flex items-center gap-1 text-xs font-medium text-amber-600">
-              <RefreshCw size={12} className="animate-spin" /> Vérification auto
+              <RefreshCw size={12} className="animate-spin" /> Vérification
             </span>
           )}
         </div>
@@ -229,4 +229,4 @@ export default function WalletPage() {
       </Card>
     </div>
   );
-}
+              }
