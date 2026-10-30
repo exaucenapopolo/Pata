@@ -1,9 +1,5 @@
-/**
- * Calcule le plan d'un objectif d'épargne selon la fréquence et la durée choisies.
- * Schéma : { targetAmount, startDate, durationDays, frequencyDays, penaltyAmount }
- * Règle : paiement #1 dû le jour de la création, puis tous les `frequencyDays`.
- * Nombre total de paiements = ceil(durationDays / frequencyDays).
- */
+export const MIN_PENALTY = 700;
+
 export function computeGoalPlan(goal, deposits = [], today = new Date()) {
   if (!goal) return null;
 
@@ -30,12 +26,16 @@ export function computeGoalPlan(goal, deposits = [], today = new Date()) {
   const expectedAmount = paymentsDue * amountPerPayment;
   const shortfall = Math.max(0, expectedAmount - totalDeposited);
   const missedPayments = amountPerPayment > 0 ? Math.ceil(shortfall / amountPerPayment) : 0;
-  const penalty = missedPayments * (Number(goal.penaltyAmount) || 0);
+
+  // Amende minimum 700 FCFA — forcée même sur les anciens objectifs
+  const unitPenalty = Math.max(MIN_PENALTY, Number(goal.penaltyAmount) || MIN_PENALTY);
+  const penalty = missedPayments * unitPenalty;
 
   const totalDue = targetAmount + penalty;
   const progress = totalDue > 0 ? Math.min(100, (totalDeposited / totalDue) * 100) : 0;
   const remaining = Math.max(0, totalDue - totalDeposited);
   const daysLeft = Math.max(0, Math.ceil((deadline - today) / 86400000));
+  const isReached = totalDeposited >= targetAmount;
 
   return {
     frequencyDays,
@@ -50,12 +50,14 @@ export function computeGoalPlan(goal, deposits = [], today = new Date()) {
     expectedAmount,
     shortfall,
     missedPayments,
+    unitPenalty,
     penalty,
     totalDue,
     progress,
     remaining,
     daysLeft,
     isLate: penalty > 0,
+    isReached,
   };
 }
 
