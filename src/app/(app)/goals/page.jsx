@@ -1,7 +1,7 @@
 /* eslint-disable react/no-unescaped-entities */
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Plus, Target, Trash2, AlertTriangle, Banknote, Pencil, Lightbulb,
   Info, CheckCircle2, TrendingUp, ShieldAlert, ArrowDownToLine, Landmark,
@@ -15,6 +15,7 @@ import { CategoryManager } from '@/components/ui/CategoryManager';
 import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
 import { useGoals, useDeposits } from '@/hooks/useGoals';
+import { useIncomes } from '@/hooks/useIncomes';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { createGoal, updateGoal, deleteGoal } from '@/lib/firestore/goals';
 import {
@@ -24,6 +25,7 @@ import { adviceIconColor } from '@/lib/advisor';
 import { formatCurrency, formatDate, resolveCategory } from '@/lib/utils';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
+const todayMonth = () => new Date().toISOString().slice(0, 7);
 
 const DURATION_PRESETS = [
   { v: '7',   label: '1 sem.' }, { v: '14',  label: '2 sem.' },
@@ -122,6 +124,14 @@ function GoalDetail({ goal, onClose }) {
   const category = resolveCategory(goal.categoryId, 'goal', customCategories);
   const advices = buildGoalAdvices(plan, profile?.balance || 0, goal.name);
 
+  // 🟢 NOUVEAU : Récupération des revenus pour la sélection
+  const { incomes } = useIncomes();
+  const currentMonthIncomes = useMemo(
+    () => incomes.filter((i) => i.month === todayMonth()),
+    [incomes]
+  );
+  const [selectedIncomeId, setSelectedIncomeId] = useState(currentMonthIncomes[0]?.id || '');
+
   const [amount, setAmount] = useState('');
   const [repayAmount, setRepayAmount] = useState('');
   const [saving, setSaving] = useState(false);
@@ -154,11 +164,20 @@ function GoalDetail({ goal, onClose }) {
   const onFundFromWallet = async (e) => {
     e.preventDefault();
     setError(''); setSaving(true);
+    
+    // Trouver le nom de la source de revenu sélectionnée
+    const selectedIncome = currentMonthIncomes.find(i => i.id === selectedIncomeId);
+    
     try {
       const token = await user.getIdToken();
       const res = await fetch('/api/wallet/fund-goal', {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ goalId: goal.id, amount: Number(amount) }),
+        body: JSON.stringify({ 
+          goalId: goal.id, 
+          amount: Number(amount),
+          incomeSourceId: selectedIncomeId,
+          incomeSourceName: selectedIncome?.source || null,
+        }),
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
@@ -233,9 +252,31 @@ function GoalDetail({ goal, onClose }) {
               <span className="text-xs text-slate-600">Solde disponible</span>
               <span className="text-sm font-semibold text-brand-700">{formatCurrency(balance)}</span>
             </div>
-            <div className="flex gap-2">
-              <Input label="Montant à verser" type="number" min="1" required value={amount} onChange={(e) => setAmount(e.target.value)} className="flex-1" />
-              <div className="flex items-end"><Button type="submit" disabled={saving || balance === 0}><Banknote size={14} /> Verser</Button></div>
+            
+            <div className="space-y-3 mb-3">
+              <Input label="Montant à verser" type="number" min="1" required value={amount} onChange={(e) => setAmount(e.target.value)} />
+              
+              {/* 🟢 NOUVEAU : Sélection du revenu source */}
+              {currentMonthIncomes.length > 0 && (
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700">Depuis quel revenu ?</label>
+                  <select
+                    value={selectedIncomeId}
+                    onChange={(e) => setSelectedIncomeId(e.target.value)}
+                    className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"
+                  >
+                    {currentMonthIncomes.map((inc) => (
+                      <option key={inc.id} value={inc.id}>
+                        {inc.source} ({formatCurrency(inc.amount)})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end">
+              <Button type="submit" disabled={saving || balance === 0}><Banknote size={14} /> Verser</Button>
             </div>
             {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
             <div className="mt-3 text-center">
@@ -282,7 +323,11 @@ function GoalDetail({ goal, onClose }) {
             <ul className="max-h-40 divide-y divide-slate-100 overflow-y-auto">
               {deposits.map((d) => (
                 <li key={d.id} className="flex items-center justify-between py-2">
-                  <span className="text-xs text-slate-500">{formatDate(d.date)} {d.source === 'loan' && <span className="text-[10px] text-amber-600 font-bold ml-1">(PRÊT)</span>}</span>
+                  <div>
+                    <span className="text-xs text-slate-500">{formatDate(d.date)}</span>
+                    {d.incomeSourceName && <span className="text-[10px] text-slate-400 ml-1">({d.incomeSourceName})</span>}
+                    {d.source === 'loan' && <span className="text-[10px] text-amber-600 font-bold ml-1">(PRÊT)</span>}
+                  </div>
                   <span className={`text-sm font-semibold ${d.source === 'loan' ? 'text-amber-600' : 'text-brand-600'}`}>+ {formatCurrency(d.amount)}</span>
                 </li>
               ))}
@@ -294,6 +339,7 @@ function GoalDetail({ goal, onClose }) {
   );
 }
 
+// ... (Le reste du fichier GoalFormModal, GoalCard et GoalsPage est identique à la dernière version que tu as poussée)
 function GoalFormModal({ open, onClose, goal }) {
   const { user } = useAuth();
   const editing = !!goal;
