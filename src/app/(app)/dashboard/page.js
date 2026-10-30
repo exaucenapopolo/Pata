@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   TrendingUp, TrendingDown, Wallet, Target, PiggyBank, ChevronRight,
+  CheckCircle2, AlertTriangle, Lightbulb, Info,
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { Card, CardTitle, CardValue } from '@/components/ui/Card';
@@ -13,10 +14,23 @@ import { useIncomes } from '@/hooks/useIncomes';
 import { useExpenses } from '@/hooks/useExpenses';
 import { useBudgets } from '@/hooks/useBudgets';
 import { useGoals } from '@/hooks/useGoals';
-import { EXPENSE_CATEGORIES } from '@/lib/constants';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { useCustomCategories } from '@/hooks/useCustomCategories';
+import { generateAdvice, adviceStyle } from '@/lib/advisor';
+import { formatCurrency, formatDate, resolveCategory } from '@/lib/utils';
 
 const todayMonth = () => new Date().toISOString().slice(0, 7);
+const prevMonth = (m) => {
+  const [y, mo] = m.split('-').map(Number);
+  const d = new Date(y, mo - 2, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+
+const ADVICE_ICONS = {
+  check: CheckCircle2,
+  alert: AlertTriangle,
+  lightbulb: Lightbulb,
+  info: Info,
+};
 
 export default function DashboardPage() {
   const [month, setMonth] = useState(todayMonth());
@@ -24,6 +38,7 @@ export default function DashboardPage() {
   const { expenses } = useExpenses();
   const { budgets } = useBudgets(month);
   const { goals } = useGoals();
+  const { customCategories } = useCustomCategories('expense');
 
   const monthIncomes = useMemo(
     () => incomes.filter((i) => i.month === month),
@@ -31,6 +46,10 @@ export default function DashboardPage() {
   );
   const monthExpenses = useMemo(
     () => expenses.filter((e) => e.date?.startsWith(month)),
+    [expenses, month]
+  );
+  const prevExpenses = useMemo(
+    () => expenses.filter((e) => e.date?.startsWith(prevMonth(month))),
     [expenses, month]
   );
 
@@ -47,11 +66,23 @@ export default function DashboardPage() {
     });
     return Object.entries(map)
       .map(([id, value]) => {
-        const cat = EXPENSE_CATEGORIES.find((c) => c.id === id);
+        const cat = resolveCategory(id, 'expense', customCategories);
         return { name: cat?.label || id, value, color: cat?.color || '#94a3b8' };
       })
       .sort((a, b) => b.value - a.value);
-  }, [monthExpenses]);
+  }, [monthExpenses, customCategories]);
+
+  const advices = useMemo(
+    () => generateAdvice({
+      expenses: monthExpenses,
+      previousExpenses: prevExpenses,
+      budgets,
+      goals,
+      totalIncome,
+      customCategories,
+    }),
+    [monthExpenses, prevExpenses, budgets, goals, totalIncome, customCategories]
+  );
 
   const recentExpenses = monthExpenses.slice(0, 5);
 
@@ -60,7 +91,7 @@ export default function DashboardPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Tableau de bord</h1>
-          <p className="text-sm text-slate-500">Vue d&apos;ensemble de ta situation financière.</p>
+          <p className="text-sm text-slate-500">Vue d&apos;ensemble et conseils personnalisés.</p>
         </div>
         <input
           type="month"
@@ -88,7 +119,7 @@ export default function DashboardPage() {
         <Card>
           <div className="flex items-center gap-2 text-slate-500">
             <Wallet size={16} />
-            <CardTitle>Solde</CardTitle>
+            <CardTitle>Solde du mois</CardTitle>
           </div>
           <CardValue className={balance < 0 ? 'text-red-600' : 'text-slate-900'}>
             {formatCurrency(balance)}
@@ -107,12 +138,44 @@ export default function DashboardPage() {
                 color={budgetUsage > 100 ? '#ef4444' : budgetUsage > 80 ? '#f59e0b' : '#10b981'}
               />
               <p className="mt-1 text-xs text-slate-500">
-                {budgetUsage.toFixed(0)}% consommé
+                {budgetUsage.toFixed(0)} % consommé
               </p>
             </div>
           )}
         </Card>
       </div>
+
+      {advices.length > 0 && (
+        <Card>
+          <div className="mb-3 flex items-center justify-between">
+            <CardTitle>Conseils de l&apos;assistant</CardTitle>
+            <Link
+              href="/reports"
+              className="flex items-center text-xs font-medium text-brand-600 hover:underline"
+            >
+              Détails <ChevronRight size={14} />
+            </Link>
+          </div>
+          <div className="space-y-2">
+            {advices.slice(0, 3).map((a) => {
+              const s = adviceStyle(a.type);
+              const Icon = ADVICE_ICONS[adviceTypeToIcon(a.type)] || Info;
+              return (
+                <div
+                  key={a.id}
+                  className={`flex items-start gap-2 rounded-xl border ${s.border} ${s.bg} p-3`}
+                >
+                  <Icon size={16} className={`mt-0.5 shrink-0 ${s.iconColor}`} />
+                  <div>
+                    <p className={`text-sm font-semibold ${s.titleColor}`}>{a.title}</p>
+                    <p className="text-xs text-slate-600">{a.message}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
@@ -216,7 +279,7 @@ export default function DashboardPage() {
         ) : (
           <ul className="divide-y divide-slate-100">
             {recentExpenses.map((e) => {
-              const cat = EXPENSE_CATEGORIES.find((c) => c.id === e.categoryId);
+              const cat = resolveCategory(e.categoryId, 'expense', customCategories);
               return (
                 <li key={e.id} className="flex items-center justify-between py-2.5">
                   <div>
@@ -240,3 +303,13 @@ export default function DashboardPage() {
     </div>
   );
 }
+
+function adviceTypeToIcon(type) {
+  switch (type) {
+    case 'success': return 'check';
+    case 'danger':
+    case 'warning': return 'alert';
+    case 'tip': return 'lightbulb';
+    default: return 'info';
+  }
+                }
