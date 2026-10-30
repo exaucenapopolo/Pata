@@ -9,10 +9,23 @@ const firebaseConfig = {
   storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
 };
 
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+
+export async function initAnalytics() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const { getAnalytics, isSupported } = await import('firebase/analytics');
+    if (await isSupported()) return getAnalytics(app);
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 export default app;
