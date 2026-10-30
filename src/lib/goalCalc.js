@@ -1,4 +1,5 @@
 export const MIN_PENALTY = 700;
+export const LOAN_INTEREST_RATE = 0.05; // 5%
 
 export function computeGoalPlan(goal, deposits = [], today = new Date()) {
   if (!goal) return null;
@@ -24,12 +25,17 @@ export function computeGoalPlan(goal, deposits = [], today = new Date()) {
 
   const totalDeposited = deposits.reduce((s, d) => s + Number(d.amount || 0), 0);
   const expectedAmount = paymentsDue * amountPerPayment;
+  
+  // Calcul de la dette (prêts + intérêts)
+  const totalDebt = Number(goal.debtBalance) || 0;
+
+  // Si la dette couvre le manque, pas d'amende
   const shortfall = Math.max(0, expectedAmount - totalDeposited);
   const missedPayments = amountPerPayment > 0 ? Math.ceil(shortfall / amountPerPayment) : 0;
-
-  // Amende minimum 700 FCFA — forcée même sur les anciens objectifs
+  
+  // On applique l'amende SEULEMENT s'il y a un manque ET qu'il n'a pas de dette pour compenser
   const unitPenalty = Math.max(MIN_PENALTY, Number(goal.penaltyAmount) || MIN_PENALTY);
-  const penalty = missedPayments * unitPenalty;
+  const penalty = missedPayments > 0 && totalDebt === 0 ? missedPayments * unitPenalty : 0;
 
   const totalDue = targetAmount + penalty;
   const progress = totalDue > 0 ? Math.min(100, (totalDeposited / totalDue) * 100) : 0;
@@ -58,6 +64,7 @@ export function computeGoalPlan(goal, deposits = [], today = new Date()) {
     daysLeft,
     isLate: penalty > 0,
     isReached,
+    totalDebt,
   };
 }
 
@@ -77,4 +84,4 @@ export function resolveFrequencyDays(preset, customDays) {
   }
   const map = { '1': 1, '3': 3, '5': 5, '7': 7, '14': 14, '30': 30 };
   return map[preset] || 7;
-}
+    }
