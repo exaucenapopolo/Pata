@@ -2,29 +2,25 @@
 
 import { useState } from 'react';
 import {
-  Plus, Target, Trash2, AlertTriangle, CheckCircle2,
-  Banknote, Wallet, Pencil, Lightbulb, Info, TrendingUp,
+  Plus, Target, Trash2, AlertTriangle, Banknote, Pencil, Lightbulb,
+  Info, CheckCircle2, TrendingUp, ShieldAlert, ArrowDownToLine,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
-import { ProgressBar } from '@/components/ui/ProgressBar';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { CategoryManager } from '@/components/ui/CategoryManager';
 import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
 import { useGoals, useDeposits } from '@/hooks/useGoals';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
+import { createGoal, updateGoal, deleteGoal } from '@/lib/firestore/goals';
 import {
-  createGoal, updateGoal, deleteGoal, addDeposit, deleteDeposit,
-} from '@/lib/firestore/goals';
-import {
-  computeGoalPlan, resolveDurationDays, resolveFrequencyDays,
+  computeGoalPlan, resolveDurationDays, resolveFrequencyDays, MIN_PENALTY,
 } from '@/lib/goalCalc';
+import { adviceIconColor } from '@/lib/advisor';
 import { formatCurrency, formatDate, resolveCategory } from '@/lib/utils';
-
-/* ═══════════════ Constantes locales ═══════════════ */
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
@@ -46,27 +42,60 @@ const FREQUENCY_PRESETS = [
   { v: '30', label: 'Chaque mois' },
 ];
 
-/* ═══════════════ Utilitaires intelligents ═══════════════ */
+const ADVICE_ICONS = {
+  success: CheckCircle2,
+  danger: AlertTriangle,
+  warning: AlertTriangle,
+  tip: Lightbulb,
+  info: Info,
+};
 
-function getGoalStatus(plan) {
-  if (!plan) return { key: 'unknown', label: '—', color: '#94a3b8' };
-  if (plan.progress >= 100) return { key: 'achieved', label: 'Atteint', color: '#10b981' };
-  if (plan.isLate) return { key: 'late', label: 'En retard', color: '#ef4444' };
-  if (plan.totalDeposited >= plan.expectedAmount) return { key: 'ahead', label: 'À jour', color: '#3b82f6' };
-  if (plan.totalDeposited >= plan.expectedAmount * 0.6) return { key: 'onTrack', label: 'Bientôt à jour', color: '#f59e0b' };
-  return { key: 'behind', label: 'En retard', color: '#ef4444' };
+/* ═══════════ Cercle de progression ═══════════ */
+
+function ProgressCircle({ value = 0, size = 140 }) {
+  const strokeWidth = 12;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const safe = Math.min(100, Math.max(0, value));
+  const offset = circumference - (safe / 100) * circumference;
+  const color = safe >= 100 ? '#10b981' : safe >= 60 ? '#3b82f6' : safe >= 30 ? '#f59e0b' : '#ef4444';
+
+  return (
+    <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle cx={size / 2} cy={size / 2} r={radius} stroke="#e2e8f0" strokeWidth={strokeWidth} fill="none" />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke={color}
+          strokeWidth={strokeWidth}
+          fill="none"
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          strokeLinecap="round"
+          className="transition-all duration-700 ease-out"
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-2xl font-bold" style={{ color }}>{safe.toFixed(0)}%</span>
+        <span className="mt-0.5 text-[10px] uppercase tracking-wider text-slate-400">Progression</span>
+      </div>
+    </div>
+  );
 }
 
-function buildAdvice(plan, balance) {
+/* ═══════════ Génération des conseils ═══════════ */
+
+function buildGoalAdvices(plan, balance, goalName) {
   if (!plan) return [];
 
   const advices = [];
 
-  if (plan.progress >= 100) {
+  if (plan.isReached) {
     advices.push({
       type: 'success',
-      title: 'Objectif atteint',
-      message: `Félicitations ! Tu as réuni ${formatCurrency(plan.totalDeposited)}. Tu peux maintenant retirer ou clôturer cet objectif.`,
+      message: `Ton objectif « ${goalName} » est atteint. Tu peux retirer ton argent à tout moment depuis cet écran.`,
     });
     return advices;
   }
@@ -74,71 +103,43 @@ function buildAdvice(plan, balance) {
   if (plan.isLate) {
     advices.push({
       type: 'danger',
-      title: 'Amende en cours',
-      message: `Tu as ${plan.missedPayments} paiement${plan.missedPayments > 1 ? 's' : ''} manqué${plan.missedPayments > 1 ? 's' : ''} (${formatCurrency(plan.penalty)} d'amende). Verse ${formatCurrency(plan.shortfall)} rapidement pour éviter que l'amende n'augmente.`,
+      message: `Tu as ${plan.missedPayments} paiement${plan.missedPayments > 1 ? 's' : ''} manqué${plan.missedPayments > 1 ? 's' : ''}. Amende cumulée : ${formatCurrency(plan.penalty)}. Verse ${formatCurrency(plan.shortfall)} pour la stopper.`,
     });
   } else if (plan.totalDeposited >= plan.expectedAmount) {
     advices.push({
       type: 'success',
-      title: 'Tu es à jour',
-      message: `Bravo, tu as versé ${formatCurrency(plan.totalDeposited)} sur les ${formatCurrency(plan.expectedAmount)} attendus. Continue à ce rythme.`,
+      message: `Tu es à jour : ${formatCurrency(plan.totalDeposited)} versés sur ${formatCurrency(plan.expectedAmount)} attendus. Continue comme ça.`,
     });
   } else {
-    const gap = plan.expectedAmount - plan.totalDeposited;
     advices.push({
       type: 'info',
-      title: 'Il te reste un peu à verser',
-      message: `Verse ${formatCurrency(gap)} pour être à jour sur ton plan actuel.`,
+      message: `Il te reste ${formatCurrency(plan.expectedAmount - plan.totalDeposited)} à verser pour être à jour sur ton plan.`,
     });
   }
 
-  if (plan.daysLeft === 0 && plan.progress < 100) {
+  if (plan.daysLeft > 0 && plan.daysLeft <= 3 && plan.progress < 100) {
     advices.push({
       type: 'warning',
-      title: 'Échéance dépassée',
-      message: `La date limite est passée. Il te manque ${formatCurrency(plan.remaining)} pour terminer.`,
-    });
-  } else if (plan.daysLeft > 0 && plan.daysLeft <= 3 && plan.progress < 100) {
-    advices.push({
-      type: 'warning',
-      title: 'Bientôt la fin',
-      message: `Il te reste ${plan.daysLeft} jour${plan.daysLeft > 1 ? 's' : ''} pour boucler l'objectif. Il manque ${formatCurrency(plan.remaining)}.`,
+      message: `L'objectif se termine dans ${plan.daysLeft} jour${plan.daysLeft > 1 ? 's' : ''}. Il manque ${formatCurrency(plan.remaining)}.`,
     });
   }
 
-  if (balance >= plan.amountPerPayment && plan.progress < 100) {
+  if (balance >= plan.amountPerPayment) {
     advices.push({
       type: 'tip',
-      title: 'Financement rapide possible',
-      message: `Ton solde (${formatCurrency(balance)}) couvre le prochain paiement de ${formatCurrency(plan.amountPerPayment)}. Verse directement depuis le solde.`,
+      message: `Ton solde couvre le prochain paiement de ${formatCurrency(plan.amountPerPayment)}. Verse directement.`,
     });
-  } else if (balance === 0 && plan.progress < 100) {
+  } else if (balance === 0) {
     advices.push({
       type: 'tip',
-      title: 'Recharge ton solde',
-      message: 'Ton solde est vide. Recharge depuis le Portefeuille pour financer tes objectifs en un clic.',
+      message: 'Recharge ton portefeuille pour financer cet objectif en un clic.',
     });
   }
 
   return advices;
 }
 
-function adviceStyle(type) {
-  switch (type) {
-    case 'success':
-      return { bg: 'bg-brand-50', border: 'border-brand-200', icon: CheckCircle2, iconColor: 'text-brand-600', titleColor: 'text-brand-700' };
-    case 'danger':
-      return { bg: 'bg-red-50', border: 'border-red-200', icon: AlertTriangle, iconColor: 'text-red-600', titleColor: 'text-red-700' };
-    case 'warning':
-      return { bg: 'bg-amber-50', border: 'border-amber-200', icon: AlertTriangle, iconColor: 'text-amber-600', titleColor: 'text-amber-700' };
-    case 'tip':
-      return { bg: 'bg-blue-50', border: 'border-blue-200', icon: Lightbulb, iconColor: 'text-blue-600', titleColor: 'text-blue-700' };
-    default:
-      return { bg: 'bg-slate-50', border: 'border-slate-200', icon: Info, iconColor: 'text-slate-600', titleColor: 'text-slate-700' };
-  }
-}
-
-/* ═══════════════ Détail objectif ═══════════════ */
+/* ═══════════ Détail objectif ═══════════ */
 
 function GoalDetail({ goal, onClose }) {
   const { user } = useAuth();
@@ -147,14 +148,12 @@ function GoalDetail({ goal, onClose }) {
   const deposits = useDeposits(goal.id);
   const plan = computeGoalPlan(goal, deposits);
   const category = resolveCategory(goal.categoryId, 'goal', customCategories);
-  const status = getGoalStatus(plan);
-  const adviceList = buildAdvice(plan, profile?.balance || 0);
+  const advices = buildGoalAdvices(plan, profile?.balance || 0, goal.name);
 
-  const [mode, setMode] = useState('wallet');
   const [amount, setAmount] = useState('');
-  const [date, setDate] = useState(todayIso());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
 
   const balance = profile?.balance || 0;
 
@@ -182,113 +181,122 @@ function GoalDetail({ goal, onClose }) {
     }
   };
 
-  const onExternalDeposit = async (e) => {
-    e.preventDefault();
-    setError('');
-    const value = Math.round(Number(amount));
-    if (!value || value <= 0) return setError('Montant invalide.');
-    setSaving(true);
+  const onWithdraw = async () => {
+    if (!confirm(`Retirer ${formatCurrency(plan.totalDeposited)} sur ton solde et clôturer l'objectif ?`)) return;
+    setBusy(true);
     try {
-      await addDeposit(user.uid, goal.id, { amount: value, date });
-      setAmount('');
-    } catch {
-      setError('Erreur.');
+      const token = await user.getIdToken();
+      const res = await fetch('/api/goals/withdraw', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ goalId: goal.id }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Erreur.');
+      onClose();
+    } catch (err) {
+      alert(err.message);
     } finally {
-      setSaving(false);
+      setBusy(false);
+    }
+  };
+
+  const onCancel = async () => {
+    const refund = Math.round(plan.totalDeposited * 0.9);
+    const penalty = plan.totalDeposited - refund;
+    if (!confirm(
+      `Annuler cet objectif ? Tu récupéreras ${formatCurrency(refund)} sur ton solde. ${formatCurrency(penalty)} seront retenus (10 % de pénalité pour non-respect de l'engagement).`
+    )) return;
+    setBusy(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch('/api/goals/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ goalId: goal.id }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Erreur.');
+      onClose();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setBusy(false);
     }
   };
 
   return (
     <Modal open onClose={onClose} title={goal.name} className="max-w-lg">
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: category.color }} />
-            <span className="text-xs font-medium text-slate-600">{category.label}</span>
-          </div>
-          <span
-            className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"
-            style={{ backgroundColor: status.color }}
-          >
-            {status.label}
-          </span>
-        </div>
-
-        <div className="grid grid-cols-3 gap-2 text-center">
-          <div className="rounded-xl bg-slate-50 p-2.5">
-            <p className="text-[10px] font-semibold uppercase text-slate-500">Par paiement</p>
-            <p className="text-sm font-bold text-slate-800">{formatCurrency(plan.amountPerPayment)}</p>
-          </div>
-          <div className="rounded-xl bg-slate-50 p-2.5">
-            <p className="text-[10px] font-semibold uppercase text-slate-500">Fréquence</p>
-            <p className="text-sm font-bold text-slate-800">/ {plan.frequencyDays} j</p>
-          </div>
-          <div className="rounded-xl bg-slate-50 p-2.5">
-            <p className="text-[10px] font-semibold uppercase text-slate-500">Paiements</p>
-            <p className="text-sm font-bold text-slate-800">
-              {Math.min(deposits.length, plan.totalPayments)}/{plan.totalPayments}
-            </p>
+      <div className="space-y-5">
+        {/* En-tête visuel */}
+        <div className="flex flex-col items-center gap-1">
+          <ProgressCircle value={plan.progress} />
+          <div className="mt-2 flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: category.color }} />
+            <span className="text-xs font-medium text-slate-500">{category.label}</span>
           </div>
         </div>
 
-        <div>
-          <div className="mb-1 flex items-center justify-between text-sm">
-            <span className="font-medium text-slate-700">Progression</span>
-            <span className="font-semibold text-slate-800">
-              {formatCurrency(plan.totalDeposited)} / {formatCurrency(plan.totalDue)}
-            </span>
+        {/* Chiffres clés */}
+        <div className="grid grid-cols-3 gap-2">
+          <div className="rounded-xl bg-slate-50 px-2 py-3 text-center">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Objectif</p>
+            <p className="mt-0.5 text-sm font-bold text-slate-800">{formatCurrency(goal.targetAmount)}</p>
           </div>
-          <ProgressBar value={plan.progress} color={plan.isLate ? '#ef4444' : undefined} />
-          <div className="mt-1 flex justify-between text-xs text-slate-500">
-            <span>{plan.daysLeft} jours restants</span>
-            <span>{plan.progress.toFixed(0)}%</span>
+          <div className="rounded-xl bg-slate-50 px-2 py-3 text-center">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Épargné</p>
+            <p className="mt-0.5 text-sm font-bold text-brand-600">{formatCurrency(plan.totalDeposited)}</p>
+          </div>
+          <div className="rounded-xl bg-slate-50 px-2 py-3 text-center">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Restant</p>
+            <p className="mt-0.5 text-sm font-bold text-slate-800">{formatCurrency(Math.max(0, goal.targetAmount - plan.totalDeposited))}</p>
           </div>
         </div>
 
-        {adviceList.length > 0 && (
-          <div className="space-y-2">
-            {adviceList.map((advice, i) => {
-              const s = adviceStyle(advice.type);
-              const Icon = s.icon;
-              return (
-                <div key={i} className={`flex items-start gap-2 rounded-xl border ${s.border} ${s.bg} p-3`}>
-                  <Icon size={16} className={`mt-0.5 shrink-0 ${s.iconColor}`} />
-                  <div>
-                    <p className={`text-sm font-semibold ${s.titleColor}`}>{advice.title}</p>
-                    <p className="text-xs text-slate-600">{advice.message}</p>
+        {/* Plan de paiement */}
+        <div className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2.5">
+          <div className="text-xs text-slate-500">
+            <p className="font-semibold text-slate-700">{formatCurrency(plan.amountPerPayment)}</p>
+            <p>tous les {plan.frequencyDays} jours</p>
+          </div>
+          <div className="text-right text-xs text-slate-500">
+            <p className="font-semibold text-slate-700">{Math.min(deposits.length, plan.totalPayments)}/{plan.totalPayments}</p>
+            <p>paiements</p>
+          </div>
+          <div className="text-right text-xs text-slate-500">
+            <p className="font-semibold text-slate-700">{plan.daysLeft} j</p>
+            <p>restants</p>
+          </div>
+        </div>
+
+        {/* Conseils — style conversationnel */}
+        {advices.length > 0 && (
+          <div className="rounded-xl border border-slate-200 p-3.5">
+            <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+              <Lightbulb size={12} /> Assistant
+            </div>
+            <div className="space-y-2">
+              {advices.map((a, i) => {
+                const Icon = ADVICE_ICONS[a.type] || Info;
+                return (
+                  <div key={i} className="flex items-start gap-2">
+                    <Icon size={14} className={`mt-0.5 shrink-0 ${adviceIconColor(a.type)}`} />
+                    <p className="text-sm leading-relaxed text-slate-700">{a.message}</p>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         )}
 
-        <div className="rounded-xl border border-slate-200 p-3">
-          <div className="mb-3 flex gap-1 rounded-lg bg-slate-100 p-1">
-            <button
-              onClick={() => { setMode('wallet'); setError(''); }}
-              className={`flex-1 rounded-md px-3 py-1.5 text-xs font-semibold transition ${
-                mode === 'wallet' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
-              }`}
-            >
-              Depuis le solde
-            </button>
-            <button
-              onClick={() => { setMode('external'); setError(''); }}
-              className={`flex-1 rounded-md px-3 py-1.5 text-xs font-semibold transition ${
-                mode === 'external' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
-              }`}
-            >
-              Dépôt externe
-            </button>
-          </div>
-
-          {mode === 'wallet' ? (
-            <form onSubmit={onFundFromWallet} className="space-y-2">
-              <div className="flex items-center justify-between rounded-lg bg-brand-50 px-3 py-2">
-                <span className="text-xs text-slate-600">Solde disponible</span>
-                <span className="text-sm font-semibold text-brand-700">{formatCurrency(balance)}</span>
-              </div>
+        {/* Formulaire de dépôt (uniquement depuis le solde) */}
+        {!plan.isReached && (
+          <form onSubmit={onFundFromWallet} className="rounded-xl border border-slate-200 p-3.5">
+            <div className="mb-3 flex items-center justify-between rounded-lg bg-brand-50 px-3 py-2">
+              <span className="text-xs text-slate-600">Solde disponible</span>
+              <span className="text-sm font-semibold text-brand-700">{formatCurrency(balance)}</span>
+            </div>
+            <div className="flex gap-2">
               <Input
                 label="Montant à verser"
                 type="number"
@@ -296,67 +304,63 @@ function GoalDetail({ goal, onClose }) {
                 required
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
+                className="flex-1"
               />
-              {error && <p className="text-sm text-red-600">{error}</p>}
-              <Button type="submit" size="sm" className="w-full" disabled={saving || balance === 0}>
-                <Banknote size={14} /> {saving ? 'Transaction…' : 'Financer depuis le solde'}
-              </Button>
-            </form>
-          ) : (
-            <form onSubmit={onExternalDeposit} className="space-y-2">
-              <div className="grid grid-cols-2 gap-2">
-                <Input
-                  label="Montant"
-                  type="number"
-                  min="0"
-                  required
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                />
-                <Input
-                  label="Date"
-                  type="date"
-                  required
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                />
+              <div className="flex items-end">
+                <Button type="submit" disabled={saving || balance === 0}>
+                  <Banknote size={14} /> {saving ? '…' : 'Verser'}
+                </Button>
               </div>
-              {error && <p className="text-sm text-red-600">{error}</p>}
-              <Button type="submit" size="sm" className="w-full" disabled={saving}>
-                <Wallet size={14} /> {saving ? 'Enregistrement…' : 'Ajouter le dépôt'}
-              </Button>
-            </form>
+            </div>
+            {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+            {balance === 0 && !error && (
+              <p className="mt-2 text-xs text-slate-500">
+                Ton solde est vide. Recharge-le depuis le portefeuille pour pouvoir verser.
+              </p>
+            )}
+          </form>
+        )}
+
+        {/* Actions retrait / annulation */}
+        <div className="space-y-2">
+          {plan.isReached ? (
+            <Button
+              onClick={onWithdraw}
+              className="w-full"
+              disabled={busy}
+            >
+              <ArrowDownToLine size={16} />
+              {busy ? 'Traitement…' : `Retirer ${formatCurrency(plan.totalDeposited)} sur mon solde`}
+            </Button>
+          ) : (
+            <Button
+              onClick={onCancel}
+              variant="outline"
+              className="w-full text-red-600 hover:bg-red-50"
+              disabled={busy}
+            >
+              <ShieldAlert size={16} />
+              {busy ? 'Traitement…' : 'Annuler l\u2019objectif (10 % de pénalité)'}
+            </Button>
+          )}
+          {!plan.isReached && plan.totalDeposited > 0 && (
+            <p className="text-center text-[11px] text-slate-500">
+              Tu récupéreras {formatCurrency(Math.round(plan.totalDeposited * 0.9))} sur ton solde. {formatCurrency(Math.round(plan.totalDeposited * 0.1))} retenus.
+            </p>
           )}
         </div>
 
+        {/* Historique */}
         <div>
-          <p className="mb-2 text-sm font-semibold text-slate-800">Historique</p>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Historique</p>
           {deposits.length === 0 ? (
             <p className="text-xs text-slate-500">Aucun dépôt enregistré.</p>
           ) : (
             <ul className="max-h-40 divide-y divide-slate-100 overflow-y-auto">
               {deposits.map((d) => (
                 <li key={d.id} className="flex items-center justify-between py-2">
-                  <div>
-                    <span className="text-xs text-slate-500">{formatDate(d.date)}</span>
-                    <span className="ml-2 text-[10px] uppercase tracking-wide text-slate-400">
-                      {d.source === 'wallet' ? 'Solde' : 'Externe'}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-brand-600">
-                      + {formatCurrency(d.amount)}
-                    </span>
-                    {d.source !== 'wallet' && (
-                      <button
-                        onClick={() => deleteDeposit(user.uid, goal.id, d.id)}
-                        className="rounded p-1 text-slate-400 hover:text-red-600"
-                        aria-label="Supprimer"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    )}
-                  </div>
+                  <span className="text-xs text-slate-500">{formatDate(d.date)}</span>
+                  <span className="text-sm font-semibold text-brand-600">+ {formatCurrency(d.amount)}</span>
                 </li>
               ))}
             </ul>
@@ -367,7 +371,7 @@ function GoalDetail({ goal, onClose }) {
   );
 }
 
-/* ═══════════════ Formulaire création / édition ═══════════════ */
+/* ═══════════ Formulaire création/édition ═══════════ */
 
 function GoalFormModal({ open, onClose, goal }) {
   const { user } = useAuth();
@@ -380,7 +384,7 @@ function GoalFormModal({ open, onClose, goal }) {
         categoryId: goal.categoryId || 'savings',
         durationDays: String(goal.durationDays || 90),
         frequencyDays: String(goal.frequencyDays || 7),
-        penaltyAmount: String(goal.penaltyAmount || 500),
+        penaltyAmount: String(Math.max(MIN_PENALTY, goal.penaltyAmount || MIN_PENALTY)),
       }
     : {
         name: '',
@@ -388,7 +392,7 @@ function GoalFormModal({ open, onClose, goal }) {
         categoryId: 'savings',
         durationDays: '90',
         frequencyDays: '7',
-        penaltyAmount: '500',
+        penaltyAmount: String(MIN_PENALTY),
       };
 
   const [name, setName] = useState(initial.name);
@@ -413,11 +417,14 @@ function GoalFormModal({ open, onClose, goal }) {
     e.preventDefault();
     setError('');
     const target = Math.round(Number(targetAmount));
+    const penalty = Math.max(MIN_PENALTY, Number(penaltyAmount) || MIN_PENALTY);
+
     if (!name.trim()) return setError('Nom requis.');
     if (!target || target <= 0) return setError('Montant cible invalide.');
     if (durationDays < frequencyDays) {
       return setError('La durée doit être au moins égale à la fréquence.');
     }
+
     setSaving(true);
     try {
       if (editing) {
@@ -431,7 +438,7 @@ function GoalFormModal({ open, onClose, goal }) {
           categoryId,
           durationDays,
           frequencyDays,
-          penaltyAmount: Number(penaltyAmount) || 0,
+          penaltyAmount: penalty,
           deadline,
         });
       } else {
@@ -441,7 +448,7 @@ function GoalFormModal({ open, onClose, goal }) {
           categoryId,
           durationDays,
           frequencyDays,
-          penaltyAmount: Number(penaltyAmount) || 0,
+          penaltyAmount: penalty,
         });
       }
       onClose();
@@ -470,11 +477,7 @@ function GoalFormModal({ open, onClose, goal }) {
 
         <div>
           <p className="mb-2 text-sm font-medium text-slate-700">Catégorie</p>
-          <CategoryManager
-            type="goal"
-            value={categoryId}
-            onChange={(id) => setCategoryId(id)}
-          />
+          <CategoryManager type="goal" value={categoryId} onChange={(id) => setCategoryId(id)} />
         </div>
 
         <Input
@@ -585,9 +588,9 @@ function GoalFormModal({ open, onClose, goal }) {
         </div>
 
         <Input
-          label="Amende par paiement manqué (FCFA)"
+          label={`Amende par paiement manqué (min. ${formatCurrency(MIN_PENALTY)})`}
           type="number"
-          min="0"
+          min={MIN_PENALTY}
           value={penaltyAmount}
           onChange={(e) => setPenaltyAmount(e.target.value)}
         />
@@ -600,18 +603,20 @@ function GoalFormModal({ open, onClose, goal }) {
   );
 }
 
-/* ═══════════════ Carte objectif ═══════════════ */
+/* ═══════════ Carte objectif ═══════════ */
 
-function GoalCard({ goal, onOpen, onDelete, onEdit }) {
+function GoalCard({ goal, onOpen, onEdit }) {
   const { customCategories } = useCustomCategories('goal');
   const deposits = useDeposits(goal.id);
   const plan = computeGoalPlan(goal, deposits);
   const category = resolveCategory(goal.categoryId, 'goal', customCategories);
-  const status = getGoalStatus(plan);
+
+  const statusColor = plan.isReached ? '#10b981' : plan.isLate ? '#ef4444' : '#3b82f6';
+  const statusLabel = plan.isReached ? 'Atteint' : plan.isLate ? 'En retard' : 'En cours';
 
   return (
     <Card>
-      <div className="mb-2 flex items-start justify-between">
+      <div className="mb-3 flex items-start justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span
@@ -624,39 +629,32 @@ function GoalCard({ goal, onOpen, onDelete, onEdit }) {
             {formatCurrency(goal.targetAmount)} — {formatCurrency(plan.amountPerPayment)} / {plan.frequencyDays} j
           </p>
         </div>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={onEdit}
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-            aria-label="Modifier"
-          >
-            <Pencil size={15} />
-          </button>
-          <button
-            onClick={onDelete}
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
-            aria-label="Supprimer"
-          >
-            <Trash2 size={15} />
-          </button>
-        </div>
+        <button
+          onClick={onEdit}
+          className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+          aria-label="Modifier"
+        >
+          <Pencil size={15} />
+        </button>
       </div>
 
-      <div className="mb-2">
+      <div className="mb-3 flex items-center gap-2">
         <span
-          className="inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"
-          style={{ backgroundColor: status.color }}
+          className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"
+          style={{ backgroundColor: statusColor }}
         >
-          {status.label}
+          {statusLabel}
+        </span>
+        <span className="text-xs text-slate-500">
+          {plan.progress.toFixed(0)} % — {formatCurrency(plan.totalDeposited)}
         </span>
       </div>
 
-      <div className="mb-3">
-        <ProgressBar value={plan.progress} color={plan.isLate ? '#ef4444' : undefined} />
-        <div className="mt-1 flex justify-between text-xs text-slate-500">
-          <span>{formatCurrency(plan.totalDeposited)} / {formatCurrency(plan.totalDue)}</span>
-          <span>{plan.progress.toFixed(0)}%</span>
-        </div>
+      <div className="mb-3 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+        <div
+          className="h-full rounded-full transition-all duration-700"
+          style={{ width: `${Math.min(100, plan.progress)}%`, backgroundColor: statusColor }}
+        />
       </div>
 
       {plan.isLate && (
@@ -672,7 +670,7 @@ function GoalCard({ goal, onOpen, onDelete, onEdit }) {
   );
 }
 
-/* ═══════════════ Page principale ═══════════════ */
+/* ═══════════ Page principale ═══════════ */
 
 export default function GoalsPage() {
   const { user } = useAuth();
@@ -697,7 +695,7 @@ export default function GoalsPage() {
   };
 
   const onDelete = async (id) => {
-    if (!confirm('Supprimer cet objectif et tous ses dépôts ?')) return;
+    if (!confirm('Supprimer définitivement cet objectif ? Les dépôts seront perdus sans remboursement. Préfère « Annuler l\u2019objectif » dans le suivi pour récupérer ton argent.')) return;
     await deleteGoal(user.uid, id);
   };
 
@@ -707,7 +705,7 @@ export default function GoalsPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Objectifs d&apos;épargne</h1>
           <p className="text-sm text-slate-500">
-            Choisis la durée, la fréquence et la pénalité. On calcule le reste.
+            Choisis ta durée et ta fréquence — je calcule le reste.
           </p>
         </div>
         <Button onClick={openCreate}>
@@ -730,7 +728,6 @@ export default function GoalsPage() {
               goal={g}
               onOpen={() => setSelected(g)}
               onEdit={() => openEdit(g)}
-              onDelete={() => onDelete(g.id)}
             />
           ))}
         </div>
