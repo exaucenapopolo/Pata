@@ -38,6 +38,7 @@ export async function createGoal(uid, data) {
     frequencyDays,
     deadline,
     penaltyAmount: Number(data.penaltyAmount || 0),
+    debtBalance: 0,
     createdAt: serverTimestamp(),
   });
 }
@@ -52,15 +53,18 @@ export async function deleteGoal(uid, id) {
   await deleteDoc(doc(db, 'users', uid, 'goals', id));
 }
 
-export async function addDeposit(uid, goalId, { amount, date }) {
+// Ajout du incomeSourceId et incomeSourceName
+export async function addDeposit(uid, goalId, { amount, date, incomeSourceId, incomeSourceName }) {
   return addDoc(depositsCol(uid, goalId), {
     amount: Number(amount),
     date: date || new Date().toISOString().slice(0, 10),
-    source: 'external',
+    source: 'wallet',
+    incomeSourceId: incomeSourceId || null,
+    incomeSourceName: incomeSourceName || null,
     createdAt: serverTimestamp(),
   });
 }
 
 export async function deleteDeposit(uid, goalId, depositId) {
   await deleteDoc(doc(db, 'users', uid, 'goals', goalId, 'deposits', depositId));
-                      }
+      }
