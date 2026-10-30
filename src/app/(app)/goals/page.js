@@ -15,6 +15,7 @@ import {
 } from '@/lib/firestore/goals';
 import { computeGoalPlan } from '@/lib/goalCalc';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import { GOAL_CATEGORIES } from '@/lib/constants';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
