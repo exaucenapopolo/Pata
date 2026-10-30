@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import {
   Plus, Target, Trash2, AlertTriangle, Banknote, Pencil, Lightbulb,
   Info, CheckCircle2, TrendingUp, ShieldAlert, ArrowDownToLine, Landmark,
-  MessageCircle, X
+  MessageCircle, CalendarDays, PiggyBank, Lock, Unlock
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -21,20 +21,13 @@ import { useIncomes } from '@/hooks/useIncomes';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { createGoal, updateGoal, deleteGoal } from '@/lib/firestore/goals';
 import {
-  computeGoalPlan, resolveDurationDays, resolveFrequencyDays, MIN_PENALTY,
+  computeGoalPlan, resolveFrequencyDays, MIN_PENALTY,
 } from '@/lib/goalCalc';
 import { adviceIconColor } from '@/lib/advisor';
 import { formatCurrency, formatDate, resolveCategory } from '@/lib/utils';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const todayMonth = () => new Date().toISOString().slice(0, 7);
-
-const DURATION_PRESETS = [
-  { v: '7',   label: '1 sem.' }, { v: '14',  label: '2 sem.' },
-  { v: '30',  label: '1 mois' }, { v: '90',  label: '3 mois' },
-  { v: '180', label: '6 mois' }, { v: '365', label: '1 an' },
-  { v: '730', label: '2 ans' },
-];
 
 const FREQUENCY_PRESETS = [
   { v: '1',  label: 'Chaque jour' }, { v: '3',  label: 'Tous les 3 j' },
@@ -67,12 +60,27 @@ function ProgressCircle({ value = 0, size = 100 }) {
 
 function buildGoalAdvices(plan, balance, goalName) {
   if (!plan) return [];
+  if (plan.type === 'piggybank') {
+    return [{
+      type: 'info',
+      message: `C'est ta caisse libre. Tu peux y déposer de l'argent à tout moment sans engagement. Ton total actuel est de ${formatCurrency(plan.totalDeposited)}.`,
+    }];
+  }
+
   const advices = [];
+
+  if (plan.notStarted) {
+    advices.push({
+      type: 'info',
+      message: `Cet objectif est programmé pour commencer le ${formatDate(plan.startDate)}. Prépare-toi !`,
+    });
+    return advices;
+  }
 
   if (plan.isReached) {
     advices.push({
       type: 'success',
-      message: `Ton objectif « ${goalName} » est atteint. Tu peux retirer ton argent à tout moment depuis cet écran.`,
+      message: `Ton objectif « ${goalName} » est atteint. Tu peux retirer ton argent à tout moment.`,
     });
     return advices;
   }
@@ -85,7 +93,7 @@ function buildGoalAdvices(plan, balance, goalName) {
   } else if (plan.totalDeposited >= plan.expectedAmount) {
     advices.push({
       type: 'success',
-      message: `Tu es à jour : ${formatCurrency(plan.totalDeposited)} versés sur ${formatCurrency(plan.expectedAmount)} attendus. Continue comme ça.`,
+      message: `Tu es à jour : ${formatCurrency(plan.totalDeposited)} versés. Continue comme ça.`,
     });
   } else {
     advices.push({
@@ -112,28 +120,31 @@ function buildGoalAdvices(plan, balance, goalName) {
 function ConfirmWithdrawModal({ goal, actionType, onClose, onConfirm, busy }) {
   const deposits = useDeposits(goal.id);
   const plan = computeGoalPlan(goal, deposits);
+  const isPiggybank = goal.type === 'piggybank';
   
   const isCancel = actionType === 'cancel';
-  const cancelPenalty = isCancel ? Math.round(plan.totalDeposited * 0.10) : 0;
+  const cancelPenalty = isCancel && !isPiggybank ? Math.round(plan.totalDeposited * 0.10) : 0;
   const netRefund = Math.max(0, plan.totalDeposited - plan.totalDebt - cancelPenalty);
 
   const waNumber = '14236752034';
   const waMessage = encodeURIComponent(
-    `Bonjour l’équipe Pata,\n\nJe souhaite ${isCancel ? 'annuler' : 'clôturer'} mon objectif d’épargne "${goal.name}".\n\n` +
+    `Bonjour l’équipe Pata,\n\nJe souhaite ${isCancel ? 'annuler' : 'clôturer'} mon ${isPiggybank ? 'épargne libre' : 'objectif'} "${goal.name}".\n\n` +
     `- Total épargné : ${formatCurrency(plan.totalDeposited)}\n` +
-    `- Dettes (prêts) : ${formatCurrency(plan.totalDebt)}\n` +
-    (isCancel ? `- Pénalité d’annulation (10%) : ${formatCurrency(cancelPenalty)}\n` : '') +
+    (plan.totalDebt > 0 ? `- Dettes (prêts) : ${formatCurrency(plan.totalDebt)}\n` : '') +
+    (cancelPenalty > 0 ? `- Pénalité d’annulation (10%) : ${formatCurrency(cancelPenalty)}\n` : '') +
     `- Net à recevoir : ${formatCurrency(netRefund)}\n\n` +
     `Merci de traiter ma demande.`
   );
 
   return (
-    <Modal open onClose={onClose} title={isCancel ? "Annuler l’objectif" : "Retirer mon épargne"}>
+    <Modal open onClose={onClose} title={isPiggybank ? "Casser la tirelire" : (isCancel ? "Annuler l’objectif" : "Retirer mon épargne")}>
       <div className="space-y-4">
         <div className="flex items-start gap-3 rounded-xl bg-slate-50 p-3">
           <Info className="mt-0.5 shrink-0 text-slate-500" size={18} />
           <p className="text-sm text-slate-700">
-            {isCancel 
+            {isPiggybank
+              ? "Vous êtes sur le point de casser votre tirelire. Tout l'argent épargné sera reversé sur votre portefeuille (sans pénalité)."
+              : isCancel 
               ? "Attention : annuler l’objectif entraîne une pénalité de 10% sur votre épargne totale pour non-respect de l’engagement." 
               : "Vous êtes sur le point de clôturer cet objectif atteint. Le montant net sera reversé sur votre portefeuille."}
           </p>
@@ -150,7 +161,7 @@ function ConfirmWithdrawModal({ goal, actionType, onClose, onConfirm, busy }) {
               <span className="font-medium">- {formatCurrency(plan.totalDebt)}</span>
             </div>
           )}
-          {isCancel && (
+          {cancelPenalty > 0 && (
             <div className="flex justify-between text-sm text-red-600">
               <span>Pénalité d’annulation (10%)</span>
               <span className="font-medium">- {formatCurrency(cancelPenalty)}</span>
@@ -163,19 +174,10 @@ function ConfirmWithdrawModal({ goal, actionType, onClose, onConfirm, busy }) {
         </div>
 
         <div className="flex flex-col gap-2">
-          <Button 
-            onClick={() => onConfirm(actionType)}
-            disabled={busy || netRefund <= 0}
-            className="w-full"
-          >
-            {busy ? 'Traitement…' : `Confirmer le ${isCancel ? 'retrait' : 'versement'}`}
+          <Button onClick={() => onConfirm(actionType)} disabled={busy || netRefund <= 0} className="w-full">
+            {busy ? 'Traitement…' : `Confirmer`}
           </Button>
-          
-          <Button 
-            variant="outline" 
-            onClick={() => window.open(`https://wa.me/${waNumber}?text=${waMessage}`, '_blank')}
-            className="w-full text-green-600 border-green-200 hover:bg-green-50"
-          >
+          <Button variant="outline" onClick={() => window.open(`https://wa.me/${waNumber}?text=${waMessage}`, '_blank')} className="w-full text-green-600 border-green-200 hover:bg-green-50">
             <MessageCircle size={16} /> Envoyer le récapitulatif sur WhatsApp
           </Button>
           <Button variant="ghost" onClick={onClose} className="w-full">Fermer</Button>
@@ -193,12 +195,10 @@ function GoalDetail({ goal, onClose, onAskWithdraw }) {
   const plan = computeGoalPlan(goal, deposits);
   const category = resolveCategory(goal.categoryId, 'goal', customCategories);
   const advices = buildGoalAdvices(plan, profile?.balance || 0, goal.name);
+  const isPiggybank = goal.type === 'piggybank';
 
   const { incomes } = useIncomes();
-  const currentMonthIncomes = useMemo(
-    () => incomes.filter((i) => i.month === todayMonth()),
-    [incomes]
-  );
+  const currentMonthIncomes = useMemo(() => incomes.filter((i) => i.month === todayMonth()), [incomes]);
   const [selectedIncomeId, setSelectedIncomeId] = useState(currentMonthIncomes[0]?.id || '');
   const router = useRouter();
 
@@ -257,29 +257,49 @@ function GoalDetail({ goal, onClose, onAskWithdraw }) {
     <Modal open onClose={onClose} title={goal.name} className="max-w-lg">
       <div className="space-y-5">
         <div className="flex flex-col items-center gap-1">
-          <ProgressCircle value={plan.progress} size={120} />
+          {isPiggybank ? (
+            <div className="flex h-24 w-24 items-center justify-center rounded-full bg-brand-50 text-brand-600">
+              <PiggyBank size={48} />
+            </div>
+          ) : (
+            <ProgressCircle value={plan.progress} size={120} />
+          )}
           <div className="mt-2 flex items-center gap-2">
             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: category.color }} />
             <span className="text-xs font-medium text-slate-500">{category.label}</span>
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-2">
-          <div className="rounded-xl bg-slate-50 px-2 py-3 text-center">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Objectif</p>
-            <p className="mt-0.5 text-sm font-bold text-slate-800">{formatCurrency(goal.targetAmount)}</p>
+        {isPiggybank ? (
+          <div className="rounded-xl border border-brand-200 bg-brand-50 p-4 text-center">
+            <p className="text-xs font-semibold uppercase tracking-wide text-brand-700 mb-1">Total dans la tirelire</p>
+            <p className="text-3xl font-bold text-brand-700">{formatCurrency(plan.totalDeposited)}</p>
           </div>
-          <div className="rounded-xl bg-slate-50 px-2 py-3 text-center">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Épargné</p>
-            <p className="mt-0.5 text-sm font-bold text-brand-600">{formatCurrency(plan.totalDeposited)}</p>
+        ) : (
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded-xl bg-slate-50 px-2 py-3 text-center">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Objectif</p>
+              <p className="mt-0.5 text-sm font-bold text-slate-800">{formatCurrency(goal.targetAmount)}</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 px-2 py-3 text-center">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Épargné</p>
+              <p className="mt-0.5 text-sm font-bold text-brand-600">{formatCurrency(plan.totalDeposited)}</p>
+            </div>
+            <div className={`rounded-xl px-2 py-3 text-center ${plan.totalDebt > 0 ? 'bg-red-50' : 'bg-slate-50'}`}>
+              <p className={`text-[10px] font-semibold uppercase tracking-wide ${plan.totalDebt > 0 ? 'text-red-600' : 'text-slate-500'}`}>Dette</p>
+              <p className={`mt-0.5 text-sm font-bold ${plan.totalDebt > 0 ? 'text-red-600' : 'text-slate-800'}`}>{formatCurrency(plan.totalDebt)}</p>
+            </div>
           </div>
-          <div className={`rounded-xl px-2 py-3 text-center ${plan.totalDebt > 0 ? 'bg-red-50' : 'bg-slate-50'}`}>
-            <p className={`text-[10px] font-semibold uppercase tracking-wide ${plan.totalDebt > 0 ? 'text-red-600' : 'text-slate-500'}`}>Dette</p>
-            <p className={`mt-0.5 text-sm font-bold ${plan.totalDebt > 0 ? 'text-red-600' : 'text-slate-800'}`}>{formatCurrency(plan.totalDebt)}</p>
-          </div>
-        </div>
+        )}
 
-        {plan.totalDebt > 0 && (
+        {!isPiggybank && plan.notStarted && (
+          <div className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">
+            <CalendarDays size={16} />
+            <span>Démarre le {formatDate(plan.startDate)}</span>
+          </div>
+        )}
+
+        {!isPiggybank && plan.totalDebt > 0 && (
           <div className="flex flex-col gap-2 rounded-xl border border-red-200 bg-red-50 p-3">
              <div className="flex items-start gap-2">
                 <Landmark size={16} className="mt-0.5 shrink-0 text-red-600" />
@@ -313,7 +333,7 @@ function GoalDetail({ goal, onClose, onAskWithdraw }) {
           </div>
         )}
 
-        {!plan.isReached && !showLoan && (
+        {(!plan.isReached || isPiggybank) && !showLoan && (
           <form onSubmit={onFundFromWallet} className="rounded-xl border border-slate-200 p-3.5">
             <div className="mb-3 flex items-center justify-between rounded-lg bg-brand-50 px-3 py-2">
               <span className="text-xs text-slate-600">Solde disponible</span>
@@ -349,7 +369,7 @@ function GoalDetail({ goal, onClose, onAskWithdraw }) {
             )}
             {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
             
-            {currentMonthIncomes.length > 0 && (
+            {!isPiggybank && currentMonthIncomes.length > 0 && (
               <div className="mt-3 text-center">
                 <button type="button" onClick={() => setShowLoan(true)} className="text-xs font-semibold text-brand-600 hover:underline">
                   Solde insuffisant ? Demander un micro-prêt (5% d’intérêts)
@@ -374,9 +394,9 @@ function GoalDetail({ goal, onClose, onAskWithdraw }) {
         )}
 
         <div className="space-y-2">
-          {plan.isReached ? (
-            <Button onClick={() => { onClose(); onAskWithdraw(goal, 'withdraw'); }} className="w-full" disabled={busy}>
-              <ArrowDownToLine size={16} /> Retirer l’épargne nette
+          {plan.isReached || isPiggybank ? (
+            <Button onClick={() => { onClose(); onAskWithdraw(goal, isPiggybank ? 'cancel' : 'withdraw'); }} className="w-full" disabled={busy}>
+              <ArrowDownToLine size={16} /> {isPiggybank ? 'Casser la tirelire (Tout retirer)' : 'Retirer l’épargne nette'}
             </Button>
           ) : (
             <Button onClick={() => { onClose(); onAskWithdraw(goal, 'cancel'); }} variant="outline" className="w-full text-red-600 hover:bg-red-50" disabled={busy}>
@@ -414,34 +434,64 @@ function GoalFormModal({ open, onClose, goal }) {
   const editing = !!goal;
 
   const initial = editing
-    ? { name: goal.name || '', targetAmount: String(goal.targetAmount || ''), categoryId: goal.categoryId || 'savings', durationDays: String(goal.durationDays || 90), frequencyDays: String(goal.frequencyDays || 7), penaltyAmount: String(Math.max(MIN_PENALTY, goal.penaltyAmount || MIN_PENALTY)) }
-    : { name: '', targetAmount: '', categoryId: 'savings', durationDays: '90', frequencyDays: '7', penaltyAmount: String(MIN_PENALTY) };
+    ? { 
+        name: goal.name || '', 
+        type: goal.type || 'goal',
+        targetAmount: String(goal.targetAmount || ''), 
+        categoryId: goal.categoryId || 'savings', 
+        startDate: goal.startDate || todayIso(), 
+        deadline: goal.deadline || todayIso(), 
+        frequencyDays: String(goal.frequencyDays || 7), 
+        penaltyAmount: String(Math.max(MIN_PENALTY, goal.penaltyAmount || MIN_PENALTY)) 
+      }
+    : { 
+        name: '', 
+        type: 'goal',
+        targetAmount: '', 
+        categoryId: 'savings', 
+        startDate: todayIso(), 
+        deadline: new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10),
+        frequencyDays: '7', 
+        penaltyAmount: String(MIN_PENALTY) 
+      };
 
+  const [type, setType] = useState(initial.type);
   const [name, setName] = useState(initial.name);
   const [targetAmount, setTargetAmount] = useState(initial.targetAmount);
   const [categoryId, setCategoryId] = useState(initial.categoryId);
-  const [durationPreset, setDurationPreset] = useState(String(initial.durationDays));
-  const [durationCustom, setDurationCustom] = useState('');
+  const [startDate, setStartDate] = useState(initial.startDate);
+  const [deadline, setDeadline] = useState(initial.deadline);
   const [frequencyPreset, setFrequencyPreset] = useState(String(initial.frequencyDays));
   const [frequencyCustom, setFrequencyCustom] = useState('');
   const [penaltyAmount, setPenaltyAmount] = useState(initial.penaltyAmount);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  const durationDays = resolveDurationDays(durationPreset, durationCustom);
+  const start = new Date(startDate);
+  const end = new Date(deadline);
+  const durationDays = Math.max(1, Math.ceil((end - start) / 86400000));
   const frequencyDays = resolveFrequencyDays(frequencyPreset, frequencyCustom);
   const totalPayments = Math.max(1, Math.ceil(durationDays / frequencyDays));
   const amountPerPayment = targetAmount ? Math.round(Number(targetAmount) / totalPayments) : 0;
 
   const onSubmit = async (e) => {
     e.preventDefault(); setError('');
-    const target = Math.round(Number(targetAmount));
-    if (!name.trim() || !target || durationDays < frequencyDays) return setError('Vérifie les informations.');
+    if (!name.trim()) return setError('Le nom est requis.');
+    
+    let payload = { name: name.trim(), type, categoryId };
+
+    if (type === 'goal') {
+      const target = Math.round(Number(targetAmount));
+      if (!target) return setError('Le montant cible est requis pour un objectif.');
+      if (end <= start) return setError('La date de fin doit être après la date de début.');
+      
+      payload = { ...payload, targetAmount: target, startDate, deadline, frequencyDays, penaltyAmount: Math.max(MIN_PENALTY, Number(penaltyAmount)) };
+    }
+
     setSaving(true);
     try {
-      const payload = { name: name.trim(), targetAmount: target, categoryId, durationDays, frequencyDays, penaltyAmount: Math.max(MIN_PENALTY, Number(penaltyAmount)) };
       if (editing) {
-        await updateGoal(user.uid, goal.id, { ...payload, deadline: new Date(new Date(goal.startDate).getTime() + durationDays * 86400000).toISOString().slice(0, 10) });
+        await updateGoal(user.uid, goal.id, payload);
       } else {
         await createGoal(user.uid, payload);
       }
@@ -450,41 +500,79 @@ function GoalFormModal({ open, onClose, goal }) {
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={editing ? "Modifier l’objectif" : "Nouvel objectif"} className="max-w-lg">
+    <Modal open={open} onClose={onClose} title={editing ? "Modifier" : "Nouvelle épargne"} className="max-w-lg">
       <form onSubmit={onSubmit} className="space-y-4">
-        <Input label="Nom de l’objectif" required value={name} onChange={(e) => setName(e.target.value)} />
-        <div><p className="mb-2 text-sm font-medium text-slate-700">Catégorie</p><CategoryManager type="goal" value={categoryId} onChange={setCategoryId} /></div>
-        <Input label="Montant cible (FCFA)" type="number" min="0" required value={targetAmount} onChange={(e) => setTargetAmount(e.target.value)} />
         
-        <div>
-          <p className="mb-2 text-sm font-medium text-slate-700">Durée d’épargne</p>
-          <div className="flex flex-wrap gap-2">
-            {DURATION_PRESETS.map(({ v, label }) => (
-              <button type="button" key={v} onClick={() => setDurationPreset(v)} className={`rounded-full border px-3 py-1 text-xs font-medium ${durationPreset === v ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-300 text-slate-700'}`}>{label}</button>
-            ))}
-            <button type="button" onClick={() => setDurationPreset('custom')} className={`rounded-full border px-3 py-1 text-xs font-medium ${durationPreset === 'custom' ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-300 text-slate-700'}`}>Perso.</button>
+        {/* 🟢 SÉLECTEUR DE TYPE */}
+        {!editing && (
+          <div className="grid grid-cols-2 gap-2 mb-4">
+            <button
+              type="button"
+              onClick={() => setType('goal')}
+              className={`flex flex-col items-center justify-center rounded-xl border p-3 transition ${type === 'goal' ? 'border-brand-500 bg-brand-50' : 'border-slate-200 bg-white hover:bg-slate-50'}`}
+            >
+              <Target size={20} className={type === 'goal' ? 'text-brand-600' : 'text-slate-400'} />
+              <span className={`mt-1 text-xs font-bold ${type === 'goal' ? 'text-brand-700' : 'text-slate-600'}`}>Objectif (dates)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setType('piggybank')}
+              className={`flex flex-col items-center justify-center rounded-xl border p-3 transition ${type === 'piggybank' ? 'border-brand-500 bg-brand-50' : 'border-slate-200 bg-white hover:bg-slate-50'}`}
+            >
+              <PiggyBank size={20} className={type === 'piggybank' ? 'text-brand-600' : 'text-slate-400'} />
+              <span className={`mt-1 text-xs font-bold ${type === 'piggybank' ? 'text-brand-700' : 'text-slate-600'}`}>Tirelire (libre)</span>
+            </button>
           </div>
-          {durationPreset === 'custom' && <div className="mt-2"><Input label="Jours" type="number" min="1" value={durationCustom} onChange={(e) => setDurationCustom(e.target.value)} /></div>}
-        </div>
+        )}
 
-        <div>
-          <p className="mb-2 text-sm font-medium text-slate-700">Fréquence</p>
-          <div className="flex flex-wrap gap-2">
-            {FREQUENCY_PRESETS.map(({ v, label }) => (
-              <button type="button" key={v} onClick={() => setFrequencyPreset(v)} className={`rounded-full border px-3 py-1 text-xs font-medium ${frequencyPreset === v ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-300 text-slate-700'}`}>{label}</button>
-            ))}
-            <button type="button" onClick={() => setFrequencyPreset('custom')} className={`rounded-full border px-3 py-1 text-xs font-medium ${frequencyPreset === 'custom' ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-300 text-slate-700'}`}>Perso.</button>
+        <Input label="Nom de l'épargne" required value={name} onChange={(e) => setName(e.target.value)} placeholder={type === 'goal' ? "Ex : Acheter un ordinateur" : "Ex : Ma caisse de secours"} />
+        
+        <div><p className="mb-2 text-sm font-medium text-slate-700">Catégorie</p><CategoryManager type="goal" value={categoryId} onChange={setCategoryId} /></div>
+
+        {/* CHAMPS SPÉCIFIQUES À L'OBJECTIF CLASSIQUE */}
+        {type === 'goal' && (
+          <>
+            <Input label="Montant cible (FCFA)" type="number" min="0" required value={targetAmount} onChange={(e) => setTargetAmount(e.target.value)} />
+            
+            <div className="rounded-xl border border-slate-200 p-3 bg-slate-50/50">
+              <p className="mb-2 text-sm font-medium text-slate-700 flex items-center gap-2">
+                <CalendarDays size={16} className="text-brand-600" /> Période
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <Input label="Date de début" type="date" required value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                <Input label="Date de fin" type="date" required value={deadline} onChange={(e) => setDeadline(e.target.value)} />
+              </div>
+              <p className="mt-2 text-xs text-slate-500">Durée : <strong className="text-slate-700">{durationDays} jours</strong>.</p>
+            </div>
+
+            <div>
+              <p className="mb-2 text-sm font-medium text-slate-700">Fréquence</p>
+              <div className="flex flex-wrap gap-2">
+                {FREQUENCY_PRESETS.map(({ v, label }) => (
+                  <button type="button" key={v} onClick={() => setFrequencyPreset(v)} className={`rounded-full border px-3 py-1 text-xs font-medium ${frequencyPreset === v ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-300 text-slate-700'}`}>{label}</button>
+                ))}
+                <button type="button" onClick={() => setFrequencyPreset('custom')} className={`rounded-full border px-3 py-1 text-xs font-medium ${frequencyPreset === 'custom' ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-300 text-slate-700'}`}>Perso.</button>
+              </div>
+              {frequencyPreset === 'custom' && <div className="mt-2"><Input label="Tous les X jours" type="number" min="1" value={frequencyCustom} onChange={(e) => setFrequencyCustom(e.target.value)} /></div>}
+            </div>
+
+            <div className="rounded-xl bg-brand-50/50 border border-brand-100 p-3 text-sm">
+              <span className="text-brand-700 font-medium">Aperçu :</span> <span className="text-slate-800 font-bold">{totalPayments} paiements</span> de <strong className="text-brand-700">{formatCurrency(amountPerPayment)}</strong>
+            </div>
+
+            <Input label={`Amende par retard (min. ${formatCurrency(MIN_PENALTY)})`} type="number" min={MIN_PENALTY} value={penaltyAmount} onChange={(e) => setPenaltyAmount(e.target.value)} />
+          </>
+        )}
+
+        {type === 'piggybank' && (
+          <div className="rounded-xl border border-brand-100 bg-brand-50/50 p-4 text-sm text-slate-700">
+            <p className="flex items-center gap-2 font-medium text-brand-700 mb-1"><PiggyBank size={16} /> Mode Tirelire</p>
+            <p className="text-xs">Aucun montant fixe, aucune date limite. Vous déposez ce que vous voulez, quand vous voulez.</p>
           </div>
-          {frequencyPreset === 'custom' && <div className="mt-2"><Input label="Tous les X jours" type="number" min="1" value={frequencyCustom} onChange={(e) => setFrequencyCustom(e.target.value)} /></div>}
-        </div>
+        )}
 
-        <div className="rounded-xl bg-slate-50 p-3 text-sm">
-          <span className="text-slate-500">Aperçu :</span> <strong className="text-slate-800">{totalPayments} paiements de {formatCurrency(amountPerPayment)}</strong>
-        </div>
-
-        <Input label={`Amende par retard (min. ${formatCurrency(MIN_PENALTY)})`} type="number" min={MIN_PENALTY} value={penaltyAmount} onChange={(e) => setPenaltyAmount(e.target.value)} />
         {error && <p className="text-sm text-red-600">{error}</p>}
-        <Button type="submit" className="w-full" disabled={saving}>{saving ? 'Enregistrement…' : editing ? 'Mettre à jour' : "Créer l’objectif"}</Button>
+        <Button type="submit" className="w-full" disabled={saving}>{saving ? 'Enregistrement…' : editing ? 'Mettre à jour' : "Créer"}</Button>
       </form>
     </Modal>
   );
@@ -495,7 +583,15 @@ function GoalCard({ goal, onOpen, onEdit, onAskWithdraw }) {
   const deposits = useDeposits(goal.id);
   const plan = computeGoalPlan(goal, deposits);
   const category = resolveCategory(goal.categoryId, 'goal', customCategories);
-  const statusColor = plan.isReached ? '#10b981' : plan.isLate ? '#ef4444' : '#3b82f6';
+  const isPiggybank = goal.type === 'piggybank';
+  
+  let statusColor = '#3b82f6';
+  let statusLabel = 'En cours';
+  
+  if (isPiggybank) { statusColor = '#14b8a6'; statusLabel = 'Tirelire'; }
+  else if (plan.notStarted) { statusColor = '#94a3b8'; statusLabel = 'Programmé'; }
+  else if (plan.isReached) { statusColor = '#10b981'; statusLabel = 'Atteint'; }
+  else if (plan.isLate) { statusColor = '#ef4444'; statusLabel = 'En retard'; }
 
   return (
     <Card className="flex flex-col">
@@ -505,38 +601,68 @@ function GoalCard({ goal, onOpen, onEdit, onAskWithdraw }) {
             <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: category?.color || '#94a3b8' }} />
             <p className="truncate text-lg font-bold text-slate-900">{goal.name}</p>
           </div>
-          <p className="mt-1 text-sm text-slate-500">{formatCurrency(goal.targetAmount)} — {formatCurrency(plan.amountPerPayment)} / {plan.frequencyDays} j</p>
+          {!isPiggybank && (
+            <p className="mt-1 text-xs text-slate-500">
+              {formatCurrency(goal.targetAmount)} — {formatCurrency(plan.amountPerPayment)} / {plan.frequencyDays} j
+            </p>
+          )}
         </div>
         <button onClick={onEdit} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100"><Pencil size={16} /></button>
       </div>
       
-      <div className="mb-4 flex items-center gap-4">
-        <ProgressCircle value={plan.progress} size={70} />
-        <div className="flex-1 space-y-1">
-          <div className="flex justify-between text-sm">
-            <span className="text-slate-500">Épargné</span>
-            <span className="font-semibold text-brand-600">{formatCurrency(plan.totalDeposited)}</span>
-          </div>
-          {plan.totalDebt > 0 && (
-            <div className="flex justify-between text-sm">
-              <span className="text-red-500">Dettes</span>
-              <span className="font-semibold text-red-600">{formatCurrency(plan.totalDebt)}</span>
-            </div>
-          )}
-          {plan.isLate && (
-            <div className="flex justify-between text-sm">
-              <span className="text-red-500">Amende</span>
-              <span className="font-semibold text-red-600">{formatCurrency(plan.penalty)}</span>
-            </div>
-          )}
-        </div>
+      <div className="mb-2">
+        <span className="inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white" style={{ backgroundColor: statusColor }}>
+          {statusLabel}
+        </span>
       </div>
+
+      {isPiggybank ? (
+        <div className="mb-4 flex items-center justify-between">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-brand-50 text-brand-600">
+            <PiggyBank size={24} />
+          </div>
+          <div className="text-right">
+            <p className="text-sm text-slate-500">Total épargné</p>
+            <p className="text-xl font-bold text-brand-600">{formatCurrency(plan.totalDeposited)}</p>
+          </div>
+        </div>
+      ) : (
+        <div className="mb-4 flex items-center gap-4">
+          <ProgressCircle value={plan.progress} size={70} />
+          <div className="flex-1 space-y-1">
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-500">Épargné</span>
+              <span className="font-semibold text-brand-600">{formatCurrency(plan.totalDeposited)}</span>
+            </div>
+            {plan.totalDebt > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-red-500">Dettes</span>
+                <span className="font-semibold text-red-600">{formatCurrency(plan.totalDebt)}</span>
+              </div>
+            )}
+            {plan.isLate && (
+              <div className="flex justify-between text-sm">
+                <span className="text-red-500">Amende</span>
+                <span className="font-semibold text-red-600">{formatCurrency(plan.penalty)}</span>
+              </div>
+            )}
+            <div className="flex justify-between text-xs pt-1 border-t border-slate-100">
+              <span className="text-slate-400">Échéance</span>
+              <span className="font-medium text-slate-600">{formatDate(goal.deadline)}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="mt-auto space-y-2">
         <Button variant="outline" className="w-full" onClick={onOpen}>
-          <TrendingUp size={16} /> Voir les détails et verser
+          <TrendingUp size={16} /> {isPiggybank ? 'Ouvrir la caisse' : 'Voir les détails et verser'}
         </Button>
-        {plan.isReached ? (
+        {isPiggybank ? (
+           <Button className="w-full bg-slate-900 text-white hover:bg-slate-800" onClick={() => onAskWithdraw(goal, 'cancel')}>
+           <Unlock size={16} /> Casser la tirelire
+         </Button>
+        ) : plan.isReached ? (
           <Button className="w-full bg-brand-600 hover:bg-brand-700 text-white" onClick={() => onAskWithdraw(goal, 'withdraw')}>
             <ArrowDownToLine size={16} /> Retirer mon argent
           </Button>
@@ -582,7 +708,7 @@ export default function GoalsPage() {
       });
       const data = await res.json();
       if (data.success) {
-        alert(confirmType === 'cancel' ? 'Objectif annulé avec succès.' : 'Argent récupéré avec succès.');
+        alert(confirmGoal.type === 'piggybank' ? 'Tirelire cassée, argent récupéré.' : (confirmType === 'cancel' ? 'Objectif annulé avec succès.' : 'Argent récupéré avec succès.'));
         setConfirmGoal(null);
         setConfirmType(null);
         setSelected(null);
@@ -606,14 +732,14 @@ export default function GoalsPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Objectifs d’épargne</h1>
-          <p className="text-sm text-slate-500">Épargne intelligemment, avec un filet de sécurité.</p>
+          <h1 className="text-2xl font-bold text-slate-900">Épargne & Objectifs</h1>
+          <p className="text-sm text-slate-500">Gère tes objectifs datés ou ta tirelire libre.</p>
         </div>
-        <Button onClick={openCreate}><Plus size={16} /> Nouvel objectif</Button>
+        <Button onClick={openCreate}><Plus size={16} /> Créer une épargne</Button>
       </div>
 
       {goals.length === 0 ? (
-        <EmptyState icon={Target} title="Aucun objectif" description="Crée un objectif pour commencer." action={<Button onClick={openCreate}><Plus size={16} /> Créer</Button>} />
+        <EmptyState icon={Target} title="Aucune épargne" description="Crée un objectif ou une tirelire pour commencer." action={<Button onClick={openCreate}><Plus size={16} /> Créer</Button>} />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
           {goals.map((g) => (
@@ -634,7 +760,7 @@ export default function GoalsPage() {
         <GoalDetail 
           goal={selected} 
           onClose={() => setSelected(null)} 
-          onAskWithdraw={(g, type) => { setSelected(null); askWithdraw(g, type); }} 
+          onAskWithdraw={(g, type) => { setSelected(null); askWithdraw(g, type); }}
         />
       )}
 
