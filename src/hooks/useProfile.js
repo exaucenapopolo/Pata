@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { useAuth } from '@/hooks/useAuth';
+import { db } from '@/lib/firebase/client';
 import { ensureUserProfile, updateUserProfile } from '@/lib/firestore/profile';
 
 export function useProfile() {
@@ -11,18 +13,30 @@ export function useProfile() {
 
   useEffect(() => {
     if (!user) { setProfile(null); setLoading(false); return; }
+
     let active = true;
-    ensureUserProfile(user).then((p) => {
-      if (active) { setProfile(p); setLoading(false); }
+    let unsub = null;
+
+    ensureUserProfile(user).then(() => {
+      if (!active) return;
+      unsub = onSnapshot(doc(db, 'users', user.uid), (snap) => {
+        if (snap.exists()) {
+          setProfile({ id: snap.id, ...snap.data() });
+        }
+        setLoading(false);
+      });
     });
-    return () => { active = false; };
+
+    return () => {
+      active = false;
+      if (unsub) unsub();
+    };
   }, [user]);
 
   const save = async (patch) => {
     if (!user) return;
     await updateUserProfile(user.uid, patch);
-    setProfile((p) => ({ ...p, ...patch }));
   };
 
   return { profile, loading, save };
-}
+                                 }
