@@ -2,17 +2,12 @@ import { NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { FieldValue } from 'firebase-admin/firestore';
 
-/* ═══════════════════════════════════════════════════════════
-   HELPERS
-   ═══════════════════════════════════════════════════════════ */
+/* ═════════ HELPERS ═════════ */
 
 async function authenticate(request) {
   const authHeader = request.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) {
-    throw new Error('Token manquant.');
-  }
-  const decoded = await adminAuth.verifyIdToken(authHeader.slice(7));
-  return decoded;
+  if (!authHeader?.startsWith('Bearer ')) throw new Error('Session expirée. Reconnecte-toi.');
+  return adminAuth.verifyIdToken(authHeader.slice(7));
 }
 
 function errorResponse(message, status = 400) {
@@ -25,10 +20,7 @@ function getBaseUrl(request) {
   return process.env.FAPSHI_WEBHOOK_URL?.replace(/\/$/, '') || `${proto}://${host}`;
 }
 
-/* ═══════════════════════════════════════════════════════════
-   POST /api/fapshi/checkout
-   Crée une session de paiement Fapshi et un document deposits/{transId}.
-   ═══════════════════════════════════════════════════════════ */
+/* ═════════ /api/fapshi/checkout ═════════ */
 
 async function handleFapshiCheckout(request) {
   try {
@@ -41,9 +33,7 @@ async function handleFapshiCheckout(request) {
 
     const API_USER = process.env.FAPSHI_API_USER;
     const SECRET_KEY = process.env.FAPSHI_SECRET_KEY;
-    if (!API_USER || !SECRET_KEY) {
-      return errorResponse('Configuration Fapshi incomplète.', 500);
-    }
+    if (!API_USER || !SECRET_KEY) return errorResponse('Service de paiement indisponible.', 500);
 
     const userDoc = await adminDb.collection('users').doc(uid).get();
     const userData = userDoc.exists ? userDoc.data() : {};
@@ -60,7 +50,7 @@ async function handleFapshiCheckout(request) {
     const payload = {
       amount,
       currency: 'XAF',
-      description: body.description || 'Recharge Pata',
+      description: body.description || 'Recharge de solde',
       redirect_url: `${origin}/wallet`,
       webhook_url: webhookUrl,
       phone,
@@ -75,35 +65,29 @@ async function handleFapshiCheckout(request) {
     try {
       fapshiRes = await fetch('https://live.fapshi.com/initiate-pay', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          apiuser: API_USER,
-          apikey: SECRET_KEY,
-        },
+        headers: { 'Content-Type': 'application/json', apiuser: API_USER, apikey: SECRET_KEY },
         body: JSON.stringify(payload),
         signal: controller.signal,
       });
     } catch {
       clearTimeout(timer);
-      return errorResponse('Impossible de contacter Fapshi.', 502);
+      return errorResponse('Le service de paiement ne répond pas. Réessaie dans un instant.', 502);
     }
     clearTimeout(timer);
 
     const raw = await fapshiRes.text();
     let data;
     try { data = JSON.parse(raw); } catch {
-      return errorResponse('Réponse Fapshi invalide.', 502);
+      return errorResponse('Réponse de paiement invalide.', 502);
     }
 
     if (!fapshiRes.ok) {
-      return errorResponse(data.message || data.error || 'Erreur Fapshi.', 400);
+      return errorResponse(data.message || data.error || 'Paiement refusé.', 400);
     }
 
     const checkoutUrl = data.data?.url || data.link || data.url;
     const transId = data.transId || data.data?.transId;
-    if (!checkoutUrl || !transId) {
-      return errorResponse('URL de paiement manquante.', 502);
-    }
+    if (!checkoutUrl || !transId) return errorResponse('Lien de paiement indisponible.', 502);
 
     await adminDb.collection('deposits').doc(transId).set({
       transId,
@@ -121,16 +105,12 @@ async function handleFapshiCheckout(request) {
 
     return NextResponse.json({ success: true, checkoutUrl, transId });
   } catch (error) {
-    console.error('Fapshi checkout error:', error);
+    console.error('Checkout error:', error);
     return errorResponse(error.message || 'Erreur serveur.', 500);
   }
 }
 
-/* ═══════════════════════════════════════════════════════════
-   POST /api/fapshi/webhook
-   Appelé par Fapshi. Vérifie le statut réel puis crédite le solde.
-   Aucune authentification Firebase : la source de vérité est Fapshi.
-   ═══════════════════════════════════════════════════════════ */
+/* ═════════ /api/fapshi/webhook ═════════ */
 
 async function handleFapshiWebhook(request) {
   try {
@@ -148,9 +128,7 @@ async function handleFapshiWebhook(request) {
 
     const API_USER = process.env.FAPSHI_API_USER;
     const SECRET_KEY = process.env.FAPSHI_SECRET_KEY;
-    if (!API_USER || !SECRET_KEY) {
-      return NextResponse.json({ received: true, error: 'config' });
-    }
+    if (!API_USER || !SECRET_KEY) return NextResponse.json({ received: true, error: 'config' });
 
     const verifyRes = await fetch(`https://live.fapshi.com/payment-status/${transId}`, {
       headers: { apiuser: API_USER, apikey: SECRET_KEY, 'Content-Type': 'application/json' },
@@ -186,15 +164,12 @@ async function handleFapshiWebhook(request) {
 
     return NextResponse.json({ received: true, status: 'CONFIRMED' });
   } catch (error) {
-    console.error('Fapshi webhook error:', error);
+    console.error('Webhook error:', error);
     return NextResponse.json({ received: true });
   }
 }
 
-/* ═══════════════════════════════════════════════════════════
-   POST /api/fapshi/status
-   Vérification manuelle ou polling : valide auprès de Fapshi puis crédite.
-   ═══════════════════════════════════════════════════════════ */
+/* ═════════ /api/fapshi/status ═════════ */
 
 async function handleFapshiStatus(request) {
   try {
@@ -203,7 +178,7 @@ async function handleFapshiStatus(request) {
 
     const body = await request.json();
     const transId = body.transId;
-    if (!transId) return errorResponse('transId requis.', 400);
+    if (!transId) return errorResponse('Transaction manquante.', 400);
 
     const depositRef = adminDb.collection('deposits').doc(transId);
     const depDoc = await depositRef.get();
@@ -218,13 +193,13 @@ async function handleFapshiStatus(request) {
 
     const API_USER = process.env.FAPSHI_API_USER;
     const SECRET_KEY = process.env.FAPSHI_SECRET_KEY;
-    if (!API_USER || !SECRET_KEY) return errorResponse('Config Fapshi incomplète.', 500);
+    if (!API_USER || !SECRET_KEY) return errorResponse('Service indisponible.', 500);
 
     const fapshiRes = await fetch(`https://live.fapshi.com/payment-status/${transId}`, {
       headers: { apiuser: API_USER, apikey: SECRET_KEY, 'Content-Type': 'application/json' },
     });
 
-    if (!fapshiRes.ok) return errorResponse('Erreur Fapshi.', 502);
+    if (!fapshiRes.ok) return errorResponse('Vérification impossible.', 502);
 
     const fapshiData = await fapshiRes.json();
     const realStatus = (fapshiData.status || '').toUpperCase();
@@ -255,16 +230,12 @@ async function handleFapshiStatus(request) {
 
     return NextResponse.json({ success: true, status: 'PENDING' });
   } catch (error) {
-    console.error('Fapshi status error:', error);
+    console.error('Status error:', error);
     return errorResponse(error.message || 'Erreur serveur.', 500);
   }
 }
 
-/* ═══════════════════════════════════════════════════════════
-   POST /api/wallet/fund-goal
-   Débite le solde wallet et ajoute un deposit dans un objectif.
-   Seul endpoint qui a le droit de DÉBITER le solde.
-   ═══════════════════════════════════════════════════════════ */
+/* ═════════ /api/wallet/fund-goal ═════════ */
 
 async function handleFundGoal(request) {
   try {
@@ -276,7 +247,7 @@ async function handleFundGoal(request) {
     const amount = Math.round(Number(body.amount));
 
     if (!goalId || !amount || amount <= 0) {
-      return errorResponse('goalId et amount requis.', 400);
+      return errorResponse('Montant invalide.', 400);
     }
 
     const userRef = adminDb.collection('users').doc(uid);
@@ -310,15 +281,115 @@ async function handleFundGoal(request) {
   }
 }
 
-/* ═══════════════════════════════════════════════════════════
-   ROUTEUR INTERNE
-   ═══════════════════════════════════════════════════════════ */
+/* ═════════ /api/goals/withdraw ═════════ */
+/* Retrait complet quand l'objectif est atteint : reverse 100% au wallet. */
+
+async function handleGoalWithdraw(request) {
+  try {
+    const decoded = await authenticate(request);
+    const uid = decoded.uid;
+
+    const body = await request.json();
+    const goalId = body.goalId;
+    if (!goalId) return errorResponse('Objectif manquant.', 400);
+
+    const userRef = adminDb.collection('users').doc(uid);
+    const goalRef = adminDb.collection('users').doc(uid).collection('goals').doc(goalId);
+    const depositsRef = goalRef.collection('deposits');
+
+    const goalDoc = await goalRef.get();
+    if (!goalDoc.exists) return errorResponse('Objectif introuvable.', 404);
+
+    const depositsSnap = await depositsRef.get();
+    const totalDeposited = depositsSnap.docs.reduce(
+      (s, d) => s + (d.data().amount || 0),
+      0
+    );
+
+    if (totalDeposited <= 0) {
+      return errorResponse('Aucun montant à retirer sur cet objectif.', 400);
+    }
+
+    await adminDb.runTransaction(async (t) => {
+      const userDoc = await t.get(userRef);
+      const balance = userDoc.exists ? (userDoc.data().balance || 0) : 0;
+      t.update(userRef, { balance: balance + totalDeposited });
+      t.delete(goalRef);
+    });
+
+    const batch = adminDb.batch();
+    depositsSnap.docs.forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+
+    return NextResponse.json({ success: true, amount: totalDeposited, penalty: 0 });
+  } catch (error) {
+    console.error('Withdraw error:', error);
+    return errorResponse(error.message || 'Retrait impossible.', 500);
+  }
+}
+
+/* ═════════ /api/goals/cancel ═════════ */
+/* Annulation : 10% retenus, le reste reversé au wallet. */
+
+async function handleGoalCancel(request) {
+  try {
+    const decoded = await authenticate(request);
+    const uid = decoded.uid;
+
+    const body = await request.json();
+    const goalId = body.goalId;
+    if (!goalId) return errorResponse('Objectif manquant.', 400);
+
+    const userRef = adminDb.collection('users').doc(uid);
+    const goalRef = adminDb.collection('users').doc(uid).collection('goals').doc(goalId);
+    const depositsRef = goalRef.collection('deposits');
+
+    const goalDoc = await goalRef.get();
+    if (!goalDoc.exists) return errorResponse('Objectif introuvable.', 404);
+
+    const depositsSnap = await depositsRef.get();
+    const totalDeposited = depositsSnap.docs.reduce(
+      (s, d) => s + (d.data().amount || 0),
+      0
+    );
+
+    const penalty = Math.round(totalDeposited * 0.10);
+    const refund = totalDeposited - penalty;
+
+    await adminDb.runTransaction(async (t) => {
+      const userDoc = await t.get(userRef);
+      const balance = userDoc.exists ? (userDoc.data().balance || 0) : 0;
+      t.update(userRef, { balance: balance + refund });
+      t.delete(goalRef);
+    });
+
+    if (depositsSnap.docs.length > 0) {
+      const batch = adminDb.batch();
+      depositsSnap.docs.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+    }
+
+    return NextResponse.json({
+      success: true,
+      amount: refund,
+      penalty,
+      total: totalDeposited,
+    });
+  } catch (error) {
+    console.error('Cancel error:', error);
+    return errorResponse(error.message || 'Annulation impossible.', 500);
+  }
+}
+
+/* ═════════ ROUTEUR ═════════ */
 
 const ROUTES = {
   'fapshi/checkout':  { POST: handleFapshiCheckout },
   'fapshi/webhook':   { POST: handleFapshiWebhook },
   'fapshi/status':    { POST: handleFapshiStatus },
   'wallet/fund-goal': { POST: handleFundGoal },
+  'goals/withdraw':   { POST: handleGoalWithdraw },
+  'goals/cancel':     { POST: handleGoalCancel },
 };
 
 async function dispatch(request, context) {
