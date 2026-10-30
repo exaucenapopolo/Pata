@@ -4,14 +4,14 @@ import { useMemo, useState } from 'react';
 import { Plus, Trash2, Wallet, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
 import { Modal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { CategoryManager } from '@/components/ui/CategoryManager';
 import { useAuth } from '@/hooks/useAuth';
 import { useExpenses } from '@/hooks/useExpenses';
+import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { createExpense, updateExpense, deleteExpense } from '@/lib/firestore/expenses';
-import { EXPENSE_CATEGORIES } from '@/lib/constants';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatCurrency, formatDate, resolveCategory } from '@/lib/utils';
 
 const todayMonth = () => new Date().toISOString().slice(0, 7);
 const todayIso = () => new Date().toISOString().slice(0, 10);
@@ -27,6 +27,7 @@ const emptyForm = () => ({
 export default function ExpensesPage() {
   const { user } = useAuth();
   const { expenses, loading } = useExpenses();
+  const { customCategories } = useCustomCategories('expense');
   const [month, setMonth] = useState(todayMonth());
   const [filterCategory, setFilterCategory] = useState('all');
   const [form, setForm] = useState(emptyForm());
@@ -94,7 +95,7 @@ export default function ExpensesPage() {
       }
       setOpen(false);
     } catch {
-      setError('Erreur lors de l’enregistrement.');
+      setError('Erreur lors de l\u2019enregistrement.');
     } finally {
       setSaving(false);
     }
@@ -114,7 +115,7 @@ export default function ExpensesPage() {
             Total affiché : <span className="font-semibold text-slate-800">{formatCurrency(total)}</span>
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <input
             type="month"
             value={month}
@@ -127,8 +128,8 @@ export default function ExpensesPage() {
             className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm"
           >
             <option value="all">Toutes catégories</option>
-            {EXPENSE_CATEGORIES.map((c) => (
-              <option key={c.id} value={c.id}>{c.label}</option>
+            {customCategories.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
             ))}
           </select>
         </div>
@@ -159,7 +160,7 @@ export default function ExpensesPage() {
               </div>
               <ul className="divide-y divide-slate-100">
                 {items.map((e) => {
-                  const cat = EXPENSE_CATEGORIES.find((c) => c.id === e.categoryId);
+                  const cat = resolveCategory(e.categoryId, 'expense', customCategories);
                   return (
                     <li key={e.id} className="flex items-center justify-between px-4 py-3">
                       <div className="flex items-center gap-3">
@@ -219,15 +220,14 @@ export default function ExpensesPage() {
             value={form.amount}
             onChange={(e) => setForm({ ...form, amount: e.target.value })}
           />
-          <Select
-            label="Catégorie"
-            value={form.categoryId}
-            onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
-          >
-            {EXPENSE_CATEGORIES.map((c) => (
-              <option key={c.id} value={c.id}>{c.label}</option>
-            ))}
-          </Select>
+          <div>
+            <p className="mb-2 text-sm font-medium text-slate-700">Catégorie</p>
+            <CategoryManager
+              type="expense"
+              value={form.categoryId}
+              onChange={(id) => setForm({ ...form, categoryId: id })}
+            />
+          </div>
           <Input
             label="Date"
             type="date"
@@ -248,4 +248,4 @@ export default function ExpensesPage() {
       </Modal>
     </div>
   );
-}
+    }
