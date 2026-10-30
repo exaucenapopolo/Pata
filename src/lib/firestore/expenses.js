@@ -19,6 +19,8 @@ export async function createExpense(uid, data) {
     categoryId: data.categoryId,
     date: data.date,
     note: data.note || '',
+    incomeSourceId: data.incomeSourceId || 'all',
+    incomeSourceName: data.incomeSourceName || 'Tous les revenus',
     createdAt: serverTimestamp(),
   });
 }
