@@ -134,7 +134,7 @@ async function handleFundGoal(request) {
   try {
     const decoded = await authenticate(request);
     const body = await request.json();
-    const { goalId, amount } = body;
+    const { goalId, amount, incomeSourceId, incomeSourceName } = body;
     if (!goalId || !amount || amount <= 0) return errorResponse('Montant invalide.');
 
     const userRef = adminDb.collection('users').doc(decoded.uid);
@@ -147,7 +147,10 @@ async function handleFundGoal(request) {
 
       t.update(userRef, { balance: userDoc.data().balance - amount });
       t.set(goalRef.collection('deposits').doc(), {
-        amount, date: new Date().toISOString().slice(0, 10), source: 'wallet', createdAt: FieldValue.serverTimestamp(),
+        amount, date: new Date().toISOString().slice(0, 10), source: 'wallet', 
+        incomeSourceId: incomeSourceId || null,
+        incomeSourceName: incomeSourceName || null,
+        createdAt: FieldValue.serverTimestamp(),
       });
     });
     return NextResponse.json({ success: true });
@@ -170,12 +173,9 @@ async function handleGoalBorrow(request) {
       if (!goalDoc.exists) throw new Error('Objectif introuvable.');
 
       const currentDebt = goalDoc.data().debtBalance || 0;
-      
-      // On ajoute le montant emprunté comme un dépôt
       t.set(goalRef.collection('deposits').doc(), {
         amount, date: new Date().toISOString().slice(0, 10), source: 'loan', createdAt: FieldValue.serverTimestamp(),
       });
-      // On ajoute la dette (capital + intérêts)
       t.update(goalRef, { debtBalance: currentDebt + totalDebtToAdd });
     });
 
@@ -196,7 +196,6 @@ async function handleRepayLoan(request) {
     await adminDb.runTransaction(async (t) => {
       const userDoc = await t.get(userRef);
       const goalDoc = await t.get(goalRef);
-      
       if (userDoc.data().balance < amount) throw new Error('Solde insuffisant pour rembourser.');
       
       const currentDebt = goalDoc.data().debtBalance || 0;
