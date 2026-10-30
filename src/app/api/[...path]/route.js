@@ -2,17 +2,12 @@ import { NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { FieldValue } from 'firebase-admin/firestore';
 
-// ⚠️ FORCE VERCEL À UTILISER NODE.JS (pas Edge)
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-/* ═══════════════════ HELPERS ═══════════════════ */
-
 async function authenticate(request) {
   const authHeader = request.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) {
-    throw new Error('Token manquant.');
-  }
+  if (!authHeader?.startsWith('Bearer ')) throw new Error('Session expirée.');
   return adminAuth.verifyIdToken(authHeader.slice(7));
 }
 
@@ -26,376 +21,273 @@ function getBaseUrl(request) {
   return process.env.FAPSHI_WEBHOOK_URL?.replace(/\/$/, '') || `${proto}://${host}`;
 }
 
-/* ═══════════════════ ROUTES FAPSHI ═══════════════════ */
-
+/* ═════════ ROUTES FAPSHI ═════════ */
 async function handleFapshiCheckout(request) {
   try {
-    console.log('[API] Début de /api/fapshi/checkout');
     const decoded = await authenticate(request);
     const uid = decoded.uid;
-
     const body = await request.json();
     const amount = Math.round(Number(body.amount));
-    if (!amount || amount < 100) return errorResponse('Montant minimum : 100 FCFA.', 400);
+    if (!amount || amount < 100) return errorResponse('Minimum : 100 FCFA.', 400);
 
     const API_USER = process.env.FAPSHI_API_USER;
     const SECRET_KEY = process.env.FAPSHI_SECRET_KEY;
-    if (!API_USER || !SECRET_KEY) {
-      console.error('[API] Erreur: clés Fapshi manquantes');
-      return errorResponse('Configuration de paiement incomplète.', 500);
-    }
+    if (!API_USER || !SECRET_KEY) return errorResponse('Configuration incomplète.', 500);
 
     const userDoc = await adminDb.collection('users').doc(uid).get();
     const userData = userDoc.exists ? userDoc.data() : {};
-
     const phone = String(body.phone || userData.phone || '').replace(/\D/g, '');
-    if (phone && !userData.phone) {
-      await adminDb.collection('users').doc(uid).update({ phone });
-    }
+    
+    if (phone && !userData.phone) await adminDb.collection('users').doc(uid).update({ phone });
 
     const baseUrl = getBaseUrl(request);
-    const webhookUrl = `${baseUrl}/api/fapshi/webhook`;
-    const origin = request.headers.get('origin') || baseUrl;
-
     const payload = {
-      amount,
-      currency: 'XAF',
-      description: body.description || 'Recharge de solde',
-      redirect_url: `${origin}/wallet`,
-      webhook_url: webhookUrl,
-      phone,
-      email: userData.email || decoded.email || '',
-      name: userData.displayName || 'Client',
+      amount, currency: 'XAF', description: 'Recharge Pata',
+      redirect_url: `${request.headers.get('origin') || baseUrl}/wallet`,
+      webhook_url: `${baseUrl}/api/fapshi/webhook`,
+      phone, email: userData.email || decoded.email || '', name: userData.displayName || 'Client',
     };
 
-    console.log('[API] Envoi requête à Fapshi pour montant:', amount);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 12000);
-
-    let fapshiRes;
-    try {
-      fapshiRes = await fetch('https://live.fapshi.com/initiate-pay', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', apiuser: API_USER, apikey: SECRET_KEY },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-    } catch (err) {
-      clearTimeout(timer);
-      console.error('[API] Fapshi fetch error:', err.message);
-      return errorResponse('Le service de paiement ne répond pas.', 502);
-    }
+    const fapshiRes = await fetch('https://live.fapshi.com/initiate-pay', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', apiuser: API_USER, apikey: SECRET_KEY },
+      body: JSON.stringify(payload), signal: controller.signal,
+    }).catch(() => { clearTimeout(timer); throw new Error('Service indisponible.'); });
     clearTimeout(timer);
 
-    const raw = await fapshiRes.text();
-    let data;
-    try { data = JSON.parse(raw); } catch {
-      console.error('[API] Fapshi réponse non-JSON:', raw);
-      return errorResponse('Réponse de paiement invalide.', 502);
-    }
-
-    if (!fapshiRes.ok) {
-      console.error('[API] Fapshi refus:', data);
-      return errorResponse(data.message || data.error || 'Paiement refusé.', 400);
-    }
+    const data = await fapshiRes.json();
+    if (!fapshiRes.ok) return errorResponse(data.message || 'Paiement refusé.', 400);
 
     const checkoutUrl = data.data?.url || data.link || data.url;
     const transId = data.transId || data.data?.transId;
-
-    if (!checkoutUrl || !transId) {
-      console.error('[API] URL ou transId manquant:', data);
-      return errorResponse('Lien de paiement indisponible.', 502);
-    }
+    if (!checkoutUrl || !transId) return errorResponse('Lien indisponible.', 502);
 
     await adminDb.collection('deposits').doc(transId).set({
-      transId,
-      userId: uid,
-      amount,
-      currency: 'XAF',
-      description: payload.description,
-      phone,
-      status: 'PENDING',
-      checkoutUrl,
-      createdAt: FieldValue.serverTimestamp(),
-      confirmedAt: null,
-      failedAt: null,
+      transId, userId: uid, amount, currency: 'XAF', description: payload.description,
+      phone, status: 'PENDING', checkoutUrl, createdAt: FieldValue.serverTimestamp(), confirmedAt: null, failedAt: null,
     });
 
-    console.log('[API] Succès checkout, URL:', checkoutUrl);
     return NextResponse.json({ success: true, checkoutUrl, transId });
-  } catch (error) {
-    console.error('[API] CRASH checkout:', error.message);
-    return errorResponse(error.message || 'Erreur interne.', 500);
-  }
+  } catch (error) { return errorResponse(error.message, 500); }
 }
 
 async function handleFapshiWebhook(request) {
   try {
     const body = await request.json();
-    const transId = body.transId;
-    if (!transId) return NextResponse.json({ received: true });
-
-    const depositRef = adminDb.collection('deposits').doc(transId);
+    if (!body.transId) return NextResponse.json({ received: true });
+    const depositRef = adminDb.collection('deposits').doc(body.transId);
     const depDoc = await depositRef.get();
-    if (!depDoc.exists) return NextResponse.json({ received: true });
-
-    if (depDoc.data().status === 'CONFIRMED') {
-      return NextResponse.json({ received: true, alreadyConfirmed: true });
-    }
+    if (!depDoc.exists || depDoc.data().status === 'CONFIRMED') return NextResponse.json({ received: true });
 
     const API_USER = process.env.FAPSHI_API_USER;
     const SECRET_KEY = process.env.FAPSHI_SECRET_KEY;
-    if (!API_USER || !SECRET_KEY) return NextResponse.json({ received: true, error: 'config' });
-
-    const verifyRes = await fetch(`https://live.fapshi.com/payment-status/${transId}`, {
-      headers: { apiuser: API_USER, apikey: SECRET_KEY, 'Content-Type': 'application/json' },
+    const verifyRes = await fetch(`https://live.fapshi.com/payment-status/${body.transId}`, {
+      headers: { apiuser: API_USER, apikey: SECRET_KEY },
     });
-
-    if (!verifyRes.ok) return NextResponse.json({ received: true, error: 'verify' });
-
     const verifyData = await verifyRes.json();
-    const realStatus = (verifyData.status || '').toUpperCase();
 
-    if (realStatus !== 'SUCCESSFUL') {
-      if (['FAILED', 'EXPIRED', 'CANCELED', 'REVERSED'].includes(realStatus)) {
-        await depositRef.update({ status: 'FAILED', failedAt: FieldValue.serverTimestamp() });
-      }
-      return NextResponse.json({ received: true, deferred: realStatus });
-    }
-
-    await adminDb.runTransaction(async (t) => {
-      const fresh = await t.get(depositRef);
-      if (!fresh.exists || fresh.data().status === 'CONFIRMED') return;
-
-      const dep = fresh.data();
-      const userRef = adminDb.collection('users').doc(dep.userId);
-      const userDoc = await t.get(userRef);
-      const balance = userDoc.exists ? (userDoc.data().balance || 0) : 0;
-
-      t.update(userRef, { balance: balance + (dep.amount || 0) });
-      t.update(depositRef, {
-        status: 'CONFIRMED',
-        confirmedAt: FieldValue.serverTimestamp(),
+    if ((verifyData.status || '').toUpperCase() === 'SUCCESSFUL') {
+      await adminDb.runTransaction(async (t) => {
+        const fresh = await t.get(depositRef);
+        if (fresh.data().status === 'CONFIRMED') return;
+        const userRef = adminDb.collection('users').doc(fresh.data().userId);
+        const userDoc = await t.get(userRef);
+        t.update(userRef, { balance: (userDoc.data().balance || 0) + fresh.data().amount });
+        t.update(depositRef, { status: 'CONFIRMED', confirmedAt: FieldValue.serverTimestamp() });
       });
-    });
-
-    return NextResponse.json({ received: true, status: 'CONFIRMED' });
-  } catch (error) {
-    console.error('[API] Webhook error:', error.message);
+    }
     return NextResponse.json({ received: true });
-  }
+  } catch (error) { return NextResponse.json({ received: true }); }
 }
 
 async function handleFapshiStatus(request) {
   try {
     const decoded = await authenticate(request);
-    const uid = decoded.uid;
     const body = await request.json();
-    const transId = body.transId;
-    
-    if (!transId) return errorResponse('Transaction manquante.', 400);
-
-    const depositRef = adminDb.collection('deposits').doc(transId);
+    const depositRef = adminDb.collection('deposits').doc(body.transId);
     const depDoc = await depositRef.get();
-    
-    if (!depDoc.exists) return errorResponse('Transaction introuvable.', 404);
-    const dep = depDoc.data();
-    
-    if (dep.userId !== uid) return errorResponse('Accès refusé.', 403);
-    if (dep.status === 'CONFIRMED') {
-      return NextResponse.json({ success: true, status: 'CONFIRMED', alreadyConfirmed: true });
-    }
+    if (!depDoc.exists || depDoc.data().userId !== decoded.uid) return errorResponse('Introuvable.', 404);
+    if (depDoc.data().status === 'CONFIRMED') return NextResponse.json({ success: true, status: 'CONFIRMED' });
 
     const API_USER = process.env.FAPSHI_API_USER;
     const SECRET_KEY = process.env.FAPSHI_SECRET_KEY;
-    if (!API_USER || !SECRET_KEY) return errorResponse('Service indisponible.', 500);
+    const res = await fetch(`https://live.fapshi.com/payment-status/${body.transId}`, { headers: { apiuser: API_USER, apikey: SECRET_KEY } });
+    const data = await res.json();
 
-    const fapshiRes = await fetch(`https://live.fapshi.com/payment-status/${transId}`, {
-      headers: { apiuser: API_USER, apikey: SECRET_KEY, 'Content-Type': 'application/json' },
-    });
-
-    if (!fapshiRes.ok) return errorResponse('Vérification impossible.', 502);
-    const fapshiData = await fapshiRes.json();
-    const realStatus = (fapshiData.status || '').toUpperCase();
-
-    if (realStatus === 'SUCCESSFUL') {
+    if ((data.status || '').toUpperCase() === 'SUCCESSFUL') {
       await adminDb.runTransaction(async (t) => {
         const fresh = await t.get(depositRef);
-        if (!fresh.exists || fresh.data().status === 'CONFIRMED') return;
-        const d = fresh.data();
-        const userRef = adminDb.collection('users').doc(d.userId);
+        const userRef = adminDb.collection('users').doc(decoded.uid);
         const userDoc = await t.get(userRef);
-        const balance = userDoc.exists ? (userDoc.data().balance || 0) : 0;
-        t.update(userRef, { balance: balance + (d.amount || 0) });
+        t.update(userRef, { balance: (userDoc.data().balance || 0) + fresh.data().amount });
         t.update(depositRef, { status: 'CONFIRMED', confirmedAt: FieldValue.serverTimestamp() });
       });
-      return NextResponse.json({ success: true, status: 'CONFIRMED', credited: true });
+      return NextResponse.json({ success: true, status: 'CONFIRMED' });
     }
-
-    if (['FAILED', 'EXPIRED', 'CANCELED', 'REVERSED'].includes(realStatus)) {
-      await depositRef.update({ status: 'FAILED', failedAt: FieldValue.serverTimestamp() });
-      return NextResponse.json({ success: true, status: 'FAILED' });
-    }
-
     return NextResponse.json({ success: true, status: 'PENDING' });
-  } catch (error) {
-    console.error('[API] Status error:', error.message);
-    return errorResponse(error.message || 'Erreur serveur.', 500);
-  }
+  } catch (error) { return errorResponse(error.message, 500); }
 }
 
-/* ═══════════════════ ROUTES PORTEFEUILLE & OBJECTIFS ═══════════════════ */
-
+/* ═════════ ROUTES WALLET & OBJECTIFS ═════════ */
 async function handleFundGoal(request) {
   try {
     const decoded = await authenticate(request);
-    const uid = decoded.uid;
     const body = await request.json();
-    const goalId = body.goalId;
-    const amount = Math.round(Number(body.amount));
+    const { goalId, amount } = body;
+    if (!goalId || !amount || amount <= 0) return errorResponse('Montant invalide.');
 
-    if (!goalId || !amount || amount <= 0) return errorResponse('Montant invalide.', 400);
-
-    const userRef = adminDb.collection('users').doc(uid);
-    const goalRef = adminDb.collection('users').doc(uid).collection('goals').doc(goalId);
+    const userRef = adminDb.collection('users').doc(decoded.uid);
+    const goalRef = adminDb.collection('users').doc(decoded.uid).collection('goals').doc(goalId);
 
     await adminDb.runTransaction(async (t) => {
       const userDoc = await t.get(userRef);
       const goalDoc = await t.get(goalRef);
+      if (userDoc.data().balance < amount) throw new Error('Solde insuffisant.');
 
-      if (!userDoc.exists) throw new Error('Utilisateur introuvable.');
+      t.update(userRef, { balance: userDoc.data().balance - amount });
+      t.set(goalRef.collection('deposits').doc(), {
+        amount, date: new Date().toISOString().slice(0, 10), source: 'wallet', createdAt: FieldValue.serverTimestamp(),
+      });
+    });
+    return NextResponse.json({ success: true });
+  } catch (error) { return errorResponse(error.message, 400); }
+}
+
+async function handleGoalBorrow(request) {
+  try {
+    const decoded = await authenticate(request);
+    const body = await request.json();
+    const { goalId, amount } = body;
+    if (!goalId || !amount || amount <= 0) return errorResponse('Montant invalide.');
+
+    const goalRef = adminDb.collection('users').doc(decoded.uid).collection('goals').doc(goalId);
+    const interest = Math.round(amount * 0.05); // 5%
+    const totalDebtToAdd = amount + interest;
+
+    await adminDb.runTransaction(async (t) => {
+      const goalDoc = await t.get(goalRef);
       if (!goalDoc.exists) throw new Error('Objectif introuvable.');
 
-      const balance = userDoc.data().balance || 0;
-      if (balance < amount) {
-        throw new Error(`Solde insuffisant. Disponible : ${balance.toLocaleString('fr-FR')} FCFA.`);
-      }
-
-      const depositRef = goalRef.collection('deposits').doc();
-      t.set(depositRef, {
-        amount,
-        date: new Date().toISOString().slice(0, 10),
-        source: 'wallet',
-        createdAt: FieldValue.serverTimestamp(),
+      const currentDebt = goalDoc.data().debtBalance || 0;
+      
+      // On ajoute le montant emprunté comme un dépôt
+      t.set(goalRef.collection('deposits').doc(), {
+        amount, date: new Date().toISOString().slice(0, 10), source: 'loan', createdAt: FieldValue.serverTimestamp(),
       });
-      t.update(userRef, { balance: balance - amount });
+      // On ajoute la dette (capital + intérêts)
+      t.update(goalRef, { debtBalance: currentDebt + totalDebtToAdd });
     });
 
+    return NextResponse.json({ success: true, borrowed: amount, interest, totalDebt: totalDebtToAdd });
+  } catch (error) { return errorResponse(error.message, 400); }
+}
+
+async function handleRepayLoan(request) {
+  try {
+    const decoded = await authenticate(request);
+    const body = await request.json();
+    const { goalId, amount } = body;
+    if (!goalId || !amount || amount <= 0) return errorResponse('Montant invalide.');
+
+    const userRef = adminDb.collection('users').doc(decoded.uid);
+    const goalRef = adminDb.collection('users').doc(decoded.uid).collection('goals').doc(goalId);
+
+    await adminDb.runTransaction(async (t) => {
+      const userDoc = await t.get(userRef);
+      const goalDoc = await t.get(goalRef);
+      
+      if (userDoc.data().balance < amount) throw new Error('Solde insuffisant pour rembourser.');
+      
+      const currentDebt = goalDoc.data().debtBalance || 0;
+      const newDebt = Math.max(0, currentDebt - amount);
+
+      t.update(userRef, { balance: userDoc.data().balance - amount });
+      t.update(goalRef, { debtBalance: newDebt });
+    });
     return NextResponse.json({ success: true });
-  } catch (error) {
-    return errorResponse(error.message || 'Erreur transaction.', 400);
-  }
+  } catch (error) { return errorResponse(error.message, 400); }
 }
 
 async function handleGoalWithdraw(request) {
   try {
     const decoded = await authenticate(request);
-    const uid = decoded.uid;
     const body = await request.json();
-    const goalId = body.goalId;
+    const goalRef = adminDb.collection('users').doc(decoded.uid).collection('goals').doc(body.goalId);
+    const userRef = adminDb.collection('users').doc(decoded.uid);
 
-    if (!goalId) return errorResponse('Objectif manquant.', 400);
+    const result = await adminDb.runTransaction(async (t) => {
+      const goalDoc = await t.get(goalRef);
+      const depositsSnap = await t.get(goalRef.collection('deposits'));
+      
+      const totalDeposited = depositsSnap.docs.reduce((s, d) => s + (d.data().amount || 0), 0);
+      const debt = goalDoc.data().debtBalance || 0;
+      const netRefund = Math.max(0, totalDeposited - debt);
 
-    const userRef = adminDb.collection('users').doc(uid);
-    const goalRef = adminDb.collection('users').doc(uid).collection('goals').doc(goalId);
-    const depositsRef = goalRef.collection('deposits');
-
-    const goalDoc = await goalRef.get();
-    if (!goalDoc.exists) return errorResponse('Objectif introuvable.', 404);
-
-    const depositsSnap = await depositsRef.get();
-    const totalDeposited = depositsSnap.docs.reduce((s, d) => s + (d.data().amount || 0), 0);
-
-    if (totalDeposited <= 0) return errorResponse('Aucun montant à retirer.', 400);
-
-    await adminDb.runTransaction(async (t) => {
-      const userDoc = await t.get(userRef);
-      const balance = userDoc.exists ? (userDoc.data().balance || 0) : 0;
-      t.update(userRef, { balance: balance + totalDeposited });
+      if (netRefund > 0) {
+        const userDoc = await t.get(userRef);
+        t.update(userRef, { balance: (userDoc.data().balance || 0) + netRefund });
+      }
+      
       t.delete(goalRef);
+      depositsSnap.docs.forEach(d => t.delete(d.ref));
+      
+      return { totalDeposited, debt, netRefund };
     });
 
-    const batch = adminDb.batch();
-    depositsSnap.docs.forEach((d) => batch.delete(d.ref));
-    await batch.commit();
-
-    return NextResponse.json({ success: true, amount: totalDeposited, penalty: 0 });
-  } catch (error) {
-    return errorResponse(error.message || 'Retrait impossible.', 500);
-  }
+    return NextResponse.json({ success: true, ...result });
+  } catch (error) { return errorResponse(error.message, 500); }
 }
 
 async function handleGoalCancel(request) {
   try {
     const decoded = await authenticate(request);
-    const uid = decoded.uid;
     const body = await request.json();
-    const goalId = body.goalId;
+    const goalRef = adminDb.collection('users').doc(decoded.uid).collection('goals').doc(body.goalId);
+    const userRef = adminDb.collection('users').doc(decoded.uid);
 
-    if (!goalId) return errorResponse('Objectif manquant.', 400);
+    const result = await adminDb.runTransaction(async (t) => {
+      const goalDoc = await t.get(goalRef);
+      const depositsSnap = await t.get(goalRef.collection('deposits'));
+      
+      const totalDeposited = depositsSnap.docs.reduce((s, d) => s + (d.data().amount || 0), 0);
+      const debt = goalDoc.data().debtBalance || 0;
+      
+      const cancelPenalty = Math.round(totalDeposited * 0.10);
+      const netRefund = Math.max(0, totalDeposited - debt - cancelPenalty);
 
-    const userRef = adminDb.collection('users').doc(uid);
-    const goalRef = adminDb.collection('users').doc(uid).collection('goals').doc(goalId);
-    const depositsRef = goalRef.collection('deposits');
-
-    const goalDoc = await goalRef.get();
-    if (!goalDoc.exists) return errorResponse('Objectif introuvable.', 404);
-
-    const depositsSnap = await depositsRef.get();
-    const totalDeposited = depositsSnap.docs.reduce((s, d) => s + (d.data().amount || 0), 0);
-
-    const penalty = Math.round(totalDeposited * 0.10);
-    const refund = totalDeposited - penalty;
-
-    await adminDb.runTransaction(async (t) => {
-      const userDoc = await t.get(userRef);
-      const balance = userDoc.exists ? (userDoc.data().balance || 0) : 0;
-      t.update(userRef, { balance: balance + refund });
+      if (netRefund > 0) {
+        const userDoc = await t.get(userRef);
+        t.update(userRef, { balance: (userDoc.data().balance || 0) + netRefund });
+      }
+      
       t.delete(goalRef);
+      depositsSnap.docs.forEach(d => t.delete(d.ref));
+      
+      return { totalDeposited, debt, cancelPenalty, netRefund };
     });
 
-    if (depositsSnap.docs.length > 0) {
-      const batch = adminDb.batch();
-      depositsSnap.docs.forEach((d) => batch.delete(d.ref));
-      await batch.commit();
-    }
-
-    return NextResponse.json({ success: true, amount: refund, penalty, total: totalDeposited });
-  } catch (error) {
-    return errorResponse(error.message || 'Annulation impossible.', 500);
-  }
+    return NextResponse.json({ success: true, ...result });
+  } catch (error) { return errorResponse(error.message, 500); }
 }
 
-/* ═══════════════════ ROUTEUR PRINCIPAL ═══════════════════ */
-
+/* ═════════ ROUTEUR ═════════ */
 const ROUTES = {
   'fapshi/checkout':  { POST: handleFapshiCheckout },
   'fapshi/webhook':   { POST: handleFapshiWebhook },
   'fapshi/status':    { POST: handleFapshiStatus },
   'wallet/fund-goal': { POST: handleFundGoal },
+  'goals/borrow':     { POST: handleGoalBorrow },
+  'goals/repay':      { POST: handleRepayLoan },
   'goals/withdraw':   { POST: handleGoalWithdraw },
   'goals/cancel':     { POST: handleGoalCancel },
 };
 
 async function dispatch(request, context) {
   const segments = context?.params?.path || [];
-  const key = segments.join('/');
-  const route = ROUTES[key];
-
-  if (!route) {
-    return NextResponse.json({ success: false, error: 'Route inconnue.' }, { status: 404 });
-  }
-
-  const handler = route[request.method];
-  if (!handler) {
-    return NextResponse.json({ success: false, error: `Méthode non autorisée.` }, { status: 405 });
-  }
-
-  return handler(request);
+  const route = ROUTES[segments.join('/')];
+  if (!route || !route[request.method]) return NextResponse.json({ error: 'Route introuvable' }, { status: 404 });
+  return route[request.method](request);
 }
 
-export const GET = dispatch;
-export const POST = dispatch;
-export const PUT = dispatch;
-export const DELETE = dispatch;
-export const PATCH = dispatch;
+export { dispatch as GET, dispatch as POST, dispatch as PUT, dispatch as DELETE, dispatch as PATCH };
