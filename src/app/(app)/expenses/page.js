@@ -2,14 +2,16 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Plus, Trash2, Wallet, Pencil } from 'lucide-react';
+import { Plus, Trash2, Wallet, Pencil, Landmark } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { CategoryManager } from '@/components/ui/CategoryManager';
+import { CategoryBadge } from '@/components/ui/CategoryBadge';
 import { useAuth } from '@/hooks/useAuth';
 import { useExpenses } from '@/hooks/useExpenses';
+import { useIncomes } from '@/hooks/useIncomes';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { createExpense, updateExpense, deleteExpense } from '@/lib/firestore/expenses';
 import { formatCurrency, formatDate, resolveCategory } from '@/lib/utils';
@@ -23,18 +25,27 @@ const emptyForm = () => ({
   categoryId: 'food',
   date: todayIso(),
   note: '',
+  incomeSourceId: 'all',
+  incomeSourceName: 'Tous les revenus',
 });
 
 export default function ExpensesPage() {
   const { user } = useAuth();
   const { expenses, loading } = useExpenses();
+  const { incomes } = useIncomes();
   const { customCategories } = useCustomCategories('expense');
+  
   const [month, setMonth] = useState(todayMonth());
   const [filterCategory, setFilterCategory] = useState('all');
   const [form, setForm] = useState(emptyForm());
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  const monthIncomes = useMemo(
+    () => incomes.filter((i) => i.month === month),
+    [incomes, month]
+  );
 
   const filtered = useMemo(() => {
     return expenses
@@ -67,6 +78,8 @@ export default function ExpensesPage() {
       categoryId: exp.categoryId,
       date: exp.date,
       note: exp.note || '',
+      incomeSourceId: exp.incomeSourceId || 'all',
+      incomeSourceName: exp.incomeSourceName || 'Tous les revenus',
     });
     setError('');
     setOpen(true);
@@ -77,22 +90,22 @@ export default function ExpensesPage() {
     setError('');
     const amount = Number(form.amount);
     if (!amount || amount <= 0) return setError('Montant invalide.');
+    
     setSaving(true);
     try {
+      const payload = {
+        amount,
+        categoryId: form.categoryId,
+        date: form.date,
+        note: form.note,
+        incomeSourceId: form.incomeSourceId,
+        incomeSourceName: form.incomeSourceName,
+      };
+
       if (form.id) {
-        await updateExpense(user.uid, form.id, {
-          amount,
-          categoryId: form.categoryId,
-          date: form.date,
-          note: form.note,
-        });
+        await updateExpense(user.uid, form.id, payload);
       } else {
-        await createExpense(user.uid, {
-          amount,
-          categoryId: form.categoryId,
-          date: form.date,
-          note: form.note,
-        });
+        await createExpense(user.uid, payload);
       }
       setOpen(false);
     } catch {
@@ -103,8 +116,9 @@ export default function ExpensesPage() {
   };
 
   const onDelete = async (id) => {
-    if (!confirm('Supprimer cette dépense ?')) return;
-    await deleteExpense(user.uid, id);
+    if (confirm('Supprimer cette dépense ?')) {
+      await deleteExpense(user.uid, id);
+    }
   };
 
   return (
@@ -151,7 +165,7 @@ export default function ExpensesPage() {
         <div className="space-y-4">
           {grouped.map(([date, items]) => (
             <div key={date} className="rounded-2xl border border-slate-200 bg-white">
-              <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2.5">
+              <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2.5 bg-slate-50/50 rounded-t-2xl">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                   {formatDate(date, { weekday: 'long', day: '2-digit', month: 'long' })}
                 </p>
@@ -165,17 +179,21 @@ export default function ExpensesPage() {
                   return (
                     <li key={e.id} className="flex items-center justify-between px-4 py-3">
                       <div className="flex items-center gap-3">
-                        <span
-                          className="h-2.5 w-2.5 shrink-0 rounded-full"
-                          style={{ backgroundColor: cat?.color || '#94a3b8' }}
-                        />
+                        <CategoryBadge categoryId={e.categoryId} color={cat?.color} size="md" />
                         <div>
-                          <p className="text-sm font-medium text-slate-800">{cat?.label || 'Autre'}</p>
-                          {e.note && <p className="text-xs text-slate-500">{e.note}</p>}
+                          <p className="text-sm font-semibold text-slate-800">{cat?.label || 'Autre'}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {e.note && <p className="text-xs text-slate-500">{e.note}</p>}
+                            {e.incomeSourceId && e.incomeSourceId !== 'all' && (
+                              <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                                <Landmark size={10} /> {e.incomeSourceName}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-slate-800">
+                        <span className="text-sm font-bold text-slate-800">
                           {formatCurrency(e.amount)}
                         </span>
                         <button
@@ -211,7 +229,7 @@ export default function ExpensesPage() {
       </button>
 
       <Modal open={open} onClose={() => setOpen(false)} title={form.id ? 'Modifier la dépense' : 'Nouvelle dépense'}>
-        <form onSubmit={onSubmit} className="space-y-3">
+        <form onSubmit={onSubmit} className="space-y-4">
           <Input
             label="Montant (FCFA)"
             type="number"
@@ -221,6 +239,7 @@ export default function ExpensesPage() {
             value={form.amount}
             onChange={(e) => setForm({ ...form, amount: e.target.value })}
           />
+          
           <div>
             <p className="mb-2 text-sm font-medium text-slate-700">Catégorie</p>
             <CategoryManager
@@ -229,18 +248,46 @@ export default function ExpensesPage() {
               onChange={(id) => setForm({ ...form, categoryId: id })}
             />
           </div>
-          <Input
-            label="Date"
-            type="date"
-            required
-            value={form.date}
-            onChange={(e) => setForm({ ...form, date: e.target.value })}
-          />
-          <Input
-            label="Note (optionnel)"
-            value={form.note}
-            onChange={(e) => setForm({ ...form, note: e.target.value })}
-          />
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">D'où vient cet argent ?</label>
+            <select
+              value={form.incomeSourceId}
+              onChange={(e) => {
+                const selectedId = e.target.value;
+                const selectedInc = monthIncomes.find(i => i.id === selectedId);
+                setForm({ 
+                  ...form, 
+                  incomeSourceId: selectedId, 
+                  incomeSourceName: selectedInc ? selectedInc.source : 'Tous les revenus' 
+                });
+              }}
+              className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"
+            >
+              <option value="all">Tous les revenus (Global)</option>
+              {monthIncomes.map((inc) => (
+                <option key={inc.id} value={inc.id}>
+                  {inc.source} ({formatCurrency(inc.amount)})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <Input
+              label="Date"
+              type="date"
+              required
+              value={form.date}
+              onChange={(e) => setForm({ ...form, date: e.target.value })}
+            />
+            <Input
+              label="Note (optionnel)"
+              value={form.note}
+              onChange={(e) => setForm({ ...form, note: e.target.value })}
+            />
+          </div>
+
           {error && <p className="text-sm text-red-600">{error}</p>}
           <Button type="submit" className="w-full" disabled={saving}>
             {saving ? 'Enregistrement…' : form.id ? 'Mettre à jour' : 'Ajouter'}
@@ -249,4 +296,4 @@ export default function ExpensesPage() {
       </Modal>
     </div>
   );
-}
+                                    }
