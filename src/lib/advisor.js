@@ -1,16 +1,9 @@
 import { resolveCategory, formatCurrency } from './utils';
 
 /**
- * Génère une liste de conseils intelligents basés sur les finances de l'utilisateur.
- *
+ * Conseils en langage naturel, personnalisés par prénom.
  * @param {Object} data
- * @param {Array} data.expenses - dépenses du mois courant
- * @param {Array} data.previousExpenses - dépenses du mois précédent
- * @param {Array} data.budgets - budgets du mois courant
- * @param {Array} data.goals - objectifs en cours
- * @param {number} data.totalIncome - revenus du mois
- * @param {Array} data.customCategories - catégories custom (expense)
- * @returns {Array<{id, type, title, message, priority}>}
+ * @param {string} [data.userName] - prénom de l'utilisateur (ou 'toi')
  */
 export function generateAdvice({
   expenses = [],
@@ -19,37 +12,38 @@ export function generateAdvice({
   goals = [],
   totalIncome = 0,
   customCategories = [],
+  userName = 'toi',
 }) {
   const advices = [];
+  const name = userName && userName !== 'toi' ? userName : null;
+  const opener = name ? `${name}, ` : '';
 
   const totalExpense = expenses.reduce((s, e) => s + (e.amount || 0), 0);
   const totalBudget = budgets.reduce((s, b) => s + (b.amount || 0), 0);
+  const prevTotal = previousExpenses.reduce((s, e) => s + (e.amount || 0), 0);
 
-  /* ────── 1. Taux d'épargne (revenus vs dépenses) ────── */
+  /* ────── 1. Taux d'épargne ────── */
   if (totalIncome > 0) {
     const savingsRate = ((totalIncome - totalExpense) / totalIncome) * 100;
     if (savingsRate >= 20) {
       advices.push({
         id: 'savings-good',
         type: 'success',
-        title: 'Excellent taux d\u2019épargne',
-        message: `Tu gardes ${savingsRate.toFixed(0)} % de tes revenus ce mois-ci (${formatCurrency(totalIncome - totalExpense)}). Objectif atteint, continue.`,
+        message: `${opener}tu gardes ${savingsRate.toFixed(0)} % de tes revenus ce mois-ci, soit ${formatCurrency(totalIncome - totalExpense)}. C'est solide — continue à ce rythme.`,
         priority: 30,
       });
     } else if (savingsRate >= 0 && savingsRate < 10) {
       advices.push({
         id: 'savings-low',
         type: 'warning',
-        title: 'Taux d\u2019épargne faible',
-        message: `Tu n\u2019épargnes que ${savingsRate.toFixed(0)} % de tes revenus. Vise 20 % pour plus de sécurité (${formatCurrency(totalIncome * 0.2)}).`,
+        message: `${opener}tu n'épargnes que ${savingsRate.toFixed(0)} % de tes revenus. Pour te sentir plus tranquille, vise au moins 20 % — ça représenterait ${formatCurrency(totalIncome * 0.2)} à mettre de côté.`,
         priority: 70,
       });
     } else if (savingsRate < 0) {
       advices.push({
         id: 'savings-negative',
         type: 'danger',
-        title: 'Dépenses supérieures aux revenus',
-        message: `Tu as dépensé ${formatCurrency(Math.abs(totalIncome - totalExpense))} de plus que tes revenus. Réduis immédiatement les dépenses non essentielles.`,
+        message: `${opener}tu as dépensé ${formatCurrency(Math.abs(totalIncome - totalExpense))} de plus que ce que tu as gagné ce mois. Il faut identifier tout de suite les dépenses à réduire.`,
         priority: 100,
       });
     }
@@ -57,13 +51,12 @@ export function generateAdvice({
     advices.push({
       id: 'no-income',
       type: 'tip',
-      title: 'Déclare tes revenus',
-      message: 'Tu as des dépenses mais pas de revenus enregistrés ce mois. Ajoute ton salaire pour un meilleur suivi.',
+      message: `${opener}tu as enregistré des dépenses mais pas encore de revenus ce mois-ci. Ajoute ton salaire ou tes entrées d'argent pour que je puisse t'aider à mieux répartir.`,
       priority: 55,
     });
   }
 
-  /* ────── 2. Budgets par catégorie ────── */
+  /* ────── 2. Budgets dépassés ────── */
   if (totalBudget > 0) {
     const spentByCategory = {};
     expenses.forEach((e) => {
@@ -80,16 +73,14 @@ export function generateAdvice({
         advices.push({
           id: `over-${b.categoryId}`,
           type: 'danger',
-          title: `Budget ${cat.label} dépassé`,
-          message: `Tu as dépassé de ${formatCurrency(spent - b.amount)} ton budget ${cat.label}. Réduis tes prochaines dépenses dans cette catégorie.`,
+          message: `${opener}tu as dépassé ton budget ${cat.label} de ${formatCurrency(spent - b.amount)}. Là, tu peux freiner tout de suite sur ${cat.label.toLowerCase()} pour ne pas creuser encore.`,
           priority: 92,
         });
       } else if (usage > 80) {
         advices.push({
           id: `near-${b.categoryId}`,
           type: 'warning',
-          title: `Budget ${cat.label} bientôt atteint`,
-          message: `Il ne reste que ${formatCurrency(b.amount - spent)} sur ton budget ${cat.label}. Ralentis.`,
+          message: `${opener}il ne te reste que ${formatCurrency(b.amount - spent)} sur ton budget ${cat.label}. Lève le pied sur ce poste pour finir le mois sereinement.`,
           priority: 72,
         });
       }
@@ -98,30 +89,26 @@ export function generateAdvice({
     advices.push({
       id: 'no-budgets',
       type: 'tip',
-      title: 'Définis tes budgets',
-      message: 'Applique la répartition suggérée depuis Revenus pour mieux contrôler tes dépenses chaque mois.',
+      message: `${opener}tu dépenses sans budgets définis ce mois. Applique la répartition depuis l'onglet Revenus pour que je puisse te prévenir quand tu approches des limites.`,
       priority: 60,
     });
   }
 
-  /* ────── 3. Comparaison avec le mois précédent ────── */
-  const prevTotal = previousExpenses.reduce((s, e) => s + (e.amount || 0), 0);
+  /* ────── 3. Comparaison mois précédent ────── */
   if (prevTotal > 0 && totalExpense > 0) {
     const change = ((totalExpense - prevTotal) / prevTotal) * 100;
     if (change <= -10) {
       advices.push({
         id: 'spending-decrease',
         type: 'success',
-        title: 'Dépenses en baisse',
-        message: `Bravo ! Tu as dépensé ${Math.abs(change).toFixed(0)} % de moins que le mois dernier (${formatCurrency(prevTotal - totalExpense)} économisés).`,
+        message: `Bien joué ${name || ''} — tu as dépensé ${Math.abs(change).toFixed(0)} % de moins que le mois dernier. Ça te fait ${formatCurrency(prevTotal - totalExpense)} d'économies. Ce réflexe paie.`,
         priority: 25,
       });
     } else if (change >= 20) {
       advices.push({
         id: 'spending-increase',
         type: 'warning',
-        title: 'Dépenses en hausse',
-        message: `Tu as dépensé ${change.toFixed(0)} % de plus que le mois dernier (+${formatCurrency(totalExpense - prevTotal)}). Vérifie d\u2019où vient la hausse.`,
+        message: `${opener}tu as dépensé ${change.toFixed(0)} % de plus que le mois dernier, soit ${formatCurrency(totalExpense - prevTotal)} en plus. Regarde d'où vient la hausse : souvent c'est un poste précis qui dérape.`,
         priority: 78,
       });
     }
@@ -141,14 +128,13 @@ export function generateAdvice({
       advices.push({
         id: 'top-category',
         type: 'info',
-        title: `Tu dépenses surtout en ${cat.label}`,
-        message: `${percent.toFixed(0)} % de tes dépenses (${formatCurrency(topAmount)}) vont en ${cat.label}. C\u2019est là que tu peux économiser le plus.`,
+        message: `${opener}${percent.toFixed(0)} % de tes dépenses vont en ${cat.label.toLowerCase()} (${formatCurrency(topAmount)}). C'est ta plus grosse sortie d'argent ce mois — commence par là si tu veux économiser.`,
         priority: 45,
       });
     }
   }
 
-  /* ────── 5. Objectifs proches de leur échéance ────── */
+  /* ────── 5. Objectifs bientôt échus ────── */
   const today = new Date();
   goals.forEach((g) => {
     if (!g.deadline) return;
@@ -157,8 +143,7 @@ export function generateAdvice({
       advices.push({
         id: `goal-soon-${g.id}`,
         type: 'warning',
-        title: `Objectif « ${g.name} » bientôt terminé`,
-        message: `Il te reste ${daysLeft} jour${daysLeft > 1 ? 's' : ''} pour le clôturer. Vérifie sa progression.`,
+        message: `${opener}ton objectif « ${g.name} » se termine dans ${daysLeft} jour${daysLeft > 1 ? 's' : ''}. Jette un œil à ta progression pour éviter l'amende.`,
         priority: 68,
       });
     }
@@ -168,30 +153,12 @@ export function generateAdvice({
   return advices.slice(0, 5);
 }
 
-/**
- * Style Tailwind pour chaque type de conseil.
- */
-export function adviceStyle(type) {
+export function adviceIconColor(type) {
   switch (type) {
-    case 'success':
-      return { bg: 'bg-brand-50', border: 'border-brand-200', iconColor: 'text-brand-600', titleColor: 'text-brand-700' };
-    case 'danger':
-      return { bg: 'bg-red-50', border: 'border-red-200', iconColor: 'text-red-600', titleColor: 'text-red-700' };
-    case 'warning':
-      return { bg: 'bg-amber-50', border: 'border-amber-200', iconColor: 'text-amber-600', titleColor: 'text-amber-700' };
-    case 'tip':
-      return { bg: 'bg-blue-50', border: 'border-blue-200', iconColor: 'text-blue-600', titleColor: 'text-blue-700' };
-    default:
-      return { bg: 'bg-slate-50', border: 'border-slate-200', iconColor: 'text-slate-600', titleColor: 'text-slate-700' };
+    case 'success': return 'text-brand-600';
+    case 'danger': return 'text-red-500';
+    case 'warning': return 'text-amber-500';
+    case 'tip': return 'text-blue-500';
+    default: return 'text-slate-400';
   }
 }
-
-export function adviceIcon(type) {
-  switch (type) {
-    case 'success': return 'check';
-    case 'danger': return 'alert';
-    case 'warning': return 'alert';
-    case 'tip': return 'lightbulb';
-    default: return 'info';
-  }
-    }
