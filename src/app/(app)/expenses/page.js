@@ -1,3 +1,4 @@
+/* eslint-disable react/no-unescaped-entities */
 'use client';
 
 import { useMemo, useState } from 'react';
@@ -248,4 +249,4 @@ export default function ExpensesPage() {
       </Modal>
     </div>
   );
-    }
+}
