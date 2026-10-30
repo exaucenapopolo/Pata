@@ -3,12 +3,13 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  LayoutDashboard, Wallet, TrendingUp, Target, BarChart3, Settings, PiggyBank,
+  LayoutDashboard, Wallet, Banknote, TrendingUp, Target, BarChart3, Settings, PiggyBank,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const NAV = [
   { href: '/dashboard', label: 'Tableau de bord', icon: LayoutDashboard },
+  { href: '/wallet',    label: 'Portefeuille',    icon: Banknote },
   { href: '/expenses',  label: 'Dépenses',        icon: Wallet },
   { href: '/income',    label: 'Revenus',         icon: TrendingUp },
   { href: '/budgets',   label: 'Budgets',         icon: PiggyBank },
