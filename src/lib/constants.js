@@ -23,6 +23,9 @@ export const BUDGET_RULES = {
   health:    { label: 'Santé / Urgences', percent: 10 },
   other:     { label: 'Autre',            percent: 5  },
 };
+
+export const PENALTY_DEFAULT = 500;
+
 export const GOAL_CATEGORIES = [
   { id: 'savings',   label: 'Épargne générale', color: '#10b981' },
   { id: 'transport', label: 'Transport',        color: '#3b82f6' },
@@ -31,5 +34,3 @@ export const GOAL_CATEGORIES = [
   { id: 'health',    label: 'Santé',            color: '#ef4444' },
   { id: 'other',     label: 'Autre',            color: '#94a3b8' },
 ];
-
-export const PENALTY_DEFAULT = 500;
