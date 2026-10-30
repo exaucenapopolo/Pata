@@ -1,3 +1,4 @@
+/* eslint-disable react/no-unescaped-entities */
 'use client';
 
 import { useMemo, useState } from 'react';
@@ -10,7 +11,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { Card, CardTitle, CardValue } from '@/components/ui/Card';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { CategoryBadge } from '@/components/ui/CategoryBadge';
+import { CategoryImage } from '@/components/ui/CategoryImage';
 import { useIncomes } from '@/hooks/useIncomes';
 import { useExpenses } from '@/hooks/useExpenses';
 import { useBudgets } from '@/hooks/useBudgets';
@@ -73,7 +74,6 @@ export default function DashboardPage() {
       .sort((a, b) => b.value - a.value);
   }, [monthExpenses, customCategories]);
 
-  // 🟢 NOUVEAU : Calcul des dépenses par source de revenu
   const byIncomeSource = useMemo(() => {
     const map = {};
     monthExpenses.forEach((e) => {
@@ -105,7 +105,7 @@ export default function DashboardPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Tableau de bord</h1>
-          <p className="text-sm text-slate-500">Vue d&apos;ensemble et conseils personnalisés.</p>
+          <p className="text-sm text-slate-500">Vue d’ensemble et conseils personnalisés.</p>
         </div>
         <input
           type="month"
@@ -265,7 +265,7 @@ export default function DashboardPage() {
               return (
                 <li key={e.id} className="flex items-center justify-between py-3">
                   <div className="flex items-center gap-3">
-                    <CategoryBadge categoryId={e.categoryId} color={cat?.color} size="sm" />
+                    <CategoryImage categoryId={e.categoryId} image={cat?.image} size="sm" />
                     <div>
                       <p className="text-sm font-semibold text-slate-800">{cat?.label || 'Autre'}</p>
                       <p className="text-xs text-slate-500">{formatDate(e.date)}</p>
@@ -285,4 +285,4 @@ export default function DashboardPage() {
       </Card>
     </div>
   );
-    }
+  }
