@@ -1,38 +1,29 @@
+// src/lib/firebase/admin.js
 import { getApps, initializeApp, cert } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 
-function ensureInit() {
-  if (getApps().length) return;
+if (!getApps().length) {
+  const serviceAccountKey = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
 
-  const projectId = process.env.FIREBASE_PROJECT_ID;
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const privateKey = (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n');
-
-  if (!projectId || !clientEmail || !privateKey) {
+  if (!serviceAccountKey) {
     throw new Error(
-      'Variables Firebase Admin manquantes : FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY. ' +
-      'Configure-les dans Vercel → Settings → Environment Variables.'
+      'La variable FIREBASE_SERVICE_ACCOUNT_KEY est manquante. Configure-la dans Vercel.'
     );
   }
 
-  initializeApp({ credential: cert({ projectId, clientEmail, privateKey }) });
+  try {
+    const serviceAccount = JSON.parse(serviceAccountKey);
+    initializeApp({
+      credential: cert(serviceAccount),
+    });
+  } catch (error) {
+    console.error('Erreur de parsing du JSON:', error);
+    throw new Error(
+      'FIREBASE_SERVICE_ACCOUNT_KEY est invalide. Assure-toi de coller le JSON complet.'
+    );
+  }
 }
 
-export const adminAuth = new Proxy({}, {
-  get(_, prop) {
-    ensureInit();
-    const auth = getAuth();
-    const value = auth[prop];
-    return typeof value === 'function' ? value.bind(auth) : value;
-  },
-});
-
-export const adminDb = new Proxy({}, {
-  get(_, prop) {
-    ensureInit();
-    const db = getFirestore();
-    const value = db[prop];
-    return typeof value === 'function' ? value.bind(db) : value;
-  },
-});
+export const adminAuth = getAuth();
+export const adminDb = getFirestore();
