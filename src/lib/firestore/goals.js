@@ -63,4 +63,4 @@ export async function addDeposit(uid, goalId, { amount, date }) {
 
 export async function deleteDeposit(uid, goalId, depositId) {
   await deleteDoc(doc(db, 'users', uid, 'goals', goalId, 'deposits', depositId));
-}
+                      }
