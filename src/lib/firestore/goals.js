@@ -22,24 +22,25 @@ export function subscribeDeposits(uid, goalId, cb) {
 }
 
 export async function createGoal(uid, data) {
-  const startDate = new Date().toISOString().slice(0, 10);
-  const durationDays = Math.max(1, Math.floor(Number(data.durationDays) || 30));
-  const frequencyDays = Math.max(1, Math.floor(Number(data.frequencyDays) || 7));
-  const deadline = new Date(
-    new Date(startDate).getTime() + durationDays * 86400000
-  ).toISOString().slice(0, 10);
-
-  return addDoc(col(uid), {
+  const base = {
     name: String(data.name || '').trim(),
-    targetAmount: Number(data.targetAmount),
+    type: data.type || 'goal',
     categoryId: data.categoryId || 'savings',
-    startDate,
-    durationDays,
-    frequencyDays,
-    deadline,
-    penaltyAmount: Number(data.penaltyAmount || 0),
     debtBalance: 0,
     createdAt: serverTimestamp(),
+  };
+
+  if (data.type === 'piggybank') {
+    return addDoc(col(uid), base);
+  }
+
+  return addDoc(col(uid), {
+    ...base,
+    targetAmount: Number(data.targetAmount),
+    startDate: data.startDate,
+    deadline: data.deadline,
+    frequencyDays: Number(data.frequencyDays),
+    penaltyAmount: Number(data.penaltyAmount || 0),
   });
 }
 
@@ -53,7 +54,6 @@ export async function deleteGoal(uid, id) {
   await deleteDoc(doc(db, 'users', uid, 'goals', id));
 }
 
-// Ajout du incomeSourceId et incomeSourceName
 export async function addDeposit(uid, goalId, { amount, date, incomeSourceId, incomeSourceName }) {
   return addDoc(depositsCol(uid, goalId), {
     amount: Number(amount),
@@ -67,4 +67,4 @@ export async function addDeposit(uid, goalId, { amount, date, incomeSourceId, in
 
 export async function deleteDeposit(uid, goalId, depositId) {
   await deleteDoc(doc(db, 'users', uid, 'goals', goalId, 'deposits', depositId));
-      }
+                                    }
