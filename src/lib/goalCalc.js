@@ -1,46 +1,78 @@
 /**
- * Calcule le plan de cotisation d'un objectif.
- * Retourne le montant attendu par jour / semaine / mois et
- * les pénalités cumulées pour les dépôts manqués (par semaine).
+ * Calcule le plan d'un objectif d'épargne selon la fréquence et la durée choisies.
+ * Schéma : { targetAmount, startDate, durationDays, frequencyDays, penaltyAmount }
+ * Règle : paiement #1 dû le jour de la création, puis tous les `frequencyDays`.
+ * Nombre total de paiements = ceil(durationDays / frequencyDays).
  */
 export function computeGoalPlan(goal, deposits = [], today = new Date()) {
   if (!goal) return null;
-  const start = new Date(goal.startDate);
-  const deadline = new Date(goal.deadline);
-  const totalDays = Math.max(1, Math.ceil((deadline - start) / 86400000));
-  const totalWeeks = Math.max(1, Math.ceil(totalDays / 7));
-  const totalMonths = Math.max(1, Math.ceil(totalDays / 30));
 
-  const perDay = goal.targetAmount / totalDays;
-  const perWeek = goal.targetAmount / totalWeeks;
-  const perMonth = goal.targetAmount / totalMonths;
+  const frequencyDays = Math.max(1, Number(goal.frequencyDays) || 7);
+  const durationDays = Math.max(frequencyDays, Number(goal.durationDays) || 30);
+  const targetAmount = Math.max(0, Number(goal.targetAmount) || 0);
+
+  const start = new Date(goal.startDate || new Date().toISOString().slice(0, 10));
+  const deadline = new Date(start.getTime() + durationDays * 86400000);
+
+  const totalPayments = Math.max(1, Math.ceil(durationDays / frequencyDays));
+  const amountPerPayment = Math.round(targetAmount / totalPayments);
+
+  const daysElapsed = Math.min(
+    durationDays,
+    Math.max(0, Math.floor((today - start) / 86400000))
+  );
+  const paymentsDue = Math.min(
+    totalPayments,
+    Math.floor(daysElapsed / frequencyDays) + 1
+  );
 
   const totalDeposited = deposits.reduce((s, d) => s + Number(d.amount || 0), 0);
-  const weeksElapsed = Math.max(
-    0,
-    Math.min(totalWeeks, Math.floor((today - start) / (7 * 86400000)))
-  );
-  const expectedSoFar = perWeek * weeksElapsed;
-  const penalty = Math.max(0, (expectedSoFar - totalDeposited)) > 0
-    ? Math.ceil((expectedSoFar - totalDeposited) / perWeek) * (goal.penaltyAmount || 0)
-    : 0;
+  const expectedAmount = paymentsDue * amountPerPayment;
+  const shortfall = Math.max(0, expectedAmount - totalDeposited);
+  const missedPayments = amountPerPayment > 0 ? Math.ceil(shortfall / amountPerPayment) : 0;
+  const penalty = missedPayments * (Number(goal.penaltyAmount) || 0);
 
-  const totalDue = goal.targetAmount + penalty;
-  const progress = Math.min(100, (totalDeposited / totalDue) * 100);
+  const totalDue = targetAmount + penalty;
+  const progress = totalDue > 0 ? Math.min(100, (totalDeposited / totalDue) * 100) : 0;
   const remaining = Math.max(0, totalDue - totalDeposited);
   const daysLeft = Math.max(0, Math.ceil((deadline - today) / 86400000));
 
   return {
-    perDay: Math.round(perDay),
-    perWeek: Math.round(perWeek),
-    perMonth: Math.round(perMonth),
+    frequencyDays,
+    durationDays,
+    totalPayments,
+    amountPerPayment,
+    startDate: start,
+    deadline,
+    daysElapsed,
+    paymentsDue,
     totalDeposited,
-    expectedSoFar: Math.round(expectedSoFar),
+    expectedAmount,
+    shortfall,
+    missedPayments,
     penalty,
-    totalDue: Math.round(totalDue),
+    totalDue,
     progress,
-    remaining: Math.round(remaining),
+    remaining,
     daysLeft,
     isLate: penalty > 0,
   };
-    }
+}
+
+export function resolveDurationDays(preset, customDays) {
+  if (preset === 'custom') {
+    const v = parseInt(customDays, 10);
+    return Number.isFinite(v) && v > 0 ? v : 30;
+  }
+  const map = { '7': 7, '14': 14, '30': 30, '60': 60, '90': 90, '180': 180, '270': 270, '365': 365, '730': 730 };
+  return map[preset] || 30;
+}
+
+export function resolveFrequencyDays(preset, customDays) {
+  if (preset === 'custom') {
+    const v = parseInt(customDays, 10);
+    return Number.isFinite(v) && v > 0 ? v : 7;
+  }
+  const map = { '1': 1, '3': 3, '5': 5, '7': 7, '14': 14, '30': 30 };
+  return map[preset] || 7;
+}
