@@ -1,10 +1,18 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export function Modal({ open, onClose, title, children, className }) {
+  const [mounted, setMounted] = useState(false);
+
+  // Nécessaire pour le React Portal (évite les erreurs d'hydratation)
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     const handler = (e) => { if (e.key === 'Escape') onClose(); };
@@ -16,8 +24,10 @@ export function Modal({ open, onClose, title, children, className }) {
     };
   }, [open, onClose]);
 
-  if (!open) return null;
-  return (
+  if (!open || !mounted) return null;
+
+  // On utilise createPortal pour sortir la modale du formulaire parent
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4">
       <div
         className={cn(
@@ -29,6 +39,7 @@ export function Modal({ open, onClose, title, children, className }) {
           <h2 className="text-lg font-semibold">{title}</h2>
           <button
             onClick={onClose}
+            type="button"
             className="rounded-lg p-1 text-slate-500 hover:bg-slate-100"
             aria-label="Fermer"
           >
@@ -37,6 +48,7 @@ export function Modal({ open, onClose, title, children, className }) {
         </div>
         <div className="max-h-[75vh] overflow-y-auto p-5">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
