@@ -16,8 +16,9 @@ import { useExpenses } from '@/hooks/useExpenses';
 import { useIncomes } from '@/hooks/useIncomes';
 import { useBudgets } from '@/hooks/useBudgets';
 import { useGoals } from '@/hooks/useGoals';
+import { useProfile } from '@/hooks/useProfile';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
-import { generateAdvice, adviceStyle } from '@/lib/advisor';
+import { generateAdvice, adviceIconColor } from '@/lib/advisor';
 import { formatCurrency, resolveCategory } from '@/lib/utils';
 
 const todayMonth = () => new Date().toISOString().slice(0, 7);
@@ -41,11 +42,18 @@ export default function ReportsPage() {
   const { expenses } = useExpenses();
   const { incomes } = useIncomes();
   const { goals } = useGoals();
+  const { profile } = useProfile();
   const { customCategories } = useCustomCategories('expense');
   const [month, setMonth] = useState(todayMonth());
   const [year, setYear] = useState(todayYear());
 
   const { budgets } = useBudgets(month);
+
+  const userName = useMemo(() => {
+    const raw = profile?.displayName?.trim();
+    if (!raw) return 'toi';
+    return raw.split(' ')[0];
+  }, [profile]);
 
   const monthExpenses = useMemo(
     () => expenses.filter((e) => e.date?.startsWith(month)),
@@ -98,8 +106,9 @@ export default function ReportsPage() {
       goals,
       totalIncome,
       customCategories,
+      userName,
     }),
-    [monthExpenses, prevExpenses, budgets, goals, totalIncome, customCategories]
+    [monthExpenses, prevExpenses, budgets, goals, totalIncome, customCategories, userName]
   );
 
   const top5 = byCategory.slice(0, 5);
@@ -126,7 +135,7 @@ export default function ReportsPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Rapports</h1>
-          <p className="text-sm text-slate-500">Analyse et recommandations de ton assistant économique.</p>
+          <p className="text-sm text-slate-500">Analyse et recommandations personnalisées.</p>
         </div>
         <div className="flex gap-2">
           <input
@@ -147,7 +156,7 @@ export default function ReportsPage() {
           <p className="mt-1 text-xl font-bold text-brand-600">{formatCurrency(totalIncome)}</p>
           {totalIncome > 0 && (
             <p className="mt-1 text-xs text-slate-500">
-              {totalIncome > 0 ? `${((1 - totalExpense / totalIncome) * 100).toFixed(0)} % épargné` : ''}
+              {((1 - totalExpense / totalIncome) * 100).toFixed(0)} % épargné
             </p>
           )}
         </Card>
@@ -165,21 +174,17 @@ export default function ReportsPage() {
 
       {advices.length > 0 && (
         <Card>
-          <CardTitle className="mb-3">Analyse et conseils</CardTitle>
-          <div className="space-y-2">
+          <div className="mb-3 flex items-center gap-2">
+            <Lightbulb size={16} className="text-slate-400" />
+            <CardTitle>Assistant</CardTitle>
+          </div>
+          <div className="space-y-3">
             {advices.map((a) => {
-              const s = adviceStyle(a.type);
               const Icon = ADVICE_ICONS[a.type] || Info;
               return (
-                <div
-                  key={a.id}
-                  className={`flex items-start gap-2 rounded-xl border ${s.border} ${s.bg} p-3`}
-                >
-                  <Icon size={16} className={`mt-0.5 shrink-0 ${s.iconColor}`} />
-                  <div>
-                    <p className={`text-sm font-semibold ${s.titleColor}`}>{a.title}</p>
-                    <p className="text-xs text-slate-600">{a.message}</p>
-                  </div>
+                <div key={a.id} className="flex items-start gap-3">
+                  <Icon size={16} className={`mt-0.5 shrink-0 ${adviceIconColor(a.type)}`} />
+                  <p className="text-sm leading-relaxed text-slate-700">{a.message}</p>
                 </div>
               );
             })}
@@ -252,4 +257,4 @@ export default function ReportsPage() {
       </div>
     </div>
   );
-      }
+  }
