@@ -1,8 +1,9 @@
+/* eslint-disable react/no-unescaped-entities */
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Plus, Trash2, TrendingUp, CheckCircle2, Save, RotateCcw, Percent,
+  Plus, Trash2, TrendingUp, CheckCircle2, Save, RotateCcw, Percent, Landmark
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -15,6 +16,7 @@ import { useBudgetRules } from '@/hooks/useBudgetRules';
 import { createIncome, deleteIncome } from '@/lib/firestore/incomes';
 import { upsertBudget } from '@/lib/firestore/budgets';
 import { computeBudgetBreakdown } from '@/lib/budgetRules';
+import { INCOME_CATEGORIES } from '@/lib/constants';
 import { formatCurrency, formatDate } from '@/lib/utils';
 
 const todayMonth = () => new Date().toISOString().slice(0, 7);
@@ -30,13 +32,16 @@ export default function IncomePage() {
 
   const [month, setMonth] = useState(todayMonth());
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ amount: '', source: 'Salaire', note: '', date: todayIso() });
+  const [form, setForm] = useState({ amount: '', source: 'Salaire', categoryId: 'salary', note: '', date: todayIso() });
+  
   const [saving, setSaving] = useState(false);
   const [savingRules, setSavingRules] = useState(false);
   const [savingApplied, setSavingApplied] = useState(false);
   const [applied, setApplied] = useState(false);
   const [error, setError] = useState('');
   const [rulesSavedAt, setRulesSavedAt] = useState(null);
+  
+  const [selectedIncomeToApply, setSelectedIncomeToApply] = useState('all');
 
   const monthIncomes = useMemo(
     () => incomes.filter((i) => i.month === month).sort((a, b) => (a.date < b.date ? 1 : -1)),
@@ -60,14 +65,15 @@ export default function IncomePage() {
       await createIncome(user.uid, {
         amount,
         source: form.source,
+        categoryId: form.categoryId,
         note: form.note,
         date: form.date,
         month: form.date.slice(0, 7),
       });
       setOpen(false);
-      setForm({ amount: '', source: 'Salaire', note: '', date: todayIso() });
+      setForm({ amount: '', source: 'Salaire', categoryId: 'salary', note: '', date: todayIso() });
     } catch {
-      setError('Erreur lors de l\u2019enregistrement.');
+      setError('Erreur lors de l’enregistrement.');
     } finally {
       setSaving(false);
     }
@@ -99,6 +105,7 @@ export default function IncomePage() {
           categoryId: item.key,
           amount: item.amount,
           month,
+          incomeSourceId: selectedIncomeToApply,
         });
       }
       setApplied(true);
@@ -147,13 +154,18 @@ export default function IncomePage() {
             {monthIncomes.map((i) => (
               <li key={i.id} className="flex items-center justify-between py-2.5">
                 <div>
-                  <p className="text-sm font-medium text-slate-800">{i.source}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold text-slate-800">{i.source}</p>
+                    <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                      {INCOME_CATEGORIES.find(c => c.id === i.categoryId)?.label || 'Revenu'}
+                    </span>
+                  </div>
                   <p className="text-xs text-slate-500">
                     {formatDate(i.date)}{i.note ? ` — ${i.note}` : ''}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold text-brand-600">
+                  <span className="text-sm font-bold text-brand-600">
                     + {formatCurrency(i.amount)}
                   </span>
                   <button
@@ -187,16 +199,14 @@ export default function IncomePage() {
               onClick={onSaveRules}
               disabled={!isValid || savingRules}
             >
-              <Save size={12} /> {savingRules ? 'Enregistrement…' : 'Enregistrer'}
+              <Save size={12} /> {savingRules ? '…' : 'Enregistrer'}
             </Button>
           </div>
         </div>
 
         <p className="mb-3 text-xs text-slate-500">
           Modifie librement les pourcentages selon ta vie réelle. Le total doit faire 100 %.
-          {rulesSavedAt && (
-            <span className="ml-1 text-brand-600">Règles enregistrées.</span>
-          )}
+          {rulesSavedAt && <span className="ml-1 text-brand-600">Règles enregistrées.</span>}
         </p>
 
         <ul className="space-y-2">
@@ -217,7 +227,7 @@ export default function IncomePage() {
                 />
                 <Percent size={12} className="text-slate-400" />
               </div>
-              <span className="w-28 text-right text-xs font-medium text-slate-500">
+              <span className="w-24 text-right text-xs font-medium text-slate-500">
                 {totalIncome > 0
                   ? formatCurrency(Math.round((totalIncome * (Number(r.percent) || 0)) / 100))
                   : '—'}
@@ -228,9 +238,7 @@ export default function IncomePage() {
 
         <div
           className={`mt-4 flex items-center justify-between rounded-lg px-3 py-2 text-sm font-medium ${
-            isValid
-              ? 'bg-brand-50 text-brand-700'
-              : 'bg-red-50 text-red-700'
+            isValid ? 'bg-brand-50 text-brand-700' : 'bg-red-50 text-red-700'
           }`}
         >
           <span>Total</span>
@@ -241,13 +249,28 @@ export default function IncomePage() {
       {totalIncome > 0 && breakdown.length > 0 && (
         <Card>
           <div className="mb-3 flex items-center justify-between">
-            <CardTitle>Application aux budgets du mois</CardTitle>
+            <CardTitle>Appliquer aux budgets</CardTitle>
             {applied && (
               <span className="flex items-center gap-1 text-xs font-medium text-brand-600">
                 <CheckCircle2 size={14} /> Appliqué
               </span>
             )}
           </div>
+          
+          <div className="mb-4 space-y-2">
+            <label className="block text-sm font-medium text-slate-700">Sur quel revenu appliquer ces budgets ?</label>
+            <select
+              value={selectedIncomeToApply}
+              onChange={(e) => { setSelectedIncomeToApply(e.target.value); setApplied(false); }}
+              className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"
+            >
+              <option value="all">Tous les revenus (Global)</option>
+              {monthIncomes.map(inc => (
+                <option key={inc.id} value={inc.id}>{inc.source} ({formatCurrency(inc.amount)})</option>
+              ))}
+            </select>
+          </div>
+
           <div className="space-y-2 mb-4">
             {breakdown.map((b) => (
               <div key={b.key} className="flex items-center justify-between text-sm">
@@ -266,10 +289,10 @@ export default function IncomePage() {
             disabled={savingApplied || applied || !isValid}
           >
             {applied
-              ? 'Budgets déjà appliqués ce mois'
+              ? 'Budgets déjà appliqués'
               : savingApplied
               ? 'Application…'
-              : 'Appliquer comme budgets du mois'}
+              : 'Appliquer ces budgets'}
           </Button>
         </Card>
       )}
@@ -285,8 +308,24 @@ export default function IncomePage() {
             value={form.amount}
             onChange={(e) => setForm({ ...form, amount: e.target.value })}
           />
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">Type de revenu</label>
+            <select
+              value={form.categoryId}
+              onChange={(e) => {
+                const catId = e.target.value;
+                const cat = INCOME_CATEGORIES.find(c => c.id === catId);
+                setForm({ ...form, categoryId: catId, source: cat.label });
+              }}
+              className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"
+            >
+              {INCOME_CATEGORIES.map((c) => (
+                <option key={c.id} value={c.id}>{c.label}</option>
+              ))}
+            </select>
+          </div>
           <Input
-            label="Source"
+            label="Nom / Source personnalisée"
             required
             value={form.source}
             onChange={(e) => setForm({ ...form, source: e.target.value })}
