@@ -5,6 +5,7 @@ import { Plus, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
+import { CategoryImage } from '@/components/ui/CategoryImage';
 import { useAuth } from '@/hooks/useAuth';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { createCategory, deleteCategory } from '@/lib/firestore/categories';
@@ -21,9 +22,8 @@ export function CategoryManager({ type, value, onChange }) {
   const [error, setError] = useState('');
 
   const onCreate = async (e) => {
-    e.preventDefault(); // Empêche le rechargement
-    e.stopPropagation(); // Empêche la propagation au formulaire parent
-    
+    e.preventDefault();
+    e.stopPropagation();
     setError('');
     if (!name.trim()) return setError('Nom requis.');
     setSaving(true);
@@ -48,29 +48,31 @@ export function CategoryManager({ type, value, onChange }) {
 
   return (
     <div>
-      <div className="flex flex-wrap gap-2">
+      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
         {categories.map((cat) => (
           <div key={cat.id} className="group relative">
             <button
               type="button"
               onClick={() => onChange(cat.id)}
-              className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+              className={`flex w-full flex-col items-center gap-1.5 rounded-xl border p-2 transition ${
                 value === cat.id
-                  ? 'border-brand-500 bg-brand-50 text-brand-700'
-                  : 'border-slate-300 text-slate-700 hover:border-slate-400'
+                  ? 'border-brand-500 bg-brand-50 ring-1 ring-brand-500'
+                  : 'border-slate-200 bg-white hover:border-slate-300'
               }`}
             >
-              <span className="mr-1 inline-block h-2 w-2 rounded-full" style={{ backgroundColor: cat.color }} />
-              {cat.name || cat.label}
+              <CategoryImage categoryId={cat.id} image={cat.image} size="md" />
+              <span className={`text-[10px] font-medium text-center leading-tight ${value === cat.id ? 'text-brand-700' : 'text-slate-600'}`}>
+                {cat.name || cat.label}
+              </span>
             </button>
             {cat.isCustom && (
               <button
                 type="button"
                 onClick={(e) => onDelete(e, cat.id)}
-                className="absolute -right-1 -top-1 hidden h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white shadow group-hover:flex"
+                className="absolute -right-1 -top-1 hidden h-5 w-5 items-center justify-center rounded-full bg-red-500 text-white shadow group-hover:flex"
                 aria-label="Supprimer"
               >
-                <X size={10} />
+                <X size={12} />
               </button>
             )}
           </div>
@@ -78,32 +80,36 @@ export function CategoryManager({ type, value, onChange }) {
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="rounded-full border border-dashed border-slate-400 px-3 py-1 text-xs font-medium text-slate-600 hover:border-brand-500 hover:text-brand-600"
+          className="flex w-full flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-2 transition hover:border-brand-500 hover:bg-brand-50"
         >
-          <Plus size={12} className="mr-1 inline" /> Ajouter
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white shadow-sm border border-slate-200 text-slate-400">
+            <Plus size={20} />
+          </div>
+          <span className="text-[10px] font-medium text-slate-500 text-center">Créer</span>
         </button>
       </div>
 
       <Modal open={open} onClose={() => setOpen(false)} title="Nouvelle catégorie">
         <form onSubmit={onCreate} className="space-y-3">
           <Input
-            label="Nom"
+            label="Nom de la catégorie"
             required
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Ex : Bière, Shopping, Vêtements…"
+            placeholder="Ex : Paris sportifs, Tontine, Crypto…"
           />
+          <p className="text-xs text-slate-500">
+            Le système choisira automatiquement la meilleure illustration selon le nom.
+          </p>
           <div>
-            <p className="mb-2 text-sm font-medium text-slate-700">Couleur</p>
+            <p className="mb-2 text-sm font-medium text-slate-700">Couleur de secours</p>
             <div className="flex flex-wrap gap-2">
               {COLORS.map((c) => (
                 <button
                   type="button"
                   key={c}
                   onClick={() => setColor(c)}
-                  className={`h-8 w-8 rounded-full border-2 transition ${
-                    color === c ? 'border-slate-900' : 'border-transparent'
-                  }`}
+                  className={`h-8 w-8 rounded-full border-2 transition ${color === c ? 'border-slate-900' : 'border-transparent'}`}
                   style={{ backgroundColor: c }}
                   aria-label={`Couleur ${c}`}
                 />
@@ -118,4 +124,4 @@ export function CategoryManager({ type, value, onChange }) {
       </Modal>
     </div>
   );
-      }
+                }
