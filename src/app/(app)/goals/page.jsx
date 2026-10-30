@@ -1,10 +1,11 @@
-/* eslint-disable react/no-unescaped-entities */
 'use client';
 
 import { useState, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Plus, Target, Trash2, AlertTriangle, Banknote, Pencil, Lightbulb,
   Info, CheckCircle2, TrendingUp, ShieldAlert, ArrowDownToLine, Landmark,
+  MessageCircle, X
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -42,8 +43,8 @@ const FREQUENCY_PRESETS = [
 
 const ADVICE_ICONS = { success: CheckCircle2, danger: AlertTriangle, warning: AlertTriangle, tip: Lightbulb, info: Info };
 
-function ProgressCircle({ value = 0, size = 140 }) {
-  const strokeWidth = 12;
+function ProgressCircle({ value = 0, size = 100 }) {
+  const strokeWidth = 8;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const safe = Math.min(100, Math.max(0, value));
@@ -57,8 +58,7 @@ function ProgressCircle({ value = 0, size = 140 }) {
         <circle cx={size / 2} cy={size / 2} r={radius} stroke={color} strokeWidth={strokeWidth} fill="none" strokeDasharray={circumference} strokeDashoffset={offset} strokeLinecap="round" className="transition-all duration-700 ease-out" />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-2xl font-bold" style={{ color }}>{safe.toFixed(0)}%</span>
-        <span className="mt-0.5 text-[10px] uppercase tracking-wider text-slate-400">Progression</span>
+        <span className="text-xl font-bold" style={{ color }}>{safe.toFixed(0)}%</span>
       </div>
     </div>
   );
@@ -93,13 +93,6 @@ function buildGoalAdvices(plan, balance, goalName) {
     });
   }
 
-  if (plan.daysLeft > 0 && plan.daysLeft <= 3 && plan.progress < 100) {
-    advices.push({
-      type: 'warning',
-      message: `L&apos;objectif se termine dans ${plan.daysLeft} jour${plan.daysLeft > 1 ? 's' : ''}. Il manque ${formatCurrency(plan.remaining)}.`,
-    });
-  }
-
   if (balance >= plan.amountPerPayment) {
     advices.push({
       type: 'tip',
@@ -115,7 +108,87 @@ function buildGoalAdvices(plan, balance, goalName) {
   return advices;
 }
 
-function GoalDetail({ goal, onClose }) {
+/* ═══════════ Modal de confirmation de retrait / annulation ═══════════ */
+
+function ConfirmWithdrawModal({ goal, actionType, onClose, onConfirm, busy }) {
+  const deposits = useDeposits(goal.id);
+  const plan = computeGoalPlan(goal, deposits);
+  
+  const isCancel = actionType === 'cancel';
+  const cancelPenalty = isCancel ? Math.round(plan.totalDeposited * 0.10) : 0;
+  const netRefund = Math.max(0, plan.totalDeposited - plan.totalDebt - cancelPenalty);
+
+  const waNumber = '14236752034';
+  const waMessage = encodeURIComponent(
+    `Bonjour l'équipe Pata,\n\nJe souhaite ${isCancel ? 'annuler' : 'clôturer'} mon objectif d'épargne "${goal.name}".\n\n` +
+    `- Total épargné : ${formatCurrency(plan.totalDeposited)}\n` +
+    `- Dettes (prêts) : ${formatCurrency(plan.totalDebt)}\n` +
+    (isCancel ? `- Pénalité d'annulation (10%) : ${formatCurrency(cancelPenalty)}\n` : '') +
+    `- Net à recevoir : ${formatCurrency(netRefund)}\n\n` +
+    `Merci de traiter ma demande.`
+  );
+
+  return (
+    <Modal open onClose={onClose} title={isCancel ? "Annuler l'objectif" : "Retirer mon épargne"}>
+      <div className="space-y-4">
+        <div className="flex items-start gap-3 rounded-xl bg-slate-50 p-3">
+          <Info className="mt-0.5 shrink-0 text-slate-500" size={18} />
+          <p className="text-sm text-slate-700">
+            {isCancel 
+              ? "Attention : annuler l'objectif entraîne une pénalité de 10% sur votre épargne totale pour non-respect de l'engagement." 
+              : "Vous êtes sur le point de clôturer cet objectif atteint. Le montant net sera reversé sur votre portefeuille."}
+          </p>
+        </div>
+
+        <div className="space-y-2 rounded-xl border border-slate-200 p-3">
+          <div className="flex justify-between text-sm">
+            <span className="text-slate-500">Total épargné</span>
+            <span className="font-medium text-slate-800">{formatCurrency(plan.totalDeposited)}</span>
+          </div>
+          {plan.totalDebt > 0 && (
+            <div className="flex justify-between text-sm text-red-600">
+              <span>Dettes (prêts + intérêts)</span>
+              <span className="font-medium">- {formatCurrency(plan.totalDebt)}</span>
+            </div>
+          )}
+          {isCancel && (
+            <div className="flex justify-between text-sm text-red-600">
+              <span>Pénalité d'annulation (10%)</span>
+              <span className="font-medium">- {formatCurrency(cancelPenalty)}</span>
+            </div>
+          )}
+          <div className="mt-2 flex justify-between border-t border-slate-200 pt-2 text-base font-bold">
+            <span className="text-slate-800">Net à recevoir</span>
+            <span className="text-brand-600">{formatCurrency(netRefund)}</span>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <Button 
+            onClick={() => onConfirm(actionType)}
+            disabled={busy || netRefund <= 0}
+            className="w-full"
+          >
+            {busy ? 'Traitement…' : `Confirmer le ${isCancel ? 'retrait' : 'versement'}`}
+          </Button>
+          
+          <Button 
+            variant="outline" 
+            onClick={() => window.open(`https://wa.me/${waNumber}?text=${waMessage}`, '_blank')}
+            className="w-full text-green-600 border-green-200 hover:bg-green-50"
+          >
+            <MessageCircle size={16} /> Envoyer le récapitulatif sur WhatsApp
+          </Button>
+          <Button variant="ghost" onClick={onClose} className="w-full">Fermer</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/* ═══════════ Détail de l'objectif (Modal) ═══════════ */
+
+function GoalDetail({ goal, onClose, onAskWithdraw }) {
   const { user } = useAuth();
   const { profile } = useProfile();
   const { customCategories } = useCustomCategories('goal');
@@ -124,13 +197,13 @@ function GoalDetail({ goal, onClose }) {
   const category = resolveCategory(goal.categoryId, 'goal', customCategories);
   const advices = buildGoalAdvices(plan, profile?.balance || 0, goal.name);
 
-  // 🟢 NOUVEAU : Récupération des revenus pour la sélection
   const { incomes } = useIncomes();
   const currentMonthIncomes = useMemo(
     () => incomes.filter((i) => i.month === todayMonth()),
     [incomes]
   );
   const [selectedIncomeId, setSelectedIncomeId] = useState(currentMonthIncomes[0]?.id || '');
+  const router = useRouter();
 
   const [amount, setAmount] = useState('');
   const [repayAmount, setRepayAmount] = useState('');
@@ -153,9 +226,9 @@ function GoalDetail({ goal, onClose }) {
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error || 'Erreur.');
-      if (successMsg) alert(successMsg);
       setAmount(''); setRepayAmount('');
-      if (endpoint === 'withdraw' || endpoint === 'cancel') onClose();
+      onClose();
+      if (successMsg) alert(successMsg);
     } catch (err) {
       setError(err.message);
     } finally { setBusy(false); }
@@ -164,8 +237,6 @@ function GoalDetail({ goal, onClose }) {
   const onFundFromWallet = async (e) => {
     e.preventDefault();
     setError(''); setSaving(true);
-    
-    // Trouver le nom de la source de revenu sélectionnée
     const selectedIncome = currentMonthIncomes.find(i => i.id === selectedIncomeId);
     
     try {
@@ -189,7 +260,7 @@ function GoalDetail({ goal, onClose }) {
     <Modal open onClose={onClose} title={goal.name} className="max-w-lg">
       <div className="space-y-5">
         <div className="flex flex-col items-center gap-1">
-          <ProgressCircle value={plan.progress} />
+          <ProgressCircle value={plan.progress} size={120} />
           <div className="mt-2 flex items-center gap-2">
             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: category.color }} />
             <span className="text-xs font-medium text-slate-500">{category.label}</span>
@@ -215,15 +286,14 @@ function GoalDetail({ goal, onClose }) {
           <div className="flex flex-col gap-2 rounded-xl border border-red-200 bg-red-50 p-3">
              <div className="flex items-start gap-2">
                 <Landmark size={16} className="mt-0.5 shrink-0 text-red-600" />
-                <p className="text-sm text-red-700">Tu as une dette de <strong>{formatCurrency(plan.totalDebt)}</strong> (incluant 5% d&apos;intérêts). Elle sera déduite de ton épargne si tu retires. Tu peux la rembourser dès maintenant.</p>
+                <p className="text-sm text-red-700">Tu as une dette de <strong>{formatCurrency(plan.totalDebt)}</strong> (incluant 5% d’intérêts). Elle sera déduite si tu retires.</p>
              </div>
              <div className="flex gap-2 items-end mt-2">
                 <Input label="Montant à rembourser" type="number" min="1" value={repayAmount} onChange={e => setRepayAmount(e.target.value)} className="flex-1" />
-                <Button onClick={() => handleAction('repay', { amount: Number(repayAmount) }, 'Prêt remboursé avec succès.')} disabled={busy || !repayAmount || Number(repayAmount) > balance}>
+                <Button onClick={() => handleAction('repay', { amount: Number(repayAmount) }, 'Prêt remboursé.')} disabled={busy || !repayAmount || Number(repayAmount) > balance}>
                   Rembourser
                 </Button>
              </div>
-             {Number(repayAmount) > balance && <p className="text-xs text-red-600 mt-1">Ton solde est insuffisant pour ce montant.</p>}
           </div>
         )}
 
@@ -256,44 +326,49 @@ function GoalDetail({ goal, onClose }) {
             <div className="space-y-3 mb-3">
               <Input label="Montant à verser" type="number" min="1" required value={amount} onChange={(e) => setAmount(e.target.value)} />
               
-              {/* 🟢 NOUVEAU : Sélection du revenu source */}
-              {currentMonthIncomes.length > 0 && (
+              {currentMonthIncomes.length > 0 ? (
                 <div>
                   <label className="mb-1 block text-sm font-medium text-slate-700">Depuis quel revenu ?</label>
-                  <select
-                    value={selectedIncomeId}
-                    onChange={(e) => setSelectedIncomeId(e.target.value)}
-                    className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"
-                  >
+                  <select value={selectedIncomeId} onChange={(e) => setSelectedIncomeId(e.target.value)} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm">
                     {currentMonthIncomes.map((inc) => (
-                      <option key={inc.id} value={inc.id}>
-                        {inc.source} ({formatCurrency(inc.amount)})
-                      </option>
+                      <option key={inc.id} value={inc.id}>{inc.source} ({formatCurrency(inc.amount)})</option>
                     ))}
                   </select>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-center">
+                  <p className="text-xs text-amber-700 mb-2">Aucun revenu enregistré ce mois-ci.</p>
+                  <Button type="button" size="sm" onClick={() => router.push('/income')} className="w-full bg-amber-600 hover:bg-amber-700">
+                    Créer un revenu d'abord
+                  </Button>
                 </div>
               )}
             </div>
 
-            <div className="flex justify-end">
-              <Button type="submit" disabled={saving || balance === 0}><Banknote size={14} /> Verser</Button>
-            </div>
+            {currentMonthIncomes.length > 0 && (
+              <div className="flex justify-end">
+                <Button type="submit" disabled={saving || balance === 0}><Banknote size={14} /> Verser</Button>
+              </div>
+            )}
             {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
-            <div className="mt-3 text-center">
-              <button type="button" onClick={() => setShowLoan(true)} className="text-xs font-semibold text-brand-600 hover:underline">
-                Solde insuffisant ? Demander un micro-prêt (5% d&apos;intérêts)
-              </button>
-            </div>
+            
+            {currentMonthIncomes.length > 0 && (
+              <div className="mt-3 text-center">
+                <button type="button" onClick={() => setShowLoan(true)} className="text-xs font-semibold text-brand-600 hover:underline">
+                  Solde insuffisant ? Demander un micro-prêt (5% d’intérêts)
+                </button>
+              </div>
+            )}
           </form>
         )}
 
         {showLoan && !plan.isReached && (
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-3.5">
-            <h4 className="text-sm font-semibold text-amber-800 mb-1">Micro-prêt d&apos;urgence</h4>
-            <p className="text-xs text-amber-700 mb-3">Emprunte le montant exact de ton paiement pour éviter l&apos;amende. 5% d&apos;intérêts seront ajoutés à ta dette.</p>
+            <h4 className="text-sm font-semibold text-amber-800 mb-1">Micro-prêt d’urgence</h4>
+            <p className="text-xs text-amber-700 mb-3">Emprunte pour éviter l’amende. 5% d’intérêts seront ajoutés.</p>
             <div className="flex gap-2 items-end">
-              <Input label="Montant à emprunter" type="number" min="1" value={amount} onChange={e => setAmount(e.target.value)} className="flex-1" />
-              <Button onClick={() => handleAction('borrow', { amount: Number(amount) }, 'Prêt accordé. Le montant a été ajouté à ton objectif.')} disabled={busy || !amount} className="bg-amber-600 hover:bg-amber-700">
+              <Input label="Montant" type="number" min="1" value={amount} onChange={e => setAmount(e.target.value)} className="flex-1" />
+              <Button onClick={() => handleAction('borrow', { amount: Number(amount) }, 'Prêt accordé.')} disabled={busy || !amount} className="bg-amber-600 hover:bg-amber-700">
                 Emprunter
               </Button>
             </div>
@@ -303,14 +378,12 @@ function GoalDetail({ goal, onClose }) {
 
         <div className="space-y-2">
           {plan.isReached ? (
-            <Button onClick={() => handleAction('withdraw', {}, 'Argent récupéré sur ton solde.')} className="w-full" disabled={busy}>
-              <ArrowDownToLine size={16} />
-              {busy ? 'Traitement…' : `Retirer l'épargne nette`}
+            <Button onClick={() => { onClose(); onAskWithdraw(goal, 'withdraw'); }} className="w-full" disabled={busy}>
+              <ArrowDownToLine size={16} /> Retirer l’épargne nette
             </Button>
           ) : (
-            <Button onClick={() => handleAction('cancel', {}, 'Objectif annulé.')} variant="outline" className="w-full text-red-600 hover:bg-red-50" disabled={busy}>
-              <ShieldAlert size={16} />
-              {busy ? 'Traitement…' : 'Annuler l&apos;objectif (10% pénalité)'}
+            <Button onClick={() => { onClose(); onAskWithdraw(goal, 'cancel'); }} variant="outline" className="w-full text-red-600 hover:bg-red-50" disabled={busy}>
+              <ShieldAlert size={16} /> Annuler l’objectif (10% pénalité)
             </Button>
           )}
         </div>
@@ -339,7 +412,8 @@ function GoalDetail({ goal, onClose }) {
   );
 }
 
-// ... (Le reste du fichier GoalFormModal, GoalCard et GoalsPage est identique à la dernière version que tu as poussée)
+/* ═══════════ Formulaire Création / Édition ═══════════ */
+
 function GoalFormModal({ open, onClose, goal }) {
   const { user } = useAuth();
   const editing = !!goal;
@@ -383,12 +457,12 @@ function GoalFormModal({ open, onClose, goal }) {
   return (
     <Modal open={open} onClose={onClose} title={editing ? "Modifier l'objectif" : "Nouvel objectif"} className="max-w-lg">
       <form onSubmit={onSubmit} className="space-y-4">
-        <Input label="Nom de l'objectif" required value={name} onChange={(e) => setName(e.target.value)} />
+        <Input label="Nom de l’objectif" required value={name} onChange={(e) => setName(e.target.value)} />
         <div><p className="mb-2 text-sm font-medium text-slate-700">Catégorie</p><CategoryManager type="goal" value={categoryId} onChange={setCategoryId} /></div>
         <Input label="Montant cible (FCFA)" type="number" min="0" required value={targetAmount} onChange={(e) => setTargetAmount(e.target.value)} />
         
         <div>
-          <p className="mb-2 text-sm font-medium text-slate-700">Durée d&apos;épargne</p>
+          <p className="mb-2 text-sm font-medium text-slate-700">Durée d’épargne</p>
           <div className="flex flex-wrap gap-2">
             {DURATION_PRESETS.map(({ v, label }) => (
               <button type="button" key={v} onClick={() => setDurationPreset(v)} className={`rounded-full border px-3 py-1 text-xs font-medium ${durationPreset === v ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-300 text-slate-700'}`}>{label}</button>
@@ -415,13 +489,15 @@ function GoalFormModal({ open, onClose, goal }) {
 
         <Input label={`Amende par retard (min. ${formatCurrency(MIN_PENALTY)})`} type="number" min={MIN_PENALTY} value={penaltyAmount} onChange={(e) => setPenaltyAmount(e.target.value)} />
         {error && <p className="text-sm text-red-600">{error}</p>}
-        <Button type="submit" className="w-full" disabled={saving}>{saving ? 'Enregistrement…' : editing ? 'Mettre à jour' : "Créer l&apos;objectif"}</Button>
+        <Button type="submit" className="w-full" disabled={saving}>{saving ? 'Enregistrement…' : editing ? 'Mettre à jour' : "Créer l’objectif"}</Button>
       </form>
     </Modal>
   );
 }
 
-function GoalCard({ goal, onOpen, onEdit }) {
+/* ═══════════ Carte Objectif (Grande) ═══════════ */
+
+function GoalCard({ goal, onOpen, onEdit, onAskWithdraw }) {
   const { customCategories } = useCustomCategories('goal');
   const deposits = useDeposits(goal.id);
   const plan = computeGoalPlan(goal, deposits);
@@ -429,32 +505,59 @@ function GoalCard({ goal, onOpen, onEdit }) {
   const statusColor = plan.isReached ? '#10b981' : plan.isLate ? '#ef4444' : '#3b82f6';
 
   return (
-    <Card>
+    <Card className="flex flex-col">
       <div className="mb-3 flex items-start justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: category?.color || '#94a3b8' }} />
-            <p className="truncate text-base font-semibold text-slate-900">{goal.name}</p>
+            <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: category?.color || '#94a3b8' }} />
+            <p className="truncate text-lg font-bold text-slate-900">{goal.name}</p>
           </div>
-          <p className="mt-0.5 text-xs text-slate-500">{formatCurrency(goal.targetAmount)} — {formatCurrency(plan.amountPerPayment)} / {plan.frequencyDays} j</p>
+          <p className="mt-1 text-sm text-slate-500">{formatCurrency(goal.targetAmount)} — {formatCurrency(plan.amountPerPayment)} / {plan.frequencyDays} j</p>
         </div>
-        <button onClick={onEdit} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100"><Pencil size={15} /></button>
+        <button onClick={onEdit} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100"><Pencil size={16} /></button>
       </div>
       
-      {plan.totalDebt > 0 && (
-        <div className="mb-2 inline-flex items-center gap-1 rounded bg-red-100 px-2 py-0.5 text-[10px] font-bold uppercase text-red-700">
-          Dette : {formatCurrency(plan.totalDebt)}
+      <div className="mb-4 flex items-center gap-4">
+        <ProgressCircle value={plan.progress} size={70} />
+        <div className="flex-1 space-y-1">
+          <div className="flex justify-between text-sm">
+            <span className="text-slate-500">Épargné</span>
+            <span className="font-semibold text-brand-600">{formatCurrency(plan.totalDeposited)}</span>
+          </div>
+          {plan.totalDebt > 0 && (
+            <div className="flex justify-between text-sm">
+              <span className="text-red-500">Dettes</span>
+              <span className="font-semibold text-red-600">{formatCurrency(plan.totalDebt)}</span>
+            </div>
+          )}
+          {plan.isLate && (
+            <div className="flex justify-between text-sm">
+              <span className="text-red-500">Amende</span>
+              <span className="font-semibold text-red-600">{formatCurrency(plan.penalty)}</span>
+            </div>
+          )}
         </div>
-      )}
-
-      <div className="mb-3 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-        <div className="h-full rounded-full transition-all duration-700" style={{ width: `${Math.min(100, plan.progress)}%`, backgroundColor: statusColor }} />
       </div>
 
-      <Button variant="outline" size="sm" className="w-full" onClick={onOpen}><TrendingUp size={14} /> Ouvrir le suivi</Button>
+      <div className="mt-auto space-y-2">
+        <Button variant="outline" className="w-full" onClick={onOpen}>
+          <TrendingUp size={16} /> Voir les détails et verser
+        </Button>
+        {plan.isReached ? (
+          <Button className="w-full bg-brand-600 hover:bg-brand-700 text-white" onClick={() => onAskWithdraw(goal, 'withdraw')}>
+            <ArrowDownToLine size={16} /> Retirer mon argent
+          </Button>
+        ) : (
+          <Button variant="outline" className="w-full text-red-600 border-red-200 hover:bg-red-50" onClick={() => onAskWithdraw(goal, 'cancel')}>
+            <ShieldAlert size={16} /> Annuler l’objectif
+          </Button>
+        )}
+      </div>
     </Card>
   );
 }
+
+/* ═══════════ Page Principale ═══════════ */
 
 export default function GoalsPage() {
   const { user } = useAuth();
@@ -462,21 +565,58 @@ export default function GoalsPage() {
   const [open, setOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState(null);
   const [selected, setSelected] = useState(null);
+  
+  // Nouveaux états pour le retrait / annulation
+  const [confirmGoal, setConfirmGoal] = useState(null);
+  const [confirmType, setConfirmType] = useState(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
 
   const openCreate = () => { setEditingGoal(null); setOpen(true); };
   const openEdit = (goal) => { setEditingGoal(goal); setOpen(true); };
   const closeForm = () => { setOpen(false); setEditingGoal(null); };
 
+  const askWithdraw = (goal, type) => {
+    setConfirmGoal(goal);
+    setConfirmType(type);
+  };
+
+  const handleConfirmAction = async () => {
+    if (!confirmGoal || !confirmType) return;
+    setConfirmBusy(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(`/api/goals/${confirmType}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ goalId: confirmGoal.id }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(confirmType === 'cancel' ? 'Objectif annulé avec succès.' : 'Argent récupéré avec succès.');
+        setConfirmGoal(null);
+        setConfirmType(null);
+        setSelected(null);
+      } else {
+        alert(data.error);
+      }
+    } catch {
+      alert('Erreur lors de la transaction.');
+    } finally {
+      setConfirmBusy(false);
+    }
+  };
+
   const onDelete = async (id) => {
-    if (!confirm("Supprimer cet objectif ? L'argent sera perdu (préférez Annuler dans le suivi).")) return;
-    await deleteGoal(user.uid, id);
+    if (window.confirm("Supprimer cet objectif ? L'argent sera perdu (préférez Annuler).")) {
+      await deleteGoal(user.uid, id);
+    }
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Objectifs d&apos;épargne</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Objectifs d’épargne</h1>
           <p className="text-sm text-slate-500">Épargne intelligemment, avec un filet de sécurité.</p>
         </div>
         <Button onClick={openCreate}><Plus size={16} /> Nouvel objectif</Button>
@@ -485,13 +625,38 @@ export default function GoalsPage() {
       {goals.length === 0 ? (
         <EmptyState icon={Target} title="Aucun objectif" description="Crée un objectif pour commencer." action={<Button onClick={openCreate}><Plus size={16} /> Créer</Button>} />
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {goals.map((g) => <GoalCard key={g.id} goal={g} onOpen={() => setSelected(g)} onEdit={() => openEdit(g)} />)}
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
+          {goals.map((g) => (
+            <GoalCard 
+              key={g.id} 
+              goal={g} 
+              onOpen={() => setSelected(g)} 
+              onEdit={() => openEdit(g)} 
+              onAskWithdraw={askWithdraw}
+            />
+          ))}
         </div>
       )}
 
       {open && <GoalFormModal key={editingGoal?.id || 'new'} open={open} onClose={closeForm} goal={editingGoal} />}
-      {selected && <GoalDetail goal={selected} onClose={() => setSelected(null)} />}
+      
+      {selected && (
+        <GoalDetail 
+          goal={selected} 
+          onClose={() => setSelected(null)} 
+          onAskWithdraw={(g, type) => { setSelected(null); askWithdraw(g, type); }} 
+        />
+      )}
+
+      {confirmGoal && confirmType && (
+        <ConfirmWithdrawModal 
+          goal={confirmGoal} 
+          actionType={confirmType} 
+          onClose={() => { setConfirmGoal(null); setConfirmType(null); }} 
+          onConfirm={handleConfirmAction}
+          busy={confirmBusy}
+        />
+      )}
     </div>
   );
 }
