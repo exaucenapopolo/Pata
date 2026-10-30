@@ -2,7 +2,6 @@ export const APP_NAME = 'Pata';
 export const DEFAULT_CURRENCY = 'XAF';
 export const DEFAULT_LOCALE = 'fr-CM';
 
-// 🖼️ URLs des illustrations (hébergées sur ton GitHub)
 const IMAGES = {
   savings: 'https://raw.githubusercontent.com/exaucenapopolo/Pata/refs/heads/main/illustrations/%C3%A9pargne.jpg',
   transport: 'https://raw.githubusercontent.com/exaucenapopolo/Pata/refs/heads/main/illustrations/transport.jpg',
@@ -16,7 +15,13 @@ const IMAGES = {
   other: 'https://raw.githubusercontent.com/exaucenapopolo/Pata/refs/heads/main/illustrations/autre.jpg',
 };
 
-// 📊 Catégories par défaut avec leurs mots-clés pour la détection intelligente
+export const INCOME_CATEGORIES = [
+  { id: 'salary', label: 'Salaire', color: '#10b981', image: IMAGES.savings },
+  { id: 'business', label: 'Business / Freelance', color: '#3b82f6', image: IMAGES.investment },
+  { id: 'gift', label: 'Don / Cadeau', color: '#f59e0b', image: IMAGES.other },
+  { id: 'other_income', label: 'Autre revenu', color: '#94a3b8', image: IMAGES.other },
+];
+
 export const EXPENSE_CATEGORIES = [
   { 
     id: 'food', 
@@ -86,7 +91,7 @@ export const EXPENSE_CATEGORIES = [
     label: 'Autre', 
     color: '#94a3b8', 
     image: IMAGES.other,
-    keywords: [] // Catégorie par défaut
+    keywords: []
   },
 ];
 
