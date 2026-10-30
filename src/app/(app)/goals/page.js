@@ -85,11 +85,10 @@ function ProgressCircle({ value = 0, size = 140 }) {
   );
 }
 
-/* ═══════════ Génération des conseils ═══════════ */
+/* ═══════════ Conseils ═══════════ */
 
 function buildGoalAdvices(plan, balance, goalName) {
   if (!plan) return [];
-
   const advices = [];
 
   if (plan.isReached) {
@@ -139,7 +138,7 @@ function buildGoalAdvices(plan, balance, goalName) {
   return advices;
 }
 
-/* ═══════════ Détail objectif ═══════════ */
+/* ═══════════ Détail de l'objectif ═══════════ */
 
 function GoalDetail({ goal, onClose }) {
   const { user } = useAuth();
@@ -228,7 +227,6 @@ function GoalDetail({ goal, onClose }) {
   return (
     <Modal open onClose={onClose} title={goal.name} className="max-w-lg">
       <div className="space-y-5">
-        {/* En-tête visuel */}
         <div className="flex flex-col items-center gap-1">
           <ProgressCircle value={plan.progress} />
           <div className="mt-2 flex items-center gap-2">
@@ -237,7 +235,6 @@ function GoalDetail({ goal, onClose }) {
           </div>
         </div>
 
-        {/* Chiffres clés */}
         <div className="grid grid-cols-3 gap-2">
           <div className="rounded-xl bg-slate-50 px-2 py-3 text-center">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Objectif</p>
@@ -253,7 +250,6 @@ function GoalDetail({ goal, onClose }) {
           </div>
         </div>
 
-        {/* Plan de paiement */}
         <div className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2.5">
           <div className="text-xs text-slate-500">
             <p className="font-semibold text-slate-700">{formatCurrency(plan.amountPerPayment)}</p>
@@ -269,7 +265,6 @@ function GoalDetail({ goal, onClose }) {
           </div>
         </div>
 
-        {/* Conseils — style conversationnel */}
         {advices.length > 0 && (
           <div className="rounded-xl border border-slate-200 p-3.5">
             <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
@@ -289,7 +284,6 @@ function GoalDetail({ goal, onClose }) {
           </div>
         )}
 
-        {/* Formulaire de dépôt (uniquement depuis le solde) */}
         {!plan.isReached && (
           <form onSubmit={onFundFromWallet} className="rounded-xl border border-slate-200 p-3.5">
             <div className="mb-3 flex items-center justify-between rounded-lg bg-brand-50 px-3 py-2">
@@ -321,14 +315,9 @@ function GoalDetail({ goal, onClose }) {
           </form>
         )}
 
-        {/* Actions retrait / annulation */}
         <div className="space-y-2">
           {plan.isReached ? (
-            <Button
-              onClick={onWithdraw}
-              className="w-full"
-              disabled={busy}
-            >
+            <Button onClick={onWithdraw} className="w-full" disabled={busy}>
               <ArrowDownToLine size={16} />
               {busy ? 'Traitement…' : `Retirer ${formatCurrency(plan.totalDeposited)} sur mon solde`}
             </Button>
@@ -350,7 +339,6 @@ function GoalDetail({ goal, onClose }) {
           )}
         </div>
 
-        {/* Historique */}
         <div>
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Historique</p>
           {deposits.length === 0 ? (
@@ -371,7 +359,7 @@ function GoalDetail({ goal, onClose }) {
   );
 }
 
-/* ═══════════ Formulaire création/édition ═══════════ */
+/* ═══════════ Formulaire Création / Édition ═══════════ */
 
 function GoalFormModal({ open, onClose, goal }) {
   const { user } = useAuth();
@@ -415,6 +403,7 @@ function GoalFormModal({ open, onClose, goal }) {
 
   const onSubmit = async (e) => {
     e.preventDefault();
+    e.stopPropagation();
     setError('');
     const target = Math.round(Number(targetAmount));
     const penalty = Math.max(MIN_PENALTY, Number(penaltyAmount) || MIN_PENALTY);
