@@ -9,15 +9,15 @@
   "orientation": "portrait",
   "icons": [
     {
-      "src": "https://raw.githubusercontent.com/exaucenapopolo/Pata/refs/heads/main/illustrations/%C3%A9pargne.jpg",
+      "src": "/android-chrome-192x192.png",
       "sizes": "192x192",
-      "type": "image/jpeg",
-      "purpose": "any maskable"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
-      "src": "https://raw.githubusercontent.com/exaucenapopolo/Pata/refs/heads/main/illustrations/%C3%A9pargne.jpg",
+      "src": "/android-chrome-512x512.png",
       "sizes": "512x512",
-      "type": "image/jpeg",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ]
