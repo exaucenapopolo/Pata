@@ -20,15 +20,27 @@ import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { generateAdvice, adviceIconColor } from '@/lib/advisor';
 import { formatCurrency, formatDate, resolveCategory } from '@/lib/utils';
 
+// 🟢 FONCTIONS DE DATE CORRIGÉES (Sans décalage UTC)
 const firstOfMonth = () => {
   const d = new Date();
-  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}-01`;
 };
 const lastOfMonth = () => {
   const d = new Date();
-  return new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const lastDay = new Date(year, d.getMonth() + 1, 0).getDate();
+  return `${year}-${month}-${String(lastDay).padStart(2, '0')}`;
 };
-const todayIso = () => new Date().toISOString().slice(0, 10);
+const todayIso = () => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 const ADVICE_ICONS = { success: CheckCircle2, danger: AlertTriangle, warning: AlertTriangle, tip: Lightbulb, info: Info };
 
@@ -51,15 +63,25 @@ export default function DashboardPage() {
     return raw ? raw.split(' ')[0] : 'toi';
   }, [profile]);
 
+  // Calcul de la période précédente
   const { prevStartDate, prevEndDate } = useMemo(() => {
     const start = new Date(startDate);
     const end = new Date(endDate);
     const durationMs = end.getTime() - start.getTime();
     const prevEnd = new Date(start.getTime() - 86400000);
     const prevStart = new Date(prevEnd.getTime() - durationMs);
+    
+    // Formatage local pour éviter le bug UTC
+    const formatLocal = (date) => {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    };
+
     return {
-      prevStartDate: prevStart.toISOString().slice(0, 10),
-      prevEndDate: prevEnd.toISOString().slice(0, 10),
+      prevStartDate: formatLocal(prevStart),
+      prevEndDate: formatLocal(prevEnd),
     };
   }, [startDate, endDate]);
 
@@ -387,4 +409,4 @@ export default function DashboardPage() {
       </Card>
     </div>
   );
-                                     }
+      }
