@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element */
 export function CategoryImage({ categoryId, image, size = 'md' }) {
   const sizes = {
     sm: 'h-10 w-10',
@@ -17,4 +18,4 @@ export function CategoryImage({ categoryId, image, size = 'md' }) {
       />
     </div>
   );
-        }
+}
