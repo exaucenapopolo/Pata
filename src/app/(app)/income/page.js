@@ -1,17 +1,19 @@
 /* eslint-disable react/no-unescaped-entities */
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
-  Plus, Trash2, TrendingUp, CheckCircle2, Save, RotateCcw, Percent, Landmark
+  Plus, Trash2, TrendingUp, CheckCircle2, Landmark, Save, RotateCcw, Percent, PiggyBank
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAuth } from '@/hooks/useAuth';
 import { useIncomes } from '@/hooks/useIncomes';
+import { useExpenses } from '@/hooks/useExpenses';
 import { useBudgetRules } from '@/hooks/useBudgetRules';
 import { createIncome, deleteIncome } from '@/lib/firestore/incomes';
 import { upsertBudget } from '@/lib/firestore/budgets';
@@ -25,8 +27,9 @@ const todayIso = () => new Date().toISOString().slice(0, 10);
 export default function IncomePage() {
   const { user } = useAuth();
   const { incomes } = useIncomes();
+  const { expenses } = useExpenses();
   const {
-    rules, setRules, updatePercent, saveRules, resetRules,
+    rules, updatePercent, saveRules, resetRules,
     total, isValid, loading: rulesLoading,
   } = useBudgetRules();
 
@@ -40,12 +43,25 @@ export default function IncomePage() {
   const [applied, setApplied] = useState(false);
   const [error, setError] = useState('');
   const [rulesSavedAt, setRulesSavedAt] = useState(null);
-  
   const [selectedIncomeToApply, setSelectedIncomeToApply] = useState('all');
 
+  // 🟢 Confirmation sécurisée pour suppression
+  const [deleteId, setDeleteId] = useState(null);
+
+  // 🟢 Tous les revenus avec leur solde restant
+  const incomesWithBalance = useMemo(() => {
+    return incomes.map((inc) => {
+      const linkedExpenses = expenses.filter((e) => e.incomeSourceId === inc.id);
+      const spent = linkedExpenses.reduce((s, e) => s + (e.amount || 0), 0);
+      const remaining = Math.max(0, (inc.amount || 0) - spent);
+      return { ...inc, spent, remaining, isExhausted: remaining === 0 && spent > 0 };
+    });
+  }, [incomes, expenses]);
+
+  // 🟢 Revenus du mois sélectionné pour le calcul budgétaire
   const monthIncomes = useMemo(
-    () => incomes.filter((i) => i.month === month).sort((a, b) => (a.date < b.date ? 1 : -1)),
-    [incomes, month]
+    () => incomesWithBalance.filter((i) => i.month === month).sort((a, b) => (a.date < b.date ? 1 : -1)),
+    [incomesWithBalance, month]
   );
   const totalIncome = monthIncomes.reduce((s, i) => s + (i.amount || 0), 0);
   const breakdown = useMemo(
@@ -53,7 +69,11 @@ export default function IncomePage() {
     [totalIncome, rules]
   );
 
-  useEffect(() => { setApplied(false); }, [month]);
+  // 🟢 Revenus disponibles (non épuisés)
+  const activeIncomes = useMemo(
+    () => incomesWithBalance.filter(i => !i.isExhausted),
+    [incomesWithBalance]
+  );
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -73,7 +93,7 @@ export default function IncomePage() {
       setOpen(false);
       setForm({ amount: '', source: 'Salaire', categoryId: 'salary', note: '', date: todayIso() });
     } catch {
-      setError('Erreur lors de l’enregistrement.');
+      setError('Erreur lors de l\u2019enregistrement.');
     } finally {
       setSaving(false);
     }
@@ -114,9 +134,11 @@ export default function IncomePage() {
     }
   };
 
-  const onDelete = async (id) => {
-    if (!confirm('Supprimer ce revenu ?')) return;
-    await deleteIncome(user.uid, id);
+  const handleDelete = async () => {
+    if (deleteId) {
+      await deleteIncome(user.uid, deleteId);
+      setDeleteId(null);
+    }
   };
 
   return (
@@ -125,7 +147,7 @@ export default function IncomePage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Revenus</h1>
           <p className="text-sm text-slate-500">
-            Total du mois : <span className="font-semibold text-slate-800">{formatCurrency(totalIncome)}</span>
+            {activeIncomes.length} source(s) active(s) — Total disponible : <span className="font-semibold text-brand-600">{formatCurrency(activeIncomes.reduce((s, i) => s + i.remaining, 0))}</span>
           </p>
         </div>
         <input
@@ -136,85 +158,97 @@ export default function IncomePage() {
         />
       </div>
 
+      {/* 🟢 TOUS LES REVENUS AVEC SOLDE RESTANT */}
       <Card>
         <div className="mb-3 flex items-center justify-between">
-          <CardTitle>Détail du mois</CardTitle>
+          <CardTitle>Toutes mes sources de revenus</CardTitle>
           <Button size="sm" onClick={() => setOpen(true)}>
             <Plus size={14} /> Ajouter
           </Button>
         </div>
-        {monthIncomes.length === 0 ? (
+        {incomesWithBalance.length === 0 ? (
           <EmptyState
             icon={TrendingUp}
             title="Aucun revenu enregistré"
-            description="Ajoute ton salaire ou une source de revenu pour ce mois."
+            description="Ajoute ton salaire ou une source de revenu pour commencer."
           />
         ) : (
-          <ul className="divide-y divide-slate-100">
-            {monthIncomes.map((i) => (
-              <li key={i.id} className="flex items-center justify-between py-2.5">
-                <div>
+          <ul className="space-y-3">
+            {incomesWithBalance.map((inc) => (
+              <li key={inc.id} className={`rounded-xl border p-3 ${inc.isExhausted ? 'border-slate-100 bg-slate-50/50 opacity-60' : 'border-slate-200 bg-white'}`}>
+                <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold text-slate-800">{i.source}</p>
-                    <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
-                      {INCOME_CATEGORIES.find(c => c.id === i.categoryId)?.label || 'Revenu'}
-                    </span>
+                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
+                      <Landmark size={16} />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-semibold text-slate-800">{inc.source}</p>
+                        {inc.isExhausted && (
+                          <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">Épuisé</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        {formatDate(inc.date)} — {INCOME_CATEGORIES.find(c => c.id === inc.categoryId)?.label || 'Revenu'}
+                      </p>
+                    </div>
                   </div>
-                  <p className="text-xs text-slate-500">
-                    {formatDate(i.date)}{i.note ? ` — ${i.note}` : ''}
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <div className="text-right">
+                      <p className="text-sm font-bold text-slate-800">{formatCurrency(inc.amount)}</p>
+                      <p className="text-[10px] text-slate-500">Total</p>
+                    </div>
+                    <button
+                      onClick={() => setDeleteId(inc.id)}
+                      className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      aria-label="Supprimer"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-bold text-brand-600">
-                    + {formatCurrency(i.amount)}
-                  </span>
-                  <button
-                    onClick={() => onDelete(i.id)}
-                    className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                    aria-label="Supprimer"
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                </div>
+                
+                {!inc.isExhausted && (
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-slate-500">Dépensé</span>
+                      <span className="text-red-500">- {formatCurrency(inc.spent)}</span>
+                    </div>
+                    <div className="flex justify-between items-center border-t border-slate-100 pt-1.5">
+                      <span className="text-xs font-semibold text-slate-700">Solde restant</span>
+                      <span className="text-base font-bold text-brand-600">{formatCurrency(inc.remaining)}</span>
+                    </div>
+                  </div>
+                )}
               </li>
             ))}
           </ul>
         )}
       </Card>
 
+      {/* RÈGLES DE RÉPARTITION */}
       <Card>
         <div className="mb-3 flex items-center justify-between">
           <CardTitle>Règles de répartition</CardTitle>
           <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={onResetRules}
-              disabled={rulesLoading}
-            >
+            <Button size="sm" variant="outline" onClick={onResetRules} disabled={rulesLoading}>
               <RotateCcw size={12} /> Défauts
             </Button>
-            <Button
-              size="sm"
-              onClick={onSaveRules}
-              disabled={!isValid || savingRules}
-            >
+            <Button size="sm" onClick={onSaveRules} disabled={!isValid || savingRules}>
               <Save size={12} /> {savingRules ? '…' : 'Enregistrer'}
             </Button>
           </div>
         </div>
 
         <p className="mb-3 text-xs text-slate-500">
-          Modifie librement les pourcentages selon ta vie réelle. Le total doit faire 100 %.
+          Modifie librement les pourcentages selon ta vie réelle. Le total doit faire 100%.
           {rulesSavedAt && <span className="ml-1 text-brand-600">Règles enregistrées.</span>}
         </p>
 
         <ul className="space-y-2">
           {rules.map((r) => (
             <li key={r.key} className="flex items-center gap-3">
-              <span className="min-w-0 flex-1 truncate text-sm text-slate-700">
-                {r.label}
-              </span>
+              <span className="min-w-0 flex-1 truncate text-sm text-slate-700">{r.label}</span>
               <div className="flex items-center gap-1">
                 <input
                   type="number"
@@ -236,11 +270,7 @@ export default function IncomePage() {
           ))}
         </ul>
 
-        <div
-          className={`mt-4 flex items-center justify-between rounded-lg px-3 py-2 text-sm font-medium ${
-            isValid ? 'bg-brand-50 text-brand-700' : 'bg-red-50 text-red-700'
-          }`}
-        >
+        <div className={`mt-4 flex items-center justify-between rounded-lg px-3 py-2 text-sm font-medium ${isValid ? 'bg-brand-50 text-brand-700' : 'bg-red-50 text-red-700'}`}>
           <span>Total</span>
           <span>{total.toFixed(0)} % {isValid ? '✓' : '— doit faire 100 %'}</span>
         </div>
@@ -265,8 +295,8 @@ export default function IncomePage() {
               className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"
             >
               <option value="all">Tous les revenus (Global)</option>
-              {monthIncomes.map(inc => (
-                <option key={inc.id} value={inc.id}>{inc.source} ({formatCurrency(inc.amount)})</option>
+              {activeIncomes.map(inc => (
+                <option key={inc.id} value={inc.id}>{inc.source} ({formatCurrency(inc.remaining)} disponible)</option>
               ))}
             </select>
           </div>
@@ -288,11 +318,7 @@ export default function IncomePage() {
             variant={applied ? 'secondary' : 'primary'}
             disabled={savingApplied || applied || !isValid}
           >
-            {applied
-              ? 'Budgets déjà appliqués'
-              : savingApplied
-              ? 'Application…'
-              : 'Appliquer ces budgets'}
+            {applied ? 'Budgets déjà appliqués' : savingApplied ? 'Application…' : 'Appliquer ces budgets'}
           </Button>
         </Card>
       )}
@@ -348,6 +374,18 @@ export default function IncomePage() {
           </Button>
         </form>
       </Modal>
+
+      {/* 🟢 CONFIRMATION SÉCURISÉE */}
+      <ConfirmDialog
+        open={!!deleteId}
+        onClose={() => setDeleteId(null)}
+        onConfirm={handleDelete}
+        title="Supprimer ce revenu ?"
+        message="Cette action est irréversible. Le revenu et toutes ses références seront effacés. Attention : les dépenses liées ne seront pas supprimées."
+        confirmWord="SUPPRIMER"
+        confirmLabel="Supprimer définitivement"
+        variant="danger"
+      />
     </div>
   );
-}
+    }
