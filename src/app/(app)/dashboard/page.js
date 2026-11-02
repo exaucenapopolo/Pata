@@ -20,19 +20,27 @@ import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { generateAdvice, adviceIconColor } from '@/lib/advisor';
 import { formatCurrency, formatDate, resolveCategory } from '@/lib/utils';
 
-const todayIso = () => new Date().toISOString().slice(0, 10);
+// 🟢 Correction : le mois en cours strict
 const firstOfMonth = () => {
   const d = new Date();
   return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
 };
+const lastOfMonth = () => {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
+};
+const todayIso = () => new Date().toISOString().slice(0, 10);
 
 const ADVICE_ICONS = { success: CheckCircle2, danger: AlertTriangle, warning: AlertTriangle, tip: Lightbulb, info: Info };
 
 export default function DashboardPage() {
-  // 🟢 Période personnalisable
-  const [startDate, setStartDate] = useState(firstOfMonth());
-  const [endDate, setEndDate] = useState(todayIso());
+  const [customStart, setCustomStart] = useState(firstOfMonth());
+  const [customEnd, setCustomEnd] = useState(todayIso());
   const [showCustomPeriod, setShowCustomPeriod] = useState(false);
+
+  // 🟢 Dates effectives
+  const startDate = showCustomPeriod ? customStart : firstOfMonth();
+  const endDate = showCustomPeriod ? customEnd : lastOfMonth();
 
   const { incomes } = useIncomes();
   const { expenses } = useExpenses();
@@ -42,11 +50,10 @@ export default function DashboardPage() {
 
   const userName = useMemo(() => {
     const raw = profile?.displayName?.trim();
-    if (!raw) return 'toi';
-    return raw.split(' ')[0];
+    return raw ? raw.split(' ')[0] : 'toi';
   }, [profile]);
 
-  // 🟢 Calcul de la période précédente (même durée)
+  // 🟢 Calcul de la période précédente
   const { prevStartDate, prevEndDate } = useMemo(() => {
     const start = new Date(startDate);
     const end = new Date(endDate);
@@ -59,7 +66,7 @@ export default function DashboardPage() {
     };
   }, [startDate, endDate]);
 
-  // 🟢 Filtrage sur la période
+  // 🟢 Filtrage strict
   const periodExpenses = useMemo(
     () => expenses.filter((e) => e.date >= startDate && e.date <= endDate),
     [expenses, startDate, endDate]
@@ -68,8 +75,6 @@ export default function DashboardPage() {
     () => expenses.filter((e) => e.date >= prevStartDate && e.date <= prevEndDate),
     [expenses, prevStartDate, prevEndDate]
   );
-
-  // 🟢 Revenus : on considère tous ceux dont la date est dans la période
   const periodIncomes = useMemo(
     () => incomes.filter((i) => i.date >= startDate && i.date <= endDate),
     [incomes, startDate, endDate]
@@ -79,7 +84,7 @@ export default function DashboardPage() {
     [incomes, prevStartDate, prevEndDate]
   );
 
-  // 🟢 Revenus disponibles : tous les revenus avec leur solde restant
+  // Revenus disponibles
   const incomeWithBalance = useMemo(() => {
     return incomes.map((inc) => {
       const linkedExpenses = expenses.filter((e) => e.incomeSourceId === inc.id);
@@ -121,9 +126,11 @@ export default function DashboardPage() {
     [periodExpenses, prevExpenses, totalIncome, prevTotalIncome, goals, customCategories, userName]
   );
 
-  const recentExpenses = periodExpenses.slice(0, 5);
+  // 🟢 Tri des dépenses par montant décroissant
+  const topExpenses = useMemo(() => {
+    return [...periodExpenses].sort((a, b) => b.amount - a.amount).slice(0, 5);
+  }, [periodExpenses]);
 
-  // 🟢 Comparaison dépenses
   const expenseChange = prevTotalExpense > 0 ? ((totalExpense - prevTotalExpense) / prevTotalExpense) * 100 : null;
   const incomeChange = prevTotalIncome > 0 ? ((totalIncome - prevTotalIncome) / prevTotalIncome) * 100 : null;
 
@@ -136,14 +143,13 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* 🟢 SÉLECTEUR DE PÉRIODE */}
       <Card>
         <div className="flex flex-wrap items-center gap-3">
           <button
             onClick={() => setShowCustomPeriod(false)}
             className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${!showCustomPeriod ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
           >
-            Ce mois
+            Ce mois (en cours)
           </button>
           <button
             onClick={() => setShowCustomPeriod(true)}
@@ -157,31 +163,21 @@ export default function DashboardPage() {
           <div className="mt-3 flex flex-wrap gap-2 items-end">
             <div className="flex-1 min-w-[140px]">
               <label className="block text-xs font-medium text-slate-500 mb-1">Du</label>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"
-              />
+              <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm" />
             </div>
             <div className="flex-1 min-w-[140px]">
               <label className="block text-xs font-medium text-slate-500 mb-1">Au</label>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"
-              />
+              <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm" />
             </div>
           </div>
         )}
 
         <p className="mt-2 text-xs text-slate-500">
-          Comparaison avec la période précédente : {formatDate(prevStartDate)} → {formatDate(prevEndDate)}
+          Période affichée : {formatDate(startDate)} → {formatDate(endDate)} <br />
+          Comparaison avec : {formatDate(prevStartDate)} → {formatDate(prevEndDate)}
         </p>
       </Card>
 
-      {/* CARTES STATS + COMPARAISONS */}
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <Card>
           <div className="flex items-center gap-2 text-brand-600">
@@ -191,7 +187,7 @@ export default function DashboardPage() {
           <CardValue>{formatCurrency(totalIncome)}</CardValue>
           {incomeChange !== null && (
             <p className={`mt-1 text-xs font-medium ${incomeChange >= 0 ? 'text-brand-600' : 'text-red-500'}`}>
-              {incomeChange >= 0 ? '↑' : '↓'} {Math.abs(incomeChange).toFixed(0)}% vs période préc.
+              {incomeChange >= 0 ? '↑' : '↓'} {Math.abs(incomeChange).toFixed(0)}% vs préc.
             </p>
           )}
         </Card>
@@ -203,7 +199,7 @@ export default function DashboardPage() {
           <CardValue>{formatCurrency(totalExpense)}</CardValue>
           {expenseChange !== null && (
             <p className={`mt-1 text-xs font-medium ${expenseChange <= 0 ? 'text-brand-600' : 'text-red-500'}`}>
-              {expenseChange >= 0 ? '↑' : '↓'} {Math.abs(expenseChange).toFixed(0)}% vs période préc.
+              {expenseChange >= 0 ? '↑' : '↓'} {Math.abs(expenseChange).toFixed(0)}% vs préc.
             </p>
           )}
         </Card>
@@ -219,7 +215,7 @@ export default function DashboardPage() {
         <Card>
           <div className="flex items-center gap-2 text-slate-500">
             <PiggyBank size={16} />
-            <CardTitle>Revenus disponibles</CardTitle>
+            <CardTitle>Revenus dispo.</CardTitle>
           </div>
           <CardValue>{formatCurrency(incomeWithBalance.reduce((s, i) => s + i.remaining, 0))}</CardValue>
           <p className="mt-1 text-xs text-slate-500">
@@ -228,7 +224,6 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* ASSISTANT INTELLIGENT */}
       {advices.length > 0 && (
         <Card>
           <div className="mb-3 flex items-center justify-between">
@@ -254,7 +249,6 @@ export default function DashboardPage() {
         </Card>
       )}
 
-      {/* REVENUS DISPONIBLES */}
       {incomeWithBalance.filter(i => i.remaining > 0).length > 0 && (
         <Card>
           <div className="mb-3 flex items-center justify-between">
@@ -363,18 +357,19 @@ export default function DashboardPage() {
         </Card>
       </div>
 
+      {/* 🟢 TITRE ET TRI MIS A JOUR : Dépenses les plus élevées */}
       <Card>
         <div className="mb-4 flex items-center justify-between">
-          <CardTitle>Dernières dépenses</CardTitle>
+          <CardTitle>Dépenses les plus élevées</CardTitle>
           <Link href="/expenses" className="flex items-center text-xs font-medium text-brand-600 hover:underline">
             Tout voir <ChevronRight size={14} />
           </Link>
         </div>
-        {recentExpenses.length === 0 ? (
+        {topExpenses.length === 0 ? (
           <EmptyState icon={Wallet} title="Aucune dépense sur cette période" />
         ) : (
           <ul className="divide-y divide-slate-100">
-            {recentExpenses.map((e) => {
+            {topExpenses.map((e) => {
               const cat = resolveCategory(e.categoryId, 'expense', customCategories);
               return (
                 <li key={e.id} className="flex items-center justify-between py-3">
@@ -399,4 +394,4 @@ export default function DashboardPage() {
       </Card>
     </div>
   );
-      }
+              }
