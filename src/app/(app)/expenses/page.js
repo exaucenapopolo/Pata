@@ -17,16 +17,27 @@ import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { createExpense, updateExpense, deleteExpense } from '@/lib/firestore/expenses';
 import { formatCurrency, formatDate, resolveCategory } from '@/lib/utils';
 
-// Dates strictes pour le mois en cours
+// 🟢 FONCTIONS DE DATE CORRIGÉES (Sans décalage UTC)
 const firstOfMonth = () => {
   const d = new Date();
-  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}-01`;
 };
 const lastOfMonth = () => {
   const d = new Date();
-  return new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const lastDay = new Date(year, d.getMonth() + 1, 0).getDate();
+  return `${year}-${month}-${String(lastDay).padStart(2, '0')}`;
 };
-const todayIso = () => new Date().toISOString().slice(0, 10);
+const todayIso = () => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 const emptyForm = () => ({
   id: null,
@@ -153,7 +164,6 @@ export default function ExpensesPage() {
 
   return (
     <div className="space-y-4">
-      {/* 🟢 En-tête avec bouton d'ajout */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Dépenses</h1>
