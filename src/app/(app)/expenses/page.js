@@ -2,13 +2,14 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Plus, Trash2, Wallet, Pencil, Landmark } from 'lucide-react';
+import { Plus, Trash2, Wallet, Pencil, Landmark, Calendar } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { CategoryManager } from '@/components/ui/CategoryManager';
 import { CategoryImage } from '@/components/ui/CategoryImage';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAuth } from '@/hooks/useAuth';
 import { useExpenses } from '@/hooks/useExpenses';
 import { useIncomes } from '@/hooks/useIncomes';
@@ -16,7 +17,11 @@ import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { createExpense, updateExpense, deleteExpense } from '@/lib/firestore/expenses';
 import { formatCurrency, formatDate, resolveCategory } from '@/lib/utils';
 
-const todayMonth = () => new Date().toISOString().slice(0, 7);
+// 🟢 Dates par défaut : début du mois en cours jusqu'à aujourd'hui
+const firstOfMonth = () => {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+};
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
 const emptyForm = () => ({
@@ -35,24 +40,48 @@ export default function ExpensesPage() {
   const { incomes } = useIncomes();
   const { customCategories } = useCustomCategories('expense');
   
-  const [month, setMonth] = useState(todayMonth());
+  // 🟢 Filtres de date
+  const [showCustomPeriod, setShowCustomPeriod] = useState(false);
+  const [customStart, setCustomStart] = useState(firstOfMonth());
+  const [customEnd, setCustomEnd] = useState(todayIso());
+  
   const [filterCategory, setFilterCategory] = useState('all');
   const [form, setForm] = useState(emptyForm());
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [deleteId, setDeleteId] = useState(null);
 
-  const monthIncomes = useMemo(
-    () => incomes.filter((i) => i.month === month),
-    [incomes, month]
-  );
+  // Dates effectives
+  const startDate = showCustomPeriod ? customStart : firstOfMonth();
+  const endDate = showCustomPeriod ? customEnd : todayIso();
 
+  // 🟢 Calcul des revenus avec solde restant (tous les mois confondus)
+  const incomesWithBalance = useMemo(() => {
+    return incomes.map((inc) => {
+      const linkedExpenses = expenses.filter((e) => e.incomeSourceId === inc.id);
+      const spent = linkedExpenses.reduce((s, e) => s + (e.amount || 0), 0);
+      const remaining = Math.max(0, (inc.amount || 0) - spent);
+      return { ...inc, spent, remaining, isExhausted: remaining === 0 && spent > 0 };
+    });
+  }, [incomes, expenses]);
+
+  // 🟢 Trier les revenus : ceux avec solde d'abord, puis les épuisés
+  const sortedIncomesForSelect = useMemo(() => {
+    return [...incomesWithBalance].sort((a, b) => {
+      if (a.isExhausted && !b.isExhausted) return 1;
+      if (!a.isExhausted && b.isExhausted) return -1;
+      return new Date(b.date) - new Date(a.date);
+    });
+  }, [incomesWithBalance]);
+
+  // 🟢 Filtrage des dépenses
   const filtered = useMemo(() => {
     return expenses
-      .filter((e) => e.date?.startsWith(month))
+      .filter((e) => e.date >= startDate && e.date <= endDate)
       .filter((e) => filterCategory === 'all' || e.categoryId === filterCategory)
       .sort((a, b) => (a.date < b.date ? 1 : -1));
-  }, [expenses, month, filterCategory]);
+  }, [expenses, startDate, endDate, filterCategory]);
 
   const grouped = useMemo(() => {
     const map = {};
@@ -109,15 +138,16 @@ export default function ExpensesPage() {
       }
       setOpen(false);
     } catch {
-      setError('Erreur lors de l’enregistrement.');
+      setError('Erreur lors de l\u2019enregistrement.');
     } finally {
       setSaving(false);
     }
   };
 
-  const onDelete = async (id) => {
-    if (confirm('Supprimer cette dépense ?')) {
-      await deleteExpense(user.uid, id);
+  const handleDelete = async () => {
+    if (deleteId) {
+      await deleteExpense(user.uid, deleteId);
+      setDeleteId(null);
     }
   };
 
@@ -130,24 +160,41 @@ export default function ExpensesPage() {
             Total affiché : <span className="font-semibold text-slate-800">{formatCurrency(total)}</span>
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <input
-            type="month"
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-            className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm"
-          />
-          <select
-            value={filterCategory}
-            onChange={(e) => setFilterCategory(e.target.value)}
-            className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm"
-          >
-            <option value="all">Toutes catégories</option>
-            {customCategories.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-        </div>
+      </div>
+
+      {/* 🟢 Barre de filtres (Période + Catégorie) */}
+      <div className="flex flex-wrap items-center gap-3 bg-white p-3 rounded-xl border border-slate-200">
+        <button
+          onClick={() => setShowCustomPeriod(false)}
+          className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${!showCustomPeriod ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+        >
+          Ce mois
+        </button>
+        <button
+          onClick={() => setShowCustomPeriod(true)}
+          className={`flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-medium transition ${showCustomPeriod ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+        >
+          <Calendar size={14} /> Personnalisée
+        </button>
+        
+        {showCustomPeriod && (
+          <div className="flex flex-wrap gap-2 items-center">
+            <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm" />
+            <span className="text-slate-400">→</span>
+            <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm" />
+          </div>
+        )}
+
+        <select
+          value={filterCategory}
+          onChange={(e) => setFilterCategory(e.target.value)}
+          className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm ml-auto"
+        >
+          <option value="all">Toutes catégories</option>
+          {customCategories.map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
       </div>
 
       {loading ? (
@@ -158,7 +205,7 @@ export default function ExpensesPage() {
         <EmptyState
           icon={Wallet}
           title="Aucune dépense"
-          description="Ajoute ta première dépense pour commencer le suivi."
+          description="Aucune dépense trouvée pour cette période."
           action={<Button onClick={openNew}><Plus size={16} /> Ajouter</Button>}
         />
       ) : (
@@ -204,7 +251,7 @@ export default function ExpensesPage() {
                           <Pencil size={15} />
                         </button>
                         <button
-                          onClick={() => onDelete(e.id)}
+                          onClick={() => setDeleteId(e.id)}
                           className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
                           aria-label="Supprimer"
                         >
@@ -228,6 +275,7 @@ export default function ExpensesPage() {
         <Plus size={24} />
       </button>
 
+      {/* 🟢 Formulaire avec la liste de TOUS les revenus */}
       <Modal open={open} onClose={() => setOpen(false)} title={form.id ? 'Modifier la dépense' : 'Nouvelle dépense'}>
         <form onSubmit={onSubmit} className="space-y-4">
           <Input
@@ -250,12 +298,12 @@ export default function ExpensesPage() {
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">D’où vient cet argent ?</label>
+            <label className="mb-1 block text-sm font-medium text-slate-700">D'où vient cet argent ?</label>
             <select
               value={form.incomeSourceId}
               onChange={(e) => {
                 const selectedId = e.target.value;
-                const selectedInc = monthIncomes.find(i => i.id === selectedId);
+                const selectedInc = incomesWithBalance.find(i => i.id === selectedId);
                 setForm({ 
                   ...form, 
                   incomeSourceId: selectedId, 
@@ -265,9 +313,14 @@ export default function ExpensesPage() {
               className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"
             >
               <option value="all">Tous les revenus (Global)</option>
-              {monthIncomes.map((inc) => (
-                <option key={inc.id} value={inc.id}>
-                  {inc.source} ({formatCurrency(inc.amount)})
+              {sortedIncomesForSelect.map((inc) => (
+                <option 
+                  key={inc.id} 
+                  value={inc.id}
+                  disabled={inc.isExhausted && form.incomeSourceId !== inc.id}
+                  className={inc.isExhausted ? 'text-slate-400' : ''}
+                >
+                  {inc.source} ({formatCurrency(inc.remaining)} restant) {inc.isExhausted ? '— Épuisé' : ''}
                 </option>
               ))}
             </select>
@@ -294,6 +347,18 @@ export default function ExpensesPage() {
           </Button>
         </form>
       </Modal>
+
+      {/* 🟢 Confirmation sécurisée pour la suppression */}
+      <ConfirmDialog 
+        open={!!deleteId} 
+        onClose={() => setDeleteId(null)} 
+        onConfirm={handleDelete} 
+        title="Supprimer cette dépense ?" 
+        message="Cette action est irréversible. Le montant sera retiré de vos dépenses et le solde de votre source de revenu sera recalculé." 
+        confirmWord="SUPPRIMER" 
+        confirmLabel="Supprimer" 
+        variant="danger" 
+      />
     </div>
   );
   }
