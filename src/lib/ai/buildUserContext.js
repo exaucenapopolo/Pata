@@ -1,33 +1,66 @@
 import { resolveCategory } from '@/lib/utils';
 
 /**
- * Construit un contexte compact sur l'utilisateur (max ~500 tokens).
- * Sépare les données du mois en cours de celles du mois précédent.
+ * Construit un contexte ultra-précis sur l'utilisateur.
+ * Calcule le solde restant de chaque revenu en soustrayant les dépenses liées.
  */
 export function buildUserContext(userData) {
   const { profile, incomes, expenses, goals } = userData;
 
   const now = new Date();
   const currentMonthStr = now.toISOString().slice(0, 7); // ex: "2026-11"
-  
   const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const prevMonthStr = prevMonth.toISOString().slice(0, 7);
 
-  // Filtrer par mois
-  const currentIncomes = incomes.filter(i => (i.date || '').startsWith(currentMonthStr));
-  const prevIncomes = incomes.filter(i => (i.date || '').startsWith(prevMonthStr));
-
+  // 1. Calcul des dépenses totales par mois
   const currentExpenses = expenses.filter(e => (e.date || '').startsWith(currentMonthStr));
   const prevExpenses = expenses.filter(e => (e.date || '').startsWith(prevMonthStr));
+  
+  const curExpenseTotal = currentExpenses.reduce((s, e) => s + (e.amount || 0), 0);
+  const preExpenseTotal = prevExpenses.reduce((s, e) => s + (e.amount || 0), 0);
 
-  const sum = (arr, key) => arr.reduce((s, item) => s + (Number(item[key]) || 0), 0);
+  // 2. Analyse détaillée de CHAQUE revenu
+  const incomeDetails = incomes.map(inc => {
+    // Trouver toutes les dépenses liées à CE revenu spécifique
+    const linkedExpenses = expenses.filter(e => e.incomeSourceId === inc.id);
+    const spent = linkedExpenses.reduce((s, e) => s + (e.amount || 0), 0);
+    const remaining = Math.max(0, (inc.amount || 0) - spent);
+    
+    // Lister les noms des dépenses liées (pour que l'IA sache où l'argent est parti)
+    const linkedExpenseLabels = linkedExpenses.map(e => {
+      const cat = resolveCategory(e.categoryId, 'expense');
+      return `${cat.label} (${e.amount} FCFA)`;
+    });
 
-  const curIncome = sum(currentIncomes, 'amount');
-  const curExpense = sum(currentExpenses, 'amount');
-  const preIncome = sum(prevIncomes, 'amount');
-  const preExpense = sum(prevExpenses, 'amount');
+    return {
+      source: inc.source,
+      date: inc.date,
+      initial: inc.amount || 0,
+      spent,
+      remaining,
+      linkedExpenseLabels,
+      isExhausted: remaining === 0 && spent > 0
+    };
+  });
 
-  // Top catégories du mois en cours
+  // Garder les 5 revenus les plus récents pour ne pas surcharger le prompt
+  const recentIncomes = incomeDetails.slice(0, 5);
+
+  // 3. Formatage du texte pour l'IA
+  const incomeLines = recentIncomes.map(inc => {
+    let line = `- REVENU "${inc.source}" (reçu le ${inc.date}) : Montant initial ${inc.initial} FCFA.`;
+    if (inc.spent > 0) {
+      line += ` Déjà dépensé : ${inc.spent} FCFA. SOLDE RESTANT : ${inc.remaining} FCFA.`;
+      if (inc.linkedExpenseLabels.length > 0) {
+        line += ` (Détail des dépenses : ${inc.linkedExpenseLabels.join(', ')})`;
+      }
+    } else {
+      line += ` Aucune dépense liée. SOLDE INTACT : ${inc.remaining} FCFA.`;
+    }
+    return line;
+  }).join('\n');
+
+  // 4. Top catégories du mois en cours
   const byCategory = {};
   currentExpenses.forEach(e => {
     byCategory[e.categoryId] = (byCategory[e.categoryId] || 0) + (e.amount || 0);
@@ -37,34 +70,32 @@ export function buildUserContext(userData) {
     .slice(0, 3)
     .map(([id, amount]) => {
       const cat = resolveCategory(id, 'expense');
-      return `${cat.label}: ${Math.round(amount).toLocaleString('fr-FR')} FCFA`;
+      return `${cat.label}: ${Math.round(amount)} FCFA`;
     });
 
-  // Objectifs actifs
+  // 5. Objectifs actifs
   const activeGoals = goals
     .filter(g => g.type !== 'piggybank' && g.deadline)
     .slice(0, 3)
-    .map(g => `${g.name}: objectif ${Math.round(g.targetAmount).toLocaleString('fr-FR')} FCFA avant ${g.deadline}`);
+    .map(g => `${g.name}: objectif ${g.targetAmount} FCFA avant ${g.deadline}`);
 
-  // Revenus non épuisés
-  const allIncomesWithSpent = incomes.map(inc => {
-    const spent = expenses.filter(e => e.incomeSourceId === inc.id).reduce((s, e) => s + (e.amount || 0), 0);
-    return { ...inc, remaining: Math.max(0, (inc.amount || 0) - spent) };
-  });
-  const activeIncomes = allIncomesWithSpent.filter(i => i.remaining > 0).map(i => `${i.source}: ${Math.round(i.remaining).toLocaleString('fr-FR')} FCFA restants`);
+  // 6. Construction du contexte final
+  return `
+=== PROFIL ===
+Prénom: ${profile?.displayName?.split(' ')[0] || 'Utilisateur'}
+Solde du portefeuille: ${profile?.balance || 0} FCFA
 
-  return [
-    `Prénom de l'utilisateur: ${profile?.displayName?.split(' ')[0] || 'Utilisateur'}`,
-    `Solde portefeuille: ${Math.round(profile?.balance || 0).toLocaleString('fr-FR')} FCFA`,
-    `--- MOIS EN COURS (${currentMonthStr}) ---`,
-    `Revenus perçus ce mois: ${Math.round(curIncome).toLocaleString('fr-FR')} FCFA`,
-    `Dépenses effectuées ce mois: ${Math.round(curExpense).toLocaleString('fr-FR')} FCFA`,
-    topCategories.length > 0 ? `Où il dépense le plus ce mois: ${topCategories.join(' | ')}` : 'Aucune dépense ce mois',
-    `--- MOIS PRÉCÉDENT (${prevMonthStr}) ---`,
-    `Revenus perçus le mois dernier: ${Math.round(preIncome).toLocaleString('fr-FR')} FCFA`,
-    `Dépenses effectuées le mois dernier: ${Math.round(preExpense).toLocaleString('fr-FR')} FCFA`,
-    `--- AUTRES INFOS ---`,
-    activeGoals.length > 0 ? `Objectifs actifs: ${activeGoals.join(' | ')}` : 'Aucun objectif actif',
-    activeIncomes.length > 0 ? `Revenus avec de l'argent disponible: ${activeIncomes.join(' | ')}` : 'Tous les revenus sont épuisés',
-  ].join('\n');
-    }
+=== SITUATION DES REVENUS (TRÈS IMPORTANT) ===
+${incomeLines || 'Aucun revenu enregistré.'}
+
+=== DÉPENSES DU MOIS EN COURS (${currentMonthStr}) ===
+Total dépensé: ${curExpenseTotal} FCFA
+Top catégories: ${topCategories.length > 0 ? topCategories.join(' | ') : 'Aucune'}
+
+=== DÉPENSES DU MOIS PRÉCÉDENT (${prevMonthStr}) ===
+Total dépensé: ${preExpenseTotal} FCFA
+
+=== OBJECTIFS D'ÉPARGNE ===
+${activeGoals.length > 0 ? activeGoals.join('\n') : 'Aucun objectif en cours.'}
+`.trim();
+  }
