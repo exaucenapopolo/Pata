@@ -17,10 +17,14 @@ import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { createExpense, updateExpense, deleteExpense } from '@/lib/firestore/expenses';
 import { formatCurrency, formatDate, resolveCategory } from '@/lib/utils';
 
-// 🟢 Dates par défaut : début du mois en cours jusqu'à aujourd'hui
+// Dates strictes pour le mois en cours
 const firstOfMonth = () => {
   const d = new Date();
   return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+};
+const lastOfMonth = () => {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
 };
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
@@ -40,7 +44,6 @@ export default function ExpensesPage() {
   const { incomes } = useIncomes();
   const { customCategories } = useCustomCategories('expense');
   
-  // 🟢 Filtres de date
   const [showCustomPeriod, setShowCustomPeriod] = useState(false);
   const [customStart, setCustomStart] = useState(firstOfMonth());
   const [customEnd, setCustomEnd] = useState(todayIso());
@@ -52,11 +55,10 @@ export default function ExpensesPage() {
   const [error, setError] = useState('');
   const [deleteId, setDeleteId] = useState(null);
 
-  // Dates effectives
+  // 🟢 Dates strictes
   const startDate = showCustomPeriod ? customStart : firstOfMonth();
-  const endDate = showCustomPeriod ? customEnd : todayIso();
+  const endDate = showCustomPeriod ? customEnd : lastOfMonth();
 
-  // 🟢 Calcul des revenus avec solde restant (tous les mois confondus)
   const incomesWithBalance = useMemo(() => {
     return incomes.map((inc) => {
       const linkedExpenses = expenses.filter((e) => e.incomeSourceId === inc.id);
@@ -66,7 +68,6 @@ export default function ExpensesPage() {
     });
   }, [incomes, expenses]);
 
-  // 🟢 Trier les revenus : ceux avec solde d'abord, puis les épuisés
   const sortedIncomesForSelect = useMemo(() => {
     return [...incomesWithBalance].sort((a, b) => {
       if (a.isExhausted && !b.isExhausted) return 1;
@@ -75,7 +76,6 @@ export default function ExpensesPage() {
     });
   }, [incomesWithBalance]);
 
-  // 🟢 Filtrage des dépenses
   const filtered = useMemo(() => {
     return expenses
       .filter((e) => e.date >= startDate && e.date <= endDate)
@@ -153,16 +153,19 @@ export default function ExpensesPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      {/* 🟢 En-tête avec bouton d'ajout */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Dépenses</h1>
           <p className="text-sm text-slate-500">
             Total affiché : <span className="font-semibold text-slate-800">{formatCurrency(total)}</span>
           </p>
         </div>
+        <Button onClick={openNew} className="shadow-sm">
+          <Plus size={16} /> Nouvelle dépense
+        </Button>
       </div>
 
-      {/* 🟢 Barre de filtres (Période + Catégorie) */}
       <div className="flex flex-wrap items-center gap-3 bg-white p-3 rounded-xl border border-slate-200">
         <button
           onClick={() => setShowCustomPeriod(false)}
@@ -267,15 +270,6 @@ export default function ExpensesPage() {
         </div>
       )}
 
-      <button
-        onClick={openNew}
-        className="fixed bottom-20 right-4 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-brand-600 text-white shadow-lg transition hover:bg-brand-700 md:bottom-6"
-        aria-label="Ajouter une dépense"
-      >
-        <Plus size={24} />
-      </button>
-
-      {/* 🟢 Formulaire avec la liste de TOUS les revenus */}
       <Modal open={open} onClose={() => setOpen(false)} title={form.id ? 'Modifier la dépense' : 'Nouvelle dépense'}>
         <form onSubmit={onSubmit} className="space-y-4">
           <Input
@@ -348,7 +342,6 @@ export default function ExpensesPage() {
         </form>
       </Modal>
 
-      {/* 🟢 Confirmation sécurisée pour la suppression */}
       <ConfirmDialog 
         open={!!deleteId} 
         onClose={() => setDeleteId(null)} 
@@ -361,4 +354,4 @@ export default function ExpensesPage() {
       />
     </div>
   );
-  }
+      }
