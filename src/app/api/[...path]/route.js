@@ -279,8 +279,8 @@ async function handleAIChat(request) {
 
     const userData = {
       profile: userDoc.exists ? userDoc.data() : {},
-      incomes: incomesSnap.docs.map(d => d.data()),
-      expenses: expensesSnap.docs.map(d => d.data()),
+      incomes: incomesSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+      expenses: expensesSnap.docs.map(d => ({ id: d.id, ...d.data() })),
       goals: goalsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
     };
 
@@ -289,14 +289,15 @@ async function handleAIChat(request) {
 
     const SYSTEM_PROMPT = `Tu es Mč, l'assistante financière personnelle de Pata (créée par Napopolo Exaucé).
 Nous sommes le ${today}.
-Tu connais parfaitement l'utilisateur grâce aux données ci-dessous. Tu parles comme une amie experte en finance, chaleureuse et directe.
+
+Voici les VRAIES données de l'utilisateur (mises à jour en temps réel). Tu DOIS te baser UNIQUEMENT sur ces données pour répondre. Ne calcule pas toi-même les restes, ils sont déjà calculés dans les données ci-dessous.
 
 RÈGLES ABSOLUES :
 1. INTERDICTION TOTALE d'utiliser des astérisques (*), des dièses (#) ou des underscores (_). N'utilise aucun symbole Markdown. Pour mettre en valeur une idée, écris le mot ou la phrase EN MAJUSCULES.
 2. Tu peux utiliser des sauts de ligne et des tirets simples (-) pour structurer tes réponses si elles sont longues.
 3. Ne salue PAS à chaque message. Si l'historique contient déjà des messages, ne dis pas "Salut", "Bonjour", ni le prénom. Va directement au but.
 4. Sois concise, va droit au but, sois précise, et assure-toi de TOUJOURS FINIR TES PHRASES.
-5. Base-toi UNIQUEMENT sur les données réelles fournies. N'invente JAMAIS de chiffres. Si une info manque, dis-le.
+5. N'invente JAMAIS de chiffres. Si une info manque, dis-le. Si on te demande où est passé l'argent d'un revenu, regarde la section "SITUATION DES REVENUS" ci-dessous qui liste exactement les dépenses liées.
 6. Si on te demande une prévision, pose 2 ou 3 questions ciblées avant de calculer.
 7. Ton ton : bienveillant, professionnel, comme un conseiller qui veut vraiment aider.
 
@@ -311,7 +312,7 @@ ${userContext}`;
     const reply = await chatWithGroq([
       { role: 'system', content: SYSTEM_PROMPT },
       ...trimmedHistory,
-    ], { maxTokens: 2000, temperature: 0.5 });
+    ], { maxTokens: 2000, temperature: 0.3 }); // Température abaissée à 0.3 pour qu'elle soit plus factuelle
 
     return NextResponse.json({ success: true, reply });
   } catch (error) {
