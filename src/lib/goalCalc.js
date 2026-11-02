@@ -7,12 +7,12 @@ export function computeGoalPlan(goal, deposits = [], today = new Date()) {
   const isPiggybank = goal.type === 'piggybank';
   const totalDeposited = deposits.reduce((s, d) => s + Number(d.amount || 0), 0);
 
-  // 🟢 CAS SPÉCIAL : TIRELIRE (Pas de date, pas de pénalité, pas de dette)
+  // 🟢 CAS SPÉCIAL : TIRELIRE
   if (isPiggybank) {
     return {
       type: 'piggybank',
       totalDeposited,
-      isReached: true, // Considéré comme "atteint" pour bypasser les blocages de retrait
+      isReached: true,
       totalDebt: 0,
       penalty: 0,
       progress: 100,
@@ -26,6 +26,10 @@ export function computeGoalPlan(goal, deposits = [], today = new Date()) {
       frequencyDays: 0,
       startDate: null,
       deadline: null,
+      nextPaymentDate: null,
+      perDay: 0,
+      perWeek: 0,
+      perMonth: 0,
     };
   }
 
@@ -39,12 +43,23 @@ export function computeGoalPlan(goal, deposits = [], today = new Date()) {
   const totalPayments = Math.max(1, Math.ceil(durationDays / frequencyDays));
   const amountPerPayment = Math.round(targetAmount / totalPayments);
 
-  let daysElapsed = Math.floor((today - start) / 86400000);
+  const todayMs = today.getTime();
+  const startMs = start.getTime();
+  const msPerDay = 86400000;
+  
+  let daysElapsed = Math.floor((todayMs - startMs) / msPerDay);
   daysElapsed = Math.max(0, Math.min(durationDays, daysElapsed));
   
+  // 🟢 CORRECTION MAJEURE : Le 1er paiement est dû APRÈS "frequencyDays" jours.
+  // Ex: si fréquence = 30 jours, le 1er paiement est dû au jour 30, pas au jour 1.
   let paymentsDue = 0;
-  if (today >= start) {
-    paymentsDue = Math.min(totalPayments, Math.floor(daysElapsed / frequencyDays) + 1);
+  if (todayMs >= startMs) {
+    paymentsDue = Math.floor(daysElapsed / frequencyDays);
+    
+    // Si la date limite est complètement dépassée, tous les paiements sont exigibles
+    if (todayMs >= deadline.getTime()) {
+      paymentsDue = totalPayments;
+    }
   }
 
   const expectedAmount = paymentsDue * amountPerPayment;
@@ -54,14 +69,31 @@ export function computeGoalPlan(goal, deposits = [], today = new Date()) {
   const totalDebt = Number(goal.debtBalance) || 0;
   const unitPenalty = Math.max(MIN_PENALTY, Number(goal.penaltyAmount) || MIN_PENALTY);
   
+  // L'amende ne s'applique que si des paiements sont en retard
   const penalty = missedPayments > 0 && totalDebt === 0 ? missedPayments * unitPenalty : 0;
+
+  // Calcul de la prochaine date de paiement (pour l'afficher)
+  let nextPaymentDate = null;
+  let nextPaymentAmount = amountPerPayment;
+  
+  if (todayMs < deadline.getTime() && totalDeposited < targetAmount) {
+    const nextDueIndex = paymentsDue + 1;
+    if (nextDueIndex <= totalPayments) {
+      nextPaymentDate = new Date(startMs + nextDueIndex * frequencyDays * msPerDay);
+    }
+  }
+
+  // Calculs des options de paiement (par jour, semaine, mois) pour le détail
+  const perDay = Math.round(targetAmount / durationDays);
+  const perWeek = Math.round(targetAmount / (durationDays / 7));
+  const perMonth = Math.round(targetAmount / (durationDays / 30));
 
   const totalDue = targetAmount + penalty;
   const progress = totalDue > 0 ? Math.min(100, (totalDeposited / totalDue) * 100) : 0;
-  const remaining = Math.max(0, totalDue - totalDeposited);
-  const daysLeft = Math.max(0, Math.ceil((deadline - today) / 86400000));
+  const remaining = Math.max(0, targetAmount - totalDeposited);
+  const daysLeft = Math.max(0, Math.ceil((deadline - today) / msPerDay));
   const isReached = totalDeposited >= targetAmount;
-  const notStarted = today < start;
+  const notStarted = todayMs < startMs;
 
   return {
     type: 'goal',
@@ -87,6 +119,11 @@ export function computeGoalPlan(goal, deposits = [], today = new Date()) {
     isReached,
     totalDebt,
     notStarted,
+    nextPaymentDate,
+    nextPaymentAmount,
+    perDay,
+    perWeek,
+    perMonth,
   };
 }
 
@@ -97,4 +134,4 @@ export function resolveFrequencyDays(preset, customDays) {
   }
   const map = { '1': 1, '3': 3, '5': 5, '7': 7, '14': 14, '30': 30 };
   return map[preset] || 7;
-}
+               }
