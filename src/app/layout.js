@@ -2,9 +2,27 @@ import './globals.css';
 import { AppProviders } from './providers';
 
 export const metadata = {
-  title: 'Pata — Gère ton argent, discipline ton épargne',
-  description:
-    'Suivi de dépenses, budgets intelligents, épargne disciplinée et objectifs financiers.',
+  title: 'Pata — Gère ton argent',
+  description: 'Suivi de dépenses, budgets intelligents, épargne disciplinée et objectifs financiers.',
+  manifest: '/manifest.json',
+  themeColor: '#059669',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'Pata',
+  },
+  formatDetection: {
+    telephone: false,
+  },
+};
+
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: 'cover',
+  themeColor: '#059669',
 };
 
 export default function RootLayout({ children }) {
@@ -15,4 +33,4 @@ export default function RootLayout({ children }) {
       </body>
     </html>
   );
-    }
+}
