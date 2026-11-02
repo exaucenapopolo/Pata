@@ -1,0 +1,24 @@
+{
+  "name": "Pata - Gestion Financière",
+  "short_name": "Pata",
+  "description": "Gère ton argent, discipline ton épargne.",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#059669",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/exaucenapopolo/Pata/refs/heads/main/illustrations/%C3%A9pargne.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://raw.githubusercontent.com/exaucenapopolo/Pata/refs/heads/main/illustrations/%C3%A9pargne.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    }
+  ]
+}
