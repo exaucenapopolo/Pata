@@ -1,7 +1,4 @@
-/**
- * Client Groq pour l'assistant Mč.
- * Modèle : openai/gpt-oss-120b (raisonnement, 131k de contexte).
- */
+// src/lib/ai/groqClient.js
 export async function chatWithGroq(messages, options = {}) {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) throw new Error('GROQ_API_KEY non configurée.');
@@ -19,6 +16,7 @@ export async function chatWithGroq(messages, options = {}) {
       temperature: options.temperature ?? 0.4,
       top_p: 0.9,
       stream: false,
+      tools: options.tools || undefined, // Ajout du support des outils
     }),
   });
 
@@ -28,5 +26,12 @@ export async function chatWithGroq(messages, options = {}) {
   }
 
   const data = await res.json();
-  return data.choices?.[0]?.message?.content?.trim() || '';
-}
+  const message = data.choices?.[0]?.message;
+  
+  // Si l'IA a décidé d'utiliser un outil, on renvoie l'appel d'outil
+  if (message?.tool_calls && message.tool_calls.length > 0) {
+    return JSON.stringify({ tool_call: message.tool_calls[0].function });
+  }
+  
+  return message?.content?.trim() || '';
+      }
