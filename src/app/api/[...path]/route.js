@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { FieldValue } from 'firebase-admin/firestore';
+import { chatWithGroq } from '@/lib/ai/groqClient';
+import { buildUserContext } from '@/lib/ai/buildUserContext';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -269,8 +271,67 @@ async function handleGoalCancel(request) {
     return NextResponse.json({ success: true, ...result });
   } catch (error) { return errorResponse(error.message, 500); }
 }
+/* ═════════ AI ASSISTANT MČ ═════════ */
 
-/* ═════════ ROUTEUR ═════════ */
+async function handleAIChat(request) {
+  try {
+    const decoded = await authenticate(request);
+    const uid = decoded.uid;
+    const body = await request.json();
+
+    const messages = Array.isArray(body.messages) ? body.messages : [];
+    if (messages.length === 0) return errorResponse('Messages requis.', 400);
+
+    // Récupération des données utilisateur depuis Firestore
+    const [userDoc, incomesSnap, expensesSnap, goalsSnap] = await Promise.all([
+      adminDb.collection('users').doc(uid).get(),
+      adminDb.collection('users').doc(uid).collection('incomes').limit(100).get(),
+      adminDb.collection('users').doc(uid).collection('expenses').limit(200).get(),
+      adminDb.collection('users').doc(uid).collection('goals').limit(20).get(),
+    ]);
+
+    const userData = {
+      profile: userDoc.exists ? userDoc.data() : {},
+      incomes: incomesSnap.docs.map(d => d.data()),
+      expenses: expensesSnap.docs.map(d => d.data()),
+      goals: goalsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+    };
+
+    const userContext = buildUserContext(userData);
+
+    const SYSTEM_PROMPT = `Tu es Mč, l'assistant financier de Pata, une application de gestion d'argent créée par Napopolo Exaucé.
+
+Ta mission : aider l'utilisateur à mieux gérer son argent, épargner, et atteindre ses objectifs financiers.
+
+RÈGLES STRICTES :
+1. Tu réponds UNIQUEMENT sur les sujets financiers et l'application Pata. Si on te pose une question hors-sujet, dis poliment que tu es spécialisé en finances.
+2. Sois concis : 120 mots maximum par réponse. Va droit au but.
+3. Utilise les données réelles de l'utilisateur fournies ci-dessous. N'invente JAMAIS de chiffres.
+4. Si on te demande une prévision ou un calcul complexe, pose 2-3 questions ciblées avant de calculer.
+5. Si tu ne sais pas ou si l'information n'est pas dans les données, dis-le clairement.
+6. Tutoiement, ton chaleureux mais professionnel, en français.
+
+DONNÉES DE L'UTILISATEUR :
+${userContext}`;
+
+    // Limiter l'historique pour économiser les tokens (6 derniers messages)
+    const trimmedHistory = messages.slice(-6).map(m => ({
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: String(m.content || '').slice(0, 500),
+    }));
+
+    const reply = await chatWithGroq([
+      { role: 'system', content: SYSTEM_PROMPT },
+      ...trimmedHistory,
+    ], { maxTokens: 500 });
+
+    return NextResponse.json({ success: true, reply });
+  } catch (error) {
+    console.error('[API] AI chat error:', error.message);
+    return errorResponse(error.message || 'Erreur IA.', 500);
+  }
+        }
+
 const ROUTES = {
   'fapshi/checkout':  { POST: handleFapshiCheckout },
   'fapshi/webhook':   { POST: handleFapshiWebhook },
@@ -280,6 +341,7 @@ const ROUTES = {
   'goals/repay':      { POST: handleRepayLoan },
   'goals/withdraw':   { POST: handleGoalWithdraw },
   'goals/cancel':     { POST: handleGoalCancel },
+  'ai/chat':          { POST: handleAIChat },
 };
 
 async function dispatch(request, context) {
