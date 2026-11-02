@@ -12,7 +12,8 @@ export function useIncomes() {
   useEffect(() => {
     if (!user) { setIncomes([]); setLoading(false); return; }
     const unsub = subscribeIncomes(user.uid, (items) => {
-      setIncomes(items); setLoading(false);
+      setIncomes(items);
+      setLoading(false);
     });
     return unsub;
   }, [user]);
