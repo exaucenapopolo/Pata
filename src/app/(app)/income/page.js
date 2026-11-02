@@ -23,8 +23,20 @@ import { computeBudgetBreakdown } from '@/lib/budgetRules';
 import { INCOME_CATEGORIES } from '@/lib/constants';
 import { formatCurrency, formatDate } from '@/lib/utils';
 
-const todayMonth = () => new Date().toISOString().slice(0, 7);
-const todayIso = () => new Date().toISOString().slice(0, 10);
+// 🟢 FONCTION DE DATE CORRIGÉE
+const todayMonth = () => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+};
+const todayIso = () => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 const VITAL_KEYS = [
   { id: 'food', label: 'Nourriture', icon: '🍽️' },
@@ -53,7 +65,6 @@ export default function IncomePage() {
   const [selectedIncomeToApply, setSelectedIncomeToApply] = useState('all');
   const [deleteId, setDeleteId] = useState(null);
 
-  // 🟢 Prévisions vitales
   const [vitalOpen, setVitalOpen] = useState(false);
   const [vitalForm, setVitalForm] = useState({});
   const [savingVital, setSavingVital] = useState(false);
@@ -74,7 +85,6 @@ export default function IncomePage() {
   const totalIncome = monthIncomes.reduce((s, i) => s + (i.amount || 0), 0);
   const breakdown = useMemo(() => computeBudgetBreakdown(totalIncome, rules), [totalIncome, rules]);
 
-  // 🟢 Calcul du total vital
   const vitalNeeds = profile?.vitalNeeds || {};
   const totalVital = Object.values(vitalNeeds).reduce((s, v) => s + (Number(v) || 0), 0);
   const vitalGap = totalVital - totalAvailable;
@@ -148,7 +158,6 @@ export default function IncomePage() {
         <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm" />
       </div>
 
-      {/* 🟢 PRÉVISIONS VITALES */}
       <Card className={vitalCovered ? 'border-brand-200' : totalVital > 0 ? 'border-amber-200' : ''}>
         <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -193,7 +202,6 @@ export default function IncomePage() {
         )}
       </Card>
 
-      {/* Toutes les sources de revenus */}
       <Card>
         <div className="mb-3 flex items-center justify-between">
           <CardTitle>Toutes mes sources de revenus</CardTitle>
@@ -236,7 +244,6 @@ export default function IncomePage() {
         )}
       </Card>
 
-      {/* Règles de répartition */}
       <Card>
         <div className="mb-3 flex items-center justify-between">
           <CardTitle>Règles de répartition</CardTitle>
@@ -283,7 +290,6 @@ export default function IncomePage() {
         </Card>
       )}
 
-      {/* Modals */}
       <Modal open={open} onClose={() => setOpen(false)} title="Nouveau revenu">
         <form onSubmit={onSubmit} className="space-y-3">
           <Input label="Montant (FCFA)" type="number" min="0" step="1" required value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
@@ -301,7 +307,6 @@ export default function IncomePage() {
         </form>
       </Modal>
 
-      {/* 🟢 MODAL PRÉVISIONS VITALES */}
       <Modal open={vitalOpen} onClose={() => setVitalOpen(false)} title="Prévisions vitales mensuelles">
         <form onSubmit={onSaveVital} className="space-y-3">
           <p className="text-xs text-slate-500">Combien te faut-il chaque mois pour ces besoins essentiels ?</p>
@@ -326,4 +331,4 @@ export default function IncomePage() {
       <ConfirmDialog open={!!deleteId} onClose={() => setDeleteId(null)} onConfirm={handleDelete} title="Supprimer ce revenu ?" message="Cette action est irréversible. Les dépenses liées ne seront pas supprimées." confirmWord="SUPPRIMER" confirmLabel="Supprimer" variant="danger" />
     </div>
   );
-}
+   }
