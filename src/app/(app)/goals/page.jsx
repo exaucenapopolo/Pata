@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import {
   Plus, Target, Trash2, AlertTriangle, Banknote, Pencil, Lightbulb,
   Info, CheckCircle2, TrendingUp, ShieldAlert, ArrowDownToLine, Landmark,
-  MessageCircle, CalendarDays, PiggyBank, Lock, Unlock
+  MessageCircle, CalendarDays, PiggyBank, Pin, CalendarCheck, Zap
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -19,7 +19,7 @@ import { useProfile } from '@/hooks/useProfile';
 import { useGoals, useDeposits } from '@/hooks/useGoals';
 import { useIncomes } from '@/hooks/useIncomes';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
-import { createGoal, updateGoal, deleteGoal } from '@/lib/firestore/goals';
+import { createGoal, updateGoal, deleteGoal, toggleGoalPin } from '@/lib/firestore/goals';
 import {
   computeGoalPlan, resolveFrequencyDays, MIN_PENALTY,
 } from '@/lib/goalCalc';
@@ -68,50 +68,28 @@ function buildGoalAdvices(plan, balance, goalName) {
   }
 
   const advices = [];
-
   if (plan.notStarted) {
-    advices.push({
-      type: 'info',
-      message: `Cet objectif est programmé pour commencer le ${formatDate(plan.startDate)}. Prépare-toi !`,
-    });
+    advices.push({ type: 'info', message: `Cet objectif est programmé pour commencer le ${formatDate(plan.startDate)}. Prépare-toi !` });
     return advices;
   }
 
   if (plan.isReached) {
-    advices.push({
-      type: 'success',
-      message: `Ton objectif « ${goalName} » est atteint. Tu peux retirer ton argent à tout moment.`,
-    });
+    advices.push({ type: 'success', message: `Ton objectif « ${goalName} » est atteint. Tu peux retirer ton argent à tout moment.` });
     return advices;
   }
 
   if (plan.isLate && plan.totalDebt === 0) {
-    advices.push({
-      type: 'danger',
-      message: `Tu as ${plan.missedPayments} paiement${plan.missedPayments > 1 ? 's' : ''} manqué${plan.missedPayments > 1 ? 's' : ''}. Amende cumulée : ${formatCurrency(plan.penalty)}. Verse ${formatCurrency(plan.shortfall)} pour la stopper ou demande un micro-prêt.`,
-    });
+    advices.push({ type: 'danger', message: `Tu as ${plan.missedPayments} paiement${plan.missedPayments > 1 ? 's' : ''} manqué${plan.missedPayments > 1 ? 's' : ''}. Amende cumulée : ${formatCurrency(plan.penalty)}. Verse ${formatCurrency(plan.shortfall)} pour la stopper ou demande un micro-prêt.` });
   } else if (plan.totalDeposited >= plan.expectedAmount) {
-    advices.push({
-      type: 'success',
-      message: `Tu es à jour : ${formatCurrency(plan.totalDeposited)} versés. Continue comme ça.`,
-    });
+    advices.push({ type: 'success', message: `Tu es à jour : ${formatCurrency(plan.totalDeposited)} versés. Continue comme ça.` });
   } else {
-    advices.push({
-      type: 'info',
-      message: `Il te reste ${formatCurrency(plan.expectedAmount - plan.totalDeposited)} à verser pour être à jour sur ton plan.`,
-    });
+    advices.push({ type: 'info', message: `Il te reste ${formatCurrency(plan.expectedAmount - plan.totalDeposited)} à verser pour être à jour sur ton plan.` });
   }
 
   if (balance >= plan.amountPerPayment) {
-    advices.push({
-      type: 'tip',
-      message: `Ton solde couvre le prochain paiement de ${formatCurrency(plan.amountPerPayment)}. Verse directement.`,
-    });
+    advices.push({ type: 'tip', message: `Ton solde couvre le prochain paiement de ${formatCurrency(plan.amountPerPayment)}. Verse directement.` });
   } else if (balance === 0) {
-    advices.push({
-      type: 'tip',
-      message: 'Recharge ton portefeuille pour financer cet objectif en un clic.',
-    });
+    advices.push({ type: 'tip', message: 'Recharge ton portefeuille pour financer cet objectif en un clic.' });
   }
 
   return advices;
@@ -187,6 +165,8 @@ function ConfirmWithdrawModal({ goal, actionType, onClose, onConfirm, busy }) {
   );
 }
 
+/* ═══════════ Détail de l'objectif ═══════════ */
+
 function GoalDetail({ goal, onClose, onAskWithdraw }) {
   const { user } = useAuth();
   const { profile } = useProfile();
@@ -212,8 +192,7 @@ function GoalDetail({ goal, onClose, onAskWithdraw }) {
   const balance = profile?.balance || 0;
 
   const handleAction = async (endpoint, payload, successMsg) => {
-    setError('');
-    setBusy(true);
+    setError(''); setBusy(true);
     try {
       const token = await user.getIdToken();
       const res = await fetch(`/api/goals/${endpoint}`, {
@@ -232,20 +211,13 @@ function GoalDetail({ goal, onClose, onAskWithdraw }) {
   };
 
   const onFundFromWallet = async (e) => {
-    e.preventDefault();
-    setError(''); setSaving(true);
+    e.preventDefault(); setError(''); setSaving(true);
     const selectedIncome = currentMonthIncomes.find(i => i.id === selectedIncomeId);
-    
     try {
       const token = await user.getIdToken();
       const res = await fetch('/api/wallet/fund-goal', {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ 
-          goalId: goal.id, 
-          amount: Number(amount),
-          incomeSourceId: selectedIncomeId,
-          incomeSourceName: selectedIncome?.source || null,
-        }),
+        body: JSON.stringify({ goalId: goal.id, amount: Number(amount), incomeSourceId: selectedIncomeId, incomeSourceName: selectedIncome?.source || null }),
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
@@ -270,25 +242,54 @@ function GoalDetail({ goal, onClose, onAskWithdraw }) {
           </div>
         </div>
 
-        {isPiggybank ? (
+        {/* 🟢 AFFICHAGE DU PLAN CLAIR POUR L'OBJECTIF */}
+        {!isPiggybank && (
+          <div className="rounded-xl bg-slate-50 border border-slate-200 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-slate-600">Objectif ciblé</span>
+              <span className="font-bold text-slate-900">{formatCurrency(goal.targetAmount)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-slate-600">Déjà épargné</span>
+              <span className="font-bold text-brand-600">{formatCurrency(plan.totalDeposited)}</span>
+            </div>
+            <div className="flex items-center justify-between border-t border-slate-200 pt-2">
+              <span className="text-sm text-slate-600">Reste à épargner</span>
+              <span className="font-bold text-slate-900">{formatCurrency(plan.remaining)}</span>
+            </div>
+            <div className="bg-white rounded-lg p-2 border border-slate-100 mt-2">
+              <p className="text-xs text-slate-500 mb-1">Ton plan de paiement :</p>
+              <p className="text-sm font-semibold text-slate-800">
+                {plan.totalPayments} paiements de <span className="text-brand-600">{formatCurrency(plan.amountPerPayment)}</span> tous les {plan.frequencyDays} jours.
+              </p>
+              {plan.nextPaymentDate && (
+                <p className="text-xs text-brand-600 mt-1 flex items-center gap-1">
+                  <CalendarCheck size={12} /> Prochain paiement prévu le {formatDate(plan.nextPaymentDate)}
+                </p>
+              )}
+            </div>
+            {/* 🟢 OPTIONS POUR ALLER PLUS VITE */}
+            <div className="mt-2">
+              <p className="text-xs font-semibold text-slate-500 mb-1 flex items-center gap-1"><Zap size={12}/> Pour aller plus vite :</p>
+              <div className="grid grid-cols-3 gap-1 text-center text-[10px] text-slate-600">
+                <div className="bg-white border border-slate-100 rounded py-1">
+                  <span className="block font-bold text-slate-800">{formatCurrency(plan.perDay)}</span> / jour
+                </div>
+                <div className="bg-white border border-slate-100 rounded py-1">
+                  <span className="block font-bold text-slate-800">{formatCurrency(plan.perWeek)}</span> / sem.
+                </div>
+                <div className="bg-white border border-slate-100 rounded py-1">
+                  <span className="block font-bold text-slate-800">{formatCurrency(plan.perMonth)}</span> / mois
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isPiggybank && (
           <div className="rounded-xl border border-brand-200 bg-brand-50 p-4 text-center">
             <p className="text-xs font-semibold uppercase tracking-wide text-brand-700 mb-1">Total dans la tirelire</p>
             <p className="text-3xl font-bold text-brand-700">{formatCurrency(plan.totalDeposited)}</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-3 gap-2">
-            <div className="rounded-xl bg-slate-50 px-2 py-3 text-center">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Objectif</p>
-              <p className="mt-0.5 text-sm font-bold text-slate-800">{formatCurrency(goal.targetAmount)}</p>
-            </div>
-            <div className="rounded-xl bg-slate-50 px-2 py-3 text-center">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Épargné</p>
-              <p className="mt-0.5 text-sm font-bold text-brand-600">{formatCurrency(plan.totalDeposited)}</p>
-            </div>
-            <div className={`rounded-xl px-2 py-3 text-center ${plan.totalDebt > 0 ? 'bg-red-50' : 'bg-slate-50'}`}>
-              <p className={`text-[10px] font-semibold uppercase tracking-wide ${plan.totalDebt > 0 ? 'text-red-600' : 'text-slate-500'}`}>Dette</p>
-              <p className={`mt-0.5 text-sm font-bold ${plan.totalDebt > 0 ? 'text-red-600' : 'text-slate-800'}`}>{formatCurrency(plan.totalDebt)}</p>
-            </div>
           </div>
         )}
 
@@ -503,7 +504,6 @@ function GoalFormModal({ open, onClose, goal }) {
     <Modal open={open} onClose={onClose} title={editing ? "Modifier" : "Nouvelle épargne"} className="max-w-lg">
       <form onSubmit={onSubmit} className="space-y-4">
         
-        {/* 🟢 SÉLECTEUR DE TYPE */}
         {!editing && (
           <div className="grid grid-cols-2 gap-2 mb-4">
             <button
@@ -529,7 +529,6 @@ function GoalFormModal({ open, onClose, goal }) {
         
         <div><p className="mb-2 text-sm font-medium text-slate-700">Catégorie</p><CategoryManager type="goal" value={categoryId} onChange={setCategoryId} /></div>
 
-        {/* CHAMPS SPÉCIFIQUES À L'OBJECTIF CLASSIQUE */}
         {type === 'goal' && (
           <>
             <Input label="Montant cible (FCFA)" type="number" min="0" required value={targetAmount} onChange={(e) => setTargetAmount(e.target.value)} />
@@ -578,7 +577,9 @@ function GoalFormModal({ open, onClose, goal }) {
   );
 }
 
-function GoalCard({ goal, onOpen, onEdit, onAskWithdraw }) {
+/* ═══════════ Carte Objectif avec Épinglage ═══════════ */
+
+function GoalCard({ goal, onOpen, onEdit, onAskWithdraw, onTogglePin }) {
   const { customCategories } = useCustomCategories('goal');
   const deposits = useDeposits(goal.id);
   const plan = computeGoalPlan(goal, deposits);
@@ -594,7 +595,7 @@ function GoalCard({ goal, onOpen, onEdit, onAskWithdraw }) {
   else if (plan.isLate) { statusColor = '#ef4444'; statusLabel = 'En retard'; }
 
   return (
-    <Card className="flex flex-col">
+    <Card className={`flex flex-col transition-shadow ${goal.pinned ? 'ring-2 ring-brand-500 shadow-md' : ''}`}>
       <div className="mb-3 flex items-start justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -607,7 +608,17 @@ function GoalCard({ goal, onOpen, onEdit, onAskWithdraw }) {
             </p>
           )}
         </div>
-        <button onClick={onEdit} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100"><Pencil size={16} /></button>
+        <div className="flex items-center gap-1">
+          {/* 🟢 BOUTON ÉPINGLER */}
+          <button 
+            onClick={() => onTogglePin(goal.id, goal.pinned)} 
+            className={`rounded-lg p-1.5 transition-colors ${goal.pinned ? 'text-amber-500 hover:bg-amber-50' : 'text-slate-300 hover:bg-slate-100'}`}
+            title={goal.pinned ? "Désépingler" : "Épingler en haut"}
+          >
+            <Pin size={18} className={goal.pinned ? 'fill-current' : ''} />
+          </button>
+          <button onClick={onEdit} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100"><Pencil size={16} /></button>
+        </div>
       </div>
       
       <div className="mb-2">
@@ -687,6 +698,17 @@ export default function GoalsPage() {
   const [confirmType, setConfirmType] = useState(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
 
+  // 🟢 TRI : Épinglés d'abord, puis par date de création
+  const sortedGoals = useMemo(() => {
+    return [...goals].sort((a, b) => {
+      if (a.pinned && !b.pinned) return -1;
+      if (!a.pinned && b.pinned) return 1;
+      const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
+      const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
+      return dateB - dateA;
+    });
+  }, [goals]);
+
   const openCreate = () => { setEditingGoal(null); setOpen(true); };
   const openEdit = (goal) => { setEditingGoal(goal); setOpen(true); };
   const closeForm = () => { setOpen(false); setEditingGoal(null); };
@@ -694,6 +716,10 @@ export default function GoalsPage() {
   const askWithdraw = (goal, type) => {
     setConfirmGoal(goal);
     setConfirmType(type);
+  };
+
+  const handleTogglePin = async (id, currentStatus) => {
+    await toggleGoalPin(user.uid, id, currentStatus);
   };
 
   const handleConfirmAction = async () => {
@@ -742,13 +768,14 @@ export default function GoalsPage() {
         <EmptyState icon={Target} title="Aucune épargne" description="Crée un objectif ou une tirelire pour commencer." action={<Button onClick={openCreate}><Plus size={16} /> Créer</Button>} />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
-          {goals.map((g) => (
+          {sortedGoals.map((g) => (
             <GoalCard 
               key={g.id} 
               goal={g} 
               onOpen={() => setSelected(g)} 
               onEdit={() => openEdit(g)} 
               onAskWithdraw={askWithdraw}
+              onTogglePin={handleTogglePin}
             />
           ))}
         </div>
