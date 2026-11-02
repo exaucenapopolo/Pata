@@ -29,7 +29,8 @@ export const viewport = {
 export default function RootLayout({ children }) {
   return (
     <html lang="fr">
-      <body className="min-h-screen bg-slate-50 text-slate-900 antialiased">
+      {/* J'ai ajouté bg-white ici pour que la zone du bas soit blanche et non noire */}
+      <body className="min-h-screen bg-white text-slate-900 antialiased">
         <AppProviders>
           {children}
           <PWARegister />
