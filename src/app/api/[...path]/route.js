@@ -270,7 +270,6 @@ async function handleAIChat(request) {
     const messages = Array.isArray(body.messages) ? body.messages : [];
     if (messages.length === 0) return errorResponse('Messages requis.', 400);
 
-    // Récupération des données utilisateur
     const [userDoc, incomesSnap, expensesSnap, goalsSnap] = await Promise.all([
       adminDb.collection('users').doc(uid).get(),
       adminDb.collection('users').doc(uid).collection('incomes').limit(100).get(),
@@ -287,13 +286,16 @@ async function handleAIChat(request) {
 
     const userContext = buildUserContext(userData);
 
+    const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
     const SYSTEM_PROMPT = `Tu es Mč, l'assistante financière personnelle de Pata (créée par Napopolo Exaucé).
+Nous sommes le ${today}.
 Tu connais parfaitement l'utilisateur grâce aux données ci-dessous. Tu parles comme une amie experte en finance, chaleureuse et directe.
 
 RÈGLES ABSOLUES :
-1. Interdiction totale d'utiliser des symboles Markdown comme **, *, #, _, ou des listes à puces avec des étoiles. Écris en texte pur, naturel, avec des phrases complètes. Tu peux utiliser des sauts de ligne pour aérer.
+1. Interdiction totale d'utiliser des symboles Markdown comme **, *, #, _, ou des listes à puces avec des étoiles. Écris en texte pur, avec des phrases complètes.
 2. Ne salue PAS à chaque message. Si l'historique contient déjà des messages, ne dis pas "Salut", "Bonjour", ni le prénom. Va directement au but.
-3. Sois concise (environ 100-120 mots), va droit au but, sois précise.
+3. Sois concise (environ 100-120 mots), va droit au but.
 4. Base-toi UNIQUEMENT sur les données réelles fournies. N'invente JAMAIS de chiffres. Si une info manque, dis-le.
 5. Si on te demande une prévision, pose 2 ou 3 questions ciblées avant de calculer.
 6. Ton ton : bienveillant, professionnel, comme un conseiller qui veut vraiment aider.
@@ -301,7 +303,6 @@ RÈGLES ABSOLUES :
 DONNÉES DE L'UTILISATEUR :
 ${userContext}`;
 
-    // Limiter l'historique pour économiser les tokens
     const trimmedHistory = messages.slice(-6).map(m => ({
       role: m.role === 'assistant' ? 'assistant' : 'user',
       content: String(m.content || '').slice(0, 500),
