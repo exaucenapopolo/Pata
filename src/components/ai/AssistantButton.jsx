@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Sparkles } from 'lucide-react';
+import { BrainCircuit } from 'lucide-react';
 import { AssistantChat } from './AssistantChat';
 
 export function AssistantButton() {
@@ -11,10 +11,14 @@ export function AssistantButton() {
     <>
       <button
         onClick={() => setOpen(true)}
-        className="fixed bottom-20 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-lg transition hover:scale-105 md:bottom-6"
-        aria-label="Assistant Mč"
+        className="fixed bottom-20 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-slate-800 to-slate-900 text-brand-400 shadow-xl transition-all hover:scale-105 hover:shadow-brand-500/20 md:bottom-8 md:right-8 border border-slate-700/50"
+        aria-label="Ouvrir l'assistante Mč"
       >
-        <Sparkles size={24} />
+        <BrainCircuit size={26} />
+        <span className="absolute -top-1 -right-1 flex h-3 w-3">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-400 opacity-75"></span>
+          <span className="relative inline-flex rounded-full h-3 w-3 bg-brand-500"></span>
+        </span>
       </button>
       <AssistantChat open={open} onClose={() => setOpen(false)} />
     </>
