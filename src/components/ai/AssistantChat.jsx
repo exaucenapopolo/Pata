@@ -12,20 +12,19 @@ const SUGGESTIONS = [
   "Aide-moi à faire des prévisions",
 ];
 
-// Composant pour formater le texte proprement (gérer les sauts de ligne et les tirets)
 function MessageContent({ text }) {
   if (!text) return null;
   
-  // Découper par ligne
-  const lines = text.split('\n');
+  // Nettoyage de sécurité : on retire les ** s'il en reste
+  const cleanText = text.replace(/\*\*/g, '');
+  const lines = cleanText.split('\n');
 
   return (
     <div className="space-y-1.5">
       {lines.map((line, index) => {
         const trimmed = line.trim();
-        if (!trimmed) return <div key={index} className="h-2" />; // Espace vide
+        if (!trimmed) return <div key={index} className="h-2" />;
         
-        // Si la ligne commence par un tiret (liste)
         if (trimmed.startsWith('- ')) {
           return (
             <div key={index} className="flex gap-2 pl-1">
@@ -35,7 +34,6 @@ function MessageContent({ text }) {
           );
         }
 
-        // Texte normal
         return <p key={index}>{line}</p>;
       })}
     </div>
