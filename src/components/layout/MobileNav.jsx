@@ -41,11 +41,10 @@ export function MobileNav() {
       {/* Menu "Plus" (Bottom Sheet) */}
       {showMore && (
         <div className="fixed inset-0 z-[60] flex flex-col justify-end bg-black/40 md:hidden">
-          {/* Fond cliquable pour fermer */}
           <div className="flex-1" onClick={() => setShowMore(false)} />
           
-          <div className="rounded-t-3xl bg-white pb-8 pt-2 shadow-2xl">
-            <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-slate-200" />
+          <div className="rounded-t-3xl bg-white pb-[env(safe-area-inset-bottom)] shadow-2xl">
+            <div className="mx-auto mb-4 mt-2 h-1.5 w-12 rounded-full bg-slate-200" />
             
             <div className="px-4 pb-4">
               <h3 className="mb-4 text-sm font-bold text-slate-900 px-2">Toutes les options</h3>
@@ -85,8 +84,8 @@ export function MobileNav() {
         </div>
       )}
 
-      {/* Barre de navigation principale (en bas) */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 flex border-t border-slate-200 bg-white pb-safe md:hidden">
+      {/* Barre de navigation principale (en bas) avec support du Safe Area */}
+      <nav className="fixed bottom-0 left-0 right-0 z-50 flex border-t border-slate-200 bg-white pb-[env(safe-area-inset-bottom)] md:hidden">
         {MAIN_NAV.map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(href + '/');
           return (
@@ -104,7 +103,6 @@ export function MobileNav() {
           );
         })}
         
-        {/* Bouton Plus */}
         <button
           onClick={() => setShowMore(true)}
           className={cn(
@@ -118,4 +116,4 @@ export function MobileNav() {
       </nav>
     </>
   );
-}
+              }
