@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import {
   Plus, Target, Trash2, AlertTriangle, Banknote, Pencil, Lightbulb,
   Info, CheckCircle2, TrendingUp, ShieldAlert, ArrowDownToLine, Landmark,
-  MessageCircle, CalendarDays, PiggyBank, Pin, CalendarCheck, Zap
+  MessageCircle, CalendarDays, PiggyBank, Pin, CalendarCheck, Zap, Unlock
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -165,8 +165,6 @@ function ConfirmWithdrawModal({ goal, actionType, onClose, onConfirm, busy }) {
   );
 }
 
-/* ═══════════ Détail de l'objectif ═══════════ */
-
 function GoalDetail({ goal, onClose, onAskWithdraw }) {
   const { user } = useAuth();
   const { profile } = useProfile();
@@ -242,7 +240,6 @@ function GoalDetail({ goal, onClose, onAskWithdraw }) {
           </div>
         </div>
 
-        {/* 🟢 AFFICHAGE DU PLAN CLAIR POUR L'OBJECTIF */}
         {!isPiggybank && (
           <div className="rounded-xl bg-slate-50 border border-slate-200 p-4 space-y-3">
             <div className="flex items-center justify-between">
@@ -268,7 +265,6 @@ function GoalDetail({ goal, onClose, onAskWithdraw }) {
                 </p>
               )}
             </div>
-            {/* 🟢 OPTIONS POUR ALLER PLUS VITE */}
             <div className="mt-2">
               <p className="text-xs font-semibold text-slate-500 mb-1 flex items-center gap-1"><Zap size={12}/> Pour aller plus vite :</p>
               <div className="grid grid-cols-3 gap-1 text-center text-[10px] text-slate-600">
@@ -577,8 +573,6 @@ function GoalFormModal({ open, onClose, goal }) {
   );
 }
 
-/* ═══════════ Carte Objectif avec Épinglage ═══════════ */
-
 function GoalCard({ goal, onOpen, onEdit, onAskWithdraw, onTogglePin }) {
   const { customCategories } = useCustomCategories('goal');
   const deposits = useDeposits(goal.id);
@@ -609,7 +603,6 @@ function GoalCard({ goal, onOpen, onEdit, onAskWithdraw, onTogglePin }) {
           )}
         </div>
         <div className="flex items-center gap-1">
-          {/* 🟢 BOUTON ÉPINGLER */}
           <button 
             onClick={() => onTogglePin(goal.id, goal.pinned)} 
             className={`rounded-lg p-1.5 transition-colors ${goal.pinned ? 'text-amber-500 hover:bg-amber-50' : 'text-slate-300 hover:bg-slate-100'}`}
@@ -698,7 +691,6 @@ export default function GoalsPage() {
   const [confirmType, setConfirmType] = useState(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
 
-  // 🟢 TRI : Épinglés d'abord, puis par date de création
   const sortedGoals = useMemo(() => {
     return [...goals].sort((a, b) => {
       if (a.pinned && !b.pinned) return -1;
