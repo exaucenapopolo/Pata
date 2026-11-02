@@ -27,6 +27,7 @@ export async function createGoal(uid, data) {
     type: data.type || 'goal',
     categoryId: data.categoryId || 'savings',
     debtBalance: 0,
+    pinned: false, // 🟢 NOUVEAU : État d'épinglage par défaut
     createdAt: serverTimestamp(),
   };
 
@@ -48,6 +49,12 @@ export async function updateGoal(uid, id, patch) {
   await updateDoc(doc(db, 'users', uid, 'goals', id), patch);
 }
 
+export async function toggleGoalPin(uid, id, currentStatus) {
+  await updateDoc(doc(db, 'users', uid, 'goals', id), {
+    pinned: !currentStatus,
+  });
+}
+
 export async function deleteGoal(uid, id) {
   const deps = await getDocs(depositsCol(uid, id));
   await Promise.all(deps.docs.map((d) => deleteDoc(d.ref)));
@@ -67,4 +74,4 @@ export async function addDeposit(uid, goalId, { amount, date, incomeSourceId, in
 
 export async function deleteDeposit(uid, goalId, depositId) {
   await deleteDoc(doc(db, 'users', uid, 'goals', goalId, 'deposits', depositId));
-                                    }
+}
