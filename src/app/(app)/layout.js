@@ -4,6 +4,7 @@ import { Sidebar } from '@/components/layout/Sidebar';
 import { Header } from '@/components/layout/Header';
 import { MobileNav } from '@/components/layout/MobileNav';
 import { Footer } from '@/components/layout/Footer';
+import { AssistantButton } from '@/components/ai/AssistantButton';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 
 export default function AppLayout({ children }) {
@@ -26,6 +27,7 @@ export default function AppLayout({ children }) {
         <Footer />
       </div>
       <MobileNav />
+      <AssistantButton />
     </div>
   );
-  }
+}
