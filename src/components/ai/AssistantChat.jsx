@@ -12,6 +12,36 @@ const SUGGESTIONS = [
   "Aide-moi à faire des prévisions",
 ];
 
+// Composant pour formater le texte proprement (gérer les sauts de ligne et les tirets)
+function MessageContent({ text }) {
+  if (!text) return null;
+  
+  // Découper par ligne
+  const lines = text.split('\n');
+
+  return (
+    <div className="space-y-1.5">
+      {lines.map((line, index) => {
+        const trimmed = line.trim();
+        if (!trimmed) return <div key={index} className="h-2" />; // Espace vide
+        
+        // Si la ligne commence par un tiret (liste)
+        if (trimmed.startsWith('- ')) {
+          return (
+            <div key={index} className="flex gap-2 pl-1">
+              <span className="shrink-0 text-brand-600 font-bold mt-0.5">•</span>
+              <span>{trimmed.substring(2)}</span>
+            </div>
+          );
+        }
+
+        // Texte normal
+        return <p key={index}>{line}</p>;
+      })}
+    </div>
+  );
+}
+
 export function AssistantChat({ open, onClose }) {
   const { user } = useAuth();
   const [messages, setMessages] = useState([]);
@@ -58,7 +88,6 @@ export function AssistantChat({ open, onClose }) {
     <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/40 md:items-center">
       <div className="flex h-[85vh] w-full max-w-md flex-col rounded-t-3xl bg-white md:h-[80vh] md:rounded-2xl shadow-2xl">
         
-        {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 p-4 bg-slate-50/50 rounded-t-3xl md:rounded-t-2xl">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-sm">
@@ -74,7 +103,6 @@ export function AssistantChat({ open, onClose }) {
           </button>
         </div>
 
-        {/* Chat Body */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4 bg-white">
           {messages.length === 0 && (
             <div className="space-y-4 mt-4">
@@ -102,17 +130,16 @@ export function AssistantChat({ open, onClose }) {
           
           {messages.map((m, i) => (
             <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap ${
+              <div className={`max-w-[90%] rounded-2xl px-4 py-3 text-[13px] leading-relaxed ${
                 m.role === 'user' 
                   ? 'bg-brand-600 text-white rounded-br-sm' 
                   : 'bg-slate-100 text-slate-800 rounded-bl-sm'
               }`}>
-                {m.content}
+                {m.role === 'user' ? m.content : <MessageContent text={m.content} />}
               </div>
             </div>
           ))}
           
-          {/* Animation de chargement pro */}
           {loading && (
             <div className="flex justify-start animate-in fade-in slide-in-from-bottom-2 duration-300">
               <div className="flex items-center gap-3 rounded-2xl rounded-bl-sm bg-slate-100 px-4 py-3">
@@ -130,7 +157,6 @@ export function AssistantChat({ open, onClose }) {
           {error && (<p className="text-xs text-red-600 text-center bg-red-50 py-2 rounded-lg">{error}</p>)}
         </div>
 
-        {/* Input area */}
         <div className="border-t border-slate-100 p-3 bg-white rounded-b-3xl md:rounded-b-2xl">
           <form onSubmit={(e) => { e.preventDefault(); sendMessage(input); }} className="flex gap-2">
             <input 
@@ -153,4 +179,4 @@ export function AssistantChat({ open, onClose }) {
       </div>
     </div>
   );
-      }
+}
