@@ -20,7 +20,6 @@ import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { generateAdvice, adviceIconColor } from '@/lib/advisor';
 import { formatCurrency, formatDate, resolveCategory } from '@/lib/utils';
 
-// 🟢 Correction : le mois en cours strict
 const firstOfMonth = () => {
   const d = new Date();
   return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
@@ -38,7 +37,6 @@ export default function DashboardPage() {
   const [customEnd, setCustomEnd] = useState(todayIso());
   const [showCustomPeriod, setShowCustomPeriod] = useState(false);
 
-  // 🟢 Dates effectives
   const startDate = showCustomPeriod ? customStart : firstOfMonth();
   const endDate = showCustomPeriod ? customEnd : lastOfMonth();
 
@@ -53,7 +51,6 @@ export default function DashboardPage() {
     return raw ? raw.split(' ')[0] : 'toi';
   }, [profile]);
 
-  // 🟢 Calcul de la période précédente
   const { prevStartDate, prevEndDate } = useMemo(() => {
     const start = new Date(startDate);
     const end = new Date(endDate);
@@ -66,7 +63,6 @@ export default function DashboardPage() {
     };
   }, [startDate, endDate]);
 
-  // 🟢 Filtrage strict
   const periodExpenses = useMemo(
     () => expenses.filter((e) => e.date >= startDate && e.date <= endDate),
     [expenses, startDate, endDate]
@@ -84,7 +80,6 @@ export default function DashboardPage() {
     [incomes, prevStartDate, prevEndDate]
   );
 
-  // Revenus disponibles
   const incomeWithBalance = useMemo(() => {
     return incomes.map((inc) => {
       const linkedExpenses = expenses.filter((e) => e.incomeSourceId === inc.id);
@@ -126,7 +121,6 @@ export default function DashboardPage() {
     [periodExpenses, prevExpenses, totalIncome, prevTotalIncome, goals, customCategories, userName]
   );
 
-  // 🟢 Tri des dépenses par montant décroissant
   const topExpenses = useMemo(() => {
     return [...periodExpenses].sort((a, b) => b.amount - a.amount).slice(0, 5);
   }, [periodExpenses]);
@@ -149,7 +143,7 @@ export default function DashboardPage() {
             onClick={() => setShowCustomPeriod(false)}
             className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${!showCustomPeriod ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
           >
-            Ce mois (en cours)
+            Ce mois
           </button>
           <button
             onClick={() => setShowCustomPeriod(true)}
@@ -357,7 +351,6 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* 🟢 TITRE ET TRI MIS A JOUR : Dépenses les plus élevées */}
       <Card>
         <div className="mb-4 flex items-center justify-between">
           <CardTitle>Dépenses les plus élevées</CardTitle>
@@ -394,4 +387,4 @@ export default function DashboardPage() {
       </Card>
     </div>
   );
-              }
+                                     }
