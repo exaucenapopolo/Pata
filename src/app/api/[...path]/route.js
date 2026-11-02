@@ -7,9 +7,11 @@ import { buildUserContext } from '@/lib/ai/buildUserContext';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+/* ═══════════════════ HELPERS ═══════════════════ */
+
 async function authenticate(request) {
   const authHeader = request.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) throw new Error('Session expirée.');
+  if (!authHeader?.startsWith('Bearer ')) throw new Error('Token manquant.');
   return adminAuth.verifyIdToken(authHeader.slice(7));
 }
 
@@ -23,14 +25,15 @@ function getBaseUrl(request) {
   return process.env.FAPSHI_WEBHOOK_URL?.replace(/\/$/, '') || `${proto}://${host}`;
 }
 
-/* ═════════ ROUTES FAPSHI ═════════ */
+/* ═══════════════════ ROUTES FAPSHI ═══════════════════ */
+
 async function handleFapshiCheckout(request) {
   try {
     const decoded = await authenticate(request);
     const uid = decoded.uid;
     const body = await request.json();
     const amount = Math.round(Number(body.amount));
-    if (!amount || amount < 100) return errorResponse('Minimum : 100 FCFA.', 400);
+    if (!amount || amount < 100) return errorResponse('Montant minimum : 100 FCFA.', 400);
 
     const API_USER = process.env.FAPSHI_API_USER;
     const SECRET_KEY = process.env.FAPSHI_SECRET_KEY;
@@ -131,12 +134,13 @@ async function handleFapshiStatus(request) {
   } catch (error) { return errorResponse(error.message, 500); }
 }
 
-/* ═════════ ROUTES WALLET & OBJECTIFS ═════════ */
+/* ═══════════════════ ROUTES WALLET & OBJECTIFS ═══════════════════ */
+
 async function handleFundGoal(request) {
   try {
     const decoded = await authenticate(request);
     const body = await request.json();
-    const { goalId, amount, incomeSourceId, incomeSourceName } = body;
+    const { goalId, amount } = body;
     if (!goalId || !amount || amount <= 0) return errorResponse('Montant invalide.');
 
     const userRef = adminDb.collection('users').doc(decoded.uid);
@@ -149,10 +153,7 @@ async function handleFundGoal(request) {
 
       t.update(userRef, { balance: userDoc.data().balance - amount });
       t.set(goalRef.collection('deposits').doc(), {
-        amount, date: new Date().toISOString().slice(0, 10), source: 'wallet', 
-        incomeSourceId: incomeSourceId || null,
-        incomeSourceName: incomeSourceName || null,
-        createdAt: FieldValue.serverTimestamp(),
+        amount, date: new Date().toISOString().slice(0, 10), source: 'wallet', createdAt: FieldValue.serverTimestamp(),
       });
     });
     return NextResponse.json({ success: true });
@@ -167,20 +168,18 @@ async function handleGoalBorrow(request) {
     if (!goalId || !amount || amount <= 0) return errorResponse('Montant invalide.');
 
     const goalRef = adminDb.collection('users').doc(decoded.uid).collection('goals').doc(goalId);
-    const interest = Math.round(amount * 0.05); // 5%
+    const interest = Math.round(amount * 0.05);
     const totalDebtToAdd = amount + interest;
 
     await adminDb.runTransaction(async (t) => {
       const goalDoc = await t.get(goalRef);
       if (!goalDoc.exists) throw new Error('Objectif introuvable.');
-
       const currentDebt = goalDoc.data().debtBalance || 0;
       t.set(goalRef.collection('deposits').doc(), {
         amount, date: new Date().toISOString().slice(0, 10), source: 'loan', createdAt: FieldValue.serverTimestamp(),
       });
       t.update(goalRef, { debtBalance: currentDebt + totalDebtToAdd });
     });
-
     return NextResponse.json({ success: true, borrowed: amount, interest, totalDebt: totalDebtToAdd });
   } catch (error) { return errorResponse(error.message, 400); }
 }
@@ -199,12 +198,9 @@ async function handleRepayLoan(request) {
       const userDoc = await t.get(userRef);
       const goalDoc = await t.get(goalRef);
       if (userDoc.data().balance < amount) throw new Error('Solde insuffisant pour rembourser.');
-      
       const currentDebt = goalDoc.data().debtBalance || 0;
-      const newDebt = Math.max(0, currentDebt - amount);
-
       t.update(userRef, { balance: userDoc.data().balance - amount });
-      t.update(goalRef, { debtBalance: newDebt });
+      t.update(goalRef, { debtBalance: Math.max(0, currentDebt - amount) });
     });
     return NextResponse.json({ success: true });
   } catch (error) { return errorResponse(error.message, 400); }
@@ -220,7 +216,6 @@ async function handleGoalWithdraw(request) {
     const result = await adminDb.runTransaction(async (t) => {
       const goalDoc = await t.get(goalRef);
       const depositsSnap = await t.get(goalRef.collection('deposits'));
-      
       const totalDeposited = depositsSnap.docs.reduce((s, d) => s + (d.data().amount || 0), 0);
       const debt = goalDoc.data().debtBalance || 0;
       const netRefund = Math.max(0, totalDeposited - debt);
@@ -229,13 +224,10 @@ async function handleGoalWithdraw(request) {
         const userDoc = await t.get(userRef);
         t.update(userRef, { balance: (userDoc.data().balance || 0) + netRefund });
       }
-      
       t.delete(goalRef);
       depositsSnap.docs.forEach(d => t.delete(d.ref));
-      
       return { totalDeposited, debt, netRefund };
     });
-
     return NextResponse.json({ success: true, ...result });
   } catch (error) { return errorResponse(error.message, 500); }
 }
@@ -250,10 +242,8 @@ async function handleGoalCancel(request) {
     const result = await adminDb.runTransaction(async (t) => {
       const goalDoc = await t.get(goalRef);
       const depositsSnap = await t.get(goalRef.collection('deposits'));
-      
       const totalDeposited = depositsSnap.docs.reduce((s, d) => s + (d.data().amount || 0), 0);
       const debt = goalDoc.data().debtBalance || 0;
-      
       const cancelPenalty = Math.round(totalDeposited * 0.10);
       const netRefund = Math.max(0, totalDeposited - debt - cancelPenalty);
 
@@ -261,17 +251,15 @@ async function handleGoalCancel(request) {
         const userDoc = await t.get(userRef);
         t.update(userRef, { balance: (userDoc.data().balance || 0) + netRefund });
       }
-      
       t.delete(goalRef);
       depositsSnap.docs.forEach(d => t.delete(d.ref));
-      
       return { totalDeposited, debt, cancelPenalty, netRefund };
     });
-
     return NextResponse.json({ success: true, ...result });
   } catch (error) { return errorResponse(error.message, 500); }
 }
-/* ═════════ AI ASSISTANT MČ ═════════ */
+
+/* ═══════════════════ ROUTE AI MČ ═══════════════════ */
 
 async function handleAIChat(request) {
   try {
@@ -282,7 +270,7 @@ async function handleAIChat(request) {
     const messages = Array.isArray(body.messages) ? body.messages : [];
     if (messages.length === 0) return errorResponse('Messages requis.', 400);
 
-    // Récupération des données utilisateur depuis Firestore
+    // Récupération des données utilisateur
     const [userDoc, incomesSnap, expensesSnap, goalsSnap] = await Promise.all([
       adminDb.collection('users').doc(uid).get(),
       adminDb.collection('users').doc(uid).collection('incomes').limit(100).get(),
@@ -299,22 +287,21 @@ async function handleAIChat(request) {
 
     const userContext = buildUserContext(userData);
 
-    const SYSTEM_PROMPT = `Tu es Mč, l'assistant financier de Pata, une application de gestion d'argent créée par Napopolo Exaucé.
+    const SYSTEM_PROMPT = `Tu es Mč, l'assistante financière personnelle de Pata (créée par Napopolo Exaucé).
+Tu connais parfaitement l'utilisateur grâce aux données ci-dessous. Tu parles comme une amie experte en finance, chaleureuse et directe.
 
-Ta mission : aider l'utilisateur à mieux gérer son argent, épargner, et atteindre ses objectifs financiers.
-
-RÈGLES STRICTES :
-1. Tu réponds UNIQUEMENT sur les sujets financiers et l'application Pata. Si on te pose une question hors-sujet, dis poliment que tu es spécialisé en finances.
-2. Sois concis : 120 mots maximum par réponse. Va droit au but.
-3. Utilise les données réelles de l'utilisateur fournies ci-dessous. N'invente JAMAIS de chiffres.
-4. Si on te demande une prévision ou un calcul complexe, pose 2-3 questions ciblées avant de calculer.
-5. Si tu ne sais pas ou si l'information n'est pas dans les données, dis-le clairement.
-6. Tutoiement, ton chaleureux mais professionnel, en français.
+RÈGLES ABSOLUES :
+1. Interdiction totale d'utiliser des symboles Markdown comme **, *, #, _, ou des listes à puces avec des étoiles. Écris en texte pur, naturel, avec des phrases complètes. Tu peux utiliser des sauts de ligne pour aérer.
+2. Ne salue PAS à chaque message. Si l'historique contient déjà des messages, ne dis pas "Salut", "Bonjour", ni le prénom. Va directement au but.
+3. Sois concise (environ 100-120 mots), va droit au but, sois précise.
+4. Base-toi UNIQUEMENT sur les données réelles fournies. N'invente JAMAIS de chiffres. Si une info manque, dis-le.
+5. Si on te demande une prévision, pose 2 ou 3 questions ciblées avant de calculer.
+6. Ton ton : bienveillant, professionnel, comme un conseiller qui veut vraiment aider.
 
 DONNÉES DE L'UTILISATEUR :
 ${userContext}`;
 
-    // Limiter l'historique pour économiser les tokens (6 derniers messages)
+    // Limiter l'historique pour économiser les tokens
     const trimmedHistory = messages.slice(-6).map(m => ({
       role: m.role === 'assistant' ? 'assistant' : 'user',
       content: String(m.content || '').slice(0, 500),
@@ -323,14 +310,16 @@ ${userContext}`;
     const reply = await chatWithGroq([
       { role: 'system', content: SYSTEM_PROMPT },
       ...trimmedHistory,
-    ], { maxTokens: 500 });
+    ], { maxTokens: 500, temperature: 0.5 });
 
     return NextResponse.json({ success: true, reply });
   } catch (error) {
     console.error('[API] AI chat error:', error.message);
-    return errorResponse(error.message || 'Erreur IA.', 500);
+    return errorResponse(error.message || 'Erreur de l\'assistante.', 500);
   }
-        }
+}
+
+/* ═══════════════════ ROUTEUR ═══════════════════ */
 
 const ROUTES = {
   'fapshi/checkout':  { POST: handleFapshiCheckout },
