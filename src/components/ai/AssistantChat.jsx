@@ -5,7 +5,7 @@ import { useState, useRef, useEffect } from 'react';
 import { 
   Send, X, BrainCircuit, Loader2, Plus, MessageSquare, 
   Image as ImageIcon, Volume2, Trash2, Menu, Edit2, Check, Download,
-  Mic, Sparkles
+  Sparkles
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { subscribeChats, createChat, updateChatMessages, deleteChat, updateChatTitle } from '@/lib/firestore/ai_chats';
@@ -23,7 +23,6 @@ const SUGGESTIONS = [
   "Programme 500 FCFA de transport chaque jour",
 ];
 
-// 🟢 Menu de mention
 const MENTIONS = [
   { id: 'audio', label: 'Audio', icon: Volume2, color: 'text-blue-500', description: 'Répondre en vocal' },
   { id: 'image', label: 'Image', icon: Sparkles, color: 'text-brand-500', description: 'Générer une image' },
@@ -69,11 +68,10 @@ export function AssistantChat({ open, onClose }) {
   const [editingTitleId, setEditingTitleId] = useState(null);
   const [titleInput, setTitleInput] = useState('');
   
-  // 🟢 État pour le menu de mention
   const [showMentions, setShowMentions] = useState(false);
-
-  const scrollRef = useRef(null);
+  const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
+  const scrollRef = useRef(null);
 
   useEffect(() => {
     if (!user) return;
@@ -85,6 +83,14 @@ export function AssistantChat({ open, onClose }) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, loading]);
+
+  // 🟢 Auto-resize du textarea
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 150)}px`;
+    }
+  }, [input]);
 
   const startNewChat = () => {
     setActiveChatId(null);
@@ -115,7 +121,6 @@ export function AssistantChat({ open, onClose }) {
     setEditingTitleId(null);
   };
 
-  // 🟢 Gestion de la saisie pour détecter le "@"
   const handleInputChange = (e) => {
     const val = e.target.value;
     setInput(val);
@@ -126,14 +131,18 @@ export function AssistantChat({ open, onClose }) {
     }
   };
 
-  // 🟢 Sélection d'une mention
   const selectMention = (mentionId) => {
-    // On retire le "@" s'il est tout seul à la fin
     const cleanInput = input.endsWith('@') ? input.slice(0, -1) : input;
-    // On ajoute la mention formatée (ex: "@Audio ")
     const mentionText = `@${mentionId.charAt(0).toUpperCase() + mentionId.slice(1)} `;
     setInput(cleanInput + mentionText);
     setShowMentions(false);
+    textareaRef.current?.focus();
+  };
+
+  // 🟢 Remplir l'input avec la suggestion au lieu d'envoyer
+  const applySuggestion = (text) => {
+    setInput(text);
+    textareaRef.current?.focus();
   };
 
   const executeToolCall = async (toolCall) => {
@@ -204,22 +213,19 @@ export function AssistantChat({ open, onClose }) {
   const sendMessage = async (rawText) => {
     if ((!rawText.trim() && !imageFile) || loading) return;
     
-    // 🟢 ANALYSE DES MENTIONS (AU LIEU DE REGEX)
     const hasAudio = /@audio/i.test(rawText);
     const hasImageGen = /@image/i.test(rawText);
     const hasVision = /@vision/i.test(rawText);
 
-    // 🟢 NETTOYAGE DU TEXTE : On retire les tags @ pour que l'IA ne les voie pas
     let text = rawText.replace(/@audio/gi, '').replace(/@image/gi, '').replace(/@vision/gi, '').trim();
 
-    // Si c'est juste "@Vision" sans texte, on met un texte par défaut
     if (hasVision && !text) text = 'Analyse cette image.';
     if (hasImageGen && !text) return alert("Décris l'image que tu veux générer.");
 
     setLoading(true);
     const userMsg = { 
       role: 'user', 
-      content: rawText.trim(), // On garde le texte original (avec @) pour l'affichage
+      content: rawText.trim(),
       imagePreview: imageFile?.preview
     };
     
@@ -230,7 +236,6 @@ export function AssistantChat({ open, onClose }) {
     try {
       const token = await user.getIdToken();
 
-      // 🟢 1. GÉNÉRATION D'IMAGE
       if (hasImageGen) {
         setImageFile(null);
         const res = await fetch('/api/ai/image', {
@@ -252,7 +257,6 @@ export function AssistantChat({ open, onClose }) {
         return;
       }
 
-      // 🟢 2. VISION (Analyse d'image)
       if (hasVision) {
         if (!imageFile) throw new Error("Veuillez joindre une image pour utiliser @Vision.");
         
@@ -278,9 +282,8 @@ export function AssistantChat({ open, onClose }) {
         return;
       }
 
-      // 🟢 3. TEXTE OU AUDIO (Appel normal)
       setImageFile(null);
-      const cleanMessages = [...messages, { role: 'user', content: text }]; // On envoie le texte nettoyé
+      const cleanMessages = [...messages, { role: 'user', content: text }];
       const mode = hasAudio ? 'audio' : 'text';
 
       const res = await fetch('/api/ai/chat', {
@@ -364,7 +367,7 @@ export function AssistantChat({ open, onClose }) {
           </div>
         </div>
 
-                           {/* CHAT */}
+        {/* CHAT AREA */}
         <div className="flex h-full flex-1 flex-col overflow-hidden bg-white">
           <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-100 px-4 bg-slate-50/50">
             <div className="flex items-center gap-3">
@@ -394,7 +397,7 @@ export function AssistantChat({ open, onClose }) {
                  </div>
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-6">
                    {SUGGESTIONS.map((s, i) => (
-                     <button key={i} onClick={() => sendMessage(s)} className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-left text-[13px] text-slate-700 hover:border-brand-300 hover:bg-brand-50 transition-colors">
+                     <button key={i} onClick={() => applySuggestion(s)} className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-left text-[13px] text-slate-700 hover:border-brand-300 hover:bg-brand-50 transition-colors">
                        {s}
                      </button>
                    ))}
@@ -454,17 +457,11 @@ export function AssistantChat({ open, onClose }) {
           </div>
 
           <div className="shrink-0 border-t border-slate-100 p-4 bg-white relative">
-            
-            {/* 🟢 MENU DES MENTIONS */}
             {showMentions && (
               <div className="absolute bottom-full left-4 mb-2 w-72 rounded-xl border border-slate-200 bg-white shadow-xl overflow-hidden z-20">
                 <div className="p-2 space-y-1">
                   {MENTIONS.map(m => (
-                    <button 
-                      key={m.id} 
-                      onClick={() => selectMention(m.id)}
-                      className="flex w-full items-center gap-3 rounded-lg p-2 text-left hover:bg-slate-50 transition-colors"
-                    >
+                    <button key={m.id} onClick={() => selectMention(m.id)} className="flex w-full items-center gap-3 rounded-lg p-2 text-left hover:bg-slate-50 transition-colors">
                       <div className={`flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 ${m.color}`}>
                         <m.icon size={16} />
                       </div>
@@ -484,19 +481,23 @@ export function AssistantChat({ open, onClose }) {
                 <button onClick={() => setImageFile(null)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-md hover:bg-red-600"><X size={12} /></button>
               </div>
             )}
-            <form onSubmit={(e) => { e.preventDefault(); sendMessage(input); }} className="flex gap-2 max-w-3xl mx-auto">
+            
+            <form onSubmit={(e) => { e.preventDefault(); sendMessage(input); }} className="flex gap-2 max-w-3xl mx-auto items-end">
               <input type="file" accept="image/*" ref={fileInputRef} onChange={handleImageSelect} className="hidden" />
               <button type="button" onClick={() => fileInputRef.current?.click()} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200">
                 <ImageIcon size={18} />
               </button>
-              <input 
-                type="text" 
+              
+              <textarea 
+                ref={textareaRef}
                 value={input} 
                 onChange={handleInputChange} 
                 placeholder="Pose ta question (tape @ pour les options)..." 
-                className="h-11 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none focus:border-brand-500 focus:bg-white" 
-                disabled={loading} 
+                className="flex-1 resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-brand-500 focus:bg-white min-h-[44px] max-h-[150px]" 
+                disabled={loading}
+                rows={1}
               />
+              
               <button type="submit" disabled={(!input.trim() && !imageFile) || loading} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-600 text-white disabled:opacity-50">
                 <Send size={18} />
               </button>
@@ -504,7 +505,6 @@ export function AssistantChat({ open, onClose }) {
           </div>
         </div>
 
-        {/* MODAL IMAGE */}
         {imageModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm" onClick={() => setImageModal(null)}>
             <div className="relative max-h-full max-w-full flex flex-col items-center" onClick={e => e.stopPropagation()}>
@@ -524,4 +524,4 @@ export function AssistantChat({ open, onClose }) {
       </div>
     </div>
   );
-                }
+}
