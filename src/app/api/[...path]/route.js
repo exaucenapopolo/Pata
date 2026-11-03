@@ -307,6 +307,7 @@ async function handleTTS(request) {
     const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) return errorResponse('Clé API manquante.', 500);
 
+    // 🟢 MODÈLE ACTUEL : Orpheus (anglais uniquement)
     const res = await fetch('https://api.groq.com/openai/v1/audio/speech', {
       method: 'POST',
       headers: {
