@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Send, X, BrainCircuit, Loader2, Plus, MessageSquare } from 'lucide-react';
+import { Send, X, BrainCircuit, Loader2, Play, Plus, MessageSquare, Image as ImageIcon, Volume2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { subscribeChats, createChat, updateChatMessages } from '@/lib/firestore/ai_chats';
 import { createExpense } from '@/lib/firestore/expenses';
@@ -15,7 +15,8 @@ const SUGGESTIONS = [
   "Où est-ce que je dépense le plus ?",
   "Ajoute une dépense de 2000 FCFA pour le transport",
   "Crée un objectif d'épargne de 50 000 FCFA pour Noël",
-  "Programme 500 FCFA de transport chaque jour"
+  "Programme 500 FCFA de transport chaque jour",
+  "Explique-moi comment épargner en audio"
 ];
 
 function MessageContent({ text }) {
@@ -51,7 +52,9 @@ export function AssistantChat({ open, onClose }) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [imageFile, setImageFile] = useState(null);
   const scrollRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     if (!user) return;
@@ -129,14 +132,64 @@ export function AssistantChat({ open, onClose }) {
     }
   };
 
+  const handleImageSelect = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64String = reader.result.split(',')[1];
+        setImageFile({ file, base64: base64String });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const sendMessage = async (text) => {
-    if (!text.trim() || loading) return;
-    const userMsg = { role: 'user', content: text.trim() };
-    const newMessages = [...messages, userMsg];
+    if ((!text.trim() && !imageFile) || loading) return;
     
+    setLoading(true);
+    const userMsg = { role: 'user', content: text.trim() || 'Analyse cette image.' };
+    
+    // Si on a une image, on l'envoie à la route Vision
+    if (imageFile) {
+      const newMessages = [...messages, userMsg];
+      setMessages(newMessages);
+      setInput('');
+      const currentImage = imageFile;
+      setImageFile(null);
+
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch('/api/ai/vision', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ messages: newMessages, imageBase64: currentImage.base64 }),
+        });
+        const data = await res.json();
+        
+        const botMsg = { role: 'assistant', content: data.reply || "Je n'ai pas pu analyser l'image." };
+        const updatedMessages = [...newMessages, botMsg];
+        setMessages(updatedMessages);
+
+        if (activeChatId) {
+          await updateChatMessages(user.uid, activeChatId, updatedMessages);
+        } else {
+          const newChatRef = await createChat(user.uid, text || 'Image');
+          setActiveChatId(newChatRef.id);
+          await updateChatMessages(user.uid, newChatRef.id, updatedMessages);
+        }
+      } catch (err) {
+        setMessages([...newMessages, { role: 'assistant', content: "Désolée, j'ai eu une erreur lors de l'analyse de l'image." }]);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // Sinon, c'est une conversation texte normale
+    const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setInput('');
-    setLoading(true);
 
     try {
       const token = await user.getIdToken();
@@ -147,6 +200,27 @@ export function AssistantChat({ open, onClose }) {
       });
       const data = await res.json();
       
+      // 🟢 SI LA RÉPONSE EST UN AUDIO
+      if (data.isAudio && data.audio) {
+        const botMsg = { 
+          role: 'assistant', 
+          content: null, 
+          audioData: data.audio 
+        };
+        const updatedMessages = [...newMessages, botMsg];
+        setMessages(updatedMessages);
+
+        if (activeChatId) {
+          await updateChatMessages(user.uid, activeChatId, updatedMessages);
+        } else {
+          const newChatRef = await createChat(user.uid, text);
+          setActiveChatId(newChatRef.id);
+          await updateChatMessages(user.uid, newChatRef.id, updatedMessages);
+        }
+        return;
+      }
+
+      // Sinon, c'est une réponse texte normale
       let finalReply = data.reply;
       
       try {
@@ -240,11 +314,22 @@ export function AssistantChat({ open, onClose }) {
           
           {messages.map((m, i) => (
             <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
-              <div className={`max-w-[90%] rounded-2xl px-4 py-3 text-[13px] ${
-                m.role === 'user' ? 'bg-brand-600 text-white rounded-br-sm' : 'bg-slate-100 text-slate-800 rounded-bl-sm'
-              }`}>
-                {m.role === 'user' ? m.content : <MessageContent text={m.content} />}
-              </div>
+              {/* 🟢 SI LE MESSAGE EST UN AUDIO, ON AFFICHE LE LECTEUR */}
+              {m.role === 'assistant' && m.audioData ? (
+                <div className="w-[260px] rounded-2xl bg-brand-50 p-3 border border-brand-100">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Volume2 size={16} className="text-brand-600" />
+                    <span className="text-xs font-semibold text-brand-700">Message vocal</span>
+                  </div>
+                  <audio controls src={`data:audio/wav;base64,${m.audioData}`} className="h-8 w-full" />
+                </div>
+              ) : (
+                <div className={`max-w-[90%] rounded-2xl px-4 py-3 text-[13px] ${
+                  m.role === 'user' ? 'bg-brand-600 text-white rounded-br-sm' : 'bg-slate-100 text-slate-800 rounded-bl-sm'
+                }`}>
+                  {m.role === 'user' ? m.content : <MessageContent text={m.content} />}
+                </div>
+              )}
             </div>
           ))}
           {loading && (
@@ -256,14 +341,36 @@ export function AssistantChat({ open, onClose }) {
         </div>
 
         <div className="border-t border-slate-100 p-3 bg-white">
+          {imageFile && (
+            <div className="mb-2 flex items-center gap-2 rounded-lg bg-slate-50 p-2 w-fit">
+              <ImageIcon size={14} className="text-brand-600" />
+              <span className="text-xs text-slate-600 truncate max-w-[150px]">{imageFile.file.name}</span>
+              <button onClick={() => setImageFile(null)} className="text-slate-400 hover:text-red-500"><X size={14} /></button>
+            </div>
+          )}
           <form onSubmit={(e) => { e.preventDefault(); sendMessage(input); }} className="flex gap-2">
             <input 
+              type="file" 
+              accept="image/*" 
+              ref={fileInputRef} 
+              onChange={handleImageSelect} 
+              className="hidden" 
+            />
+            <button 
+              type="button" 
+              onClick={() => fileInputRef.current?.click()} 
+              className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200"
+              title="Envoyer une image"
+            >
+              <ImageIcon size={18} />
+            </button>
+            <input 
               type="text" value={input} onChange={(e) => setInput(e.target.value)} 
-              placeholder="Pose ta question ou demande une action..." 
+              placeholder="Pose ta question ou envoie une image..." 
               className="h-11 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none focus:border-brand-500 focus:bg-white" 
               disabled={loading} 
             />
-            <button type="submit" disabled={!input.trim() || loading} className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-600 text-white disabled:opacity-50">
+            <button type="submit" disabled={(!input.trim() && !imageFile) || loading} className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-600 text-white disabled:opacity-50">
               <Send size={18} />
             </button>
           </form>
@@ -271,4 +378,4 @@ export function AssistantChat({ open, onClose }) {
       </div>
     </div>
   );
-    }
+                  }
