@@ -296,50 +296,7 @@ async function handleAutomationsRun(request) {
   } catch (error) { return errorResponse(error.message, 500); }
 }
 
-/* ═══════════════════ GROQ TTS (AUDIO) ═══════════════════ */
-
-async function handleTTS(request) {
-  try {
-    await authenticate(request);
-    const { text } = await request.json();
-    if (!text) return errorResponse('Texte manquant.', 400);
-
-    const apiKey = process.env.GROQ_API_KEY;
-    if (!apiKey) return errorResponse('Clé API manquante.', 500);
-
-    const truncatedText = text.slice(0, 200);
-
-    const res = await fetch('https://api.groq.com/openai/v1/audio/speech', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'canopylabs/orpheus-v1-english',
-        input: truncatedText,
-        voice: 'hannah',
-        response_format: 'wav',
-      }),
-    });
-
-    if (!res.ok) {
-      const err = await res.text();
-      console.error('Groq TTS Error:', err);
-      throw new Error('Erreur de génération audio Groq');
-    }
-    
-    const buffer = await res.arrayBuffer();
-    const base64Audio = Buffer.from(buffer).toString('base64');
-    
-    return NextResponse.json({ success: true, audio: base64Audio });
-  } catch (error) { 
-    console.error('[API] TTS Error:', error.message);
-    return errorResponse(error.message, 500); 
-  }
-}
-
-/* ═══════════════════ AI CHAT AVEC ACTIONS ═══════════════════ */
+/* ═══════════════════ AI CHAT (SANS AUDIO) ═══════════════════ */
 
 async function handleAIChat(request) {
   try {
@@ -366,7 +323,6 @@ async function handleAIChat(request) {
 
     const userContext = buildUserContext(userData);
 
-    // 🟢 On a retiré l'outil generate_audio pour ne pas perturber l'IA
     const tools = [
       {
         type: 'function',
@@ -463,7 +419,6 @@ const ROUTES = {
   'goals/cancel':     { POST: handleGoalCancel },
   'automations/run':  { POST: handleAutomationsRun },
   'ai/chat':          { POST: handleAIChat },
-  'ai/tts':           { POST: handleTTS },
 };
 
 async function dispatch(request, context) {
