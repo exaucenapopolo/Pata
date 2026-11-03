@@ -28,7 +28,70 @@ function getBaseUrl(request) {
   return process.env.FAPSHI_WEBHOOK_URL?.replace(/\/$/, '') || `${proto}://${host}`;
 }
 
-/* ═══════════════════ ROUTES FAPSHI & AUTRES ═══════════════════ */
+/* ═══════════════════ NOUVELLE ROUTE : ADD EXPENSE SÉCURISÉE ═══════════════════ */
+
+async function handleAddExpense(request) {
+  try {
+    const decoded = await authenticate(request);
+    const uid = decoded.uid;
+    const body = await request.json();
+    const { amount, categoryId, note, date, incomeSourceId, incomeSourceName } = body;
+
+    if (!amount || amount <= 0) return errorResponse('Montant invalide.');
+
+    // 1. Récupérer tous les revenus et toutes les dépenses pour calculer les soldes
+    const [incomesSnap, expensesSnap] = await Promise.all([
+      adminDb.collection('users').doc(uid).collection('incomes').get(),
+      adminDb.collection('users').doc(uid).collection('expenses').get(),
+    ]);
+
+    const incomes = incomesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const expenses = expensesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    // 2. Calculer le solde global
+    const totalIncome = incomes.reduce((s, i) => s + (i.amount || 0), 0);
+    const totalExpense = expenses.reduce((s, e) => s + (e.amount || 0), 0);
+    const globalBalance = Math.max(0, totalIncome - totalExpense);
+
+    // 3. Vérifier si le solde global est suffisant
+    if (amount > globalBalance) {
+      return errorResponse(`Fonds insuffisants. Tu as seulement ${globalBalance} FCFA disponible au total.`);
+    }
+
+    // 4. Si c'est lié à un revenu spécifique, vérifier SON solde
+    if (incomeSourceId && incomeSourceId !== 'all') {
+      const income = incomes.find(i => i.id === incomeSourceId);
+      if (!income) return errorResponse('Revenu introuvable.');
+      
+      const linkedExpenses = expenses.filter(e => e.incomeSourceId === incomeSourceId);
+      const linkedExpenseTotal = linkedExpenses.reduce((s, e) => s + (e.amount || 0), 0);
+      const incomeBalance = Math.max(0, (income.amount || 0) - linkedExpenseTotal);
+
+      if (amount > incomeBalance) {
+        return errorResponse(`Fonds insuffisants sur ce revenu. Il reste seulement ${incomeBalance} FCFA sur "${income.source}".`);
+      }
+    }
+
+    // 5. Si tout est bon, on enregistre la dépense
+    await adminDb.collection('users').doc(uid).collection('expenses').add({
+      amount: Number(amount),
+      categoryId: categoryId || 'other',
+      note: note || '',
+      date: date || new Date().toISOString().slice(0, 10),
+      incomeSourceId: incomeSourceId || 'all',
+      incomeSourceName: incomeSourceName || 'Tous les revenus',
+      createdAt: FieldValue.serverTimestamp(),
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return errorResponse(error.message, 500);
+  }
+}
+
+/* ═══════════════════ ROUTES EXISTANTES ═══════════════════ */
+// ... (Copie ici les fonctions handleFapshiCheckout, handleFundGoal, handleGoalBorrow, etc. telles qu'elles sont dans ton fichier actuel)
+// Je te les remets en intégralité pour que tu n'aies rien à chercher :
 
 async function handleFapshiCheckout(request) {
   try {
@@ -272,11 +335,22 @@ async function handleAutomationsRun(request) {
     for (const doc of snapshot.docs) {
       const auto = doc.data();
       if (auto.nextRun <= now) {
-        await adminDb.collection('users').doc(uid).collection('expenses').add({
-          amount: auto.amount, categoryId: auto.categoryId, note: auto.note || 'Dépense automatique',
-          date: now.slice(0, 10), incomeSourceId: auto.incomeSourceId, incomeSourceName: auto.incomeSourceName,
-          createdAt: FieldValue.serverTimestamp(),
-        });
+        // 🟢 Vérification du solde avant d'exécuter une automatisation
+        const [incomesSnap, expensesSnap] = await Promise.all([
+            adminDb.collection('users').doc(uid).collection('incomes').get(),
+            adminDb.collection('users').doc(uid).collection('expenses').get(),
+        ]);
+        const totalIncome = incomesSnap.docs.reduce((s, d) => s + (d.data().amount || 0), 0);
+        const totalExpense = expensesSnap.docs.reduce((s, d) => s + (d.data().amount || 0), 0);
+        const globalBalance = totalIncome - totalExpense;
+
+        if (auto.amount <= globalBalance) {
+            await adminDb.collection('users').doc(uid).collection('expenses').add({
+                amount: auto.amount, categoryId: auto.categoryId, note: auto.note || 'Dépense automatique',
+                date: now.slice(0, 10), incomeSourceId: auto.incomeSourceId, incomeSourceName: auto.incomeSourceName,
+                createdAt: FieldValue.serverTimestamp(),
+            });
+        }
 
         const next = new Date(auto.nextRun);
         if (auto.frequency === 'daily') next.setDate(next.getDate() + 1);
@@ -390,19 +464,14 @@ async function handleAIChat(request) {
     const SYSTEM_PROMPT = `Tu es Mč, l'assistante financière personnelle de Pata. 
 Tu parles à ${userName}. Tu as accès aux outils pour gérer les dépenses, revenus, objectifs et automations.
 
-RÈGLES DE SÉCURITÉ ET D'EXÉCUTION :
-1. N'INVENTE JAMAIS de données. Si une information manque, pose des questions.
-2. Sois concise, directe, et va droit au but.
-
-RÈGLES DE FORMATAGE ABSOLUES :
-1. INTERDICTION TOTALE d'utiliser des astérisques (*) ou des dièses (#).
-2. Tu DOIS faire des sauts de ligne. Utilise des tirets (-) pour les listes.
-3. Écris les mots importants EN MAJUSCULES.
+RÈGLES DE SÉCURITÉ FINANCIÈRE (CRITIQUE) :
+1. Tu ne peux PAS enregistrer de dépense si le solde global est insuffisant. Regarde le TOTAL DISPONIBLE dans le contexte.
+2. Si l'utilisateur te demande une dépense supérieure au solde, refuse poliment en expliquant qu'il n'a pas assez d'argent et propose de créer un revenu.
 
 RÈGLES DE COMPORTEMENT (SOUS PEINE DE REJET) :
-1. TU NE DOIS JAMAIS SALUER L'UTILISATEUR. Pas de "Bonjour", pas de "Salut", pas de "Je suis Mč". Commence directement par ta réponse.
-2. Ne prononce JAMAIS le nom de l'application ("Pata") dans tes réponses. Tu t'adresses à un utilisateur spécifique.
-3. Ne répète pas les données que l'utilisateur vient de te donner (ex: "Tu as dépensé 500 FCFA"). Réponds directement à sa question.
+1. TU NE DOIS JAMAIS SALUER L'UTILISATEUR. Commence directement par ta réponse.
+2. Ne prononce JAMAIS le nom de l'application.
+3. Sois concise, directe, et va droit au but.
 
 DONNÉES ACTUELLES :
 ${userContext}`;
@@ -474,6 +543,7 @@ const ROUTES = {
   'goals/withdraw':   { POST: handleGoalWithdraw },
   'goals/cancel':     { POST: handleGoalCancel },
   'automations/run':  { POST: handleAutomationsRun },
+  'expenses/add':     { POST: handleAddExpense }, // 🟢 Nouvelle route
   'ai/chat':          { POST: handleAIChat },
   'ai/image':         { POST: handleAIImage },
   'ai/vision':        { POST: handleAIVision },
