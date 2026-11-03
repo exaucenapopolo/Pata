@@ -149,12 +149,12 @@ export function AssistantChat({ open, onClose }) {
       const args = JSON.parse(argsStr);
       
       if (name === 'add_expense') {
-        const finalIncomeId = args.incomeSourceId || 'all';
-        const finalIncomeName = args.incomeSourceName || 'Tous les revenus';
+        // 🟢 L'appel à createExpense passe par l'API qui vérifie les fonds.
+        // Si les fonds sont insuffisants, ça throw une erreur qu'on va catcher.
         await createExpense(user.uid, {
           amount: args.amount, categoryId: args.category || 'other',
           note: args.note || '', date: new Date().toISOString().slice(0, 10),
-          incomeSourceId: finalIncomeId, incomeSourceName: finalIncomeName,
+          incomeSourceId: args.incomeSourceId || 'all', incomeSourceName: args.incomeSourceName || 'Tous les revenus',
         });
         return `C'est fait ! J'ai bien enregistré ta dépense de ${args.amount} FCFA.`;
       }
@@ -192,8 +192,8 @@ export function AssistantChat({ open, onClose }) {
 
       return "Action effectuée avec succès.";
     } catch (e) {
-      console.error(e);
-      return "J'ai eu un problème pour exécuter cette action.";
+      // 🟢 On renvoie l'erreur exacte (ex: "Fonds insuffisants") pour que l'IA la lise
+      return `ERREUR : ${e.message}`;
     }
   };
 
@@ -224,8 +224,8 @@ export function AssistantChat({ open, onClose }) {
     setLoading(true);
     const userMsg = { 
       role: 'user', 
-      content: rawText.trim() || 'Image', // 🟢 Toujours une string non-vide
-      imagePreview: imageFile?.preview || null // 🟢 null au lieu de undefined
+      content: rawText.trim() || 'Image',
+      imagePreview: imageFile?.preview
     };
     
     const newMessages = [...messages, userMsg];
@@ -244,7 +244,7 @@ export function AssistantChat({ open, onClose }) {
         const data = await res.json();
         if (!data.success) throw new Error(data.error);
         
-        const botMsg = { role: 'assistant', content: null, generatedImage: data.imageUrl || null };
+        const botMsg = { role: 'assistant', content: null, generatedImage: data.imageUrl };
         const updatedMessages = [...newMessages, botMsg];
         setMessages(updatedMessages);
         if (activeChatId) await updateChatMessages(user.uid, activeChatId, updatedMessages);
@@ -293,9 +293,7 @@ export function AssistantChat({ open, onClose }) {
       
       if (!data.success) throw new Error(data.error);
 
-      // 🟢 SÉCURISATION EXTRÊME : Si data.textReply est undefined, on met une chaîne vide par défaut
-      let finalReply = data.reply || data.textReply || "J'ai bien noté ta demande.";
-      
+      let finalReply = data.reply || "J'ai bien noté.";
       try {
         const parsed = JSON.parse(data.reply);
         if (parsed.tool_call) {
@@ -305,9 +303,9 @@ export function AssistantChat({ open, onClose }) {
 
       const botMsg = { 
         role: 'assistant', 
-        content: finalReply || " ", // 🟢 Jamais undefined, jamais vide
-        audioData: data.isAudio ? (data.audio || null) : null, // 🟢 null au lieu de undefined
-        wasAudio: data.isAudio === true 
+        content: finalReply,
+        audioData: data.isAudio ? data.audio : null, 
+        wasAudio: data.isAudio || false 
       };
       const updatedMessages = [...newMessages, botMsg];
       setMessages(updatedMessages);
