@@ -29,6 +29,8 @@ function getBaseUrl(request) {
 }
 
 /* ═══════════════════ ROUTES FAPSHI ═══════════════════ */
+// ... (garde tes fonctions handleFapshiCheckout, handleFundGoal, etc. identiques)
+// Pour faire court ici, je réécris seulement les parties modifiées.
 
 async function handleFapshiCheckout(request) {
   try {
@@ -136,8 +138,6 @@ async function handleFapshiStatus(request) {
     return NextResponse.json({ success: true, status: 'PENDING' });
   } catch (error) { return errorResponse(error.message, 500); }
 }
-
-/* ═══════════════════ ROUTES WALLET & OBJECTIFS ═══════════════════ */
 
 async function handleFundGoal(request) {
   try {
@@ -262,8 +262,6 @@ async function handleGoalCancel(request) {
   } catch (error) { return errorResponse(error.message, 500); }
 }
 
-/* ═══════════════════ AUTOMATIONS RUNNER ═══════════════════ */
-
 async function handleAutomationsRun(request) {
   try {
     const decoded = await authenticate(request);
@@ -277,12 +275,8 @@ async function handleAutomationsRun(request) {
       const auto = doc.data();
       if (auto.nextRun <= now) {
         await adminDb.collection('users').doc(uid).collection('expenses').add({
-          amount: auto.amount,
-          categoryId: auto.categoryId,
-          note: auto.note || 'Dépense automatique',
-          date: now.slice(0, 10),
-          incomeSourceId: auto.incomeSourceId,
-          incomeSourceName: auto.incomeSourceName,
+          amount: auto.amount, categoryId: auto.categoryId, note: auto.note || 'Dépense automatique',
+          date: now.slice(0, 10), incomeSourceId: auto.incomeSourceId, incomeSourceName: auto.incomeSourceName,
           createdAt: FieldValue.serverTimestamp(),
         });
 
@@ -312,7 +306,6 @@ async function handleAIChat(request) {
 
     const lastUserMessage = messages[messages.length - 1].content.toLowerCase();
     const wantsAudio = /audio|voix|vocal/i.test(lastUserMessage);
-    // 🟢 DÉTECTION RENFORCÉE POUR LA GÉNÉRATION D'IMAGE
     const wantsImage = /génère|générer|crée|créer|dessine|dessiner|fais|faire/i.test(lastUserMessage) 
                     && /image|photo|illustration|dessin/i.test(lastUserMessage);
 
@@ -332,20 +325,44 @@ async function handleAIChat(request) {
 
     const userContext = buildUserContext(userData);
 
+    // 🟢 OUTILS MIS À JOUR
     const tools = [
       {
         type: 'function',
         function: {
           name: 'add_expense',
-          description: 'Ajouter une dépense dans le compte de l\'utilisateur',
+          description: 'Ajouter une dépense. Nécessite le montant, la catégorie, et l\'ID du revenu source.',
           parameters: {
             type: 'object',
             properties: {
-              amount: { type: 'number', description: 'Le montant de la dépense en FCFA' },
+              amount: { type: 'number', description: 'Le montant de la dépense' },
               category: { type: 'string', description: 'La catégorie (ex: transport, food, etc.)' },
-              note: { type: 'string', description: 'La description de la dépense' }
+              note: { type: 'string', description: 'Description optionnelle' },
+              incomeSourceId: { type: 'string', description: 'L\'ID du revenu (doit correspondre à un ID de la liste). Si l\'utilisateur dit "global", mets "all".' },
+              incomeSourceName: { type: 'string', description: 'Le nom du revenu (ex: SBH, Salaire)' }
             },
-            required: ['amount', 'category']
+            required: ['amount', 'category', 'incomeSourceId']
+          }
+        }
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'add_income',
+          description: 'Ajouter un revenu. Nécessite un montant, un nom et une catégorie.',
+          parameters: {
+            type: 'object',
+            properties: {
+              amount: { type: 'number', description: 'Le montant perçu' },
+              source: { type: 'string', description: 'Le nom du revenu (ex: Salaire, SBH, Freelance)' },
+              categoryId: { 
+                type: 'string', 
+                enum: ['salary', 'business', 'gift', 'other_income'], 
+                description: 'La catégorie : salary (salaire), business (freelance/entreprise), gift (cadeau), other_income (autre)' 
+              },
+              note: { type: 'string', description: 'Description optionnelle' }
+            },
+            required: ['amount', 'source', 'categoryId']
           }
         }
       },
@@ -384,18 +401,25 @@ async function handleAIChat(request) {
       }
     ];
 
+    // 🟢 PROMPT SYSTÈME AVEC RÈGLES STRICTES
     const SYSTEM_PROMPT = `Tu es Mč, l'assistante financière personnelle de Pata. 
-Tu as accès aux outils pour ajouter des dépenses, créer des objectifs ou configurer des automations. 
-Si l'utilisateur te demande de faire quelque chose, utilise l'outil approprié.
+Tu as accès aux outils pour ajouter des dépenses, créer des revenus, créer des objectifs ou configurer des automatisations.
+
+RÈGLES DE SÉCURITÉ ET D'EXÉCUTION (SOUS PEINE DE REJET) :
+1. N'INVENTE JAMAIS de données (ni montant, ni catégorie, ni revenu). 
+2. Si l'utilisateur te demande d'enregistrer une dépense mais ne précise pas la source de revenu, TU DOIS T'ARRÊTER et lui demander : "Sur quel revenu veux-tu imputer cette dépense ? Voici tes revenus disponibles : [liste les revenus]".
+3. Si l'utilisateur te demande d'ajouter un revenu mais ne précise pas la catégorie, TU DOIS T'ARRÊTER et lui demander de choisir parmi : Salaire, Freelance/Business, Cadeau, Autre.
+4. Quand l'utilisateur mentionne une source de revenu (ex: "SBH"), CHERCHE son ID exact dans la section "SITUATION DES REVENUS" ci-dessous. Tu DOIS passer cet ID dans le paramètre "incomeSourceId" de l'outil "add_expense". Ne mets JAMAIS le nom du revenu dans la note.
+5. Si l'utilisateur dit "tous les revenus" ou "global", mets "all" dans "incomeSourceId".
 
 RÈGLES DE FORMATAGE ABSOLUES (SOUS PEINE DE REJET) :
 1. INTERDICTION TOTALE d'utiliser des astérisques (*) ou des dièses (#). N'utilise AUCUN symbole Markdown.
 2. Tu DOIS faire des sauts de ligne quand tu changes d'idée ou listes des éléments.
 3. Tu peux utiliser des tirets simples (-) pour les listes.
-4. Pour mettre en valeur une idée, écris le mot EN MAJUSCULES. Par exemple : "C'est très IMPORTANT."
+4. Pour mettre en valeur une idée, écris le mot EN MAJUSCULES.
 5. Ne salue PAS à chaque message. Va directement au but.
 6. ⚠️ SI L'UTILISATEUR MENTIONNE LE MOT "AUDIO", "VOIX" OU "VOCAL" : Ne lui donne PAS de tutoriel sur comment faire de l'audio. Réponds simplement à sa question de manière naturelle et complète.
-7. ⚠️ SI L'UTILISATEUR DEMANDE DE GÉNÉRER UNE IMAGE (mots-clés : "génère", "crée", "dessine", "fais une image/photo") : Ne génère PAS de texte, le système s'occupe de créer l'image.
+7. ⚠️ SI L'UTILISATEUR DEMANDE DE GÉNÉRER UNE IMAGE : Ne génère PAS de texte, le système s'occupe de créer l'image.
 
 DONNÉES ACTUELLES DE L'UTILISATEUR :
 ${userContext}`;
@@ -405,44 +429,35 @@ ${userContext}`;
       content: String(m.content || '').slice(0, 500),
     }));
 
-    // 🟢 Si l'utilisateur veut une image, on génère directement l'image
     if (wantsImage) {
       try {
         const imageUrl = await generateImageWithPollinations(lastUserMessage);
         return NextResponse.json({ success: true, imageUrl, isImage: true });
       } catch (imageError) {
-        console.error('Erreur génération image:', imageError.message);
-        // On renvoie le message d'erreur détaillé pour le frontend
         return NextResponse.json({ success: false, error: imageError.message }, { status: 500 });
       }
     }
 
-    // Sinon, on fait l'appel texte normal
     const reply = await chatWithGroq([
       { role: 'system', content: SYSTEM_PROMPT },
       ...trimmedHistory,
     ], { maxTokens: 1000, temperature: 0.3, tools });
 
-    // 🟢 Si l'utilisateur veut de l'audio, on génère l'audio
     if (wantsAudio) {
       try {
         const audioBase64 = await generateAudioWithGemini(reply);
         return NextResponse.json({ success: true, audio: audioBase64, isAudio: true, textReply: reply });
       } catch (ttsError) {
-        console.error('Erreur TTS Gemini:', ttsError.message);
         return NextResponse.json({ success: true, reply, audioError: 'Impossible de générer l\'audio.' });
       }
     }
 
-    // Sinon, on renvoie le texte normal
     return NextResponse.json({ success: true, reply });
   } catch (error) {
     console.error('[API] AI chat error:', error.message);
     return errorResponse(error.message || 'Erreur de l\'assistante.', 500);
   }
 }
-
-/* ═══════════════════ AI VISION (Groq) ═══════════════════ */
 
 async function handleAIVision(request) {
   try {
@@ -459,8 +474,6 @@ async function handleAIVision(request) {
     return errorResponse(error.message || 'Erreur d\'analyse d\'image.', 500);
   }
 }
-
-/* ═══════════════════ ROUTEUR ═══════════════════ */
 
 const ROUTES = {
   'fapshi/checkout':  { POST: handleFapshiCheckout },
