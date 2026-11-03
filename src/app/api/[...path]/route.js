@@ -307,6 +307,7 @@ async function handleTTS(request) {
     const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) return errorResponse('Clé API manquante.', 500);
 
+    // On utilise le modèle de voix française de Groq
     const res = await fetch('https://api.groq.com/openai/v1/audio/speech', {
       method: 'POST',
       headers: {
@@ -316,18 +317,25 @@ async function handleTTS(request) {
       body: JSON.stringify({
         model: 'playai-tts',
         input: text.slice(0, 1000),
-        voice: 'Fritz-PlayAI',
+        voice: 'Aaliyah-PlayAI', // Voix féminine française
         response_format: 'mp3',
       }),
     });
 
-    if (!res.ok) throw new Error('Erreur de génération audio Groq');
+    if (!res.ok) {
+      const err = await res.text();
+      console.error('Groq TTS Error:', err);
+      throw new Error('Erreur de génération audio Groq');
+    }
     
     const buffer = await res.arrayBuffer();
     const base64Audio = Buffer.from(buffer).toString('base64');
     
     return NextResponse.json({ success: true, audio: base64Audio });
-  } catch (error) { return errorResponse(error.message, 500); }
+  } catch (error) { 
+    console.error('[API] TTS Error:', error.message);
+    return errorResponse(error.message, 500); 
+  }
 }
 
 /* ═══════════════════ AI CHAT AVEC ACTIONS ═══════════════════ */
@@ -409,10 +417,17 @@ async function handleAIChat(request) {
       }
     ];
 
+    // 🟢 PROMPT SYSTÈME ULTRA-STRICT POUR LE FORMATAGE
     const SYSTEM_PROMPT = `Tu es Mč, l'assistante financière personnelle de Pata. 
 Tu as accès aux outils pour ajouter des dépenses, créer des objectifs ou configurer des automations. 
 Si l'utilisateur te demande de faire quelque chose, utilise l'outil approprié.
-RÈGLES : Pas de symboles **, écris en MAJUSCULES pour insister. Sois chaleureuse et concise.
+
+RÈGLES DE FORMATAGE ABSOLUES (SOUS PEINE DE REJET) :
+1. INTERDICTION TOTALE d'utiliser des astérisques (*) ou des dièses (#). N'utilise AUCUN symbole Markdown.
+2. Tu DOIS faire des sauts de ligne quand tu changes d'idée ou listes des éléments.
+3. Tu peux utiliser des tirets simples (-) pour les listes.
+4. Pour mettre en valeur une idée, écris le mot EN MAJUSCULES. Par exemple : "C'est très IMPORTANT."
+5. Ne salue PAS à chaque message. Va directement au but.
 
 DONNÉES ACTUELLES DE L'UTILISATEUR :
 ${userContext}`;
