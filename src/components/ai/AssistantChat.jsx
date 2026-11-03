@@ -196,7 +196,7 @@ export function AssistantChat({ open, onClose }) {
           });
         }
 
-        return `J'ai enregistré ton budget "${budgetName}" de ${totalIncome} FCFA et réparti les montants dans tes catégories.`;
+        return `J'ai enregistré ton budget "${budgetName}" de ${totalIncome} FCFA et réparti les montants.`;
       }
 
       if (name === 'create_goal') {
@@ -327,6 +327,7 @@ export function AssistantChat({ open, onClose }) {
       try {
         const parsed = JSON.parse(data.reply);
         if (parsed.tool_call) {
+          // 🟢 On remplace la réponse de l'IA par le résultat de l'outil (succès ou erreur)
           finalReply = await executeToolCall(parsed.tool_call);
         }
       } catch (e) {}
@@ -359,15 +360,13 @@ export function AssistantChat({ open, onClose }) {
   return (
     <div 
       className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-0 md:p-6"
-      onClick={onClose} // 🟢 Fermer en cliquant sur le fond
+      onClick={onClose}
     >
-      {/* 🟢 CORRECTION LAYOUT MOBILE : h-full sur mobile, md:h-[85vh] sur PC */}
       <div 
         className="relative flex h-full w-full flex-col overflow-hidden bg-white shadow-2xl md:h-[85vh] md:max-w-5xl md:flex-row md:rounded-2xl"
-        onClick={(e) => e.stopPropagation()} // Empêcher la fermeture si on clique dans la modale
+        onClick={(e) => e.stopPropagation()}
       >
         
-        {/* SIDEBAR (Fixe sur PC, tiroir sur mobile) */}
         <div className={`absolute inset-y-0 left-0 z-30 w-72 shrink-0 transform bg-slate-50 transition-transform duration-300 ${showSidebar ? 'translate-x-0' : '-translate-x-full'} md:relative md:flex md:translate-x-0 border-r border-slate-200 flex flex-col`}>
           <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 px-4">
             <span className="font-bold text-slate-800">Discussions</span>
@@ -402,9 +401,7 @@ export function AssistantChat({ open, onClose }) {
           </div>
         </div>
 
-        {/* CHAT ZONE */}
         <div className="flex h-full flex-1 flex-col overflow-hidden bg-white">
-          {/* 🟢 HEADER TOUJOURS VISIBLE */}
           <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-100 px-4 bg-slate-50/50">
             <div className="flex items-center gap-3">
               <button onClick={() => setShowSidebar(true)} className="md:hidden p-1.5 rounded-lg hover:bg-slate-200">
