@@ -27,7 +27,6 @@ function getBaseUrl(request) {
 }
 
 /* ═══════════════════ ROUTE ADD EXPENSE (SÉCURISÉE) ═══════════════════ */
-
 async function handleAddExpense(request) {
   try {
     const decoded = await authenticate(request);
@@ -37,7 +36,6 @@ async function handleAddExpense(request) {
 
     if (!amount || amount <= 0) return errorResponse('Montant invalide.');
 
-    // 1. Récupérer toutes les données
     const [incomesSnap, expensesSnap] = await Promise.all([
       adminDb.collection('users').doc(uid).collection('incomes').get(),
       adminDb.collection('users').doc(uid).collection('expenses').get(),
@@ -46,7 +44,6 @@ async function handleAddExpense(request) {
     const incomes = incomesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     const expenses = expensesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-    // 2. Calcul du solde global
     const totalIncome = incomes.reduce((s, i) => s + (i.amount || 0), 0);
     const totalExpense = expenses.reduce((s, e) => s + (e.amount || 0), 0);
     const globalBalance = Math.max(0, totalIncome - totalExpense);
@@ -55,7 +52,6 @@ async function handleAddExpense(request) {
       return errorResponse(`Fonds insuffisants. Tu as seulement ${globalBalance} FCFA disponible au total.`);
     }
 
-    // 3. Vérification spécifique au revenu
     if (incomeSourceId && incomeSourceId !== 'all') {
       const income = incomes.find(i => i.id === incomeSourceId);
       if (!income) return errorResponse('Revenu introuvable.');
@@ -69,7 +65,6 @@ async function handleAddExpense(request) {
       }
     }
 
-    // 4. Sauvegarde
     await adminDb.collection('users').doc(uid).collection('expenses').add({
       amount: Number(amount),
       categoryId: categoryId || 'other',
@@ -87,7 +82,7 @@ async function handleAddExpense(request) {
 }
 
 /* ═══════════════════ AUTRES ROUTES ═══════════════════ */
-// (Je remets ici les autres routes pour que tu n'aies qu'à copier-coller)
+// (On garde Fapshi, Goals, etc. tel quel, je les inclus pour le copier-coller)
 
 async function handleFapshiCheckout(request) {
   try {
@@ -362,7 +357,7 @@ async function handleAutomationsRun(request) {
 
 /* ═══════════════════ AI CHAT & AUTRES ═══════════════════ */
 
-async function handleAIChat(request) {
+            async function handleAIChat(request) {
   try {
     const decoded = await authenticate(request);
     const uid = decoded.uid;
@@ -372,11 +367,12 @@ async function handleAIChat(request) {
     const messages = Array.isArray(body.messages) ? body.messages : [];
     if (messages.length === 0) return errorResponse('Messages requis.', 400);
 
-    const [userDoc, incomesSnap, expensesSnap, goalsSnap] = await Promise.all([
+    const [userDoc, incomesSnap, expensesSnap, goalsSnap, budgetsSnap] = await Promise.all([
       adminDb.collection('users').doc(uid).get(),
       adminDb.collection('users').doc(uid).collection('incomes').limit(100).get(),
       adminDb.collection('users').doc(uid).collection('expenses').limit(200).get(),
       adminDb.collection('users').doc(uid).collection('goals').limit(20).get(),
+      adminDb.collection('users').doc(uid).collection('budgets').get(),
     ]);
 
     const userData = {
@@ -384,6 +380,7 @@ async function handleAIChat(request) {
       incomes: incomesSnap.docs.map(d => ({ id: d.id, ...d.data() })),
       expenses: expensesSnap.docs.map(d => ({ id: d.id, ...d.data() })),
       goals: goalsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+      budgets: budgetsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
     };
 
     const userContext = buildUserContext(userData);
@@ -426,6 +423,32 @@ async function handleAIChat(request) {
       {
         type: 'function',
         function: {
+          name: 'apply_budget_plan',
+          description: 'Appliquer un plan budgétaire complet (créer les budgets et éventuellement le revenu associé). À utiliser UNIQUEMENT quand l\'utilisateur a validé le plan.',
+          parameters: {
+            type: 'object',
+            properties: {
+              budgetName: { type: 'string', description: 'Nom de la source de revenu à créer (ex: Salaire Novembre)' },
+              totalIncome: { type: 'number', description: 'Montant total du revenu' },
+              plan: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    categoryId: { type: 'string' },
+                    amount: { type: 'number' }
+                  },
+                  required: ['categoryId', 'amount']
+                }
+              }
+            },
+            required: ['budgetName', 'totalIncome', 'plan']
+          }
+        }
+      },
+      {
+        type: 'function',
+        function: {
           name: 'add_automation',
           parameters: {
             type: 'object',
@@ -457,16 +480,15 @@ async function handleAIChat(request) {
     ];
 
     const SYSTEM_PROMPT = `Tu es Mč, l'assistante financière personnelle de Pata. 
-Tu parles à ${userName}. Tu as accès aux outils pour gérer les dépenses, revenus, objectifs et automations.
+Tu parles à ${userName}.
 
-RÈGLES DE SÉCURITÉ FINANCIÈRE (CRITIQUE) :
-1. Tu ne peux PAS enregistrer de dépense si le solde global est insuffisant. Regarde le TOTAL DISPONIBLE dans le contexte.
-2. Si l'utilisateur te demande une dépense supérieure au solde, refuse poliment en expliquant qu'il n'a pas assez d'argent et propose de créer un revenu.
-
-RÈGLES DE COMPORTEMENT (SOUS PEINE DE REJET) :
-1. TU NE DOIS JAMAIS SALUER L'UTILISATEUR. Commence directement par ta réponse.
-2. Ne prononce JAMAIS le nom de l'application.
-3. Sois concise, directe, et va droit au but.
+RÈGLES D'OR (SOUS PEINE DE REJET) :
+1. TU NE DOIS JAMAIS SALUER L'UTILISATEUR. Pas de "Bonjour", pas de "Salut". Commence directement.
+2. N'enregistre JAMAIS une donnée (dépense, revenu, budget) SANS avoir demandé la confirmation à l'utilisateur.
+3. Si l'utilisateur te demande "comment répartir 100 000 FCFA", NE CRÉE PAS de revenu. Fais un calcul de répartition (ex: 50/30/20), liste les catégories (Loyer, Nourriture, etc.), et propose un plan. Termine par : "Est-ce que ce plan te convient ? Si oui, je l'enregistre."
+4. Si l'utilisateur valide (ex: "Oui"), TU DOIS utiliser l'outil "apply_budget_plan".
+5. Si une catégorie importante manque (ex: Loyer), demande à l'utilisateur s'il veut l'ajouter.
+6. Sois concise, directe, et va droit au but.
 
 DONNÉES ACTUELLES :
 ${userContext}`;
