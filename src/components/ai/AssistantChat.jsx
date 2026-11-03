@@ -112,7 +112,6 @@ export function AssistantChat({ open, onClose }) {
       const args = JSON.parse(argsStr);
       
       if (name === 'add_expense') {
-        // 🟢 VALIDATION STRICTE : Si l'IA a mis "all" alors que ce n'est pas demandé, on bloque
         const finalIncomeId = args.incomeSourceId || 'all';
         const finalIncomeName = args.incomeSourceName || 'Tous les revenus';
 
@@ -293,10 +292,17 @@ export function AssistantChat({ open, onClose }) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/40 md:items-center">
-      <div className="relative flex h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl md:h-[80vh] md:rounded-2xl">
+    <div 
+      className="fixed inset-0 z-[70] flex items-end justify-center bg-black/40 p-0 md:items-center md:p-6"
+      onClick={onClose} // 🟢 Fermer en cliquant sur le fond sombre
+    >
+      <div 
+        className="relative flex h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl md:h-[85vh] md:max-w-5xl md:flex-row md:rounded-2xl"
+        onClick={(e) => e.stopPropagation()} // 🟢 Empêcher la fermeture si on clique dans la modale
+      >
         
-        <div className={`absolute inset-y-0 left-0 z-30 w-64 transform bg-slate-50 transition-transform duration-300 ${showSidebar ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 border-r border-slate-200 flex flex-col`}>
+        {/* 🟢 SIDEBAR (Desktop: fixe / Mobile: tiroir) */}
+        <div className={`absolute inset-y-0 left-0 z-30 w-72 shrink-0 transform bg-slate-50 transition-transform duration-300 ${showSidebar ? 'translate-x-0' : '-translate-x-full'} md:relative md:flex md:translate-x-0 border-r border-slate-200 flex flex-col`}>
           <div className="flex h-16 items-center justify-between border-b border-slate-200 px-4">
             <span className="font-bold text-slate-800">Discussions</span>
             <button onClick={() => setShowSidebar(false)} className="md:hidden p-1 rounded hover:bg-slate-200"><X size={18} /></button>
@@ -330,8 +336,9 @@ export function AssistantChat({ open, onClose }) {
           </div>
         </div>
 
-        <div className="flex flex-1 flex-col overflow-hidden bg-white">
-          <div className="flex items-center justify-between border-b border-slate-100 p-4 bg-slate-50/50">
+        {/* 🟢 CHAT AREA */}
+        <div className="flex h-full flex-1 flex-col overflow-hidden bg-white">
+          <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-100 px-4 bg-slate-50/50">
             <div className="flex items-center gap-3">
               <button onClick={() => setShowSidebar(true)} className="md:hidden p-1.5 rounded-lg hover:bg-slate-200">
                 <Menu size={18} className="text-slate-500" />
@@ -348,7 +355,7 @@ export function AssistantChat({ open, onClose }) {
 
           <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
             {messages.length === 0 && (
-               <div className="space-y-4 mt-4">
+               <div className="space-y-4 mt-4 max-w-2xl mx-auto">
                  <div className="text-center">
                    <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-brand-50 text-brand-600 mb-3">
                      <BrainCircuit size={32} />
@@ -357,7 +364,7 @@ export function AssistantChat({ open, onClose }) {
                      Bonjour {user?.displayName?.split(' ')[0] || 'toi'}. Comment puis-je t'aider aujourd'hui ?
                    </p>
                  </div>
-                 <div className="space-y-2 mt-6">
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-6">
                    {SUGGESTIONS.map((s, i) => (
                      <button key={i} onClick={() => sendMessage(s)} className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-left text-[13px] text-slate-700 hover:border-brand-300 hover:bg-brand-50 transition-colors">
                        {s}
@@ -371,7 +378,7 @@ export function AssistantChat({ open, onClose }) {
               <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
                 {m.role === 'user' && m.imagePreview && (
                   <div className="mb-1 max-w-[200px] overflow-hidden rounded-xl border border-slate-200">
-                    <img src={m.imagePreview} alt="Upload" className="h-auto w-full object-cover" onClick={() => setImageModal(m.imagePreview)} />
+                    <img src={m.imagePreview} alt="Upload" className="h-auto w-full object-cover cursor-pointer" onClick={() => setImageModal(m.imagePreview)} />
                   </div>
                 )}
                 
@@ -418,16 +425,16 @@ export function AssistantChat({ open, onClose }) {
             )}
           </div>
 
-          <div className="border-t border-slate-100 p-3 bg-white">
+          <div className="shrink-0 border-t border-slate-100 p-4 bg-white">
             {imageFile && (
               <div className="mb-2 relative w-fit">
                 <img src={imageFile.preview} alt="Aperçu" className="h-20 w-auto rounded-lg border border-slate-200 shadow-sm" />
                 <button onClick={() => setImageFile(null)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-md hover:bg-red-600"><X size={12} /></button>
               </div>
             )}
-            <form onSubmit={(e) => { e.preventDefault(); sendMessage(input); }} className="flex gap-2">
+            <form onSubmit={(e) => { e.preventDefault(); sendMessage(input); }} className="flex gap-2 max-w-3xl mx-auto">
               <input type="file" accept="image/*" ref={fileInputRef} onChange={handleImageSelect} className="hidden" />
-              <button type="button" onClick={() => fileInputRef.current?.click()} className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200">
+              <button type="button" onClick={() => fileInputRef.current?.click()} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-500 hover:bg-slate-200">
                 <ImageIcon size={18} />
               </button>
               <input 
@@ -436,15 +443,16 @@ export function AssistantChat({ open, onClose }) {
                 className="h-11 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none focus:border-brand-500 focus:bg-white" 
                 disabled={loading} 
               />
-              <button type="submit" disabled={(!input.trim() && !imageFile) || loading} className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-600 text-white disabled:opacity-50">
+              <button type="submit" disabled={(!input.trim() && !imageFile) || loading} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-600 text-white disabled:opacity-50">
                 <Send size={18} />
               </button>
             </form>
           </div>
         </div>
 
+        {/* 🟢 MODAL IMAGE (Agrandissement) */}
         {imageModal && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm" onClick={() => setImageModal(null)}>
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm" onClick={() => setImageModal(null)}>
             <div className="relative max-h-full max-w-full flex flex-col items-center" onClick={e => e.stopPropagation()}>
               <img src={imageModal} alt="Agrandissement" className="max-h-[80vh] w-auto rounded-lg object-contain shadow-2xl" />
               <div className="mt-4 flex gap-3">
