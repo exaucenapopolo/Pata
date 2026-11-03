@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { chatWithGroq } from '@/lib/ai/groqClient';
+import { generateAudioWithGemini } from '@/lib/ai/geminiTTS';
+import { chatWithGroqVision } from '@/lib/ai/groqVision';
 import { buildUserContext } from '@/lib/ai/buildUserContext';
 
 export const runtime = 'nodejs';
@@ -296,7 +298,7 @@ async function handleAutomationsRun(request) {
   } catch (error) { return errorResponse(error.message, 500); }
 }
 
-/* ═══════════════════ AI CHAT (SANS AUDIO) ═══════════════════ */
+/* ═══════════════════ AI CHAT (AUDIO DIRECT) ═══════════════════ */
 
 async function handleAIChat(request) {
   try {
@@ -306,6 +308,10 @@ async function handleAIChat(request) {
 
     const messages = Array.isArray(body.messages) ? body.messages : [];
     if (messages.length === 0) return errorResponse('Messages requis.', 400);
+
+    // 🟢 DÉTECTION AUDIO DÈS LE DÉBUT
+    const lastUserMessage = messages[messages.length - 1].content.toLowerCase();
+    const wantsAudio = /audio|voix|vocal/i.test(lastUserMessage);
 
     const [userDoc, incomesSnap, expensesSnap, goalsSnap] = await Promise.all([
       adminDb.collection('users').doc(uid).get(),
@@ -399,10 +405,41 @@ ${userContext}`;
       ...trimmedHistory,
     ], { maxTokens: 1000, temperature: 0.3, tools });
 
+    // 🟢 SI L'UTILISATEUR VEUT DE L'AUDIO : ON GÉNÈRE DIRECTEMENT L'AUDIO, ON NE RENVOIE PAS LE TEXTE
+    if (wantsAudio) {
+      try {
+        const audioBase64 = await generateAudioWithGemini(reply);
+        return NextResponse.json({ success: true, audio: audioBase64, isAudio: true });
+      } catch (ttsError) {
+        console.error('Erreur TTS Gemini:', ttsError.message);
+        // Si la génération audio échoue, on retourne le texte pour ne pas bloquer
+        return NextResponse.json({ success: true, reply, audioError: 'Impossible de générer l\'audio.' });
+      }
+    }
+
+    // Sinon, on renvoie le texte normalement
     return NextResponse.json({ success: true, reply });
   } catch (error) {
     console.error('[API] AI chat error:', error.message);
     return errorResponse(error.message || 'Erreur de l\'assistante.', 500);
+  }
+}
+
+/* ═══════════════════ AI VISION (Groq) ═══════════════════ */
+
+async function handleAIVision(request) {
+  try {
+    await authenticate(request);
+    const body = await request.json();
+    const { messages, imageBase64 } = body;
+
+    if (!imageBase64) return errorResponse('Image manquante.', 400);
+
+    const reply = await chatWithGroqVision(messages || [], imageBase64);
+    return NextResponse.json({ success: true, reply });
+  } catch (error) {
+    console.error('[API] AI Vision error:', error.message);
+    return errorResponse(error.message || 'Erreur d\'analyse d\'image.', 500);
   }
 }
 
@@ -419,6 +456,7 @@ const ROUTES = {
   'goals/cancel':     { POST: handleGoalCancel },
   'automations/run':  { POST: handleAutomationsRun },
   'ai/chat':          { POST: handleAIChat },
+  'ai/vision':        { POST: handleAIVision },
 };
 
 async function dispatch(request, context) {
