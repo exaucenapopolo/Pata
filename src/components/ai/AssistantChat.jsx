@@ -16,7 +16,7 @@ const SUGGESTIONS = [
   "Ajoute une dépense de 2000 FCFA pour le transport",
   "Crée un objectif d'épargne de 50 000 FCFA pour Noël",
   "Programme 500 FCFA de transport chaque jour",
-  "Explique-moi en audio comment épargner" // Suggestion audio
+  "Explique-moi comment épargner"
 ];
 
 // 🟢 Composant pour formater le texte proprement
@@ -52,7 +52,6 @@ export function AssistantChat({ open, onClose }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [audioLoading, setAudioLoading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const scrollRef = useRef(null);
 
@@ -132,7 +131,7 @@ export function AssistantChat({ open, onClose }) {
     }
   };
 
-  // 🟢 NOUVELLE FONCTION : Lecture audio via le navigateur (Gratuit et Français)
+  // 🟢 NOUVELLE FONCTION : Lecture audio native en français (gratuit, 100% fonctionnel)
   const playAudio = (text) => {
     if (!('speechSynthesis' in window)) {
       alert("Ton navigateur ne supporte pas la lecture audio.");
@@ -143,11 +142,11 @@ export function AssistantChat({ open, onClose }) {
     const cleanText = text.replace(/\*\*/g, '').replace(/#/g, '').replace(/-/g, ' ');
     
     const utterance = new SpeechSynthesisUtterance(cleanText);
-    utterance.lang = 'fr-FR'; // Force la voix française
-    utterance.rate = 1.0;     // Vitesse normale
-    utterance.pitch = 1.0;    // Tonalité normale
+    utterance.lang = 'fr-FR';
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
 
-    // On annule les lectures précédentes pour éviter de superposer les voix
+    // Annuler les lectures précédentes
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(utterance);
   };
@@ -184,11 +183,8 @@ export function AssistantChat({ open, onClose }) {
       const updatedMessages = [...newMessages, botMsg];
       setMessages(updatedMessages);
 
-      // 🟢 DÉTECTION AUTOMATIQUE : Si l'utilisateur demande de l'audio
-      const wantsAudio = /audio|voix|vocal|parle/i.test(text);
-      if (wantsAudio) {
-        playAudio(finalReply);
-      }
+      // 🟢 SUPPRESSION DE LA LECTURE AUTOMATIQUE
+      // On ne lance plus playAudio automatiquement. L'utilisateur clique sur le bouton.
 
       if (activeChatId) {
         await updateChatMessages(user.uid, activeChatId, updatedMessages);
@@ -305,4 +301,4 @@ export function AssistantChat({ open, onClose }) {
       </div>
     </div>
   );
-                            }
+        }
