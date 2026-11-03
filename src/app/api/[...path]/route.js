@@ -465,4 +465,4 @@ async function dispatch(request, context) {
   return route[request.method](request);
 }
 
-export { dispatch as GET, 
+export { dispatch as GET, dispatch as POST, dispatch as PUT, dispatch as DELETE, dispatch as PATCH };
