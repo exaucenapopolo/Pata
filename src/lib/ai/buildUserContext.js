@@ -14,7 +14,7 @@ export function buildUserContext(userData) {
   const curExpenseTotal = currentExpenses.reduce((s, e) => s + (e.amount || 0), 0);
   const preExpenseTotal = prevExpenses.reduce((s, e) => s + (e.amount || 0), 0);
 
-  // 🟢 L'ID EST MAINTENANT LE PREMIER ÉLÉMENT VISIBLE
+  // 🟢 L'ID EST LE PREMIER ÉLÉMENT VISIBLE POUR QUE L'IA PUISSE LE RÉCUPÉRER FACILEMENT
   const incomeDetails = incomes.map(inc => {
     const linkedExpenses = expenses.filter(e => e.incomeSourceId === inc.id);
     const spent = linkedExpenses.reduce((s, e) => s + (e.amount || 0), 0);
@@ -31,7 +31,7 @@ export function buildUserContext(userData) {
     };
   });
 
-  const recentIncomes = incomeDetails.slice(0, 10); // On augmente la limite à 10 pour être sûr
+  const recentIncomes = incomeDetails.slice(0, 10); // On affiche les 10 derniers
 
   const incomeLines = recentIncomes.map(inc => {
     let line = `ID: "${inc.id}" | Nom: "${inc.source}" | Reste: ${inc.remaining} FCFA`;
@@ -74,4 +74,4 @@ Total dépensé: ${preExpenseTotal} FCFA
 === OBJECTIFS D'ÉPARGNE ===
 ${activeGoals.length > 0 ? activeGoals.join('\n') : 'Aucun objectif en cours.'}
 `.trim();
-}
+  }
