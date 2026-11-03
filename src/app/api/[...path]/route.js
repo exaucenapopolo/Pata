@@ -312,7 +312,9 @@ async function handleAIChat(request) {
 
     const lastUserMessage = messages[messages.length - 1].content.toLowerCase();
     const wantsAudio = /audio|voix|vocal/i.test(lastUserMessage);
-    const wantsImage = /génère.*image|crée.*image|dessine|fais.*image|génère.*photo|crée.*photo/i.test(lastUserMessage);
+    // 🟢 DÉTECTION RENFORCÉE POUR LA GÉNÉRATION D'IMAGE
+    const wantsImage = /génère|générer|crée|créer|dessine|dessiner|fais|faire/i.test(lastUserMessage) 
+                    && /image|photo|illustration|dessin/i.test(lastUserMessage);
 
     const [userDoc, incomesSnap, expensesSnap, goalsSnap] = await Promise.all([
       adminDb.collection('users').doc(uid).get(),
@@ -410,7 +412,8 @@ ${userContext}`;
         return NextResponse.json({ success: true, imageUrl, isImage: true });
       } catch (imageError) {
         console.error('Erreur génération image:', imageError.message);
-        return NextResponse.json({ success: false, error: 'Impossible de générer l\'image.' }, { status: 500 });
+        // On renvoie le message d'erreur détaillé pour le frontend
+        return NextResponse.json({ success: false, error: imageError.message }, { status: 500 });
       }
     }
 
