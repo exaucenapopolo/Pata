@@ -13,19 +13,28 @@ export function subscribeChats(uid, cb) {
 
 export async function createChat(uid, firstMessage) {
   return addDoc(col(uid), {
-    title: firstMessage.slice(0, 30) + '...',
+    title: firstMessage.slice(0, 35) + (firstMessage.length > 35 ? '...' : ''),
     messages: [],
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
 }
 
+export async function updateChatTitle(uid, chatId, newTitle) {
+  await updateDoc(doc(db, 'users', uid, 'ai_chats', chatId), {
+    title: newTitle.trim().slice(0, 50),
+    updatedAt: serverTimestamp(),
+  });
+}
+
 export async function updateChatMessages(uid, chatId, messages) {
-  // 🟢 IMPORTANT : On retire l'audioData pour ne pas dépasser la limite de 1 Mo de Firestore
+  // 🟢 NETTOYAGE : On retire les éléments lourds (base64) pour ne pas dépasser 1 Mo
   const safeMessages = messages.map(m => ({
     role: m.role,
     content: m.content,
-    wasAudio: m.wasAudio || false // On garde juste l'info que c'était un audio
+    wasAudio: m.wasAudio || false,
+    generatedImage: m.generatedImage || null, // L'URL est légère
+    // imagePreview et audioData sont ignorés
   }));
 
   await updateDoc(doc(db, 'users', uid, 'ai_chats', chatId), {
@@ -36,4 +45,4 @@ export async function updateChatMessages(uid, chatId, messages) {
 
 export async function deleteChat(uid, chatId) {
   await deleteDoc(doc(db, 'users', uid, 'ai_chats', chatId));
-}
+      }
