@@ -1,6 +1,19 @@
-import { auth } from '@/lib/firebase/client';
+import {
+  collection, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy
+} from 'firebase/firestore';
+import { db, auth } from '@/lib/firebase/client';
 
-// 🟢 La création passe par une API sécurisée pour vérifier les fonds
+const col = (uid) => collection(db, 'users', uid, 'expenses');
+
+// 🟢 On réintègre subscribeExpenses pour le temps réel
+export function subscribeExpenses(uid, cb) {
+  const q = query(col(uid), orderBy('date', 'desc'));
+  return onSnapshot(q, (snap) => {
+    cb(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+  });
+}
+
+// 🟢 La création passe désormais par notre API sécurisée pour vérifier les fonds
 export async function createExpense(uid, data) {
   const user = auth.currentUser;
   if (!user) throw new Error('Utilisateur non connecté.');
@@ -23,10 +36,6 @@ export async function createExpense(uid, data) {
   
   return result;
 }
-
-// (On garde le reste tel quel pour la modification/suppression)
-import { updateDoc, deleteDoc, doc } from 'firebase/firestore';
-import { db } from '@/lib/firebase/client';
 
 export async function updateExpense(uid, id, patch) {
   await updateDoc(doc(db, 'users', uid, 'expenses', id), patch);
