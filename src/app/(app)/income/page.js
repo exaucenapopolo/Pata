@@ -12,30 +12,29 @@ import { Card, CardTitle } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { CategoryManager } from '@/components/ui/CategoryManager';
+import { CategoryImage } from '@/components/ui/CategoryImage';
 import { useAuth } from '@/hooks/useAuth';
 import { useIncomes } from '@/hooks/useIncomes';
 import { useExpenses } from '@/hooks/useExpenses';
 import { useProfile } from '@/hooks/useProfile';
 import { useBudgetRules } from '@/hooks/useBudgetRules';
+import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { createIncome, deleteIncome } from '@/lib/firestore/incomes';
 import { upsertBudget } from '@/lib/firestore/budgets';
 import { computeBudgetBreakdown } from '@/lib/budgetRules';
 import { INCOME_CATEGORIES } from '@/lib/constants';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatCurrency, formatDate, resolveCategory } from '@/lib/utils';
 
+// 🟢 CORRECTION DES DATES LOCALES (Évite le décalage UTC)
 const todayMonth = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 };
-const todayIso = () => new Date().toISOString().slice(0, 10);
-
-const VITAL_CATEGORIES = [
-  { id: 'food', label: 'Nourriture', icon: '🍽️' },
-  { id: 'transport', label: 'Transport', icon: '🚌' },
-  { id: 'housing', label: 'Loyer', icon: '🏠' },
-  { id: 'telecom', label: 'Télécom/Internet', icon: '📱' },
-  { id: 'other', label: 'Autres besoins', icon: '📦' },
-];
+const todayIso = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 const FREQUENCIES = [
   { id: 'daily', label: 'Par jour', multiplier: 30 },
@@ -48,6 +47,7 @@ export default function IncomePage() {
   const { incomes } = useIncomes();
   const { expenses } = useExpenses();
   const { profile, save } = useProfile();
+  const { customCategories } = useCustomCategories('expense');
   const { rules, updatePercent, saveRules, resetRules, total, isValid, loading: rulesLoading } = useBudgetRules();
 
   const [month, setMonth] = useState(todayMonth());
@@ -85,12 +85,17 @@ export default function IncomePage() {
   const totalIncome = monthIncomes.reduce((s, i) => s + (i.amount || 0), 0);
   const breakdown = useMemo(() => computeBudgetBreakdown(totalIncome, rules), [totalIncome, rules]);
 
-  // 🟢 Calculs dynamiques des prévisions
+  // 🟢 Calculs dynamiques des prévisions avec TOUTES les catégories
   const vitalNeeds = profile?.vitalNeeds || {};
-  
+  const allCategories = useMemo(() => {
+    const defaults = EXPENSE_CATEGORIES.map(c => ({...c, isCustom: false}));
+    const customs = customCategories.map(c => ({...c, isCustom: true, label: c.name}));
+    return [...defaults, ...customs];
+  }, [customCategories]);
+
   const totalVitalMonthly = useMemo(() => {
     let total = 0;
-    VITAL_CATEGORIES.forEach(cat => {
+    allCategories.forEach(cat => {
       const need = vitalNeeds[cat.id];
       if (need && need.amount && need.frequency) {
         const freq = FREQUENCIES.find(f => f.id === need.frequency);
@@ -98,13 +103,13 @@ export default function IncomePage() {
       }
     });
     return total;
-  }, [vitalNeeds]);
+  }, [vitalNeeds, allCategories]);
 
   const isOverBudget = totalBudget && totalVitalMonthly > Number(totalBudget);
 
   const openVitalModal = () => {
     const initial = {};
-    VITAL_CATEGORIES.forEach(k => { 
+    allCategories.forEach(k => { 
       const existing = vitalNeeds[k.id];
       initial[k.id] = { 
         amount: existing?.amount || '', 
@@ -122,7 +127,7 @@ export default function IncomePage() {
     setSavingVital(true);
     try {
       const cleaned = {};
-      VITAL_CATEGORIES.forEach(k => { 
+      allCategories.forEach(k => { 
         const val = vitalForm[k.id];
         if (val && val.amount && Number(val.amount) > 0) {
           cleaned[k.id] = { amount: Number(val.amount), frequency: val.frequency };
@@ -139,6 +144,12 @@ export default function IncomePage() {
     } finally { setSavingVital(false); }
   };
 
+  // 🟢 NOUVEAU : Supprimer les prévisions
+  const deleteVital = async () => {
+    if (!confirm('Voulez-vous vraiment supprimer toutes vos prévisions vitales ?')) return;
+    await save({ vitalNeeds: {}, vitalBudgetName: null, vitalTotalBudget: 0 });
+  };
+
   // 🟢 Transformer les prévisions en Revenu + Budgets
   const applyVitalToBudget = async () => {
     if (!totalVitalMonthly) return;
@@ -147,7 +158,6 @@ export default function IncomePage() {
       const currentMonth = todayMonth();
       const sourceName = budgetName || 'Budget Prévisionnel';
       
-      // 1. Créer le revenu
       const incomeRes = await createIncome(user.uid, {
         amount: Number(totalBudget) || totalVitalMonthly,
         source: sourceName,
@@ -157,8 +167,7 @@ export default function IncomePage() {
         month: currentMonth,
       });
 
-      // 2. Créer les budgets
-      for (const cat of VITAL_CATEGORIES) {
+      for (const cat of allCategories) {
         const need = vitalNeeds[cat.id];
         if (need && need.amount) {
           const freq = FREQUENCIES.find(f => f.id === need.frequency);
@@ -173,13 +182,12 @@ export default function IncomePage() {
           }
         }
       }
-      alert('Prévisions enregistrées avec succès comme Revenu et Budgets !');
+      alert('Prévisions enregistrées avec succès !');
     } catch (err) {
       alert('Erreur: ' + err.message);
     } finally { setSavingApplied(false); }
   };
 
-  // ... (Le reste des fonctions onSubmit, onSaveRules, etc. est identique)
   const onSubmit = async (e) => {
     e.preventDefault(); setError('');
     const amount = Number(form.amount);
@@ -220,7 +228,6 @@ export default function IncomePage() {
 
   return (
     <div className="space-y-4">
-      {/* ... (L'en-tête, les cartes de revenus et les règles sont identiques) ... */}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Revenus</h1>
@@ -237,9 +244,16 @@ export default function IncomePage() {
             <Calculator size={16} className="text-slate-400" />
             <CardTitle>Prévisions Vitales</CardTitle>
           </div>
-          <Button size="sm" variant="outline" onClick={openVitalModal}>
-            <Pencil size={12} /> Configurer
-          </Button>
+          <div className="flex items-center gap-2">
+            {totalVitalMonthly > 0 && (
+              <Button size="sm" variant="ghost" onClick={deleteVital} className="text-red-600 hover:bg-red-50 hover:text-red-700">
+                <Trash2 size={14} /> Supprimer
+              </Button>
+            )}
+            <Button size="sm" variant="outline" onClick={openVitalModal}>
+              <Pencil size={12} /> {totalVitalMonthly > 0 ? 'Modifier' : 'Configurer'}
+            </Button>
+          </div>
         </div>
 
         {totalVitalMonthly === 0 ? (
@@ -254,14 +268,17 @@ export default function IncomePage() {
                 <span className="text-sm font-bold text-slate-800">{formatCurrency(Number(totalBudget))}</span>
               </div>
               <ul className="space-y-1">
-                {VITAL_CATEGORIES.map(k => {
+                {allCategories.map(k => {
                   const need = vitalNeeds[k.id];
                   if (!need || !need.amount) return null;
                   const freq = FREQUENCIES.find(f => f.id === need.frequency);
                   const monthly = (need.amount || 0) * (freq ? freq.multiplier : 1);
                   return (
                     <li key={k.id} className="flex justify-between text-xs text-slate-600">
-                      <span>{k.icon} {k.label}</span>
+                      <span className="flex items-center gap-2">
+                        <CategoryImage categoryId={k.id} image={k.image} size="sm" />
+                        {k.label}
+                      </span>
                       <span>{formatCurrency(Math.round(monthly))}</span>
                     </li>
                   );
@@ -291,7 +308,6 @@ export default function IncomePage() {
         )}
       </Card>
 
-      {/* ... (Le reste de la page : sources de revenus, règles, modals) ... */}
       <Card>
         <div className="mb-3 flex items-center justify-between">
           <CardTitle>Toutes mes sources de revenus</CardTitle>
@@ -397,7 +413,6 @@ export default function IncomePage() {
         </form>
       </Modal>
 
-      {/* 🟢 NOUVELLE MODALE DES PRÉVISIONS */}
       <Modal open={vitalOpen} onClose={() => setVitalOpen(false)} title="Calculer mes prévisions">
         <form onSubmit={onSaveVital} className="space-y-4">
           <div className="grid grid-cols-2 gap-2">
@@ -418,36 +433,41 @@ export default function IncomePage() {
             />
           </div>
 
-          <p className="text-xs text-slate-500">Dis-nous combien tu dépenses pour chaque catégorie et à quelle fréquence.</p>
+          <p className="text-xs text-slate-500">Sélectionne tes dépenses fréquentes.</p>
           
-          {VITAL_CATEGORIES.map(k => {
-            const val = vitalForm[k.id] || { amount: '', frequency: 'monthly' };
-            return (
-              <div key={k.id} className="rounded-xl border border-slate-200 p-3 bg-slate-50/50">
-                <p className="text-sm font-semibold text-slate-700 mb-2">{k.icon} {k.label}</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <Input 
-                    label="Montant (FCFA)" 
-                    type="number" 
-                    min="0" 
-                    value={val.amount} 
-                    onChange={(e) => setVitalForm({ ...vitalForm, [k.id]: { ...val, amount: e.target.value } })}
-                    placeholder="0"
-                  />
-                  <div>
-                    <label className="mb-1 block text-sm font-medium text-slate-700">Fréquence</label>
-                    <select 
-                      value={val.frequency} 
-                      onChange={(e) => setVitalForm({ ...vitalForm, [k.id]: { ...val, frequency: e.target.value } })}
-                      className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"
-                    >
-                      {FREQUENCIES.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
-                    </select>
+          <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-2">
+            {allCategories.map(k => {
+              const val = vitalForm[k.id] || { amount: '', frequency: 'monthly' };
+              return (
+                <div key={k.id} className="rounded-xl border border-slate-200 p-3 bg-slate-50/50">
+                  <div className="flex items-center gap-2 mb-2">
+                    <CategoryImage categoryId={k.id} image={k.image} size="sm" />
+                    <p className="text-sm font-semibold text-slate-700">{k.label}</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input 
+                      label="Montant (FCFA)" 
+                      type="number" 
+                      min="0" 
+                      value={val.amount} 
+                      onChange={(e) => setVitalForm({ ...vitalForm, [k.id]: { ...val, amount: e.target.value } })}
+                      placeholder="0"
+                    />
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-slate-700">Fréquence</label>
+                      <select 
+                        value={val.frequency} 
+                        onChange={(e) => setVitalForm({ ...vitalForm, [k.id]: { ...val, frequency: e.target.value } })}
+                        className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"
+                      >
+                        {FREQUENCIES.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+                      </select>
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
 
           <div className={`rounded-xl p-3 text-sm border ${isOverBudget ? 'bg-red-50 border-red-200' : 'bg-brand-50 border-brand-100'}`}>
             <div className="flex justify-between items-center mb-1">
@@ -468,4 +488,4 @@ export default function IncomePage() {
       <ConfirmDialog open={!!deleteId} onClose={() => setDeleteId(null)} onConfirm={handleDelete} title="Supprimer ce revenu ?" message="Cette action est irréversible." confirmWord="SUPPRIMER" confirmLabel="Supprimer" variant="danger" />
     </div>
   );
-        }
+              }
