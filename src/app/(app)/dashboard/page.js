@@ -20,27 +20,15 @@ import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { generateAdvice, adviceIconColor } from '@/lib/advisor';
 import { formatCurrency, formatDate, resolveCategory } from '@/lib/utils';
 
-// 🟢 FONCTIONS DE DATE CORRIGÉES (Sans décalage UTC)
 const firstOfMonth = () => {
   const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  return `${year}-${month}-01`;
+  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
 };
 const lastOfMonth = () => {
   const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const lastDay = new Date(year, d.getMonth() + 1, 0).getDate();
-  return `${year}-${month}-${String(lastDay).padStart(2, '0')}`;
+  return new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
 };
-const todayIso = () => {
-  const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
+const todayIso = () => new Date().toISOString().slice(0, 10);
 
 const ADVICE_ICONS = { success: CheckCircle2, danger: AlertTriangle, warning: AlertTriangle, tip: Lightbulb, info: Info };
 
@@ -63,25 +51,15 @@ export default function DashboardPage() {
     return raw ? raw.split(' ')[0] : 'toi';
   }, [profile]);
 
-  // Calcul de la période précédente
   const { prevStartDate, prevEndDate } = useMemo(() => {
     const start = new Date(startDate);
     const end = new Date(endDate);
     const durationMs = end.getTime() - start.getTime();
     const prevEnd = new Date(start.getTime() - 86400000);
     const prevStart = new Date(prevEnd.getTime() - durationMs);
-    
-    // Formatage local pour éviter le bug UTC
-    const formatLocal = (date) => {
-      const y = date.getFullYear();
-      const m = String(date.getMonth() + 1).padStart(2, '0');
-      const d = String(date.getDate()).padStart(2, '0');
-      return `${y}-${m}-${d}`;
-    };
-
     return {
-      prevStartDate: formatLocal(prevStart),
-      prevEndDate: formatLocal(prevEnd),
+      prevStartDate: prevStart.toISOString().slice(0, 10),
+      prevEndDate: prevEnd.toISOString().slice(0, 10),
     };
   }, [startDate, endDate]);
 
@@ -102,20 +80,16 @@ export default function DashboardPage() {
     [incomes, prevStartDate, prevEndDate]
   );
 
-  const incomeWithBalance = useMemo(() => {
-    return incomes.map((inc) => {
-      const linkedExpenses = expenses.filter((e) => e.incomeSourceId === inc.id);
-      const spent = linkedExpenses.reduce((s, e) => s + (e.amount || 0), 0);
-      const remaining = Math.max(0, (inc.amount || 0) - spent);
-      return { ...inc, spent, remaining, isExhausted: remaining === 0 };
-    }).filter(inc => !inc.isExhausted || inc.date >= startDate);
-  }, [incomes, expenses, startDate]);
+  // 🟢 On calcule le solde global basé sur TOUTES les données (pas juste la période)
+  const totalIncome = incomes.reduce((s, i) => s + (i.amount || 0), 0);
+  const totalExpense = expenses.reduce((s, e) => s + (e.amount || 0), 0);
+  const globalBalance = Math.max(0, totalIncome - totalExpense); // Ne descend jamais sous 0
 
-  const totalIncome = periodIncomes.reduce((s, i) => s + (i.amount || 0), 0);
+  // Périodes (pour les comparaisons)
+  const periodIncomeTotal = periodIncomes.reduce((s, i) => s + (i.amount || 0), 0);
+  const periodExpenseTotal = periodExpenses.reduce((s, e) => s + (e.amount || 0), 0);
   const prevTotalIncome = prevIncomes.reduce((s, i) => s + (i.amount || 0), 0);
-  const totalExpense = periodExpenses.reduce((s, e) => s + (e.amount || 0), 0);
   const prevTotalExpense = prevExpenses.reduce((s, e) => s + (e.amount || 0), 0);
-  const balance = totalIncome - totalExpense;
 
   const byCategory = useMemo(() => {
     const map = {};
@@ -134,21 +108,21 @@ export default function DashboardPage() {
     () => generateAdvice({
       expenses: periodExpenses,
       previousExpenses: prevExpenses,
-      totalIncome,
+      totalIncome: periodIncomeTotal,
       previousIncome: prevTotalIncome,
       goals,
       customCategories,
       userName,
     }),
-    [periodExpenses, prevExpenses, totalIncome, prevTotalIncome, goals, customCategories, userName]
+    [periodExpenses, prevExpenses, periodIncomeTotal, prevTotalIncome, goals, customCategories, userName]
   );
 
   const topExpenses = useMemo(() => {
     return [...periodExpenses].sort((a, b) => b.amount - a.amount).slice(0, 5);
   }, [periodExpenses]);
 
-  const expenseChange = prevTotalExpense > 0 ? ((totalExpense - prevTotalExpense) / prevTotalExpense) * 100 : null;
-  const incomeChange = prevTotalIncome > 0 ? ((totalIncome - prevTotalIncome) / prevTotalIncome) * 100 : null;
+  const expenseChange = prevTotalExpense > 0 ? ((periodExpenseTotal - prevTotalExpense) / prevTotalExpense) * 100 : null;
+  const incomeChange = prevTotalIncome > 0 ? ((periodIncomeTotal - prevTotalIncome) / prevTotalIncome) * 100 : null;
 
   return (
     <div className="space-y-6">
@@ -189,8 +163,7 @@ export default function DashboardPage() {
         )}
 
         <p className="mt-2 text-xs text-slate-500">
-          Période affichée : {formatDate(startDate)} → {formatDate(endDate)} <br />
-          Comparaison avec : {formatDate(prevStartDate)} → {formatDate(prevEndDate)}
+          Période affichée : {formatDate(startDate)} → {formatDate(endDate)}
         </p>
       </Card>
 
@@ -200,7 +173,7 @@ export default function DashboardPage() {
             <TrendingUp size={16} />
             <CardTitle className="text-brand-600">Revenus</CardTitle>
           </div>
-          <CardValue>{formatCurrency(totalIncome)}</CardValue>
+          <CardValue>{formatCurrency(periodIncomeTotal)}</CardValue>
           {incomeChange !== null && (
             <p className={`mt-1 text-xs font-medium ${incomeChange >= 0 ? 'text-brand-600' : 'text-red-500'}`}>
               {incomeChange >= 0 ? '↑' : '↓'} {Math.abs(incomeChange).toFixed(0)}% vs préc.
@@ -212,7 +185,7 @@ export default function DashboardPage() {
             <TrendingDown size={16} />
             <CardTitle className="text-red-500">Dépenses</CardTitle>
           </div>
-          <CardValue>{formatCurrency(totalExpense)}</CardValue>
+          <CardValue>{formatCurrency(periodExpenseTotal)}</CardValue>
           {expenseChange !== null && (
             <p className={`mt-1 text-xs font-medium ${expenseChange <= 0 ? 'text-brand-600' : 'text-red-500'}`}>
               {expenseChange >= 0 ? '↑' : '↓'} {Math.abs(expenseChange).toFixed(0)}% vs préc.
@@ -222,20 +195,21 @@ export default function DashboardPage() {
         <Card>
           <div className="flex items-center gap-2 text-slate-500">
             <Wallet size={16} />
-            <CardTitle>Solde</CardTitle>
+            <CardTitle>Solde Global</CardTitle>
           </div>
-          <CardValue className={balance < 0 ? 'text-red-600' : 'text-slate-900'}>
-            {formatCurrency(balance)}
+          <CardValue className="text-slate-900">
+            {formatCurrency(globalBalance)}
           </CardValue>
+          <p className="mt-1 text-xs text-slate-500">Tout compte confondu</p>
         </Card>
         <Card>
           <div className="flex items-center gap-2 text-slate-500">
             <PiggyBank size={16} />
             <CardTitle>Revenus dispo.</CardTitle>
           </div>
-          <CardValue>{formatCurrency(incomeWithBalance.reduce((s, i) => s + i.remaining, 0))}</CardValue>
+          <CardValue>{formatCurrency(globalBalance)}</CardValue>
           <p className="mt-1 text-xs text-slate-500">
-            {incomeWithBalance.filter(i => i.remaining > 0).length} source(s) active(s)
+            {incomes.filter(i => i.amount > 0).length} source(s) active(s)
           </p>
         </Card>
       </div>
@@ -261,44 +235,6 @@ export default function DashboardPage() {
                 </div>
               );
             })}
-          </div>
-        </Card>
-      )}
-
-      {incomeWithBalance.filter(i => i.remaining > 0).length > 0 && (
-        <Card>
-          <div className="mb-3 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Landmark size={16} className="text-slate-400" />
-              <CardTitle>Revenus avec solde disponible</CardTitle>
-            </div>
-            <Link href="/income" className="flex items-center text-xs font-medium text-brand-600 hover:underline">
-              Gérer <ChevronRight size={14} />
-            </Link>
-          </div>
-          <div className="space-y-3">
-            {incomeWithBalance.filter(i => i.remaining > 0).slice(0, 4).map(inc => (
-              <div key={inc.id} className="rounded-xl border border-slate-100 bg-slate-50/50 p-3">
-                <div className="flex justify-between items-start mb-1">
-                  <div>
-                    <p className="text-sm font-bold text-slate-800">{inc.source}</p>
-                    <p className="text-xs text-slate-500">{formatDate(inc.date)}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-bold text-brand-600">{formatCurrency(inc.amount)}</p>
-                    <p className="text-[10px] text-slate-500">Total</p>
-                  </div>
-                </div>
-                <div className="flex justify-between text-xs text-slate-600 mb-1">
-                  <span>Dépensé</span>
-                  <span className="text-red-500">- {formatCurrency(inc.spent)}</span>
-                </div>
-                <div className="flex justify-between items-center border-t border-slate-200 pt-1.5">
-                  <span className="text-xs font-semibold text-slate-700">Reste</span>
-                  <span className="text-sm font-bold text-slate-900">{formatCurrency(inc.remaining)}</span>
-                </div>
-              </div>
-            ))}
           </div>
         </Card>
       )}
@@ -334,7 +270,7 @@ export default function DashboardPage() {
                     </span>
                     <span className="font-medium text-slate-700">
                       {formatCurrency(c.value)}
-                      <span className="ml-1 text-xs text-slate-400">({((c.value / totalExpense) * 100).toFixed(0)}%)</span>
+                      <span className="ml-1 text-xs text-slate-400">({((c.value / periodExpenseTotal) * 100).toFixed(0)}%)</span>
                     </span>
                   </li>
                 ))}
@@ -409,4 +345,4 @@ export default function DashboardPage() {
       </Card>
     </div>
   );
-      }
+                                        }
