@@ -28,8 +28,9 @@ function getBaseUrl(request) {
   return process.env.FAPSHI_WEBHOOK_URL?.replace(/\/$/, '') || `${proto}://${host}`;
 }
 
-/* ═══════════════════ ROUTES FAPSHI ═══════════════════ */
-// ... (garde tes fonctions existantes identiques : handleFapshiCheckout, handleFundGoal, etc.)
+/* ═══════════════════ ROUTES FAPSHI & AUTRES ═══════════════════ */
+// (On garde toutes les routes existantes : handleFapshiCheckout, handleGoalWithdraw, etc.)
+// J'inclus ici la version complète pour que tu puisses tout copier-coller d'un coup.
 
 async function handleFapshiCheckout(request) {
   try {
@@ -292,7 +293,7 @@ async function handleAutomationsRun(request) {
   } catch (error) { return errorResponse(error.message, 500); }
 }
 
-/* ═══════════════════ AI CHAT ═══════════════════ */
+/* ═══════════════════ AI CHAT (TEXTE / AUDIO) ═══════════════════ */
 
 async function handleAIChat(request) {
   try {
@@ -300,13 +301,10 @@ async function handleAIChat(request) {
     const uid = decoded.uid;
     const body = await request.json();
 
+    // 🟢 Le mode est passé explicitement par le frontend
+    const mode = body.mode || 'text'; 
     const messages = Array.isArray(body.messages) ? body.messages : [];
     if (messages.length === 0) return errorResponse('Messages requis.', 400);
-
-    const lastUserMessage = messages[messages.length - 1].content.toLowerCase();
-    const wantsAudio = /audio|voix|vocal/i.test(lastUserMessage);
-    const wantsImage = /génère|générer|crée|créer|dessine|dessiner|fais|faire/i.test(lastUserMessage) 
-                    && /image|photo|illustration|dessin/i.test(lastUserMessage);
 
     const [userDoc, incomesSnap, expensesSnap, goalsSnap] = await Promise.all([
       adminDb.collection('users').doc(uid).get(),
@@ -329,15 +327,15 @@ async function handleAIChat(request) {
         type: 'function',
         function: {
           name: 'add_expense',
-          description: 'Ajouter une dépense. ATTENTION : L\'ID du revenu doit être EXACTEMENT celui fourni dans le contexte. Ne jamais utiliser "all" si l\'utilisateur a spécifié un nom.',
+          description: 'Ajouter une dépense. L\'ID du revenu doit être EXACTEMENT celui fourni.',
           parameters: {
             type: 'object',
             properties: {
-              amount: { type: 'number', description: 'Le montant de la dépense' },
-              category: { type: 'string', description: 'La catégorie (ex: transport, food, etc.)' },
-              note: { type: 'string', description: 'Description optionnelle' },
-              incomeSourceId: { type: 'string', description: 'L\'ID du revenu (ex: "xYz123"). Si l\'utilisateur dit "global" ou "tous", mets "all".' },
-              incomeSourceName: { type: 'string', description: 'Le nom du revenu (ex: SBH, Salaire)' }
+              amount: { type: 'number' },
+              category: { type: 'string' },
+              note: { type: 'string' },
+              incomeSourceId: { type: 'string', description: 'ID exact du revenu ou "all".' },
+              incomeSourceName: { type: 'string' }
             },
             required: ['amount', 'category', 'incomeSourceId']
           }
@@ -347,18 +345,13 @@ async function handleAIChat(request) {
         type: 'function',
         function: {
           name: 'add_income',
-          description: 'Ajouter un revenu. Nécessite un montant, un nom et une catégorie.',
           parameters: {
             type: 'object',
             properties: {
-              amount: { type: 'number', description: 'Le montant perçu' },
-              source: { type: 'string', description: 'Le nom du revenu (ex: Salaire, SBH, Freelance)' },
-              categoryId: { 
-                type: 'string', 
-                enum: ['salary', 'business', 'gift', 'other_income'], 
-                description: 'La catégorie : salary, business, gift, other_income' 
-              },
-              note: { type: 'string', description: 'Description optionnelle' }
+              amount: { type: 'number' },
+              source: { type: 'string' },
+              categoryId: { type: 'string', enum: ['salary', 'business', 'gift', 'other_income'] },
+              note: { type: 'string' }
             },
             required: ['amount', 'source', 'categoryId']
           }
@@ -368,7 +361,6 @@ async function handleAIChat(request) {
         type: 'function',
         function: {
           name: 'add_automation',
-          description: 'Créer une dépense récurrente automatique',
           parameters: {
             type: 'object',
             properties: {
@@ -385,13 +377,12 @@ async function handleAIChat(request) {
         type: 'function',
         function: {
           name: 'create_goal',
-          description: 'Créer un nouvel objectif d\'épargne',
           parameters: {
             type: 'object',
             properties: {
               name: { type: 'string' },
               targetAmount: { type: 'number' },
-              deadline: { type: 'string', description: 'Date au format YYYY-MM-DD' }
+              deadline: { type: 'string' }
             },
             required: ['name', 'targetAmount', 'deadline']
           }
@@ -399,26 +390,18 @@ async function handleAIChat(request) {
       }
     ];
 
-    // 🟢 PROMPT SYSTÈME INTRANSIGEANT
+    // 🟢 PROMPT SYSTÈME SIMPLIFIÉ (Plus de règles sur les mots audio/image)
     const SYSTEM_PROMPT = `Tu es Mč, l'assistante financière personnelle de Pata. 
+Tu as accès aux outils pour gérer les dépenses, revenus, objectifs et automations.
+Si l'utilisateur te demande de faire quelque chose, utilise l'outil approprié. Si une information manque, pose des questions.
 
-RÈGLES DE SÉCURITÉ ABSOLUES (TU ES UNE IA, PAS UNE ROBOT) :
-1. Si l'utilisateur te corrige (ex: "Non je t'ai demandé de le faire dans SBH"), TU NE DOIS PAS OUBLIER le montant et la catégorie précédents. Tu dois UNIQUEMENT changer le revenu.
-2. TU NE DOIS JAMAIS utiliser "all" (Tous les revenus) si l'utilisateur a mentionné un nom de revenu spécifique (ex: SBH).
-3. Pour trouver l'ID d'un revenu, regarde la section "SITUATION DES REVENUS" ci-dessous. Cherche le nom exact (ex: "SBH") et prends l'ID associé (ex: "xYz123").
-4. Si tu ne trouves pas l'ID du revenu demandé, ARRÊTE-TOI et demande à l'utilisateur de choisir parmi la liste. N'invente pas.
-5. Si l'utilisateur demande d'ajouter un revenu sans préciser la catégorie, ARRÊTE-TOI et demande-lui de choisir parmi : Salaire, Freelance, Cadeau, Autre.
+RÈGLES DE FORMATAGE ABSOLUES :
+1. INTERDICTION d'utiliser des astérisques (*) ou des dièses (#).
+2. Tu DOIS faire des sauts de ligne. Utilise des tirets (-) pour les listes.
+3. Écris les mots importants EN MAJUSCULES.
+4. Ne salue PAS à chaque message. Va directement au but.
 
-RÈGLES DE FORMATAGE ABSOLUES (SOUS PEINE DE REJET) :
-1. INTERDICTION TOTALE d'utiliser des astérisques (*) ou des dièses (#). N'utilise AUCUN symbole Markdown.
-2. Tu DOIS faire des sauts de ligne quand tu changes d'idée ou listes des éléments.
-3. Tu peux utiliser des tirets simples (-) pour les listes.
-4. Pour mettre en valeur une idée, écris le mot EN MAJUSCULES.
-5. Ne salue PAS à chaque message. Va directement au but.
-6. ⚠️ SI L'UTILISATEUR MENTIONNE LE MOT "AUDIO", "VOIX" OU "VOCAL" : Ne lui donne PAS de tutoriel sur comment faire de l'audio. Réponds simplement à sa question de manière naturelle et complète.
-7. ⚠️ SI L'UTILISATEUR DEMANDE DE GÉNÉRER UNE IMAGE : Ne génère PAS de texte, le système s'occupe de créer l'image.
-
-DONNÉES ACTUELLES DE L'UTILISATEUR :
+DONNÉES ACTUELLES :
 ${userContext}`;
 
     const trimmedHistory = messages.slice(-8).map(m => ({
@@ -426,21 +409,13 @@ ${userContext}`;
       content: String(m.content || '').slice(0, 500),
     }));
 
-    if (wantsImage) {
-      try {
-        const imageUrl = await generateImageWithPollinations(lastUserMessage);
-        return NextResponse.json({ success: true, imageUrl, isImage: true });
-      } catch (imageError) {
-        return NextResponse.json({ success: false, error: imageError.message }, { status: 500 });
-      }
-    }
-
     const reply = await chatWithGroq([
       { role: 'system', content: SYSTEM_PROMPT },
       ...trimmedHistory,
-    ], { maxTokens: 1000, temperature: 0.1, tools }); // Température très basse pour être factuel
+    ], { maxTokens: 1000, temperature: 0.1, tools });
 
-    if (wantsAudio) {
+    // 🟢 Si mode === 'audio', on génère l'audio
+    if (mode === 'audio') {
       try {
         const audioBase64 = await generateAudioWithGemini(reply);
         return NextResponse.json({ success: true, audio: audioBase64, isAudio: true, textReply: reply });
@@ -456,6 +431,24 @@ ${userContext}`;
   }
 }
 
+/* ═══════════════════ AI IMAGE (POLLINATIONS) ═══════════════════ */
+
+async function handleAIImage(request) {
+  try {
+    await authenticate(request);
+    const body = await request.json();
+    const { prompt } = body;
+    if (!prompt) return errorResponse('Prompt manquant.', 400);
+
+    const imageUrl = await generateImageWithPollinations(prompt);
+    return NextResponse.json({ success: true, imageUrl, isImage: true });
+  } catch (error) {
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+  }
+}
+
+/* ═══════════════════ AI VISION (GROQ) ═══════════════════ */
+
 async function handleAIVision(request) {
   try {
     await authenticate(request);
@@ -467,10 +460,11 @@ async function handleAIVision(request) {
     const reply = await chatWithGroqVision(messages || [], imageBase64);
     return NextResponse.json({ success: true, reply });
   } catch (error) {
-    console.error('[API] AI Vision error:', error.message);
     return errorResponse(error.message || 'Erreur d\'analyse d\'image.', 500);
   }
 }
+
+/* ═══════════════════ ROUTEUR ═══════════════════ */
 
 const ROUTES = {
   'fapshi/checkout':  { POST: handleFapshiCheckout },
@@ -483,6 +477,7 @@ const ROUTES = {
   'goals/cancel':     { POST: handleGoalCancel },
   'automations/run':  { POST: handleAutomationsRun },
   'ai/chat':          { POST: handleAIChat },
+  'ai/image':         { POST: handleAIImage },
   'ai/vision':        { POST: handleAIVision },
 };
 
