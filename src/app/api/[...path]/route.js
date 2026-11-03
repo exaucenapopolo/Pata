@@ -307,7 +307,6 @@ async function handleTTS(request) {
     const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) return errorResponse('Clé API manquante.', 500);
 
-    // On utilise le modèle de voix française de Groq
     const res = await fetch('https://api.groq.com/openai/v1/audio/speech', {
       method: 'POST',
       headers: {
@@ -315,10 +314,10 @@ async function handleTTS(request) {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'playai-tts',
-        input: text.slice(0, 1000),
-        voice: 'Aaliyah-PlayAI', // Voix féminine française
-        response_format: 'mp3',
+        model: 'canopylabs/orpheus-v1-english',
+        input: text.slice(0, 200),
+        voice: 'hannah',
+        response_format: 'wav',
       }),
     });
 
@@ -417,7 +416,6 @@ async function handleAIChat(request) {
       }
     ];
 
-    // 🟢 PROMPT SYSTÈME ULTRA-STRICT POUR LE FORMATAGE
     const SYSTEM_PROMPT = `Tu es Mč, l'assistante financière personnelle de Pata. 
 Tu as accès aux outils pour ajouter des dépenses, créer des objectifs ou configurer des automations. 
 Si l'utilisateur te demande de faire quelque chose, utilise l'outil approprié.
