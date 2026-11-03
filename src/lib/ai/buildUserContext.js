@@ -14,14 +14,14 @@ export function buildUserContext(userData) {
   const curExpenseTotal = currentExpenses.reduce((s, e) => s + (e.amount || 0), 0);
   const preExpenseTotal = prevExpenses.reduce((s, e) => s + (e.amount || 0), 0);
 
-  // 🟢 AJOUT DE L'ID DANS LES DÉTAILS DU REVENU
+  // 🟢 L'ID EST MAINTENANT LE PREMIER ÉLÉMENT VISIBLE
   const incomeDetails = incomes.map(inc => {
     const linkedExpenses = expenses.filter(e => e.incomeSourceId === inc.id);
     const spent = linkedExpenses.reduce((s, e) => s + (e.amount || 0), 0);
     const remaining = Math.max(0, (inc.amount || 0) - spent);
     
     return {
-      id: inc.id, // <-- L'ID EST CAPITAL POUR L'OUTIL ADD_EXPENSE
+      id: inc.id,
       source: inc.source,
       date: inc.date,
       initial: inc.amount || 0,
@@ -31,16 +31,11 @@ export function buildUserContext(userData) {
     };
   });
 
-  const recentIncomes = incomeDetails.slice(0, 5);
+  const recentIncomes = incomeDetails.slice(0, 10); // On augmente la limite à 10 pour être sûr
 
-  // 🟢 AFFICHAGE DE L'ID POUR QUE L'IA LE LISE
   const incomeLines = recentIncomes.map(inc => {
-    let line = `- [ID: ${inc.id}] REVENU "${inc.source}" (reçu le ${inc.date}) : Montant initial ${inc.initial} FCFA.`;
-    if (inc.spent > 0) {
-      line += ` Déjà dépensé : ${inc.spent} FCFA. SOLDE RESTANT : ${inc.remaining} FCFA.`;
-    } else {
-      line += ` Aucune dépense liée. SOLDE INTACT : ${inc.remaining} FCFA.`;
-    }
+    let line = `ID: "${inc.id}" | Nom: "${inc.source}" | Reste: ${inc.remaining} FCFA`;
+    if (inc.isExhausted) line += ` (ÉPUISÉ)`;
     return line;
   }).join('\n');
 
@@ -66,7 +61,7 @@ export function buildUserContext(userData) {
 Prénom: ${profile?.displayName?.split(' ')[0] || 'Utilisateur'}
 Solde du portefeuille: ${profile?.balance || 0} FCFA
 
-=== SITUATION DES REVENUS (AVEC LEURS IDS) ===
+=== SITUATION DES REVENUS (UTILISE CES IDS EXACTEMENT) ===
 ${incomeLines || 'Aucun revenu enregistré.'}
 
 === DÉPENSES DU MOIS EN COURS (${currentMonthStr}) ===
