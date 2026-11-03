@@ -10,7 +10,6 @@ import { buildUserContext } from '@/lib/ai/buildUserContext';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-/* ═══════════════════ HELPERS ═══════════════════ */
 async function authenticate(request) {
   const authHeader = request.headers.get('authorization');
   if (!authHeader?.startsWith('Bearer ')) throw new Error('Token manquant.');
@@ -27,7 +26,7 @@ function getBaseUrl(request) {
   return process.env.FAPSHI_WEBHOOK_URL?.replace(/\/$/, '') || `${proto}://${host}`;
 }
 
-/* ═══════════════════ ROUTE ADD EXPENSE (SÉCURISÉE) ═══════════════════ */
+/* ═══════════════════ ROUTE ADD EXPENSE ═══════════════════ */
 async function handleAddExpense(request) {
   try {
     const decoded = await authenticate(request);
@@ -49,11 +48,13 @@ async function handleAddExpense(request) {
     const totalExpense = expenses.reduce((s, e) => s + (e.amount || 0), 0);
     const globalBalance = Math.max(0, totalIncome - totalExpense);
 
-    if (amount > globalBalance) {
-      return errorResponse(`Fonds insuffisants. Tu as seulement ${globalBalance} FCFA disponible au total.`);
-    }
-
-    if (incomeSourceId && incomeSourceId !== 'all') {
+    // 🟢 Si 'all', on vérifie le global
+    if (!incomeSourceId || incomeSourceId === 'all') {
+      if (amount > globalBalance) {
+        return errorResponse(`Solde global insuffisant. Il te reste ${globalBalance} FCFA au total.`);
+      }
+    } else {
+      // 🟢 Si ID spécifique, on vérifie CE revenu uniquement
       const income = incomes.find(i => i.id === incomeSourceId);
       if (!income) return errorResponse('Revenu introuvable.');
       
@@ -62,7 +63,7 @@ async function handleAddExpense(request) {
       const incomeBalance = Math.max(0, (income.amount || 0) - linkedExpenseTotal);
 
       if (amount > incomeBalance) {
-        return errorResponse(`Fonds insuffisants sur ce revenu. Il reste seulement ${incomeBalance} FCFA sur "${income.source}".`);
+        return errorResponse(`Solde insuffisant sur ce revenu. Il reste seulement ${incomeBalance} FCFA sur "${income.source}".`);
       }
     }
 
@@ -83,8 +84,6 @@ async function handleAddExpense(request) {
 }
 
 /* ═══════════════════ AUTRES ROUTES (identiques) ═══════════════════ */
-// Je copie les routes Fapshi, Goals, Automations, etc. pour que tu n'aies qu'à faire un copier-coller.
-
 async function handleFapshiCheckout(request) {
   try {
     const decoded = await authenticate(request);
@@ -356,9 +355,8 @@ async function handleAutomationsRun(request) {
   } catch (error) { return errorResponse(error.message, 500); }
 }
 
-/* ═══════════════════ AI CHAT & AUTRES ═══════════════════ */
-
-        async function handleAIChat(request) {
+/* ═══════════════════ AI CHAT ═══════════════════ */
+async function handleAIChat(request) {
   try {
     const decoded = await authenticate(request);
     const uid = decoded.uid;
@@ -425,20 +423,17 @@ async function handleAutomationsRun(request) {
         type: 'function',
         function: {
           name: 'apply_budget_plan',
-          description: 'Appliquer un plan budgétaire complet (créer les budgets et éventuellement le revenu associé). À utiliser UNIQUEMENT quand l\'utilisateur a validé le plan.',
+          description: 'Appliquer un plan budgétaire complet (créer les budgets et éventuellement le revenu associé).',
           parameters: {
             type: 'object',
             properties: {
-              budgetName: { type: 'string', description: 'Nom de la source de revenu à créer (ex: Salaire Novembre)' },
-              totalIncome: { type: 'number', description: 'Montant total du revenu' },
+              budgetName: { type: 'string' },
+              totalIncome: { type: 'number' },
               plan: {
                 type: 'array',
                 items: {
                   type: 'object',
-                  properties: {
-                    categoryId: { type: 'string' },
-                    amount: { type: 'number' }
-                  },
+                  properties: { categoryId: { type: 'string' }, amount: { type: 'number' } },
                   required: ['categoryId', 'amount']
                 }
               }
@@ -480,21 +475,20 @@ async function handleAutomationsRun(request) {
       }
     ];
 
-    const SYSTEM_PROMPT = `Tu es Mč, l'assistante financière personnelle de Pata. 
-Tu parles à ${userName}.
+    // 🟢 PROMPT ULTRA-STRICT POUR L'IA
+    const SYSTEM_PROMPT = `Tu es Mč, l'assistante financière de Pata. Tu parles à ${userName}.
 
-RÈGLES DE SÉCURITÉ FINANCIÈRE :
-1. Tu ne peux PAS enregistrer de dépense si le solde global est insuffisant.
-2. Si l'utilisateur te demande de faire un budget, calcule, propose, et attends la validation.
-
-RÈGLES D'ANALYSE (TRÈS IMPORTANT) :
-1. Si l'utilisateur demande "Où est-ce que j'ai dépensé plus que mes revenus ?" ou "Quelles dépenses causent mon déficit ?", TU DOIS utiliser la section "TOP 10 DÉPENSES DU MOIS" du contexte pour lui donner la liste exacte. Cite-lui les 3 à 5 plus grosses dépenses qui ont fait basculer son solde dans le négatif.
+RÈGLES DE SÉCURITÉ ABSOLUES (TU ES UNE IA, PAS UNE ROBOT) :
+1. Avant d'enregistrer une dépense, LIS ATTENTIVEMENT le "SOLDE GLOBAL" et le "DÉTAIL DES REVENUS" ci-dessous.
+2. Si l'utilisateur demande une dépense supérieure au solde de la source choisie (ex: s'il dit "Sur MC" et que MC a 5 000 FCFA, et qu'il demande 10 000), tu DOIS refuser et dire exactement ceci : "Impossible : le revenu 'MC' n'a que 5 000 FCFA disponibles."
+3. Si l'utilisateur dit "Tous les revenus" (incomeSourceId: 'all'), tu DOIS vérifier le SOLDE GLOBAL. S'il est négatif ou inférieur au montant, refuse et propose de réduire les dépenses ou d'ajouter un revenu.
+4. NE DIS JAMAIS "C'est fait !" avant d'avoir reçu la confirmation de l'outil. Le système te dira si ça a réussi ou échoué.
 
 RÈGLES DE COMPORTEMENT :
-1. NE SALUE JAMAIS l'utilisateur. Va droit au but.
-2. Écris en texte pur, avec des sauts de ligne. Pas de symboles (*) ou (#).
+1. Ne salue pas l'utilisateur. Va droit au but.
+2. Sois concise et factuelle. Pas de tutoriels inutiles.
 
-DONNÉES ACTUELLES :
+DONNÉES ACTUELLES (Mises à jour par l'application) :
 ${userContext}`;
 
     const trimmedHistory = messages.slice(-8).map(m => ({
