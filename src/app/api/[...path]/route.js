@@ -29,8 +29,7 @@ function getBaseUrl(request) {
 }
 
 /* ═══════════════════ ROUTES FAPSHI ═══════════════════ */
-// ... (garde tes fonctions handleFapshiCheckout, handleFundGoal, etc. identiques)
-// Pour faire court ici, je réécris seulement les parties modifiées.
+// ... (garde tes fonctions existantes identiques : handleFapshiCheckout, handleFundGoal, etc.)
 
 async function handleFapshiCheckout(request) {
   try {
@@ -293,7 +292,7 @@ async function handleAutomationsRun(request) {
   } catch (error) { return errorResponse(error.message, 500); }
 }
 
-/* ═══════════════════ AI CHAT (TEXTE + AUDIO + IMAGE) ═══════════════════ */
+/* ═══════════════════ AI CHAT ═══════════════════ */
 
 async function handleAIChat(request) {
   try {
@@ -325,20 +324,19 @@ async function handleAIChat(request) {
 
     const userContext = buildUserContext(userData);
 
-    // 🟢 OUTILS MIS À JOUR
     const tools = [
       {
         type: 'function',
         function: {
           name: 'add_expense',
-          description: 'Ajouter une dépense. Nécessite le montant, la catégorie, et l\'ID du revenu source.',
+          description: 'Ajouter une dépense. ATTENTION : L\'ID du revenu doit être EXACTEMENT celui fourni dans le contexte. Ne jamais utiliser "all" si l\'utilisateur a spécifié un nom.',
           parameters: {
             type: 'object',
             properties: {
               amount: { type: 'number', description: 'Le montant de la dépense' },
               category: { type: 'string', description: 'La catégorie (ex: transport, food, etc.)' },
               note: { type: 'string', description: 'Description optionnelle' },
-              incomeSourceId: { type: 'string', description: 'L\'ID du revenu (doit correspondre à un ID de la liste). Si l\'utilisateur dit "global", mets "all".' },
+              incomeSourceId: { type: 'string', description: 'L\'ID du revenu (ex: "xYz123"). Si l\'utilisateur dit "global" ou "tous", mets "all".' },
               incomeSourceName: { type: 'string', description: 'Le nom du revenu (ex: SBH, Salaire)' }
             },
             required: ['amount', 'category', 'incomeSourceId']
@@ -358,7 +356,7 @@ async function handleAIChat(request) {
               categoryId: { 
                 type: 'string', 
                 enum: ['salary', 'business', 'gift', 'other_income'], 
-                description: 'La catégorie : salary (salaire), business (freelance/entreprise), gift (cadeau), other_income (autre)' 
+                description: 'La catégorie : salary, business, gift, other_income' 
               },
               note: { type: 'string', description: 'Description optionnelle' }
             },
@@ -401,16 +399,15 @@ async function handleAIChat(request) {
       }
     ];
 
-    // 🟢 PROMPT SYSTÈME AVEC RÈGLES STRICTES
+    // 🟢 PROMPT SYSTÈME INTRANSIGEANT
     const SYSTEM_PROMPT = `Tu es Mč, l'assistante financière personnelle de Pata. 
-Tu as accès aux outils pour ajouter des dépenses, créer des revenus, créer des objectifs ou configurer des automatisations.
 
-RÈGLES DE SÉCURITÉ ET D'EXÉCUTION (SOUS PEINE DE REJET) :
-1. N'INVENTE JAMAIS de données (ni montant, ni catégorie, ni revenu). 
-2. Si l'utilisateur te demande d'enregistrer une dépense mais ne précise pas la source de revenu, TU DOIS T'ARRÊTER et lui demander : "Sur quel revenu veux-tu imputer cette dépense ? Voici tes revenus disponibles : [liste les revenus]".
-3. Si l'utilisateur te demande d'ajouter un revenu mais ne précise pas la catégorie, TU DOIS T'ARRÊTER et lui demander de choisir parmi : Salaire, Freelance/Business, Cadeau, Autre.
-4. Quand l'utilisateur mentionne une source de revenu (ex: "SBH"), CHERCHE son ID exact dans la section "SITUATION DES REVENUS" ci-dessous. Tu DOIS passer cet ID dans le paramètre "incomeSourceId" de l'outil "add_expense". Ne mets JAMAIS le nom du revenu dans la note.
-5. Si l'utilisateur dit "tous les revenus" ou "global", mets "all" dans "incomeSourceId".
+RÈGLES DE SÉCURITÉ ABSOLUES (TU ES UNE IA, PAS UNE ROBOT) :
+1. Si l'utilisateur te corrige (ex: "Non je t'ai demandé de le faire dans SBH"), TU NE DOIS PAS OUBLIER le montant et la catégorie précédents. Tu dois UNIQUEMENT changer le revenu.
+2. TU NE DOIS JAMAIS utiliser "all" (Tous les revenus) si l'utilisateur a mentionné un nom de revenu spécifique (ex: SBH).
+3. Pour trouver l'ID d'un revenu, regarde la section "SITUATION DES REVENUS" ci-dessous. Cherche le nom exact (ex: "SBH") et prends l'ID associé (ex: "xYz123").
+4. Si tu ne trouves pas l'ID du revenu demandé, ARRÊTE-TOI et demande à l'utilisateur de choisir parmi la liste. N'invente pas.
+5. Si l'utilisateur demande d'ajouter un revenu sans préciser la catégorie, ARRÊTE-TOI et demande-lui de choisir parmi : Salaire, Freelance, Cadeau, Autre.
 
 RÈGLES DE FORMATAGE ABSOLUES (SOUS PEINE DE REJET) :
 1. INTERDICTION TOTALE d'utiliser des astérisques (*) ou des dièses (#). N'utilise AUCUN symbole Markdown.
@@ -424,7 +421,7 @@ RÈGLES DE FORMATAGE ABSOLUES (SOUS PEINE DE REJET) :
 DONNÉES ACTUELLES DE L'UTILISATEUR :
 ${userContext}`;
 
-    const trimmedHistory = messages.slice(-6).map(m => ({
+    const trimmedHistory = messages.slice(-8).map(m => ({
       role: m.role === 'assistant' ? 'assistant' : 'user',
       content: String(m.content || '').slice(0, 500),
     }));
@@ -441,7 +438,7 @@ ${userContext}`;
     const reply = await chatWithGroq([
       { role: 'system', content: SYSTEM_PROMPT },
       ...trimmedHistory,
-    ], { maxTokens: 1000, temperature: 0.3, tools });
+    ], { maxTokens: 1000, temperature: 0.1, tools }); // Température très basse pour être factuel
 
     if (wantsAudio) {
       try {
