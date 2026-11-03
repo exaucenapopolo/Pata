@@ -16,14 +16,12 @@ const SUGGESTIONS = [
   "Ajoute une dépense de 2000 FCFA pour le transport",
   "Crée un objectif d'épargne de 50 000 FCFA pour Noël",
   "Programme 500 FCFA de transport chaque jour",
-  "Explique-moi en audio comment épargner" // 🟢 Suggestion audio
+  "Explique-moi en audio comment épargner" // Suggestion audio
 ];
 
-// 🟢 Composant pour formater le texte proprement (nettoyage des ** et sauts de ligne)
+// 🟢 Composant pour formater le texte proprement
 function MessageContent({ text }) {
   if (!text) return null;
-  
-  // Nettoyage de sécurité : on retire les ** et les # s'il en reste
   const cleanText = text.replace(/\*\*/g, '').replace(/#/g, '');
   const lines = cleanText.split('\n');
 
@@ -33,7 +31,6 @@ function MessageContent({ text }) {
         const trimmed = line.trim();
         if (!trimmed) return <div key={index} className="h-2" />;
         
-        // Si la ligne commence par un tiret (liste)
         if (trimmed.startsWith('- ')) {
           return (
             <div key={index} className="flex gap-2 pl-1">
@@ -42,8 +39,6 @@ function MessageContent({ text }) {
             </div>
           );
         }
-
-        // Texte normal
         return <p key={index} className="leading-relaxed">{line}</p>;
       })}
     </div>
@@ -137,27 +132,24 @@ export function AssistantChat({ open, onClose }) {
     }
   };
 
-  const playAudio = async (text) => {
-    if (audioLoading) return;
-    setAudioLoading(true);
-    try {
-      const token = await user.getIdToken();
-      const res = await fetch('/api/ai/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ text }),
-      });
-      const data = await res.json();
-      if (data.audio) {
-        const audio = new Audio(`data:audio/mp3;base64,${data.audio}`);
-        audio.play();
-      }
-    } catch (e) {
-      console.error(e);
-      alert("Erreur lors de la génération de l'audio.");
-    } finally {
-      setAudioLoading(false);
+  // 🟢 NOUVELLE FONCTION : Lecture audio via le navigateur (Gratuit et Français)
+  const playAudio = (text) => {
+    if (!('speechSynthesis' in window)) {
+      alert("Ton navigateur ne supporte pas la lecture audio.");
+      return;
     }
+
+    // Nettoyer le texte des symboles pour une lecture fluide
+    const cleanText = text.replace(/\*\*/g, '').replace(/#/g, '').replace(/-/g, ' ');
+    
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.lang = 'fr-FR'; // Force la voix française
+    utterance.rate = 1.0;     // Vitesse normale
+    utterance.pitch = 1.0;    // Tonalité normale
+
+    // On annule les lectures précédentes pour éviter de superposer les voix
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
   };
 
   const sendMessage = async (text) => {
@@ -180,29 +172,24 @@ export function AssistantChat({ open, onClose }) {
       
       let finalReply = data.reply;
       
-      // Gestion des actions (Function calling)
       try {
         const parsed = JSON.parse(data.reply);
         if (parsed.tool_call) {
           const toolResult = await executeToolCall(parsed.tool_call);
           finalReply = toolResult;
         }
-      } catch (e) {
-        // Pas un tool call
-      }
+      } catch (e) {}
 
       const botMsg = { role: 'assistant', content: finalReply };
       const updatedMessages = [...newMessages, botMsg];
       setMessages(updatedMessages);
 
-      // 🟢 DÉTECTION AUTOMATIQUE DE L'AUDIO
-      // Si l'utilisateur a demandé du son, on lance la lecture
+      // 🟢 DÉTECTION AUTOMATIQUE : Si l'utilisateur demande de l'audio
       const wantsAudio = /audio|voix|vocal|parle/i.test(text);
       if (wantsAudio) {
         playAudio(finalReply);
       }
 
-      // Sauvegarde dans Firestore
       if (activeChatId) {
         await updateChatMessages(user.uid, activeChatId, updatedMessages);
       } else {
@@ -224,7 +211,6 @@ export function AssistantChat({ open, onClose }) {
     <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/40 md:items-center">
       <div className="flex h-[85vh] w-full max-w-md flex-col rounded-t-3xl bg-white md:h-[80vh] md:rounded-2xl shadow-2xl overflow-hidden">
         
-        {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-100 p-4 bg-slate-50/50">
           <div className="flex items-center gap-3">
             <button onClick={() => setShowHistory(!showHistory)} className="p-1.5 rounded-lg hover:bg-slate-200">
@@ -245,7 +231,6 @@ export function AssistantChat({ open, onClose }) {
           </div>
         </div>
 
-        {/* Historique des chats (Sidebar) */}
         {showHistory && (
           <div className="absolute inset-0 z-10 bg-white p-4 overflow-y-auto">
             <h3 className="font-bold mb-4">Historique</h3>
@@ -257,7 +242,6 @@ export function AssistantChat({ open, onClose }) {
           </div>
         )}
 
-        {/* Chat Body */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4 bg-white">
           {messages.length === 0 && (
              <div className="space-y-4 mt-4">
@@ -292,7 +276,7 @@ export function AssistantChat({ open, onClose }) {
               </div>
               {m.role === 'assistant' && (
                 <button onClick={() => playAudio(m.content)} className="mt-1 flex items-center gap-1 text-[10px] text-brand-600 hover:underline px-1">
-                  {audioLoading ? <Loader2 size={10} className="animate-spin" /> : <Volume2 size={10} />} Écouter
+                  <Volume2 size={10} /> Écouter
                 </button>
               )}
             </div>
@@ -305,7 +289,6 @@ export function AssistantChat({ open, onClose }) {
           )}
         </div>
 
-        {/* Input */}
         <div className="border-t border-slate-100 p-3 bg-white">
           <form onSubmit={(e) => { e.preventDefault(); sendMessage(input); }} className="flex gap-2">
             <input 
@@ -322,4 +305,4 @@ export function AssistantChat({ open, onClose }) {
       </div>
     </div>
   );
-  }
+                            }
