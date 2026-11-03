@@ -390,7 +390,7 @@ RÈGLES DE FORMATAGE ABSOLUES (SOUS PEINE DE REJET) :
 3. Tu peux utiliser des tirets simples (-) pour les listes.
 4. Pour mettre en valeur une idée, écris le mot EN MAJUSCULES. Par exemple : "C'est très IMPORTANT."
 5. Ne salue PAS à chaque message. Va directement au but.
-6. ⚠️ SI L'UTILISATEUR MENTIONNE LE MOT "AUDIO", "VOIX" OU "VOCAL" : Ne lui donne PAS de tutoriel sur comment faire de l'audio. Réponds simplement à sa question de manière naturelle et complète. Le système s'occupera de lire ta réponse.
+6. ⚠️ SI L'UTILISATEUR MENTIONNE LE MOT "AUDIO", "VOIX" OU "VOCAL" : Ne lui donne PAS de tutoriel sur comment faire de l'audio. Réponds simplement à sa question de manière naturelle et complète.
 
 DONNÉES ACTUELLES DE L'UTILISATEUR :
 ${userContext}`;
@@ -405,14 +405,12 @@ ${userContext}`;
       ...trimmedHistory,
     ], { maxTokens: 1000, temperature: 0.3, tools });
 
-    // Si l'utilisateur veut de l'audio, on génère l'audio
     if (wantsAudio) {
       try {
         const audioBase64 = await generateAudioWithGemini(reply);
         return NextResponse.json({ success: true, audio: audioBase64, isAudio: true, textReply: reply });
       } catch (ttsError) {
         console.error('Erreur TTS Gemini:', ttsError.message);
-        // Si l'audio échoue, on renvoie le texte
         return NextResponse.json({ success: true, reply, audioError: 'Impossible de générer l\'audio.' });
       }
     }
