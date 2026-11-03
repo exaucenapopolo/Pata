@@ -11,7 +11,7 @@ import { createAutomation } from '@/lib/firestore/automations';
 
 const SUGGESTIONS = [
   "Quel est mon bilan financier ?",
-  "Comment mieux épargner en audio ?",
+  "Comment mieux épargner ?",
   "Où est-ce que je dépense le plus ?",
   "Ajoute une dépense de 2000 FCFA pour le transport",
   "Crée un objectif d'épargne de 50 000 FCFA pour Noël",
@@ -452,4 +452,4 @@ export function AssistantChat({ open, onClose }) {
       </div>
     </div>
   );
-      }
+                                  }
