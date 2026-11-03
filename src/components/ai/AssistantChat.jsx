@@ -84,7 +84,6 @@ export function AssistantChat({ open, onClose }) {
     }
   }, [messages, loading]);
 
-  // 🟢 Auto-resize du textarea
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
@@ -139,7 +138,6 @@ export function AssistantChat({ open, onClose }) {
     textareaRef.current?.focus();
   };
 
-  // 🟢 Remplir l'input avec la suggestion au lieu d'envoyer
   const applySuggestion = (text) => {
     setInput(text);
     textareaRef.current?.focus();
@@ -194,6 +192,7 @@ export function AssistantChat({ open, onClose }) {
 
       return "Action effectuée avec succès.";
     } catch (e) {
+      console.error(e);
       return "J'ai eu un problème pour exécuter cette action.";
     }
   };
@@ -225,8 +224,8 @@ export function AssistantChat({ open, onClose }) {
     setLoading(true);
     const userMsg = { 
       role: 'user', 
-      content: rawText.trim(),
-      imagePreview: imageFile?.preview
+      content: rawText.trim() || 'Image', // 🟢 Toujours une string non-vide
+      imagePreview: imageFile?.preview || null // 🟢 null au lieu de undefined
     };
     
     const newMessages = [...messages, userMsg];
@@ -245,7 +244,7 @@ export function AssistantChat({ open, onClose }) {
         const data = await res.json();
         if (!data.success) throw new Error(data.error);
         
-        const botMsg = { role: 'assistant', content: null, generatedImage: data.imageUrl };
+        const botMsg = { role: 'assistant', content: null, generatedImage: data.imageUrl || null };
         const updatedMessages = [...newMessages, botMsg];
         setMessages(updatedMessages);
         if (activeChatId) await updateChatMessages(user.uid, activeChatId, updatedMessages);
@@ -294,17 +293,21 @@ export function AssistantChat({ open, onClose }) {
       
       if (!data.success) throw new Error(data.error);
 
-      let finalReply = data.reply;
+      // 🟢 SÉCURISATION EXTRÊME : Si data.textReply est undefined, on met une chaîne vide par défaut
+      let finalReply = data.reply || data.textReply || "J'ai bien noté ta demande.";
+      
       try {
         const parsed = JSON.parse(data.reply);
-        if (parsed.tool_call) finalReply = await executeToolCall(parsed.tool_call);
+        if (parsed.tool_call) {
+          finalReply = await executeToolCall(parsed.tool_call);
+        }
       } catch (e) {}
 
       const botMsg = { 
         role: 'assistant', 
-        content: finalReply, 
-        audioData: data.isAudio ? data.audio : null, 
-        wasAudio: data.isAudio || false 
+        content: finalReply || " ", // 🟢 Jamais undefined, jamais vide
+        audioData: data.isAudio ? (data.audio || null) : null, // 🟢 null au lieu de undefined
+        wasAudio: data.isAudio === true 
       };
       const updatedMessages = [...newMessages, botMsg];
       setMessages(updatedMessages);
@@ -332,7 +335,6 @@ export function AssistantChat({ open, onClose }) {
         onClick={(e) => e.stopPropagation()}
       >
         
-        {/* SIDEBAR */}
         <div className={`absolute inset-y-0 left-0 z-30 w-72 shrink-0 transform bg-slate-50 transition-transform duration-300 ${showSidebar ? 'translate-x-0' : '-translate-x-full'} md:relative md:flex md:translate-x-0 border-r border-slate-200 flex flex-col`}>
           <div className="flex h-16 items-center justify-between border-b border-slate-200 px-4">
             <span className="font-bold text-slate-800">Discussions</span>
@@ -367,7 +369,6 @@ export function AssistantChat({ open, onClose }) {
           </div>
         </div>
 
-        {/* CHAT AREA */}
         <div className="flex h-full flex-1 flex-col overflow-hidden bg-white">
           <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-100 px-4 bg-slate-50/50">
             <div className="flex items-center gap-3">
