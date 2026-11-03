@@ -172,16 +172,14 @@ export function AssistantChat({ open, onClose }) {
         return `J'ai bien ajouté ton revenu "${args.source}" de ${args.amount} FCFA.`;
       }
 
-      // 🟢 NOUVEL OUTIL : Enregistrement du plan budgétaire
       if (name === 'apply_budget_plan') {
         const { budgetName, totalIncome, plan } = args;
         const currentMonth = new Date().toISOString().slice(0, 7);
 
-        // 1. Créer le revenu associé
         const incomeRes = await createIncome(user.uid, {
           amount: totalIncome,
           source: budgetName,
-          categoryId: 'salary', // par défaut
+          categoryId: 'salary',
           note: 'Créé via le plan budgétaire',
           date: new Date().toISOString().slice(0, 10),
           month: currentMonth,
@@ -189,7 +187,6 @@ export function AssistantChat({ open, onClose }) {
 
         const newIncomeId = incomeRes.id;
 
-        // 2. Créer les budgets
         for (const item of plan) {
           await upsertBudget(user.uid, {
             categoryId: item.categoryId,
@@ -360,19 +357,24 @@ export function AssistantChat({ open, onClose }) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/40 p-0 md:items-center md:p-6" onClick={onClose}>
+    <div 
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-0 md:p-6"
+      onClick={onClose} // 🟢 Fermer en cliquant sur le fond
+    >
+      {/* 🟢 CORRECTION LAYOUT MOBILE : h-full sur mobile, md:h-[85vh] sur PC */}
       <div 
-        className="relative flex h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl md:h-[85vh] md:max-w-5xl md:flex-row md:rounded-2xl"
-        onClick={(e) => e.stopPropagation()}
+        className="relative flex h-full w-full flex-col overflow-hidden bg-white shadow-2xl md:h-[85vh] md:max-w-5xl md:flex-row md:rounded-2xl"
+        onClick={(e) => e.stopPropagation()} // Empêcher la fermeture si on clique dans la modale
       >
         
+        {/* SIDEBAR (Fixe sur PC, tiroir sur mobile) */}
         <div className={`absolute inset-y-0 left-0 z-30 w-72 shrink-0 transform bg-slate-50 transition-transform duration-300 ${showSidebar ? 'translate-x-0' : '-translate-x-full'} md:relative md:flex md:translate-x-0 border-r border-slate-200 flex flex-col`}>
-          <div className="flex h-16 items-center justify-between border-b border-slate-200 px-4">
+          <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 px-4">
             <span className="font-bold text-slate-800">Discussions</span>
             <button onClick={() => setShowSidebar(false)} className="md:hidden p-1 rounded hover:bg-slate-200"><X size={18} /></button>
           </div>
           
-          <div className="p-3">
+          <div className="p-3 shrink-0">
             <button onClick={startNewChat} className="flex w-full items-center justify-center gap-2 rounded-xl border border-brand-200 bg-brand-50 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-100 transition-colors">
               <Plus size={16} /> Nouvelle discussion
             </button>
@@ -400,7 +402,9 @@ export function AssistantChat({ open, onClose }) {
           </div>
         </div>
 
+        {/* CHAT ZONE */}
         <div className="flex h-full flex-1 flex-col overflow-hidden bg-white">
+          {/* 🟢 HEADER TOUJOURS VISIBLE */}
           <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-100 px-4 bg-slate-50/50">
             <div className="flex items-center gap-3">
               <button onClick={() => setShowSidebar(true)} className="md:hidden p-1.5 rounded-lg hover:bg-slate-200">
