@@ -309,7 +309,6 @@ async function handleAIChat(request) {
     const messages = Array.isArray(body.messages) ? body.messages : [];
     if (messages.length === 0) return errorResponse('Messages requis.', 400);
 
-    // 🟢 DÉTECTION AUDIO DÈS LE DÉBUT
     const lastUserMessage = messages[messages.length - 1].content.toLowerCase();
     const wantsAudio = /audio|voix|vocal/i.test(lastUserMessage);
 
@@ -391,6 +390,7 @@ RÈGLES DE FORMATAGE ABSOLUES (SOUS PEINE DE REJET) :
 3. Tu peux utiliser des tirets simples (-) pour les listes.
 4. Pour mettre en valeur une idée, écris le mot EN MAJUSCULES. Par exemple : "C'est très IMPORTANT."
 5. Ne salue PAS à chaque message. Va directement au but.
+6. ⚠️ SI L'UTILISATEUR MENTIONNE LE MOT "AUDIO", "VOIX" OU "VOCAL" : Ne lui donne PAS de tutoriel sur comment faire de l'audio. Réponds simplement à sa question de manière naturelle et complète. Le système s'occupera de lire ta réponse.
 
 DONNÉES ACTUELLES DE L'UTILISATEUR :
 ${userContext}`;
@@ -405,19 +405,18 @@ ${userContext}`;
       ...trimmedHistory,
     ], { maxTokens: 1000, temperature: 0.3, tools });
 
-    // 🟢 SI L'UTILISATEUR VEUT DE L'AUDIO : ON GÉNÈRE DIRECTEMENT L'AUDIO, ON NE RENVOIE PAS LE TEXTE
+    // Si l'utilisateur veut de l'audio, on génère l'audio
     if (wantsAudio) {
       try {
         const audioBase64 = await generateAudioWithGemini(reply);
-        return NextResponse.json({ success: true, audio: audioBase64, isAudio: true });
+        return NextResponse.json({ success: true, audio: audioBase64, isAudio: true, textReply: reply });
       } catch (ttsError) {
         console.error('Erreur TTS Gemini:', ttsError.message);
-        // Si la génération audio échoue, on retourne le texte pour ne pas bloquer
+        // Si l'audio échoue, on renvoie le texte
         return NextResponse.json({ success: true, reply, audioError: 'Impossible de générer l\'audio.' });
       }
     }
 
-    // Sinon, on renvoie le texte normalement
     return NextResponse.json({ success: true, reply });
   } catch (error) {
     console.error('[API] AI chat error:', error.message);
@@ -466,4 +465,4 @@ async function dispatch(request, context) {
   return route[request.method](request);
 }
 
-export { dispatch as GET, dispatch as POST, dispatch as PUT, dispatch as DELETE, dispatch as PATCH };
+export { dispatch as GET, 
