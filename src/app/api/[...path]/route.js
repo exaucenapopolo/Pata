@@ -10,8 +10,6 @@ import { buildUserContext } from '@/lib/ai/buildUserContext';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-/* ═══════════════════ HELPERS ═══════════════════ */
-
 async function authenticate(request) {
   const authHeader = request.headers.get('authorization');
   if (!authHeader?.startsWith('Bearer ')) throw new Error('Token manquant.');
@@ -28,7 +26,7 @@ function getBaseUrl(request) {
   return process.env.FAPSHI_WEBHOOK_URL?.replace(/\/$/, '') || `${proto}://${host}`;
 }
 
-/* ═══════════════════ NOUVELLE ROUTE : ADD EXPENSE SÉCURISÉE ═══════════════════ */
+/* ═══════════════════ ROUTE ADD EXPENSE (SÉCURISÉE) ═══════════════════ */
 
 async function handleAddExpense(request) {
   try {
@@ -39,7 +37,7 @@ async function handleAddExpense(request) {
 
     if (!amount || amount <= 0) return errorResponse('Montant invalide.');
 
-    // 1. Récupérer tous les revenus et toutes les dépenses pour calculer les soldes
+    // 1. Récupérer toutes les données
     const [incomesSnap, expensesSnap] = await Promise.all([
       adminDb.collection('users').doc(uid).collection('incomes').get(),
       adminDb.collection('users').doc(uid).collection('expenses').get(),
@@ -48,17 +46,16 @@ async function handleAddExpense(request) {
     const incomes = incomesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     const expenses = expensesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-    // 2. Calculer le solde global
+    // 2. Calcul du solde global
     const totalIncome = incomes.reduce((s, i) => s + (i.amount || 0), 0);
     const totalExpense = expenses.reduce((s, e) => s + (e.amount || 0), 0);
     const globalBalance = Math.max(0, totalIncome - totalExpense);
 
-    // 3. Vérifier si le solde global est suffisant
     if (amount > globalBalance) {
       return errorResponse(`Fonds insuffisants. Tu as seulement ${globalBalance} FCFA disponible au total.`);
     }
 
-    // 4. Si c'est lié à un revenu spécifique, vérifier SON solde
+    // 3. Vérification spécifique au revenu
     if (incomeSourceId && incomeSourceId !== 'all') {
       const income = incomes.find(i => i.id === incomeSourceId);
       if (!income) return errorResponse('Revenu introuvable.');
@@ -72,7 +69,7 @@ async function handleAddExpense(request) {
       }
     }
 
-    // 5. Si tout est bon, on enregistre la dépense
+    // 4. Sauvegarde
     await adminDb.collection('users').doc(uid).collection('expenses').add({
       amount: Number(amount),
       categoryId: categoryId || 'other',
@@ -89,9 +86,8 @@ async function handleAddExpense(request) {
   }
 }
 
-/* ═══════════════════ ROUTES EXISTANTES ═══════════════════ */
-// ... (Copie ici les fonctions handleFapshiCheckout, handleFundGoal, handleGoalBorrow, etc. telles qu'elles sont dans ton fichier actuel)
-// Je te les remets en intégralité pour que tu n'aies rien à chercher :
+/* ═══════════════════ AUTRES ROUTES ═══════════════════ */
+// (Je remets ici les autres routes pour que tu n'aies qu'à copier-coller)
 
 async function handleFapshiCheckout(request) {
   try {
@@ -335,7 +331,6 @@ async function handleAutomationsRun(request) {
     for (const doc of snapshot.docs) {
       const auto = doc.data();
       if (auto.nextRun <= now) {
-        // 🟢 Vérification du solde avant d'exécuter une automatisation
         const [incomesSnap, expensesSnap] = await Promise.all([
             adminDb.collection('users').doc(uid).collection('incomes').get(),
             adminDb.collection('users').doc(uid).collection('expenses').get(),
@@ -531,8 +526,6 @@ async function handleAIVision(request) {
   }
 }
 
-/* ═══════════════════ ROUTEUR ═══════════════════ */
-
 const ROUTES = {
   'fapshi/checkout':  { POST: handleFapshiCheckout },
   'fapshi/webhook':   { POST: handleFapshiWebhook },
@@ -543,7 +536,7 @@ const ROUTES = {
   'goals/withdraw':   { POST: handleGoalWithdraw },
   'goals/cancel':     { POST: handleGoalCancel },
   'automations/run':  { POST: handleAutomationsRun },
-  'expenses/add':     { POST: handleAddExpense }, // 🟢 Nouvelle route
+  'expenses/add':     { POST: handleAddExpense },
   'ai/chat':          { POST: handleAIChat },
   'ai/image':         { POST: handleAIImage },
   'ai/vision':        { POST: handleAIVision },
