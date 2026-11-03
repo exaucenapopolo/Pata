@@ -259,7 +259,78 @@ async function handleGoalCancel(request) {
   } catch (error) { return errorResponse(error.message, 500); }
 }
 
-/* ═══════════════════ ROUTE AI MČ ═══════════════════ */
+/* ═══════════════════ AUTOMATIONS RUNNER ═══════════════════ */
+
+async function handleAutomationsRun(request) {
+  try {
+    const decoded = await authenticate(request);
+    const uid = decoded.uid;
+    const now = new Date().toISOString();
+
+    const snapshot = await adminDb.collection('users').doc(uid).collection('automations').get();
+    let executedCount = 0;
+
+    for (const doc of snapshot.docs) {
+      const auto = doc.data();
+      if (auto.nextRun <= now) {
+        await adminDb.collection('users').doc(uid).collection('expenses').add({
+          amount: auto.amount,
+          categoryId: auto.categoryId,
+          note: auto.note || 'Dépense automatique',
+          date: now.slice(0, 10),
+          incomeSourceId: auto.incomeSourceId,
+          incomeSourceName: auto.incomeSourceName,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+
+        const next = new Date(auto.nextRun);
+        if (auto.frequency === 'daily') next.setDate(next.getDate() + 1);
+        else if (auto.frequency === 'weekly') next.setDate(next.getDate() + 7);
+        else if (auto.frequency === 'monthly') next.setMonth(next.getMonth() + 1);
+
+        await doc.ref.update({ nextRun: next.toISOString() });
+        executedCount++;
+      }
+    }
+    return NextResponse.json({ success: true, executed: executedCount });
+  } catch (error) { return errorResponse(error.message, 500); }
+}
+
+/* ═══════════════════ GROQ TTS (AUDIO) ═══════════════════ */
+
+async function handleTTS(request) {
+  try {
+    await authenticate(request);
+    const { text } = await request.json();
+    if (!text) return errorResponse('Texte manquant.', 400);
+
+    const apiKey = process.env.GROQ_API_KEY;
+    if (!apiKey) return errorResponse('Clé API manquante.', 500);
+
+    const res = await fetch('https://api.groq.com/openai/v1/audio/speech', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'playai-tts',
+        input: text.slice(0, 1000),
+        voice: 'Fritz-PlayAI',
+        response_format: 'mp3',
+      }),
+    });
+
+    if (!res.ok) throw new Error('Erreur de génération audio Groq');
+    
+    const buffer = await res.arrayBuffer();
+    const base64Audio = Buffer.from(buffer).toString('base64');
+    
+    return NextResponse.json({ success: true, audio: base64Audio });
+  } catch (error) { return errorResponse(error.message, 500); }
+}
+
+/* ═══════════════════ AI CHAT AVEC ACTIONS ═══════════════════ */
 
 async function handleAIChat(request) {
   try {
@@ -285,23 +356,65 @@ async function handleAIChat(request) {
     };
 
     const userContext = buildUserContext(userData);
-    const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
-    const SYSTEM_PROMPT = `Tu es Mč, l'assistante financière personnelle de Pata (créée par Napopolo Exaucé).
-Nous sommes le ${today}.
+    const tools = [
+      {
+        type: 'function',
+        function: {
+          name: 'add_expense',
+          description: 'Ajouter une dépense dans le compte de l\'utilisateur',
+          parameters: {
+            type: 'object',
+            properties: {
+              amount: { type: 'number', description: 'Le montant de la dépense en FCFA' },
+              category: { type: 'string', description: 'La catégorie (ex: transport, food, etc.)' },
+              note: { type: 'string', description: 'La description de la dépense' }
+            },
+            required: ['amount', 'category']
+          }
+        }
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'add_automation',
+          description: 'Créer une dépense récurrente automatique',
+          parameters: {
+            type: 'object',
+            properties: {
+              amount: { type: 'number' },
+              category: { type: 'string' },
+              frequency: { type: 'string', enum: ['daily', 'weekly', 'monthly'] },
+              note: { type: 'string' }
+            },
+            required: ['amount', 'category', 'frequency']
+          }
+        }
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'create_goal',
+          description: 'Créer un nouvel objectif d\'épargne',
+          parameters: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              targetAmount: { type: 'number' },
+              deadline: { type: 'string', description: 'Date au format YYYY-MM-DD' }
+            },
+            required: ['name', 'targetAmount', 'deadline']
+          }
+        }
+      }
+    ];
 
-Voici les VRAIES données de l'utilisateur (mises à jour en temps réel). Tu DOIS te baser UNIQUEMENT sur ces données pour répondre. Ne calcule pas toi-même les restes, ils sont déjà calculés dans les données ci-dessous.
+    const SYSTEM_PROMPT = `Tu es Mč, l'assistante financière personnelle de Pata. 
+Tu as accès aux outils pour ajouter des dépenses, créer des objectifs ou configurer des automations. 
+Si l'utilisateur te demande de faire quelque chose, utilise l'outil approprié.
+RÈGLES : Pas de symboles **, écris en MAJUSCULES pour insister. Sois chaleureuse et concise.
 
-RÈGLES ABSOLUES :
-1. INTERDICTION TOTALE d'utiliser des astérisques (*), des dièses (#) ou des underscores (_). N'utilise aucun symbole Markdown. Pour mettre en valeur une idée, écris le mot ou la phrase EN MAJUSCULES.
-2. Tu peux utiliser des sauts de ligne et des tirets simples (-) pour structurer tes réponses si elles sont longues.
-3. Ne salue PAS à chaque message. Si l'historique contient déjà des messages, ne dis pas "Salut", "Bonjour", ni le prénom. Va directement au but.
-4. Sois concise, va droit au but, sois précise, et assure-toi de TOUJOURS FINIR TES PHRASES.
-5. N'invente JAMAIS de chiffres. Si une info manque, dis-le. Si on te demande où est passé l'argent d'un revenu, regarde la section "SITUATION DES REVENUS" ci-dessous qui liste exactement les dépenses liées.
-6. Si on te demande une prévision, pose 2 ou 3 questions ciblées avant de calculer.
-7. Ton ton : bienveillant, professionnel, comme un conseiller qui veut vraiment aider.
-
-DONNÉES DE L'UTILISATEUR :
+DONNÉES ACTUELLES DE L'UTILISATEUR :
 ${userContext}`;
 
     const trimmedHistory = messages.slice(-6).map(m => ({
@@ -312,7 +425,7 @@ ${userContext}`;
     const reply = await chatWithGroq([
       { role: 'system', content: SYSTEM_PROMPT },
       ...trimmedHistory,
-    ], { maxTokens: 2000, temperature: 0.3 }); // Température abaissée à 0.3 pour qu'elle soit plus factuelle
+    ], { maxTokens: 1000, temperature: 0.3, tools });
 
     return NextResponse.json({ success: true, reply });
   } catch (error) {
@@ -332,7 +445,9 @@ const ROUTES = {
   'goals/repay':      { POST: handleRepayLoan },
   'goals/withdraw':   { POST: handleGoalWithdraw },
   'goals/cancel':     { POST: handleGoalCancel },
+  'automations/run':  { POST: handleAutomationsRun },
   'ai/chat':          { POST: handleAIChat },
+  'ai/tts':           { POST: handleTTS },
 };
 
 async function dispatch(request, context) {
