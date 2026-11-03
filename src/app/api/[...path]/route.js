@@ -29,8 +29,6 @@ function getBaseUrl(request) {
 }
 
 /* ═══════════════════ ROUTES FAPSHI & AUTRES ═══════════════════ */
-// (On garde toutes les routes existantes : handleFapshiCheckout, handleGoalWithdraw, etc.)
-// J'inclus ici la version complète pour que tu puisses tout copier-coller d'un coup.
 
 async function handleFapshiCheckout(request) {
   try {
@@ -293,7 +291,7 @@ async function handleAutomationsRun(request) {
   } catch (error) { return errorResponse(error.message, 500); }
 }
 
-/* ═══════════════════ AI CHAT (TEXTE / AUDIO) ═══════════════════ */
+/* ═══════════════════ AI CHAT & AUTRES ═══════════════════ */
 
 async function handleAIChat(request) {
   try {
@@ -301,7 +299,6 @@ async function handleAIChat(request) {
     const uid = decoded.uid;
     const body = await request.json();
 
-    // 🟢 Le mode est passé explicitement par le frontend
     const mode = body.mode || 'text'; 
     const messages = Array.isArray(body.messages) ? body.messages : [];
     if (messages.length === 0) return errorResponse('Messages requis.', 400);
@@ -321,13 +318,13 @@ async function handleAIChat(request) {
     };
 
     const userContext = buildUserContext(userData);
+    const userName = userData.profile?.displayName?.split(' ')[0] || 'Utilisateur';
 
     const tools = [
       {
         type: 'function',
         function: {
           name: 'add_expense',
-          description: 'Ajouter une dépense. L\'ID du revenu doit être EXACTEMENT celui fourni.',
           parameters: {
             type: 'object',
             properties: {
@@ -390,16 +387,22 @@ async function handleAIChat(request) {
       }
     ];
 
-    // 🟢 PROMPT SYSTÈME SIMPLIFIÉ (Plus de règles sur les mots audio/image)
     const SYSTEM_PROMPT = `Tu es Mč, l'assistante financière personnelle de Pata. 
-Tu as accès aux outils pour gérer les dépenses, revenus, objectifs et automations.
-Si l'utilisateur te demande de faire quelque chose, utilise l'outil approprié. Si une information manque, pose des questions.
+Tu parles à ${userName}. Tu as accès aux outils pour gérer les dépenses, revenus, objectifs et automations.
+
+RÈGLES DE SÉCURITÉ ET D'EXÉCUTION :
+1. N'INVENTE JAMAIS de données. Si une information manque, pose des questions.
+2. Sois concise, directe, et va droit au but.
 
 RÈGLES DE FORMATAGE ABSOLUES :
-1. INTERDICTION d'utiliser des astérisques (*) ou des dièses (#).
+1. INTERDICTION TOTALE d'utiliser des astérisques (*) ou des dièses (#).
 2. Tu DOIS faire des sauts de ligne. Utilise des tirets (-) pour les listes.
 3. Écris les mots importants EN MAJUSCULES.
-4. Ne salue PAS à chaque message. Va directement au but.
+
+RÈGLES DE COMPORTEMENT (SOUS PEINE DE REJET) :
+1. TU NE DOIS JAMAIS SALUER L'UTILISATEUR. Pas de "Bonjour", pas de "Salut", pas de "Je suis Mč". Commence directement par ta réponse.
+2. Ne prononce JAMAIS le nom de l'application ("Pata") dans tes réponses. Tu t'adresses à un utilisateur spécifique.
+3. Ne répète pas les données que l'utilisateur vient de te donner (ex: "Tu as dépensé 500 FCFA"). Réponds directement à sa question.
 
 DONNÉES ACTUELLES :
 ${userContext}`;
@@ -414,7 +417,6 @@ ${userContext}`;
       ...trimmedHistory,
     ], { maxTokens: 1000, temperature: 0.1, tools });
 
-    // 🟢 Si mode === 'audio', on génère l'audio
     if (mode === 'audio') {
       try {
         const audioBase64 = await generateAudioWithGemini(reply);
@@ -431,8 +433,6 @@ ${userContext}`;
   }
 }
 
-/* ═══════════════════ AI IMAGE (POLLINATIONS) ═══════════════════ */
-
 async function handleAIImage(request) {
   try {
     await authenticate(request);
@@ -446,8 +446,6 @@ async function handleAIImage(request) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
-
-/* ═══════════════════ AI VISION (GROQ) ═══════════════════ */
 
 async function handleAIVision(request) {
   try {
