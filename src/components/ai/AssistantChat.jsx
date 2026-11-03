@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Send, X, BrainCircuit, Loader2, Play, Plus, MessageSquare, Volume2 } from 'lucide-react';
+import { Send, X, BrainCircuit, Loader2, Plus, MessageSquare } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { subscribeChats, createChat, updateChatMessages } from '@/lib/firestore/ai_chats';
 import { createExpense } from '@/lib/firestore/expenses';
@@ -15,8 +15,7 @@ const SUGGESTIONS = [
   "Où est-ce que je dépense le plus ?",
   "Ajoute une dépense de 2000 FCFA pour le transport",
   "Crée un objectif d'épargne de 50 000 FCFA pour Noël",
-  "Programme 500 FCFA de transport chaque jour",
-  "Explique-moi comment épargner en audio"
+  "Programme 500 FCFA de transport chaque jour"
 ];
 
 function MessageContent({ text }) {
@@ -130,26 +129,6 @@ export function AssistantChat({ open, onClose }) {
     }
   };
 
-  // 🟢 GÉNÉRATION DU FICHIER AUDIO
-  const generateAudioFile = async (text) => {
-    try {
-      const token = await user.getIdToken();
-      const res = await fetch('/api/ai/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ text }),
-      });
-      const data = await res.json();
-      if (data.success && data.audio) {
-        return data.audio; // Retourne le base64
-      }
-      return null;
-    } catch (e) {
-      console.error(e);
-      return null;
-    }
-  };
-
   const sendMessage = async (text) => {
     if (!text.trim() || loading) return;
     const userMsg = { role: 'user', content: text.trim() };
@@ -178,14 +157,7 @@ export function AssistantChat({ open, onClose }) {
         }
       } catch (e) {}
 
-      // 🟢 Si l'utilisateur demande de l'audio, on génère le fichier
-      const wantsAudio = /audio|voix|vocal/i.test(text);
-      let audioData = null;
-      if (wantsAudio) {
-        audioData = await generateAudioFile(finalReply);
-      }
-
-      const botMsg = { role: 'assistant', content: finalReply, audioData };
+      const botMsg = { role: 'assistant', content: finalReply };
       const updatedMessages = [...newMessages, botMsg];
       setMessages(updatedMessages);
 
@@ -273,16 +245,6 @@ export function AssistantChat({ open, onClose }) {
               }`}>
                 {m.role === 'user' ? m.content : <MessageContent text={m.content} />}
               </div>
-              
-              {/* 🟢 LECTEUR AUDIO VISUEL (Comme WhatsApp) */}
-              {m.role === 'assistant' && m.audioData && (
-                <div className="mt-2 w-[260px] rounded-2xl bg-brand-50 p-2 border border-brand-100">
-                  <div className="flex items-center gap-2">
-                    <Volume2 size={16} className="text-brand-600 shrink-0" />
-                    <audio controls src={`data:audio/wav;base64,${m.audioData}`} className="h-8 w-full" />
-                  </div>
-                </div>
-              )}
             </div>
           ))}
           {loading && (
@@ -309,4 +271,4 @@ export function AssistantChat({ open, onClose }) {
       </div>
     </div>
   );
-                 }
+    }
