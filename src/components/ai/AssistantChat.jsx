@@ -9,6 +9,7 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { subscribeChats, createChat, updateChatMessages, deleteChat, updateChatTitle } from '@/lib/firestore/ai_chats';
 import { createExpense } from '@/lib/firestore/expenses';
+import { createIncome } from '@/lib/firestore/incomes'; // 🟢 NOUVEL IMPORT
 import { createGoal } from '@/lib/firestore/goals';
 import { createAutomation } from '@/lib/firestore/automations';
 
@@ -57,7 +58,6 @@ export function AssistantChat({ open, onClose }) {
   const [loading, setLoading] = useState(false);
   const [imageFile, setImageFile] = useState(null);
   
-  // UI States
   const [showSidebar, setShowSidebar] = useState(false);
   const [imageModal, setImageModal] = useState(null);
   const [editingTitleId, setEditingTitleId] = useState(null);
@@ -113,13 +113,29 @@ export function AssistantChat({ open, onClose }) {
       
       if (name === 'add_expense') {
         await createExpense(user.uid, {
-          amount: args.amount, categoryId: args.category || 'other',
-          note: args.note || 'Ajouté par Mč', date: new Date().toISOString().slice(0, 10),
-          incomeSourceId: 'all', incomeSourceName: 'Tous les revenus',
+          amount: args.amount, 
+          categoryId: args.category || 'other',
+          note: args.note || '',
+          date: new Date().toISOString().slice(0, 10),
+          incomeSourceId: args.incomeSourceId || 'all', // 🟢 Utilise l'ID fourni par l'IA
+          incomeSourceName: args.incomeSourceName || 'Tous les revenus',
         });
-        return `C'est fait ! J'ai bien enregistré ta dépense de ${args.amount} FCFA pour ${args.note || args.category}.`;
+        return `C'est fait ! J'ai bien enregistré ta dépense de ${args.amount} FCFA pour ${args.incomeSourceName || 'Tous les revenus'}.`;
       }
       
+      // 🟢 NOUVEL OUTIL : Gestion de l'ajout de revenu
+      if (name === 'add_income') {
+        await createIncome(user.uid, {
+          amount: args.amount,
+          source: args.source,
+          categoryId: args.categoryId,
+          note: args.note || '',
+          date: new Date().toISOString().slice(0, 10),
+          month: new Date().toISOString().slice(0, 7),
+        });
+        return `J'ai bien ajouté ton revenu "${args.source}" de ${args.amount} FCFA dans la catégorie ${args.categoryId}.`;
+      }
+
       if (name === 'create_goal') {
         await createGoal(user.uid, {
           name: args.name, targetAmount: args.targetAmount, categoryId: 'savings',
@@ -144,6 +160,7 @@ export function AssistantChat({ open, onClose }) {
 
       return "Action effectuée avec succès.";
     } catch (e) {
+      console.error(e);
       return "J'ai eu un problème pour exécuter cette action.";
     }
   };
@@ -220,7 +237,6 @@ export function AssistantChat({ open, onClose }) {
         return;
       }
 
-      // Image générée
       if (data.isImage && data.imageUrl) {
         const botMsg = { role: 'assistant', content: null, generatedImage: data.imageUrl };
         const updatedMessages = [...newMessages, botMsg];
@@ -234,7 +250,6 @@ export function AssistantChat({ open, onClose }) {
         return;
       }
 
-      // Audio généré
       if (data.isAudio && data.audio) {
         const botMsg = { role: 'assistant', content: data.textReply, audioData: data.audio, wasAudio: true };
         const updatedMessages = [...newMessages, botMsg];
@@ -248,7 +263,6 @@ export function AssistantChat({ open, onClose }) {
         return;
       }
 
-      // Texte normal
       let finalReply = data.reply;
       try {
         const parsed = JSON.parse(data.reply);
@@ -279,7 +293,6 @@ export function AssistantChat({ open, onClose }) {
     <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/40 md:items-center">
       <div className="relative flex h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl md:h-[80vh] md:rounded-2xl">
         
-        {/* 🟢 SIDEBAR DESKTOP (ou drawer mobile) */}
         <div className={`absolute inset-y-0 left-0 z-30 w-64 transform bg-slate-50 transition-transform duration-300 ${showSidebar ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 border-r border-slate-200 flex flex-col`}>
           <div className="flex h-16 items-center justify-between border-b border-slate-200 px-4">
             <span className="font-bold text-slate-800">Discussions</span>
@@ -297,18 +310,12 @@ export function AssistantChat({ open, onClose }) {
               <div key={c.id} className={`group relative flex items-center rounded-lg transition-colors ${activeChatId === c.id ? 'bg-brand-100' : 'hover:bg-slate-200'}`}>
                 {editingTitleId === c.id ? (
                   <div className="flex w-full items-center gap-1 p-2">
-                    <input 
-                      autoFocus value={titleInput} onChange={(e) => setTitleInput(e.target.value)}
-                      className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-sm outline-none"
-                      onKeyDown={(e) => e.key === 'Enter' && handleSaveTitle(c.id)}
-                    />
+                    <input autoFocus value={titleInput} onChange={(e) => setTitleInput(e.target.value)} className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-sm outline-none" onKeyDown={(e) => e.key === 'Enter' && handleSaveTitle(c.id)} />
                     <button onClick={() => handleSaveTitle(c.id)} className="text-brand-600"><Check size={14} /></button>
                   </div>
                 ) : (
                   <>
-                    <button onClick={() => loadChat(c)} className="flex-1 truncate p-2 text-left text-sm text-slate-700">
-                      {c.title || 'Sans titre'}
-                    </button>
+                    <button onClick={() => loadChat(c)} className="flex-1 truncate p-2 text-left text-sm text-slate-700">{c.title || 'Sans titre'}</button>
                     <div className="hidden group-hover:flex items-center pr-1">
                       <button onClick={() => { setEditingTitleId(c.id); setTitleInput(c.title); }} className="p-1 text-slate-400 hover:text-brand-600"><Edit2 size={12} /></button>
                       <button onClick={(e) => handleDeleteChat(e, c.id)} className="p-1 text-slate-400 hover:text-red-600"><Trash2 size={12} /></button>
@@ -320,7 +327,6 @@ export function AssistantChat({ open, onClose }) {
           </div>
         </div>
 
-        {/* 🟢 CONTENU DU CHAT */}
         <div className="flex flex-1 flex-col overflow-hidden bg-white">
           <div className="flex items-center justify-between border-b border-slate-100 p-4 bg-slate-50/50">
             <div className="flex items-center gap-3">
@@ -434,7 +440,6 @@ export function AssistantChat({ open, onClose }) {
           </div>
         </div>
 
-      {/* 🟢 MODAL IMAGE (AGrandissement) */}
         {imageModal && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm" onClick={() => setImageModal(null)}>
             <div className="relative max-h-full max-w-full flex flex-col items-center" onClick={e => e.stopPropagation()}>
