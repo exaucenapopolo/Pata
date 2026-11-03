@@ -307,7 +307,6 @@ async function handleTTS(request) {
     const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) return errorResponse('Clé API manquante.', 500);
 
-    // 🟢 CORRECTION : On tronque à 200 caractères et on force le format wav
     const truncatedText = text.slice(0, 200);
 
     const res = await fetch('https://api.groq.com/openai/v1/audio/speech', {
@@ -320,7 +319,7 @@ async function handleTTS(request) {
         model: 'canopylabs/orpheus-v1-english',
         input: truncatedText,
         voice: 'hannah',
-        response_format: 'wav', // ⚠️ OBLIGATOIRE pour Orpheus
+        response_format: 'wav',
       }),
     });
 
@@ -367,6 +366,7 @@ async function handleAIChat(request) {
 
     const userContext = buildUserContext(userData);
 
+    // 🟢 On a retiré l'outil generate_audio pour ne pas perturber l'IA
     const tools = [
       {
         type: 'function',
@@ -416,27 +416,12 @@ async function handleAIChat(request) {
             required: ['name', 'targetAmount', 'deadline']
           }
         }
-      },
-      // 🟢 NOUVEL OUTIL : Dire à l'IA qu'elle peut générer de l'audio
-      {
-        type: 'function',
-        function: {
-          name: 'generate_audio',
-          description: 'Générer une réponse audio à partir d\'un texte',
-          parameters: {
-            type: 'object',
-            properties: {
-              text: { type: 'string', description: 'Le texte à lire à voix haute' }
-            },
-            required: ['text']
-          }
-        }
       }
     ];
 
     const SYSTEM_PROMPT = `Tu es Mč, l'assistante financière personnelle de Pata. 
-Tu as accès aux outils pour ajouter des dépenses, créer des objectifs, configurer des automations, ou générer de l'audio.
-Si l'utilisateur te demande de faire quelque chose, utilise l'outil approprié. Si on te demande de répondre en audio, utilise l'outil "generate_audio" avec ta réponse.
+Tu as accès aux outils pour ajouter des dépenses, créer des objectifs ou configurer des automations. 
+Si l'utilisateur te demande de faire quelque chose, utilise l'outil approprié.
 
 RÈGLES DE FORMATAGE ABSOLUES (SOUS PEINE DE REJET) :
 1. INTERDICTION TOTALE d'utiliser des astérisques (*) ou des dièses (#). N'utilise AUCUN symbole Markdown.
@@ -466,6 +451,7 @@ ${userContext}`;
 }
 
 /* ═══════════════════ ROUTEUR ═══════════════════ */
+
 const ROUTES = {
   'fapshi/checkout':  { POST: handleFapshiCheckout },
   'fapshi/webhook':   { POST: handleFapshiWebhook },
