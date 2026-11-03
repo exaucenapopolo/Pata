@@ -51,7 +51,6 @@ export function AssistantChat({ open, onClose }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [audioLoading, setAudioLoading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const scrollRef = useRef(null);
 
@@ -131,10 +130,8 @@ export function AssistantChat({ open, onClose }) {
     }
   };
 
-  // 🟢 FONCTION QUI APPELLE LE VRAI MODÈLE TTS DE GROQ
-  const playAudio = async (text) => {
-    if (audioLoading) return;
-    setAudioLoading(true);
+  // 🟢 GÉNÉRATION DU FICHIER AUDIO
+  const generateAudioFile = async (text) => {
     try {
       const token = await user.getIdToken();
       const res = await fetch('/api/ai/tts', {
@@ -143,17 +140,13 @@ export function AssistantChat({ open, onClose }) {
         body: JSON.stringify({ text }),
       });
       const data = await res.json();
-      if (data.audio) {
-        const audio = new Audio(`data:audio/wav;base64,${data.audio}`);
-        audio.play();
-      } else {
-        alert("Erreur: " + (data.error || "Impossible de générer l'audio"));
+      if (data.success && data.audio) {
+        return data.audio; // Retourne le base64
       }
+      return null;
     } catch (e) {
       console.error(e);
-      alert("Erreur lors de la génération de l'audio.");
-    } finally {
-      setAudioLoading(false);
+      return null;
     }
   };
 
@@ -185,15 +178,16 @@ export function AssistantChat({ open, onClose }) {
         }
       } catch (e) {}
 
-      const botMsg = { role: 'assistant', content: finalReply };
+      // 🟢 Si l'utilisateur demande de l'audio, on génère le fichier
+      const wantsAudio = /audio|voix|vocal/i.test(text);
+      let audioData = null;
+      if (wantsAudio) {
+        audioData = await generateAudioFile(finalReply);
+      }
+
+      const botMsg = { role: 'assistant', content: finalReply, audioData };
       const updatedMessages = [...newMessages, botMsg];
       setMessages(updatedMessages);
-
-      // 🟢 DÉTECTION AUTOMATIQUE : Si l'utilisateur demande de l'audio, on appelle le TTS de Groq
-      const wantsAudio = /audio|voix|vocal/i.test(text);
-      if (wantsAudio) {
-        playAudio(finalReply);
-      }
 
       if (activeChatId) {
         await updateChatMessages(user.uid, activeChatId, updatedMessages);
@@ -279,15 +273,15 @@ export function AssistantChat({ open, onClose }) {
               }`}>
                 {m.role === 'user' ? m.content : <MessageContent text={m.content} />}
               </div>
-              {m.role === 'assistant' && (
-                <button 
-                  onClick={() => playAudio(m.content)} 
-                  disabled={audioLoading}
-                  className="mt-1 flex items-center gap-1 text-[10px] text-brand-600 hover:underline px-1 disabled:opacity-50"
-                >
-                  {audioLoading ? <Loader2 size={10} className="animate-spin" /> : <Volume2 size={10} />} 
-                  Écouter
-                </button>
+              
+              {/* 🟢 LECTEUR AUDIO VISUEL (Comme WhatsApp) */}
+              {m.role === 'assistant' && m.audioData && (
+                <div className="mt-2 w-[260px] rounded-2xl bg-brand-50 p-2 border border-brand-100">
+                  <div className="flex items-center gap-2">
+                    <Volume2 size={16} className="text-brand-600 shrink-0" />
+                    <audio controls src={`data:audio/wav;base64,${m.audioData}`} className="h-8 w-full" />
+                  </div>
+                </div>
               )}
             </div>
           ))}
@@ -315,4 +309,4 @@ export function AssistantChat({ open, onClose }) {
       </div>
     </div>
   );
-      }
+                 }
