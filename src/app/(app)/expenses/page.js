@@ -17,27 +17,15 @@ import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { createExpense, updateExpense, deleteExpense } from '@/lib/firestore/expenses';
 import { formatCurrency, formatDate, resolveCategory } from '@/lib/utils';
 
-// 🟢 FONCTIONS DE DATE CORRIGÉES (Sans décalage UTC)
 const firstOfMonth = () => {
   const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  return `${year}-${month}-01`;
+  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
 };
 const lastOfMonth = () => {
   const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const lastDay = new Date(year, d.getMonth() + 1, 0).getDate();
-  return `${year}-${month}-${String(lastDay).padStart(2, '0')}`;
+  return new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
 };
-const todayIso = () => {
-  const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
+const todayIso = () => new Date().toISOString().slice(0, 10);
 
 const emptyForm = () => ({
   id: null,
@@ -66,7 +54,6 @@ export default function ExpensesPage() {
   const [error, setError] = useState('');
   const [deleteId, setDeleteId] = useState(null);
 
-  // 🟢 Dates strictes
   const startDate = showCustomPeriod ? customStart : firstOfMonth();
   const endDate = showCustomPeriod ? customEnd : lastOfMonth();
 
@@ -145,11 +132,12 @@ export default function ExpensesPage() {
       if (form.id) {
         await updateExpense(user.uid, form.id, payload);
       } else {
+        // 🟢 Appel sécurisé
         await createExpense(user.uid, payload);
       }
       setOpen(false);
-    } catch {
-      setError('Erreur lors de l\u2019enregistrement.');
+    } catch (err) {
+      setError(err.message || 'Erreur lors de l\u2019enregistrement.');
     } finally {
       setSaving(false);
     }
@@ -345,7 +333,7 @@ export default function ExpensesPage() {
             />
           </div>
 
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && <p className="text-sm text-red-600 bg-red-50 p-2 rounded-lg">{error}</p>}
           <Button type="submit" className="w-full" disabled={saving}>
             {saving ? 'Enregistrement…' : form.id ? 'Mettre à jour' : 'Ajouter'}
           </Button>
