@@ -5,7 +5,6 @@ import { db, auth } from '@/lib/firebase/client';
 
 const col = (uid) => collection(db, 'users', uid, 'expenses');
 
-// 🟢 On réintègre subscribeExpenses pour le temps réel
 export function subscribeExpenses(uid, cb) {
   const q = query(col(uid), orderBy('date', 'desc'));
   return onSnapshot(q, (snap) => {
@@ -13,7 +12,7 @@ export function subscribeExpenses(uid, cb) {
   });
 }
 
-// 🟢 La création passe désormais par notre API sécurisée pour vérifier les fonds
+// 🟢 SÉCURITÉ : On passe OBLIGATOIREMENT par l'API
 export async function createExpense(uid, data) {
   const user = auth.currentUser;
   if (!user) throw new Error('Utilisateur non connecté.');
@@ -31,7 +30,7 @@ export async function createExpense(uid, data) {
 
   const result = await res.json();
   if (!res.ok || !result.success) {
-    throw new Error(result.error || 'Erreur lors de l\'enregistrement de la dépense.');
+    throw new Error(result.error || 'Erreur lors de l\'enregistrement.');
   }
   
   return result;
