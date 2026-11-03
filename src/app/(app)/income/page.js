@@ -4,7 +4,7 @@
 import { useMemo, useState } from 'react';
 import {
   Plus, Trash2, TrendingUp, CheckCircle2, Landmark, Save, RotateCcw, Percent,
-  PiggyBank, Target, Pencil, AlertTriangle
+  PiggyBank, Target, Pencil, AlertTriangle, Calculator, CalendarDays, ArrowRight
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -23,27 +23,25 @@ import { computeBudgetBreakdown } from '@/lib/budgetRules';
 import { INCOME_CATEGORIES } from '@/lib/constants';
 import { formatCurrency, formatDate } from '@/lib/utils';
 
-// 🟢 FONCTION DE DATE CORRIGÉE
 const todayMonth = () => {
   const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  return `${year}-${month}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 };
-const todayIso = () => {
-  const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
+const todayIso = () => new Date().toISOString().slice(0, 10);
 
-const VITAL_KEYS = [
+// 🟢 Catégories vitales avec support de fréquence
+const VITAL_CATEGORIES = [
   { id: 'food', label: 'Nourriture', icon: '🍽️' },
   { id: 'transport', label: 'Transport', icon: '🚌' },
-  { id: 'housing', label: 'Loyer / Logement', icon: '🏠' },
-  { id: 'internet', label: 'Télécom / Internet', icon: '📱' },
+  { id: 'housing', label: 'Logement', icon: '🏠' },
+  { id: 'telecom', label: 'Télécom/Internet', icon: '📱' },
   { id: 'other', label: 'Autres besoins', icon: '📦' },
+];
+
+const FREQUENCIES = [
+  { id: 'daily', label: 'Par jour', multiplier: 30 },
+  { id: 'weekly', label: 'Par semaine', multiplier: 4 },
+  { id: 'monthly', label: 'Par mois', multiplier: 1 },
 ];
 
 export default function IncomePage() {
@@ -65,6 +63,7 @@ export default function IncomePage() {
   const [selectedIncomeToApply, setSelectedIncomeToApply] = useState('all');
   const [deleteId, setDeleteId] = useState(null);
 
+  // 🟢 Prévisions vitales
   const [vitalOpen, setVitalOpen] = useState(false);
   const [vitalForm, setVitalForm] = useState({});
   const [savingVital, setSavingVital] = useState(false);
@@ -85,14 +84,34 @@ export default function IncomePage() {
   const totalIncome = monthIncomes.reduce((s, i) => s + (i.amount || 0), 0);
   const breakdown = useMemo(() => computeBudgetBreakdown(totalIncome, rules), [totalIncome, rules]);
 
+  // 🟢 Calcul des prévisions vitales
   const vitalNeeds = profile?.vitalNeeds || {};
-  const totalVital = Object.values(vitalNeeds).reduce((s, v) => s + (Number(v) || 0), 0);
-  const vitalGap = totalVital - totalAvailable;
-  const vitalCovered = totalVital > 0 && totalAvailable >= totalVital;
+  
+  // Calcul du total mensuel basé sur les fréquences
+  const totalVitalMonthly = useMemo(() => {
+    let total = 0;
+    VITAL_CATEGORIES.forEach(cat => {
+      const need = vitalNeeds[cat.id];
+      if (need && need.amount && need.frequency) {
+        const freq = FREQUENCIES.find(f => f.id === need.frequency);
+        total += (need.amount || 0) * (freq ? freq.multiplier : 1);
+      }
+    });
+    return total;
+  }, [vitalNeeds]);
+
+  const vitalGap = totalVitalMonthly - totalAvailable;
+  const vitalCovered = totalVitalMonthly > 0 && totalAvailable >= totalVitalMonthly;
 
   const openVitalModal = () => {
     const initial = {};
-    VITAL_KEYS.forEach(k => { initial[k.id] = vitalNeeds[k.id] || ''; });
+    VITAL_CATEGORIES.forEach(k => { 
+      const existing = vitalNeeds[k.id];
+      initial[k.id] = { 
+        amount: existing?.amount || '', 
+        frequency: existing?.frequency || 'monthly' 
+      };
+    });
     setVitalForm(initial);
     setVitalOpen(true);
   };
@@ -102,10 +121,41 @@ export default function IncomePage() {
     setSavingVital(true);
     try {
       const cleaned = {};
-      VITAL_KEYS.forEach(k => { cleaned[k.id] = Number(vitalForm[k.id]) || 0; });
+      VITAL_CATEGORIES.forEach(k => { 
+        const val = vitalForm[k.id];
+        if (val && val.amount && Number(val.amount) > 0) {
+          cleaned[k.id] = { 
+            amount: Number(val.amount), 
+            frequency: val.frequency || 'monthly' 
+          };
+        }
+      });
       await save({ vitalNeeds: cleaned });
       setVitalOpen(false);
     } finally { setSavingVital(false); }
+  };
+
+  const applyVitalToBudget = async () => {
+    if (!totalVitalMonthly || !isValid) return;
+    setSavingApplied(true);
+    try {
+      for (const cat of VITAL_CATEGORIES) {
+        const need = vitalNeeds[cat.id];
+        if (need && need.amount) {
+          const freq = FREQUENCIES.find(f => f.id === need.frequency);
+          const monthlyAmount = (need.amount || 0) * (freq ? freq.multiplier : 1);
+          if (monthlyAmount > 0) {
+            await upsertBudget(user.uid, {
+              categoryId: cat.id,
+              amount: Math.round(monthlyAmount),
+              month,
+              incomeSourceId: selectedIncomeToApply,
+            });
+          }
+        }
+      }
+      setApplied(true);
+    } finally { setSavingApplied(false); }
   };
 
   const onSubmit = async (e) => {
@@ -158,45 +208,58 @@ export default function IncomePage() {
         <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm" />
       </div>
 
-      <Card className={vitalCovered ? 'border-brand-200' : totalVital > 0 ? 'border-amber-200' : ''}>
+      <Card className={vitalCovered ? 'border-brand-200' : totalVitalMonthly > 0 ? 'border-amber-200' : ''}>
         <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Target size={16} className="text-slate-400" />
-            <CardTitle>Prévisions vitales</CardTitle>
+            <Calculator size={16} className="text-slate-400" />
+            <CardTitle>Prévisions Vitales</CardTitle>
           </div>
           <Button size="sm" variant="outline" onClick={openVitalModal}>
-            <Pencil size={12} /> {totalVital > 0 ? 'Modifier' : 'Configurer'}
+            <Pencil size={12} /> {totalVitalMonthly > 0 ? 'Modifier' : 'Calculer'}
           </Button>
         </div>
 
-        {totalVital === 0 ? (
+        {totalVitalMonthly === 0 ? (
           <p className="text-sm text-slate-500">
-            Dis-nous combien il te faut chaque mois pour vivre (nourriture, transport, etc.). On calculera si tes revenus couvrent tes besoins essentiels.
+            Dis-nous combien tu dépenses habituellement (par jour, semaine ou mois) pour chaque besoin. On calculera ton budget mensuel vital.
           </p>
         ) : (
           <>
             <ul className="space-y-2 mb-3">
-              {VITAL_KEYS.map(k => vitalNeeds[k.id] > 0 ? (
-                <li key={k.id} className="flex items-center justify-between text-sm">
-                  <span className="text-slate-600">{k.icon} {k.label}</span>
-                  <span className="font-medium text-slate-800">{formatCurrency(vitalNeeds[k.id])}</span>
-                </li>
-              ) : null)}
+              {VITAL_CATEGORIES.map(k => {
+                const need = vitalNeeds[k.id];
+                if (!need || !need.amount) return null;
+                const freq = FREQUENCIES.find(f => f.id === need.frequency);
+                const monthly = (need.amount || 0) * (freq ? freq.multiplier : 1);
+                return (
+                  <li key={k.id} className="flex items-center justify-between text-sm">
+                    <span className="text-slate-600">{k.icon} {k.label} <span className="text-xs text-slate-400">({need.amount} / {freq?.label.toLowerCase()})</span></span>
+                    <span className="font-medium text-slate-800">{formatCurrency(Math.round(monthly))}/mois</span>
+                  </li>
+                );
+              })}
             </ul>
             <div className="border-t border-slate-200 pt-3 space-y-1.5">
-              <div className="flex justify-between text-sm"><span className="text-slate-600">Total besoins vitaux</span><span className="font-bold text-slate-900">{formatCurrency(totalVital)}</span></div>
+              <div className="flex justify-between text-sm"><span className="text-slate-600">Total besoins mensuels</span><span className="font-bold text-slate-900">{formatCurrency(totalVitalMonthly)}</span></div>
               <div className="flex justify-between text-sm"><span className="text-slate-600">Revenus disponibles</span><span className="font-bold text-brand-600">{formatCurrency(totalAvailable)}</span></div>
+              
               {vitalCovered ? (
                 <div className="mt-2 flex items-start gap-2 rounded-lg bg-brand-50 p-2">
                   <CheckCircle2 size={14} className="mt-0.5 shrink-0 text-brand-600" />
-                  <p className="text-xs text-brand-700">Tu peux couvrir tes besoins vitaux et il te reste <strong>{formatCurrency(totalAvailable - totalVital)}</strong> pour épargner ou investir.</p>
+                  <p className="text-xs text-brand-700">Tu couvres tes besoins vitaux. Il te reste <strong>{formatCurrency(totalAvailable - totalVitalMonthly)}</strong> pour épargner ou investir.</p>
                 </div>
               ) : (
                 <div className="mt-2 flex items-start gap-2 rounded-lg bg-red-50 p-2">
                   <AlertTriangle size={14} className="mt-0.5 shrink-0 text-red-600" />
-                  <p className="text-xs text-red-700">Il te manque <strong>{formatCurrency(vitalGap)}</strong> pour couvrir tes besoins vitaux. Cherche à augmenter tes revenus ou à réduire tes besoins essentiels.</p>
+                  <p className="text-xs text-red-700">Il te manque <strong>{formatCurrency(vitalGap)}</strong> pour vivre. Cherche à augmenter tes revenus.</p>
                 </div>
               )}
+            </div>
+
+            <div className="mt-4">
+              <Button onClick={applyVitalToBudget} className="w-full" variant="outline" disabled={savingApplied}>
+                <ArrowRight size={14} /> {savingApplied ? 'Application...' : 'Appliquer aux budgets du mois'}
+              </Button>
             </div>
           </>
         )}
@@ -290,7 +353,7 @@ export default function IncomePage() {
         </Card>
       )}
 
-      <Modal open={open} onClose={() => setOpen(false)} title="Nouveau revenu">
+       <Modal open={open} onClose={() => setOpen(false)} title="Nouveau revenu">
         <form onSubmit={onSubmit} className="space-y-3">
           <Input label="Montant (FCFA)" type="number" min="0" step="1" required value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
           <div>
@@ -307,28 +370,51 @@ export default function IncomePage() {
         </form>
       </Modal>
 
-      <Modal open={vitalOpen} onClose={() => setVitalOpen(false)} title="Prévisions vitales mensuelles">
-        <form onSubmit={onSaveVital} className="space-y-3">
-          <p className="text-xs text-slate-500">Combien te faut-il chaque mois pour ces besoins essentiels ?</p>
-          {VITAL_KEYS.map(k => (
-            <Input
-              key={k.id}
-              label={`${k.icon} ${k.label} (FCFA/mois)`}
-              type="number"
-              min="0"
-              value={vitalForm[k.id] || ''}
-              onChange={(e) => setVitalForm({ ...vitalForm, [k.id]: e.target.value })}
-            />
-          ))}
-          <div className="rounded-lg bg-brand-50 p-3 text-sm">
-            <span className="text-brand-700">Total vital mensuel : </span>
-            <strong className="text-brand-800">{formatCurrency(VITAL_KEYS.reduce((s, k) => s + (Number(vitalForm[k.id]) || 0), 0))}</strong>
+      <Modal open={vitalOpen} onClose={() => setVitalOpen(false)} title="Calculer mes besoins vitaux">
+        <form onSubmit={onSaveVital} className="space-y-4">
+          <p className="text-xs text-slate-500">Dis-nous combien tu dépenses pour chaque catégorie et à quelle fréquence.</p>
+          
+          {VITAL_CATEGORIES.map(k => {
+            const val = vitalForm[k.id] || { amount: '', frequency: 'monthly' };
+            return (
+              <div key={k.id} className="rounded-xl border border-slate-200 p-3 bg-slate-50/50">
+                <p className="text-sm font-semibold text-slate-700 mb-2">{k.icon} {k.label}</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <Input 
+                    label="Montant (FCFA)" 
+                    type="number" 
+                    min="0" 
+                    value={val.amount} 
+                    onChange={(e) => setVitalForm({ ...vitalForm, [k.id]: { ...val, amount: e.target.value } })}
+                    placeholder="0"
+                  />
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-700">Fréquence</label>
+                    <select 
+                      value={val.frequency} 
+                      onChange={(e) => setVitalForm({ ...vitalForm, [k.id]: { ...val, frequency: e.target.value } })}
+                      className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"
+                    >
+                      {FREQUENCIES.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+
+          <div className="rounded-xl bg-brand-50 p-3 text-sm border border-brand-100">
+            <div className="flex justify-between items-center mb-1">
+              <span className="text-brand-800 font-medium">Total mensuel estimé :</span>
+              <strong className="text-brand-800 text-lg">{formatCurrency(totalVitalMonthly)}</strong>
+            </div>
           </div>
-          <Button type="submit" className="w-full" disabled={savingVital}>{savingVital ? 'Enregistrement…' : 'Enregistrer'}</Button>
+
+          <Button type="submit" className="w-full" disabled={savingVital}>{savingVital ? 'Calcul...' : 'Enregistrer mes prévisions'}</Button>
         </form>
       </Modal>
 
       <ConfirmDialog open={!!deleteId} onClose={() => setDeleteId(null)} onConfirm={handleDelete} title="Supprimer ce revenu ?" message="Cette action est irréversible. Les dépenses liées ne seront pas supprimées." confirmWord="SUPPRIMER" confirmLabel="Supprimer" variant="danger" />
     </div>
   );
-   }
+                                                                                                                    }
