@@ -3,13 +3,16 @@ export async function generateAudioWithGemini(text) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY non configurée.');
 
+  // On tronque le texte à 1000 caractères pour éviter les timeouts
+  const truncatedText = text.slice(0, 1000);
+
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash-tts:generateContent?key=${apiKey}`;
 
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      contents: [{ parts: [{ text: text.slice(0, 2000) }] }],
+      contents: [{ parts: [{ text: truncatedText }] }],
       generationConfig: {
         responseModalities: ['AUDIO'],
         speechConfig: {
@@ -32,4 +35,4 @@ export async function generateAudioWithGemini(text) {
   if (!audioBase64) throw new Error('Aucun audio retourné par Gemini');
   
   return audioBase64;
-                                              }
+}
