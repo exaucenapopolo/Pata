@@ -9,7 +9,6 @@ import { createExpense } from '@/lib/firestore/expenses';
 import { createGoal } from '@/lib/firestore/goals';
 import { createAutomation } from '@/lib/firestore/automations';
 
-// 🟢 Les suggestions (anciennes + nouvelles)
 const SUGGESTIONS = [
   "Quel est mon bilan financier ?",
   "Comment mieux épargner ?",
@@ -17,8 +16,39 @@ const SUGGESTIONS = [
   "Ajoute une dépense de 2000 FCFA pour le transport",
   "Crée un objectif d'épargne de 50 000 FCFA pour Noël",
   "Programme 500 FCFA de transport chaque jour",
-  "Fais-moi un bilan de ma situation"
+  "Explique-moi en audio comment épargner" // 🟢 Suggestion audio
 ];
+
+// 🟢 Composant pour formater le texte proprement (nettoyage des ** et sauts de ligne)
+function MessageContent({ text }) {
+  if (!text) return null;
+  
+  // Nettoyage de sécurité : on retire les ** et les # s'il en reste
+  const cleanText = text.replace(/\*\*/g, '').replace(/#/g, '');
+  const lines = cleanText.split('\n');
+
+  return (
+    <div className="space-y-2">
+      {lines.map((line, index) => {
+        const trimmed = line.trim();
+        if (!trimmed) return <div key={index} className="h-2" />;
+        
+        // Si la ligne commence par un tiret (liste)
+        if (trimmed.startsWith('- ')) {
+          return (
+            <div key={index} className="flex gap-2 pl-1">
+              <span className="shrink-0 text-brand-600 font-bold mt-0.5">•</span>
+              <span className="flex-1">{trimmed.substring(2)}</span>
+            </div>
+          );
+        }
+
+        // Texte normal
+        return <p key={index} className="leading-relaxed">{line}</p>;
+      })}
+    </div>
+  );
+}
 
 export function AssistantChat({ open, onClose }) {
   const { user } = useAuth();
@@ -107,6 +137,29 @@ export function AssistantChat({ open, onClose }) {
     }
   };
 
+  const playAudio = async (text) => {
+    if (audioLoading) return;
+    setAudioLoading(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch('/api/ai/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ text }),
+      });
+      const data = await res.json();
+      if (data.audio) {
+        const audio = new Audio(`data:audio/mp3;base64,${data.audio}`);
+        audio.play();
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Erreur lors de la génération de l'audio.");
+    } finally {
+      setAudioLoading(false);
+    }
+  };
+
   const sendMessage = async (text) => {
     if (!text.trim() || loading) return;
     const userMsg = { role: 'user', content: text.trim() };
@@ -132,15 +185,22 @@ export function AssistantChat({ open, onClose }) {
         const parsed = JSON.parse(data.reply);
         if (parsed.tool_call) {
           const toolResult = await executeToolCall(parsed.tool_call);
-          finalReply = toolResult; // On affiche le résultat de l'action
+          finalReply = toolResult;
         }
       } catch (e) {
-        // Pas un tool call, c'est juste du texte normal
+        // Pas un tool call
       }
 
       const botMsg = { role: 'assistant', content: finalReply };
       const updatedMessages = [...newMessages, botMsg];
       setMessages(updatedMessages);
+
+      // 🟢 DÉTECTION AUTOMATIQUE DE L'AUDIO
+      // Si l'utilisateur a demandé du son, on lance la lecture
+      const wantsAudio = /audio|voix|vocal|parle/i.test(text);
+      if (wantsAudio) {
+        playAudio(finalReply);
+      }
 
       // Sauvegarde dans Firestore
       if (activeChatId) {
@@ -155,28 +215,6 @@ export function AssistantChat({ open, onClose }) {
       setMessages([...newMessages, { role: 'assistant', content: "Désolée, j'ai eu une erreur technique." }]);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const playAudio = async (text) => {
-    if (audioLoading) return;
-    setAudioLoading(true);
-    try {
-      const token = await user.getIdToken();
-      const res = await fetch('/api/ai/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ text }),
-      });
-      const data = await res.json();
-      if (data.audio) {
-        const audio = new Audio(`data:audio/mp3;base64,${data.audio}`);
-        audio.play();
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setAudioLoading(false);
     }
   };
 
@@ -228,7 +266,7 @@ export function AssistantChat({ open, onClose }) {
                    <BrainCircuit size={32} />
                  </div>
                  <p className="text-sm text-slate-600 px-4">
-                   Bonjour {user?.displayName?.split(' ')[0] || 'toi'}. Je suis Mč, ton assistante financière. Pose-moi n’importe quelle question sur ta situation.
+                   Bonjour {user?.displayName?.split(' ')[0] || 'toi'}. Je suis Mč, ton assistante financière.
                  </p>
                </div>
                <div className="space-y-2 mt-6">
@@ -247,10 +285,10 @@ export function AssistantChat({ open, onClose }) {
           
           {messages.map((m, i) => (
             <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
-              <div className={`max-w-[90%] rounded-2xl px-4 py-3 text-[13px] leading-relaxed ${
+              <div className={`max-w-[90%] rounded-2xl px-4 py-3 text-[13px] ${
                 m.role === 'user' ? 'bg-brand-600 text-white rounded-br-sm' : 'bg-slate-100 text-slate-800 rounded-bl-sm'
               }`}>
-                {m.content}
+                {m.role === 'user' ? m.content : <MessageContent text={m.content} />}
               </div>
               {m.role === 'assistant' && (
                 <button onClick={() => playAudio(m.content)} className="mt-1 flex items-center gap-1 text-[10px] text-brand-600 hover:underline px-1">
@@ -272,7 +310,7 @@ export function AssistantChat({ open, onClose }) {
           <form onSubmit={(e) => { e.preventDefault(); sendMessage(input); }} className="flex gap-2">
             <input 
               type="text" value={input} onChange={(e) => setInput(e.target.value)} 
-              placeholder="Ex: Ajoute 2000 FCFA de transport..." 
+              placeholder="Pose ta question ou demande une action..." 
               className="h-11 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none focus:border-brand-500 focus:bg-white" 
               disabled={loading} 
             />
@@ -284,4 +322,4 @@ export function AssistantChat({ open, onClose }) {
       </div>
     </div>
   );
-}
+  }
