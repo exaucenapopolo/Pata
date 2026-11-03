@@ -12,8 +12,9 @@ export function subscribeChats(uid, cb) {
 }
 
 export async function createChat(uid, firstMessage) {
+  const title = firstMessage ? firstMessage.slice(0, 35) + (firstMessage.length > 35 ? '...' : '') : 'Nouvelle discussion';
   return addDoc(col(uid), {
-    title: firstMessage.slice(0, 35) + (firstMessage.length > 35 ? '...' : ''),
+    title,
     messages: [],
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -28,14 +29,25 @@ export async function updateChatTitle(uid, chatId, newTitle) {
 }
 
 export async function updateChatMessages(uid, chatId, messages) {
-  // 🟢 NETTOYAGE : On retire les éléments lourds (base64) pour ne pas dépasser 1 Mo
-  const safeMessages = messages.map(m => ({
-    role: m.role,
-    content: m.content,
-    wasAudio: m.wasAudio || false,
-    generatedImage: m.generatedImage || null, // L'URL est légère
-    // imagePreview et audioData sont ignorés
-  }));
+  // 🟢 NETTOYAGE RADICAL : On reconstruit un objet propre avec SEULEMENT les clés autorisées.
+  // On supprime toutes les clés qui pourraient être "undefined" et on ignore le base64.
+  const safeMessages = messages.map(m => {
+    const safe = {};
+    
+    // Role (toujours string)
+    safe.role = (m.role === 'assistant' || m.role === 'user') ? m.role : 'user';
+    
+    // Content (toujours string ou null)
+    safe.content = (typeof m.content === 'string' && m.content.trim() !== '') ? m.content : null;
+    
+    // WasAudio (toujours boolean)
+    safe.wasAudio = (m.wasAudio === true);
+    
+    // GeneratedImage (toujours string ou null)
+    safe.generatedImage = (typeof m.generatedImage === 'string' && m.generatedImage !== '') ? m.generatedImage : null;
+
+    return safe;
+  });
 
   await updateDoc(doc(db, 'users', uid, 'ai_chats', chatId), {
     messages: safeMessages,
@@ -45,4 +57,4 @@ export async function updateChatMessages(uid, chatId, messages) {
 
 export async function deleteChat(uid, chatId) {
   await deleteDoc(doc(db, 'users', uid, 'ai_chats', chatId));
-      }
+    }
