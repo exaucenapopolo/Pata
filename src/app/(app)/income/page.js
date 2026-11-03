@@ -23,10 +23,11 @@ import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { createIncome, deleteIncome } from '@/lib/firestore/incomes';
 import { upsertBudget } from '@/lib/firestore/budgets';
 import { computeBudgetBreakdown } from '@/lib/budgetRules';
-import { INCOME_CATEGORIES } from '@/lib/constants';
+// 🟢 CORRECTION : Ajout de EXPENSE_CATEGORIES
+import { INCOME_CATEGORIES, EXPENSE_CATEGORIES } from '@/lib/constants';
 import { formatCurrency, formatDate, resolveCategory } from '@/lib/utils';
 
-// 🟢 CORRECTION DES DATES LOCALES (Évite le décalage UTC)
+// 🟢 CORRECTION DES DATES LOCALES
 const todayMonth = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -62,7 +63,6 @@ export default function IncomePage() {
   const [selectedIncomeToApply, setSelectedIncomeToApply] = useState('all');
   const [deleteId, setDeleteId] = useState(null);
 
-  // 🟢 Nouveaux états pour les prévisions
   const [vitalOpen, setVitalOpen] = useState(false);
   const [vitalForm, setVitalForm] = useState({});
   const [budgetName, setBudgetName] = useState('');
@@ -85,9 +85,9 @@ export default function IncomePage() {
   const totalIncome = monthIncomes.reduce((s, i) => s + (i.amount || 0), 0);
   const breakdown = useMemo(() => computeBudgetBreakdown(totalIncome, rules), [totalIncome, rules]);
 
-  // 🟢 Calculs dynamiques des prévisions avec TOUTES les catégories
   const vitalNeeds = profile?.vitalNeeds || {};
   const allCategories = useMemo(() => {
+    // 🟢 Utilise maintenant EXPENSE_CATEGORIES importé
     const defaults = EXPENSE_CATEGORIES.map(c => ({...c, isCustom: false}));
     const customs = customCategories.map(c => ({...c, isCustom: true, label: c.name}));
     return [...defaults, ...customs];
@@ -144,13 +144,11 @@ export default function IncomePage() {
     } finally { setSavingVital(false); }
   };
 
-  // 🟢 NOUVEAU : Supprimer les prévisions
   const deleteVital = async () => {
     if (!confirm('Voulez-vous vraiment supprimer toutes vos prévisions vitales ?')) return;
     await save({ vitalNeeds: {}, vitalBudgetName: null, vitalTotalBudget: 0 });
   };
 
-  // 🟢 Transformer les prévisions en Revenu + Budgets
   const applyVitalToBudget = async () => {
     if (!totalVitalMonthly) return;
     setSavingApplied(true);
@@ -488,4 +486,4 @@ export default function IncomePage() {
       <ConfirmDialog open={!!deleteId} onClose={() => setDeleteId(null)} onConfirm={handleDelete} title="Supprimer ce revenu ?" message="Cette action est irréversible." confirmWord="SUPPRIMER" confirmLabel="Supprimer" variant="danger" />
     </div>
   );
-              }
+        }
