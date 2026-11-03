@@ -3,6 +3,7 @@
 
 import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import confetti from 'canvas-confetti';
 import {
   Plus, Target, Trash2, AlertTriangle, Banknote, Pencil, Lightbulb,
   Info, CheckCircle2, TrendingUp, ShieldAlert, ArrowDownToLine, Landmark,
@@ -24,6 +25,7 @@ import { createGoal, updateGoal, deleteGoal, toggleGoalPin } from '@/lib/firesto
 import { computeGoalPlan, resolveFrequencyDays, MIN_PENALTY } from '@/lib/goalCalc';
 import { adviceIconColor } from '@/lib/advisor';
 import { formatCurrency, formatDate, resolveCategory } from '@/lib/utils';
+import { playSuccess } from '@/lib/sound';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const todayMonth = () => new Date().toISOString().slice(0, 7);
@@ -178,7 +180,21 @@ function GoalDetail({ goal, onClose, onAskWithdraw }) {
       const res = await fetch('/api/wallet/fund-goal', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ goalId: goal.id, amount: Number(amount), incomeSourceId: selectedIncomeId, incomeSourceName: selectedIncome?.source || null }) });
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
+      
+      // 🎵 Son de succès
+      playSuccess();
       setAmount('');
+
+      // 🎉 Confettis si objectif atteint
+      const newTotal = plan.totalDeposited + Number(amount);
+      if (newTotal >= goal.targetAmount) {
+        confetti({
+          particleCount: 150,
+          spread: 70,
+          origin: { y: 0.6 },
+          colors: ['#059669', '#10b981', '#34d399', '#fbbf24']
+        });
+      }
     } catch (err) { setError(err.message); } finally { setSaving(false); }
   };
 
