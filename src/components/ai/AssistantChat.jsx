@@ -4,7 +4,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { 
   Send, X, BrainCircuit, Loader2, Plus, MessageSquare, 
-  Image as ImageIcon, Volume2, Trash2, Menu, Edit2, Check, Download
+  Image as ImageIcon, Volume2, Trash2, Menu, Edit2, Check, Download,
+  Mic, Sparkles
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { subscribeChats, createChat, updateChatMessages, deleteChat, updateChatTitle } from '@/lib/firestore/ai_chats';
@@ -20,8 +21,13 @@ const SUGGESTIONS = [
   "Ajoute une dépense de 2000 FCFA pour le transport",
   "Crée un objectif d'épargne de 50 000 FCFA pour Noël",
   "Programme 500 FCFA de transport chaque jour",
-  "Fais-moi mon bilan en audio",
-  "Génère une image d'un cochon tirelire"
+];
+
+// 🟢 Menu de mention
+const MENTIONS = [
+  { id: 'audio', label: 'Audio', icon: Volume2, color: 'text-blue-500', description: 'Répondre en vocal' },
+  { id: 'image', label: 'Image', icon: Sparkles, color: 'text-brand-500', description: 'Générer une image' },
+  { id: 'vision', label: 'Vision', icon: ImageIcon, color: 'text-purple-500', description: 'Analyser une image' },
 ];
 
 function MessageContent({ text }) {
@@ -62,6 +68,9 @@ export function AssistantChat({ open, onClose }) {
   const [imageModal, setImageModal] = useState(null);
   const [editingTitleId, setEditingTitleId] = useState(null);
   const [titleInput, setTitleInput] = useState('');
+  
+  // 🟢 État pour le menu de mention
+  const [showMentions, setShowMentions] = useState(false);
 
   const scrollRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -106,6 +115,27 @@ export function AssistantChat({ open, onClose }) {
     setEditingTitleId(null);
   };
 
+  // 🟢 Gestion de la saisie pour détecter le "@"
+  const handleInputChange = (e) => {
+    const val = e.target.value;
+    setInput(val);
+    if (val.endsWith('@')) {
+      setShowMentions(true);
+    } else if (showMentions && !val.includes('@')) {
+      setShowMentions(false);
+    }
+  };
+
+  // 🟢 Sélection d'une mention
+  const selectMention = (mentionId) => {
+    // On retire le "@" s'il est tout seul à la fin
+    const cleanInput = input.endsWith('@') ? input.slice(0, -1) : input;
+    // On ajoute la mention formatée (ex: "@Audio ")
+    const mentionText = `@${mentionId.charAt(0).toUpperCase() + mentionId.slice(1)} `;
+    setInput(cleanInput + mentionText);
+    setShowMentions(false);
+  };
+
   const executeToolCall = async (toolCall) => {
     try {
       const { name, arguments: argsStr } = toolCall;
@@ -114,25 +144,18 @@ export function AssistantChat({ open, onClose }) {
       if (name === 'add_expense') {
         const finalIncomeId = args.incomeSourceId || 'all';
         const finalIncomeName = args.incomeSourceName || 'Tous les revenus';
-
         await createExpense(user.uid, {
-          amount: args.amount, 
-          categoryId: args.category || 'other',
-          note: args.note || '',
-          date: new Date().toISOString().slice(0, 10),
-          incomeSourceId: finalIncomeId,
-          incomeSourceName: finalIncomeName,
+          amount: args.amount, categoryId: args.category || 'other',
+          note: args.note || '', date: new Date().toISOString().slice(0, 10),
+          incomeSourceId: finalIncomeId, incomeSourceName: finalIncomeName,
         });
         return `C'est fait ! J'ai bien enregistré ta dépense de ${args.amount} FCFA.`;
       }
       
       if (name === 'add_income') {
         await createIncome(user.uid, {
-          amount: args.amount,
-          source: args.source,
-          categoryId: args.categoryId,
-          note: args.note || '',
-          date: new Date().toISOString().slice(0, 10),
+          amount: args.amount, source: args.source, categoryId: args.categoryId,
+          note: args.note || '', date: new Date().toISOString().slice(0, 10),
           month: new Date().toISOString().slice(0, 7),
         });
         return `J'ai bien ajouté ton revenu "${args.source}" de ${args.amount} FCFA.`;
@@ -144,7 +167,7 @@ export function AssistantChat({ open, onClose }) {
           startDate: new Date().toISOString().slice(0, 10), deadline: args.deadline,
           frequencyDays: 7, penaltyAmount: 700,
         });
-        return `J'ai créé ton objectif "${args.name}" de ${args.targetAmount} FCFA pour le ${args.deadline}.`;
+        return `J'ai créé ton objectif "${args.name}" de ${args.targetAmount} FCFA.`;
       }
 
       if (name === 'add_automation') {
@@ -157,12 +180,11 @@ export function AssistantChat({ open, onClose }) {
           amount: args.amount, categoryId: args.category || 'other', note: args.note,
           frequency: args.frequency, nextRun: nextRun.toISOString(),
         });
-        return `C'est noté ! J'enregistrerai automatiquement ${args.amount} FCFA pour ${args.note} chaque ${args.frequency === 'daily' ? 'jour' : args.frequency === 'weekly' ? 'semaine' : 'mois'}.`;
+        return `C'est noté ! J'enregistrerai automatiquement ${args.amount} FCFA pour ${args.note}.`;
       }
 
       return "Action effectuée avec succès.";
     } catch (e) {
-      console.error(e);
       return "J'ai eu un problème pour exécuter cette action.";
     }
   };
@@ -179,91 +201,95 @@ export function AssistantChat({ open, onClose }) {
     }
   };
 
-  const sendMessage = async (text) => {
-    if ((!text.trim() && !imageFile) || loading) return;
+  const sendMessage = async (rawText) => {
+    if ((!rawText.trim() && !imageFile) || loading) return;
     
+    // 🟢 ANALYSE DES MENTIONS (AU LIEU DE REGEX)
+    const hasAudio = /@audio/i.test(rawText);
+    const hasImageGen = /@image/i.test(rawText);
+    const hasVision = /@vision/i.test(rawText);
+
+    // 🟢 NETTOYAGE DU TEXTE : On retire les tags @ pour que l'IA ne les voie pas
+    let text = rawText.replace(/@audio/gi, '').replace(/@image/gi, '').replace(/@vision/gi, '').trim();
+
+    // Si c'est juste "@Vision" sans texte, on met un texte par défaut
+    if (hasVision && !text) text = 'Analyse cette image.';
+    if (hasImageGen && !text) return alert("Décris l'image que tu veux générer.");
+
     setLoading(true);
     const userMsg = { 
       role: 'user', 
-      content: text.trim() || 'Analyse cette image.',
+      content: rawText.trim(), // On garde le texte original (avec @) pour l'affichage
       imagePreview: imageFile?.preview
     };
     
-    if (imageFile) {
-      const newMessages = [...messages, userMsg];
-      setMessages(newMessages);
-      setInput('');
-      const currentImage = imageFile;
-      setImageFile(null);
+    const newMessages = [...messages, userMsg];
+    setMessages(newMessages);
+    setInput('');
+    
+    try {
+      const token = await user.getIdToken();
 
-      try {
-        const token = await user.getIdToken();
+      // 🟢 1. GÉNÉRATION D'IMAGE
+      if (hasImageGen) {
+        setImageFile(null);
+        const res = await fetch('/api/ai/image', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ prompt: text }),
+        });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error);
+        
+        const botMsg = { role: 'assistant', content: null, generatedImage: data.imageUrl };
+        const updatedMessages = [...newMessages, botMsg];
+        setMessages(updatedMessages);
+        if (activeChatId) await updateChatMessages(user.uid, activeChatId, updatedMessages);
+        else {
+          const newChatRef = await createChat(user.uid, rawText);
+          setActiveChatId(newChatRef.id);
+          await updateChatMessages(user.uid, newChatRef.id, updatedMessages);
+        }
+        return;
+      }
+
+      // 🟢 2. VISION (Analyse d'image)
+      if (hasVision) {
+        if (!imageFile) throw new Error("Veuillez joindre une image pour utiliser @Vision.");
+        
+        const currentImage = imageFile;
+        setImageFile(null);
+        const cleanMessagesForVision = [...messages, { role: 'user', content: text }];
+        
         const res = await fetch('/api/ai/vision', {
           method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ messages: newMessages, imageBase64: currentImage.base64 }),
+          body: JSON.stringify({ messages: cleanMessagesForVision, imageBase64: currentImage.base64 }),
         });
         const data = await res.json();
         
         const botMsg = { role: 'assistant', content: data.reply || "Je n'ai pas pu analyser l'image." };
         const updatedMessages = [...newMessages, botMsg];
         setMessages(updatedMessages);
-
         if (activeChatId) await updateChatMessages(user.uid, activeChatId, updatedMessages);
         else {
-          const newChatRef = await createChat(user.uid, text || 'Image');
+          const newChatRef = await createChat(user.uid, rawText);
           setActiveChatId(newChatRef.id);
           await updateChatMessages(user.uid, newChatRef.id, updatedMessages);
         }
-      } catch (err) {
-        setMessages([...newMessages, { role: 'assistant', content: "Désolée, j'ai eu une erreur." }]);
-      } finally {
-        setLoading(false);
+        return;
       }
-      return;
-    }
 
-    const newMessages = [...messages, userMsg];
-    setMessages(newMessages);
-    setInput('');
+      // 🟢 3. TEXTE OU AUDIO (Appel normal)
+      setImageFile(null);
+      const cleanMessages = [...messages, { role: 'user', content: text }]; // On envoie le texte nettoyé
+      const mode = hasAudio ? 'audio' : 'text';
 
-    try {
-      const token = await user.getIdToken();
       const res = await fetch('/api/ai/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ messages: newMessages }),
+        body: JSON.stringify({ messages: cleanMessages, mode }),
       });
       const data = await res.json();
       
-      if (!data.success) {
-        setMessages([...newMessages, { role: 'assistant', content: data.error || "Erreur." }]);
-        return;
-      }
-
-      if (data.isImage && data.imageUrl) {
-        const botMsg = { role: 'assistant', content: null, generatedImage: data.imageUrl };
-        const updatedMessages = [...newMessages, botMsg];
-        setMessages(updatedMessages);
-        if (activeChatId) await updateChatMessages(user.uid, activeChatId, updatedMessages);
-        else {
-          const newChatRef = await createChat(user.uid, text);
-          setActiveChatId(newChatRef.id);
-          await updateChatMessages(user.uid, newChatRef.id, updatedMessages);
-        }
-        return;
-      }
-
-      if (data.isAudio && data.audio) {
-        const botMsg = { role: 'assistant', content: data.textReply, audioData: data.audio, wasAudio: true };
-        const updatedMessages = [...newMessages, botMsg];
-        setMessages(updatedMessages);
-        if (activeChatId) await updateChatMessages(user.uid, activeChatId, updatedMessages);
-        else {
-          const newChatRef = await createChat(user.uid, text);
-          setActiveChatId(newChatRef.id);
-          await updateChatMessages(user.uid, newChatRef.id, updatedMessages);
-        }
-        return;
-      }
+      if (!data.success) throw new Error(data.error);
 
       let finalReply = data.reply;
       try {
@@ -271,19 +297,24 @@ export function AssistantChat({ open, onClose }) {
         if (parsed.tool_call) finalReply = await executeToolCall(parsed.tool_call);
       } catch (e) {}
 
-      const botMsg = { role: 'assistant', content: finalReply };
+      const botMsg = { 
+        role: 'assistant', 
+        content: finalReply, 
+        audioData: data.isAudio ? data.audio : null, 
+        wasAudio: data.isAudio || false 
+      };
       const updatedMessages = [...newMessages, botMsg];
       setMessages(updatedMessages);
 
       if (activeChatId) await updateChatMessages(user.uid, activeChatId, updatedMessages);
       else {
-        const newChatRef = await createChat(user.uid, text);
+        const newChatRef = await createChat(user.uid, rawText);
         setActiveChatId(newChatRef.id);
         await updateChatMessages(user.uid, newChatRef.id, updatedMessages);
       }
 
     } catch (err) {
-      setMessages([...newMessages, { role: 'assistant', content: "Désolée, erreur technique." }]);
+      setMessages([...newMessages, { role: 'assistant', content: err.message || "Désolée, une erreur est survenue." }]);
     } finally {
       setLoading(false);
     }
@@ -292,16 +323,13 @@ export function AssistantChat({ open, onClose }) {
   if (!open) return null;
 
   return (
-    <div 
-      className="fixed inset-0 z-[70] flex items-end justify-center bg-black/40 p-0 md:items-center md:p-6"
-      onClick={onClose} // 🟢 Fermer en cliquant sur le fond sombre
-    >
+    <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/40 p-0 md:items-center md:p-6" onClick={onClose}>
       <div 
         className="relative flex h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl md:h-[85vh] md:max-w-5xl md:flex-row md:rounded-2xl"
-        onClick={(e) => e.stopPropagation()} // 🟢 Empêcher la fermeture si on clique dans la modale
+        onClick={(e) => e.stopPropagation()}
       >
         
-        {/* 🟢 SIDEBAR (Desktop: fixe / Mobile: tiroir) */}
+        {/* SIDEBAR */}
         <div className={`absolute inset-y-0 left-0 z-30 w-72 shrink-0 transform bg-slate-50 transition-transform duration-300 ${showSidebar ? 'translate-x-0' : '-translate-x-full'} md:relative md:flex md:translate-x-0 border-r border-slate-200 flex flex-col`}>
           <div className="flex h-16 items-center justify-between border-b border-slate-200 px-4">
             <span className="font-bold text-slate-800">Discussions</span>
@@ -336,7 +364,7 @@ export function AssistantChat({ open, onClose }) {
           </div>
         </div>
 
-        {/* 🟢 CHAT AREA */}
+                           {/* CHAT */}
         <div className="flex h-full flex-1 flex-col overflow-hidden bg-white">
           <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-100 px-4 bg-slate-50/50">
             <div className="flex items-center gap-3">
@@ -361,7 +389,7 @@ export function AssistantChat({ open, onClose }) {
                      <BrainCircuit size={32} />
                    </div>
                    <p className="text-sm text-slate-600 px-4">
-                     Bonjour {user?.displayName?.split(' ')[0] || 'toi'}. Comment puis-je t'aider aujourd'hui ?
+                     Bonjour {user?.displayName?.split(' ')[0] || 'toi'}. Tape <strong>@</strong> dans le champ pour choisir une action spéciale (Audio, Image).
                    </p>
                  </div>
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-6">
@@ -425,7 +453,31 @@ export function AssistantChat({ open, onClose }) {
             )}
           </div>
 
-          <div className="shrink-0 border-t border-slate-100 p-4 bg-white">
+          <div className="shrink-0 border-t border-slate-100 p-4 bg-white relative">
+            
+            {/* 🟢 MENU DES MENTIONS */}
+            {showMentions && (
+              <div className="absolute bottom-full left-4 mb-2 w-72 rounded-xl border border-slate-200 bg-white shadow-xl overflow-hidden z-20">
+                <div className="p-2 space-y-1">
+                  {MENTIONS.map(m => (
+                    <button 
+                      key={m.id} 
+                      onClick={() => selectMention(m.id)}
+                      className="flex w-full items-center gap-3 rounded-lg p-2 text-left hover:bg-slate-50 transition-colors"
+                    >
+                      <div className={`flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 ${m.color}`}>
+                        <m.icon size={16} />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-slate-800">@{m.label}</p>
+                        <p className="text-[10px] text-slate-500">{m.description}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {imageFile && (
               <div className="mb-2 relative w-fit">
                 <img src={imageFile.preview} alt="Aperçu" className="h-20 w-auto rounded-lg border border-slate-200 shadow-sm" />
@@ -438,8 +490,10 @@ export function AssistantChat({ open, onClose }) {
                 <ImageIcon size={18} />
               </button>
               <input 
-                type="text" value={input} onChange={(e) => setInput(e.target.value)} 
-                placeholder="Pose ta question..." 
+                type="text" 
+                value={input} 
+                onChange={handleInputChange} 
+                placeholder="Pose ta question (tape @ pour les options)..." 
                 className="h-11 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none focus:border-brand-500 focus:bg-white" 
                 disabled={loading} 
               />
@@ -450,7 +504,7 @@ export function AssistantChat({ open, onClose }) {
           </div>
         </div>
 
-        {/* 🟢 MODAL IMAGE (Agrandissement) */}
+        {/* MODAL IMAGE */}
         {imageModal && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm" onClick={() => setImageModal(null)}>
             <div className="relative max-h-full max-w-full flex flex-col items-center" onClick={e => e.stopPropagation()}>
@@ -470,4 +524,4 @@ export function AssistantChat({ open, onClose }) {
       </div>
     </div>
   );
-}
+                }
