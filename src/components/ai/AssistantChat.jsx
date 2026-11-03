@@ -16,10 +16,9 @@ const SUGGESTIONS = [
   "Ajoute une dépense de 2000 FCFA pour le transport",
   "Crée un objectif d'épargne de 50 000 FCFA pour Noël",
   "Programme 500 FCFA de transport chaque jour",
-  "Explique-moi comment épargner"
+  "Explique-moi comment épargner en audio"
 ];
 
-// 🟢 Composant pour formater le texte proprement
 function MessageContent({ text }) {
   if (!text) return null;
   const cleanText = text.replace(/\*\*/g, '').replace(/#/g, '');
@@ -52,6 +51,7 @@ export function AssistantChat({ open, onClose }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [audioLoading, setAudioLoading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const scrollRef = useRef(null);
 
@@ -131,24 +131,30 @@ export function AssistantChat({ open, onClose }) {
     }
   };
 
-  // 🟢 NOUVELLE FONCTION : Lecture audio native en français (gratuit, 100% fonctionnel)
-  const playAudio = (text) => {
-    if (!('speechSynthesis' in window)) {
-      alert("Ton navigateur ne supporte pas la lecture audio.");
-      return;
+  // 🟢 FONCTION QUI APPELLE LE VRAI MODÈLE TTS DE GROQ
+  const playAudio = async (text) => {
+    if (audioLoading) return;
+    setAudioLoading(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch('/api/ai/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ text }),
+      });
+      const data = await res.json();
+      if (data.audio) {
+        const audio = new Audio(`data:audio/wav;base64,${data.audio}`);
+        audio.play();
+      } else {
+        alert("Erreur: " + (data.error || "Impossible de générer l'audio"));
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Erreur lors de la génération de l'audio.");
+    } finally {
+      setAudioLoading(false);
     }
-
-    // Nettoyer le texte des symboles pour une lecture fluide
-    const cleanText = text.replace(/\*\*/g, '').replace(/#/g, '').replace(/-/g, ' ');
-    
-    const utterance = new SpeechSynthesisUtterance(cleanText);
-    utterance.lang = 'fr-FR';
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-
-    // Annuler les lectures précédentes
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
   };
 
   const sendMessage = async (text) => {
@@ -183,8 +189,11 @@ export function AssistantChat({ open, onClose }) {
       const updatedMessages = [...newMessages, botMsg];
       setMessages(updatedMessages);
 
-      // 🟢 SUPPRESSION DE LA LECTURE AUTOMATIQUE
-      // On ne lance plus playAudio automatiquement. L'utilisateur clique sur le bouton.
+      // 🟢 DÉTECTION AUTOMATIQUE : Si l'utilisateur demande de l'audio, on appelle le TTS de Groq
+      const wantsAudio = /audio|voix|vocal/i.test(text);
+      if (wantsAudio) {
+        playAudio(finalReply);
+      }
 
       if (activeChatId) {
         await updateChatMessages(user.uid, activeChatId, updatedMessages);
@@ -271,8 +280,13 @@ export function AssistantChat({ open, onClose }) {
                 {m.role === 'user' ? m.content : <MessageContent text={m.content} />}
               </div>
               {m.role === 'assistant' && (
-                <button onClick={() => playAudio(m.content)} className="mt-1 flex items-center gap-1 text-[10px] text-brand-600 hover:underline px-1">
-                  <Volume2 size={10} /> Écouter
+                <button 
+                  onClick={() => playAudio(m.content)} 
+                  disabled={audioLoading}
+                  className="mt-1 flex items-center gap-1 text-[10px] text-brand-600 hover:underline px-1 disabled:opacity-50"
+                >
+                  {audioLoading ? <Loader2 size={10} className="animate-spin" /> : <Volume2 size={10} />} 
+                  Écouter
                 </button>
               )}
             </div>
@@ -301,4 +315,4 @@ export function AssistantChat({ open, onClose }) {
       </div>
     </div>
   );
-        }
+      }
