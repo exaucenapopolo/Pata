@@ -4,6 +4,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { chatWithGroq } from '@/lib/ai/groqClient';
 import { generateAudioWithGemini } from '@/lib/ai/geminiTTS';
 import { chatWithGroqVision } from '@/lib/ai/groqVision';
+import { generateImageWithPollinations } from '@/lib/ai/pollinationsImage';
 import { buildUserContext } from '@/lib/ai/buildUserContext';
 
 export const runtime = 'nodejs';
@@ -298,7 +299,7 @@ async function handleAutomationsRun(request) {
   } catch (error) { return errorResponse(error.message, 500); }
 }
 
-/* ═══════════════════ AI CHAT (AUDIO DIRECT) ═══════════════════ */
+/* ═══════════════════ AI CHAT (TEXTE + AUDIO + IMAGE) ═══════════════════ */
 
 async function handleAIChat(request) {
   try {
@@ -311,6 +312,7 @@ async function handleAIChat(request) {
 
     const lastUserMessage = messages[messages.length - 1].content.toLowerCase();
     const wantsAudio = /audio|voix|vocal/i.test(lastUserMessage);
+    const wantsImage = /génère.*image|crée.*image|dessine|fais.*image|génère.*photo|crée.*photo/i.test(lastUserMessage);
 
     const [userDoc, incomesSnap, expensesSnap, goalsSnap] = await Promise.all([
       adminDb.collection('users').doc(uid).get(),
@@ -391,6 +393,7 @@ RÈGLES DE FORMATAGE ABSOLUES (SOUS PEINE DE REJET) :
 4. Pour mettre en valeur une idée, écris le mot EN MAJUSCULES. Par exemple : "C'est très IMPORTANT."
 5. Ne salue PAS à chaque message. Va directement au but.
 6. ⚠️ SI L'UTILISATEUR MENTIONNE LE MOT "AUDIO", "VOIX" OU "VOCAL" : Ne lui donne PAS de tutoriel sur comment faire de l'audio. Réponds simplement à sa question de manière naturelle et complète.
+7. ⚠️ SI L'UTILISATEUR DEMANDE DE GÉNÉRER UNE IMAGE (mots-clés : "génère", "crée", "dessine", "fais une image/photo") : Ne génère PAS de texte, le système s'occupe de créer l'image.
 
 DONNÉES ACTUELLES DE L'UTILISATEUR :
 ${userContext}`;
@@ -400,11 +403,24 @@ ${userContext}`;
       content: String(m.content || '').slice(0, 500),
     }));
 
+    // 🟢 Si l'utilisateur veut une image, on génère directement l'image
+    if (wantsImage) {
+      try {
+        const imageUrl = await generateImageWithPollinations(lastUserMessage);
+        return NextResponse.json({ success: true, imageUrl, isImage: true });
+      } catch (imageError) {
+        console.error('Erreur génération image:', imageError.message);
+        return NextResponse.json({ success: false, error: 'Impossible de générer l\'image.' }, { status: 500 });
+      }
+    }
+
+    // Sinon, on fait l'appel texte normal
     const reply = await chatWithGroq([
       { role: 'system', content: SYSTEM_PROMPT },
       ...trimmedHistory,
     ], { maxTokens: 1000, temperature: 0.3, tools });
 
+    // 🟢 Si l'utilisateur veut de l'audio, on génère l'audio
     if (wantsAudio) {
       try {
         const audioBase64 = await generateAudioWithGemini(reply);
@@ -415,6 +431,7 @@ ${userContext}`;
       }
     }
 
+    // Sinon, on renvoie le texte normal
     return NextResponse.json({ success: true, reply });
   } catch (error) {
     console.error('[API] AI chat error:', error.message);
