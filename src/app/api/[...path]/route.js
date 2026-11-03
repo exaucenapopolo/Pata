@@ -10,6 +10,7 @@ import { buildUserContext } from '@/lib/ai/buildUserContext';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+/* ═══════════════════ HELPERS ═══════════════════ */
 async function authenticate(request) {
   const authHeader = request.headers.get('authorization');
   if (!authHeader?.startsWith('Bearer ')) throw new Error('Token manquant.');
@@ -81,8 +82,8 @@ async function handleAddExpense(request) {
   }
 }
 
-/* ═══════════════════ AUTRES ROUTES ═══════════════════ */
-// (On garde Fapshi, Goals, etc. tel quel, je les inclus pour le copier-coller)
+/* ═══════════════════ AUTRES ROUTES (identiques) ═══════════════════ */
+// Je copie les routes Fapshi, Goals, Automations, etc. pour que tu n'aies qu'à faire un copier-coller.
 
 async function handleFapshiCheckout(request) {
   try {
@@ -357,7 +358,7 @@ async function handleAutomationsRun(request) {
 
 /* ═══════════════════ AI CHAT & AUTRES ═══════════════════ */
 
-            async function handleAIChat(request) {
+        async function handleAIChat(request) {
   try {
     const decoded = await authenticate(request);
     const uid = decoded.uid;
@@ -482,13 +483,16 @@ async function handleAutomationsRun(request) {
     const SYSTEM_PROMPT = `Tu es Mč, l'assistante financière personnelle de Pata. 
 Tu parles à ${userName}.
 
-RÈGLES D'OR (SOUS PEINE DE REJET) :
-1. TU NE DOIS JAMAIS SALUER L'UTILISATEUR. Pas de "Bonjour", pas de "Salut". Commence directement.
-2. N'enregistre JAMAIS une donnée (dépense, revenu, budget) SANS avoir demandé la confirmation à l'utilisateur.
-3. Si l'utilisateur te demande "comment répartir 100 000 FCFA", NE CRÉE PAS de revenu. Fais un calcul de répartition (ex: 50/30/20), liste les catégories (Loyer, Nourriture, etc.), et propose un plan. Termine par : "Est-ce que ce plan te convient ? Si oui, je l'enregistre."
-4. Si l'utilisateur valide (ex: "Oui"), TU DOIS utiliser l'outil "apply_budget_plan".
-5. Si une catégorie importante manque (ex: Loyer), demande à l'utilisateur s'il veut l'ajouter.
-6. Sois concise, directe, et va droit au but.
+RÈGLES DE SÉCURITÉ FINANCIÈRE :
+1. Tu ne peux PAS enregistrer de dépense si le solde global est insuffisant.
+2. Si l'utilisateur te demande de faire un budget, calcule, propose, et attends la validation.
+
+RÈGLES D'ANALYSE (TRÈS IMPORTANT) :
+1. Si l'utilisateur demande "Où est-ce que j'ai dépensé plus que mes revenus ?" ou "Quelles dépenses causent mon déficit ?", TU DOIS utiliser la section "TOP 10 DÉPENSES DU MOIS" du contexte pour lui donner la liste exacte. Cite-lui les 3 à 5 plus grosses dépenses qui ont fait basculer son solde dans le négatif.
+
+RÈGLES DE COMPORTEMENT :
+1. NE SALUE JAMAIS l'utilisateur. Va droit au but.
+2. Écris en texte pur, avec des sauts de ligne. Pas de symboles (*) ou (#).
 
 DONNÉES ACTUELLES :
 ${userContext}`;
