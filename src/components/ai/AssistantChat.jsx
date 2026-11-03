@@ -13,6 +13,7 @@ import { createExpense } from '@/lib/firestore/expenses';
 import { createIncome } from '@/lib/firestore/incomes';
 import { createGoal } from '@/lib/firestore/goals';
 import { createAutomation } from '@/lib/firestore/automations';
+import { upsertBudget } from '@/lib/firestore/budgets';
 
 const SUGGESTIONS = [
   "Quel est mon bilan financier ?",
@@ -21,6 +22,7 @@ const SUGGESTIONS = [
   "Ajoute une dépense de 2000 FCFA pour le transport",
   "Crée un objectif d'épargne de 50 000 FCFA pour Noël",
   "Programme 500 FCFA de transport chaque jour",
+  "J'ai 100 000 FCFA de revenus, aide-moi à faire un budget",
 ];
 
 const MENTIONS = [
@@ -168,6 +170,36 @@ export function AssistantChat({ open, onClose }) {
           month: new Date().toISOString().slice(0, 7),
         });
         return `J'ai bien ajouté ton revenu "${args.source}" de ${args.amount} FCFA.`;
+      }
+
+      // 🟢 NOUVEL OUTIL : Enregistrement du plan budgétaire
+      if (name === 'apply_budget_plan') {
+        const { budgetName, totalIncome, plan } = args;
+        const currentMonth = new Date().toISOString().slice(0, 7);
+
+        // 1. Créer le revenu associé
+        const incomeRes = await createIncome(user.uid, {
+          amount: totalIncome,
+          source: budgetName,
+          categoryId: 'salary', // par défaut
+          note: 'Créé via le plan budgétaire',
+          date: new Date().toISOString().slice(0, 10),
+          month: currentMonth,
+        });
+
+        const newIncomeId = incomeRes.id;
+
+        // 2. Créer les budgets
+        for (const item of plan) {
+          await upsertBudget(user.uid, {
+            categoryId: item.categoryId,
+            amount: item.amount,
+            month: currentMonth,
+            incomeSourceId: newIncomeId,
+          });
+        }
+
+        return `J'ai enregistré ton budget "${budgetName}" de ${totalIncome} FCFA et réparti les montants dans tes catégories.`;
       }
 
       if (name === 'create_goal') {
