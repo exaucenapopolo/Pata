@@ -29,11 +29,10 @@ const todayMonth = () => {
 };
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
-// 🟢 Catégories vitales avec support de fréquence
 const VITAL_CATEGORIES = [
   { id: 'food', label: 'Nourriture', icon: '🍽️' },
   { id: 'transport', label: 'Transport', icon: '🚌' },
-  { id: 'housing', label: 'Logement', icon: '🏠' },
+  { id: 'housing', label: 'Loyer', icon: '🏠' },
   { id: 'telecom', label: 'Télécom/Internet', icon: '📱' },
   { id: 'other', label: 'Autres besoins', icon: '📦' },
 ];
@@ -63,9 +62,11 @@ export default function IncomePage() {
   const [selectedIncomeToApply, setSelectedIncomeToApply] = useState('all');
   const [deleteId, setDeleteId] = useState(null);
 
-  // 🟢 Prévisions vitales
+  // 🟢 Nouveaux états pour les prévisions
   const [vitalOpen, setVitalOpen] = useState(false);
   const [vitalForm, setVitalForm] = useState({});
+  const [budgetName, setBudgetName] = useState('');
+  const [totalBudget, setTotalBudget] = useState('');
   const [savingVital, setSavingVital] = useState(false);
 
   const incomesWithBalance = useMemo(() => {
@@ -84,10 +85,9 @@ export default function IncomePage() {
   const totalIncome = monthIncomes.reduce((s, i) => s + (i.amount || 0), 0);
   const breakdown = useMemo(() => computeBudgetBreakdown(totalIncome, rules), [totalIncome, rules]);
 
-  // 🟢 Calcul des prévisions vitales
+  // 🟢 Calculs dynamiques des prévisions
   const vitalNeeds = profile?.vitalNeeds || {};
   
-  // Calcul du total mensuel basé sur les fréquences
   const totalVitalMonthly = useMemo(() => {
     let total = 0;
     VITAL_CATEGORIES.forEach(cat => {
@@ -100,8 +100,7 @@ export default function IncomePage() {
     return total;
   }, [vitalNeeds]);
 
-  const vitalGap = totalVitalMonthly - totalAvailable;
-  const vitalCovered = totalVitalMonthly > 0 && totalAvailable >= totalVitalMonthly;
+  const isOverBudget = totalBudget && totalVitalMonthly > Number(totalBudget);
 
   const openVitalModal = () => {
     const initial = {};
@@ -113,6 +112,8 @@ export default function IncomePage() {
       };
     });
     setVitalForm(initial);
+    setBudgetName(profile?.vitalBudgetName || 'Budget mensuel');
+    setTotalBudget(profile?.vitalTotalBudget || '');
     setVitalOpen(true);
   };
 
@@ -124,21 +125,39 @@ export default function IncomePage() {
       VITAL_CATEGORIES.forEach(k => { 
         const val = vitalForm[k.id];
         if (val && val.amount && Number(val.amount) > 0) {
-          cleaned[k.id] = { 
-            amount: Number(val.amount), 
-            frequency: val.frequency || 'monthly' 
-          };
+          cleaned[k.id] = { amount: Number(val.amount), frequency: val.frequency };
         }
       });
-      await save({ vitalNeeds: cleaned });
+      
+      await save({ 
+        vitalNeeds: cleaned,
+        vitalBudgetName: budgetName,
+        vitalTotalBudget: Number(totalBudget) || 0
+      });
+      
       setVitalOpen(false);
     } finally { setSavingVital(false); }
   };
 
+  // 🟢 Transformer les prévisions en Revenu + Budgets
   const applyVitalToBudget = async () => {
-    if (!totalVitalMonthly || !isValid) return;
+    if (!totalVitalMonthly) return;
     setSavingApplied(true);
     try {
+      const currentMonth = todayMonth();
+      const sourceName = budgetName || 'Budget Prévisionnel';
+      
+      // 1. Créer le revenu
+      const incomeRes = await createIncome(user.uid, {
+        amount: Number(totalBudget) || totalVitalMonthly,
+        source: sourceName,
+        categoryId: 'salary',
+        note: 'Généré depuis les prévisions vitales',
+        date: todayIso(),
+        month: currentMonth,
+      });
+
+      // 2. Créer les budgets
       for (const cat of VITAL_CATEGORIES) {
         const need = vitalNeeds[cat.id];
         if (need && need.amount) {
@@ -148,16 +167,19 @@ export default function IncomePage() {
             await upsertBudget(user.uid, {
               categoryId: cat.id,
               amount: Math.round(monthlyAmount),
-              month,
-              incomeSourceId: selectedIncomeToApply,
+              month: currentMonth,
+              incomeSourceId: incomeRes.id,
             });
           }
         }
       }
-      setApplied(true);
+      alert('Prévisions enregistrées avec succès comme Revenu et Budgets !');
+    } catch (err) {
+      alert('Erreur: ' + err.message);
     } finally { setSavingApplied(false); }
   };
 
+  // ... (Le reste des fonctions onSubmit, onSaveRules, etc. est identique)
   const onSubmit = async (e) => {
     e.preventDefault(); setError('');
     const amount = Number(form.amount);
@@ -198,6 +220,7 @@ export default function IncomePage() {
 
   return (
     <div className="space-y-4">
+      {/* ... (L'en-tête, les cartes de revenus et les règles sont identiques) ... */}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Revenus</h1>
@@ -208,63 +231,67 @@ export default function IncomePage() {
         <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm" />
       </div>
 
-      <Card className={vitalCovered ? 'border-brand-200' : totalVitalMonthly > 0 ? 'border-amber-200' : ''}>
+      <Card className={totalVitalMonthly > 0 && Number(totalBudget) >= totalVitalMonthly ? 'border-brand-200' : isOverBudget ? 'border-red-200' : ''}>
         <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Calculator size={16} className="text-slate-400" />
             <CardTitle>Prévisions Vitales</CardTitle>
           </div>
           <Button size="sm" variant="outline" onClick={openVitalModal}>
-            <Pencil size={12} /> {totalVitalMonthly > 0 ? 'Modifier' : 'Calculer'}
+            <Pencil size={12} /> Configurer
           </Button>
         </div>
 
         {totalVitalMonthly === 0 ? (
           <p className="text-sm text-slate-500">
-            Dis-nous combien tu dépenses habituellement (par jour, semaine ou mois) pour chaque besoin. On calculera ton budget mensuel vital.
+            Calcule ton budget de survie (nourriture, transport, loyer, etc.) et transforme-le en revenus et budgets en un clic.
           </p>
         ) : (
           <>
-            <ul className="space-y-2 mb-3">
-              {VITAL_CATEGORIES.map(k => {
-                const need = vitalNeeds[k.id];
-                if (!need || !need.amount) return null;
-                const freq = FREQUENCIES.find(f => f.id === need.frequency);
-                const monthly = (need.amount || 0) * (freq ? freq.multiplier : 1);
-                return (
-                  <li key={k.id} className="flex items-center justify-between text-sm">
-                    <span className="text-slate-600">{k.icon} {k.label} <span className="text-xs text-slate-400">({need.amount} / {freq?.label.toLowerCase()})</span></span>
-                    <span className="font-medium text-slate-800">{formatCurrency(Math.round(monthly))}/mois</span>
-                  </li>
-                );
-              })}
-            </ul>
-            <div className="border-t border-slate-200 pt-3 space-y-1.5">
-              <div className="flex justify-between text-sm"><span className="text-slate-600">Total besoins mensuels</span><span className="font-bold text-slate-900">{formatCurrency(totalVitalMonthly)}</span></div>
-              <div className="flex justify-between text-sm"><span className="text-slate-600">Revenus disponibles</span><span className="font-bold text-brand-600">{formatCurrency(totalAvailable)}</span></div>
-              
-              {vitalCovered ? (
-                <div className="mt-2 flex items-start gap-2 rounded-lg bg-brand-50 p-2">
-                  <CheckCircle2 size={14} className="mt-0.5 shrink-0 text-brand-600" />
-                  <p className="text-xs text-brand-700">Tu couvres tes besoins vitaux. Il te reste <strong>{formatCurrency(totalAvailable - totalVitalMonthly)}</strong> pour épargner ou investir.</p>
-                </div>
-              ) : (
-                <div className="mt-2 flex items-start gap-2 rounded-lg bg-red-50 p-2">
-                  <AlertTriangle size={14} className="mt-0.5 shrink-0 text-red-600" />
-                  <p className="text-xs text-red-700">Il te manque <strong>{formatCurrency(vitalGap)}</strong> pour vivre. Cherche à augmenter tes revenus.</p>
-                </div>
-              )}
+            <div className="mb-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
+              <div className="flex justify-between items-center mb-2">
+                <span className="font-semibold text-slate-800">{profile?.vitalBudgetName || 'Budget'}</span>
+                <span className="text-sm font-bold text-slate-800">{formatCurrency(Number(totalBudget))}</span>
+              </div>
+              <ul className="space-y-1">
+                {VITAL_CATEGORIES.map(k => {
+                  const need = vitalNeeds[k.id];
+                  if (!need || !need.amount) return null;
+                  const freq = FREQUENCIES.find(f => f.id === need.frequency);
+                  const monthly = (need.amount || 0) * (freq ? freq.multiplier : 1);
+                  return (
+                    <li key={k.id} className="flex justify-between text-xs text-slate-600">
+                      <span>{k.icon} {k.label}</span>
+                      <span>{formatCurrency(Math.round(monthly))}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+              <div className="border-t border-slate-200 mt-2 pt-2 flex justify-between text-sm font-bold">
+                <span>Total prévisions</span>
+                <span className={isOverBudget ? 'text-red-600' : 'text-brand-600'}>
+                  {formatCurrency(totalVitalMonthly)}
+                </span>
+              </div>
             </div>
 
-            <div className="mt-4">
-              <Button onClick={applyVitalToBudget} className="w-full" variant="outline" disabled={savingApplied}>
-                <ArrowRight size={14} /> {savingApplied ? 'Application...' : 'Appliquer aux budgets du mois'}
-              </Button>
-            </div>
+            {isOverBudget && (
+              <div className="flex items-start gap-2 rounded-lg bg-red-50 p-3 border border-red-200 mb-3">
+                <AlertTriangle size={16} className="mt-0.5 shrink-0 text-red-600" />
+                <p className="text-xs text-red-700">
+                  Tes prévisions dépassent ton budget total de <strong>{formatCurrency(totalVitalMonthly - Number(totalBudget))}</strong>. Réduis certaines catégories ou augmente ton budget total.
+                </p>
+              </div>
+            )}
+
+            <Button onClick={applyVitalToBudget} className="w-full" disabled={savingApplied || isOverBudget}>
+              <ArrowRight size={14} /> {savingApplied ? 'Enregistrement...' : 'Transformer en Revenu & Budgets'}
+            </Button>
           </>
         )}
       </Card>
 
+      {/* ... (Le reste de la page : sources de revenus, règles, modals) ... */}
       <Card>
         <div className="mb-3 flex items-center justify-between">
           <CardTitle>Toutes mes sources de revenus</CardTitle>
@@ -353,7 +380,7 @@ export default function IncomePage() {
         </Card>
       )}
 
-       <Modal open={open} onClose={() => setOpen(false)} title="Nouveau revenu">
+      <Modal open={open} onClose={() => setOpen(false)} title="Nouveau revenu">
         <form onSubmit={onSubmit} className="space-y-3">
           <Input label="Montant (FCFA)" type="number" min="0" step="1" required value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
           <div>
@@ -370,8 +397,27 @@ export default function IncomePage() {
         </form>
       </Modal>
 
-      <Modal open={vitalOpen} onClose={() => setVitalOpen(false)} title="Calculer mes besoins vitaux">
+      {/* 🟢 NOUVELLE MODALE DES PRÉVISIONS */}
+      <Modal open={vitalOpen} onClose={() => setVitalOpen(false)} title="Calculer mes prévisions">
         <form onSubmit={onSaveVital} className="space-y-4">
+          <div className="grid grid-cols-2 gap-2">
+            <Input 
+              label="Nom du budget" 
+              placeholder="Ex: Salaire Novembre" 
+              value={budgetName} 
+              onChange={(e) => setBudgetName(e.target.value)} 
+              required
+            />
+            <Input 
+              label="Budget total alloué" 
+              type="number" 
+              placeholder="Ex: 100000" 
+              value={totalBudget} 
+              onChange={(e) => setTotalBudget(e.target.value)} 
+              required
+            />
+          </div>
+
           <p className="text-xs text-slate-500">Dis-nous combien tu dépenses pour chaque catégorie et à quelle fréquence.</p>
           
           {VITAL_CATEGORIES.map(k => {
@@ -403,18 +449,23 @@ export default function IncomePage() {
             );
           })}
 
-          <div className="rounded-xl bg-brand-50 p-3 text-sm border border-brand-100">
+          <div className={`rounded-xl p-3 text-sm border ${isOverBudget ? 'bg-red-50 border-red-200' : 'bg-brand-50 border-brand-100'}`}>
             <div className="flex justify-between items-center mb-1">
-              <span className="text-brand-800 font-medium">Total mensuel estimé :</span>
-              <strong className="text-brand-800 text-lg">{formatCurrency(totalVitalMonthly)}</strong>
+              <span className="font-medium">Total prévisions (mensuel) :</span>
+              <strong className={isOverBudget ? 'text-red-700' : 'text-brand-800'}>{formatCurrency(totalVitalMonthly)}</strong>
             </div>
+            {totalBudget && (
+              <p className={`text-xs ${isOverBudget ? 'text-red-600' : 'text-brand-600'}`}>
+                {isOverBudget ? `Dépassement de ${formatCurrency(totalVitalMonthly - Number(totalBudget))}` : `Il te reste ${formatCurrency(Number(totalBudget) - totalVitalMonthly)}`}
+              </p>
+            )}
           </div>
 
-          <Button type="submit" className="w-full" disabled={savingVital}>{savingVital ? 'Calcul...' : 'Enregistrer mes prévisions'}</Button>
+          <Button type="submit" className="w-full" disabled={savingVital}>{savingVital ? 'Calcul...' : 'Enregistrer les prévisions'}</Button>
         </form>
       </Modal>
 
-      <ConfirmDialog open={!!deleteId} onClose={() => setDeleteId(null)} onConfirm={handleDelete} title="Supprimer ce revenu ?" message="Cette action est irréversible. Les dépenses liées ne seront pas supprimées." confirmWord="SUPPRIMER" confirmLabel="Supprimer" variant="danger" />
+      <ConfirmDialog open={!!deleteId} onClose={() => setDeleteId(null)} onConfirm={handleDelete} title="Supprimer ce revenu ?" message="Cette action est irréversible." confirmWord="SUPPRIMER" confirmLabel="Supprimer" variant="danger" />
     </div>
   );
-                                                                                                                    }
+        }
