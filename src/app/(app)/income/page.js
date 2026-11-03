@@ -4,7 +4,8 @@
 import { useMemo, useState } from 'react';
 import {
   Plus, Trash2, TrendingUp, CheckCircle2, Landmark, Save, RotateCcw, Percent,
-  PiggyBank, Target, Pencil, AlertTriangle, Calculator, CalendarDays, ArrowRight
+  PiggyBank, Target, Pencil, AlertTriangle, Calculator, CalendarDays, ArrowRight,
+  Check, X
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -23,11 +24,10 @@ import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { createIncome, deleteIncome } from '@/lib/firestore/incomes';
 import { upsertBudget } from '@/lib/firestore/budgets';
 import { computeBudgetBreakdown } from '@/lib/budgetRules';
-// 🟢 CORRECTION : Ajout de EXPENSE_CATEGORIES
 import { INCOME_CATEGORIES, EXPENSE_CATEGORIES } from '@/lib/constants';
-import { formatCurrency, formatDate, resolveCategory } from '@/lib/utils';
+import { formatCurrency, formatDate } from '@/lib/utils';
 
-// 🟢 CORRECTION DES DATES LOCALES
+// 🟢 DATES LOCALES (Pas de décalage UTC)
 const todayMonth = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -63,11 +63,13 @@ export default function IncomePage() {
   const [selectedIncomeToApply, setSelectedIncomeToApply] = useState('all');
   const [deleteId, setDeleteId] = useState(null);
 
+  // 🟢 États des prévisions
   const [vitalOpen, setVitalOpen] = useState(false);
   const [vitalForm, setVitalForm] = useState({});
   const [budgetName, setBudgetName] = useState('');
   const [totalBudget, setTotalBudget] = useState('');
   const [savingVital, setSavingVital] = useState(false);
+  const [showVerification, setShowVerification] = useState(false); // Pour le bouton "Vérifier"
 
   const incomesWithBalance = useMemo(() => {
     return incomes.map((inc) => {
@@ -87,13 +89,13 @@ export default function IncomePage() {
 
   const vitalNeeds = profile?.vitalNeeds || {};
   const allCategories = useMemo(() => {
-    // 🟢 Utilise maintenant EXPENSE_CATEGORIES importé
     const defaults = EXPENSE_CATEGORIES.map(c => ({...c, isCustom: false}));
     const customs = customCategories.map(c => ({...c, isCustom: true, label: c.name}));
     return [...defaults, ...customs];
   }, [customCategories]);
 
-  const totalVitalMonthly = useMemo(() => {
+  // 🟢 Calcul du total des prévisions ENREGISTRÉES
+  const savedTotalVital = useMemo(() => {
     let total = 0;
     allCategories.forEach(cat => {
       const need = vitalNeeds[cat.id];
@@ -105,7 +107,21 @@ export default function IncomePage() {
     return total;
   }, [vitalNeeds, allCategories]);
 
-  const isOverBudget = totalBudget && totalVitalMonthly > Number(totalBudget);
+  // 🟢 Calcul du total des prévisions EN COURS DE SAISIE (Temps réel dans la modale)
+  const draftTotalVital = useMemo(() => {
+    let total = 0;
+    allCategories.forEach(cat => {
+      const val = vitalForm[cat.id];
+      if (val && val.amount && Number(val.amount) > 0) {
+        const freq = FREQUENCIES.find(f => f.id === val.frequency);
+        total += (Number(val.amount) || 0) * (freq ? freq.multiplier : 1);
+      }
+    });
+    return total;
+  }, [vitalForm, allCategories]);
+
+  const isSavedOverBudget = totalBudget && savedTotalVital > Number(totalBudget);
+  const isDraftOverBudget = totalBudget && draftTotalVital > Number(totalBudget);
 
   const openVitalModal = () => {
     const initial = {};
@@ -119,11 +135,19 @@ export default function IncomePage() {
     setVitalForm(initial);
     setBudgetName(profile?.vitalBudgetName || 'Budget mensuel');
     setTotalBudget(profile?.vitalTotalBudget || '');
+    setShowVerification(false);
     setVitalOpen(true);
   };
 
   const onSaveVital = async (e) => {
     e.preventDefault();
+    
+    // 🟢 Si on clique sur "Enregistrer" et que c'est over budget, on bloque
+    if (isDraftOverBudget) {
+      setShowVerification(true);
+      return;
+    }
+
     setSavingVital(true);
     try {
       const cleaned = {};
@@ -150,14 +174,14 @@ export default function IncomePage() {
   };
 
   const applyVitalToBudget = async () => {
-    if (!totalVitalMonthly) return;
+    if (!savedTotalVital) return;
     setSavingApplied(true);
     try {
       const currentMonth = todayMonth();
       const sourceName = budgetName || 'Budget Prévisionnel';
       
       const incomeRes = await createIncome(user.uid, {
-        amount: Number(totalBudget) || totalVitalMonthly,
+        amount: Number(totalBudget) || savedTotalVital,
         source: sourceName,
         categoryId: 'salary',
         note: 'Généré depuis les prévisions vitales',
@@ -236,25 +260,26 @@ export default function IncomePage() {
         <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm" />
       </div>
 
-      <Card className={totalVitalMonthly > 0 && Number(totalBudget) >= totalVitalMonthly ? 'border-brand-200' : isOverBudget ? 'border-red-200' : ''}>
+      {/* 🟢 CARTE DES PRÉVISIONS ENREGISTRÉES */}
+      <Card className={savedTotalVital > 0 && Number(totalBudget) >= savedTotalVital ? 'border-brand-200' : isSavedOverBudget ? 'border-red-200' : ''}>
         <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Calculator size={16} className="text-slate-400" />
             <CardTitle>Prévisions Vitales</CardTitle>
           </div>
           <div className="flex items-center gap-2">
-            {totalVitalMonthly > 0 && (
+            {savedTotalVital > 0 && (
               <Button size="sm" variant="ghost" onClick={deleteVital} className="text-red-600 hover:bg-red-50 hover:text-red-700">
                 <Trash2 size={14} /> Supprimer
               </Button>
             )}
             <Button size="sm" variant="outline" onClick={openVitalModal}>
-              <Pencil size={12} /> {totalVitalMonthly > 0 ? 'Modifier' : 'Configurer'}
+              <Pencil size={12} /> {savedTotalVital > 0 ? 'Modifier' : 'Configurer'}
             </Button>
           </div>
         </div>
 
-        {totalVitalMonthly === 0 ? (
+        {savedTotalVital === 0 ? (
           <p className="text-sm text-slate-500">
             Calcule ton budget de survie (nourriture, transport, loyer, etc.) et transforme-le en revenus et budgets en un clic.
           </p>
@@ -284,22 +309,22 @@ export default function IncomePage() {
               </ul>
               <div className="border-t border-slate-200 mt-2 pt-2 flex justify-between text-sm font-bold">
                 <span>Total prévisions</span>
-                <span className={isOverBudget ? 'text-red-600' : 'text-brand-600'}>
-                  {formatCurrency(totalVitalMonthly)}
+                <span className={isSavedOverBudget ? 'text-red-600' : 'text-brand-600'}>
+                  {formatCurrency(savedTotalVital)}
                 </span>
               </div>
             </div>
 
-            {isOverBudget && (
+            {isSavedOverBudget && (
               <div className="flex items-start gap-2 rounded-lg bg-red-50 p-3 border border-red-200 mb-3">
                 <AlertTriangle size={16} className="mt-0.5 shrink-0 text-red-600" />
                 <p className="text-xs text-red-700">
-                  Tes prévisions dépassent ton budget total de <strong>{formatCurrency(totalVitalMonthly - Number(totalBudget))}</strong>. Réduis certaines catégories ou augmente ton budget total.
+                  Tes prévisions dépassent ton budget total de <strong>{formatCurrency(savedTotalVital - Number(totalBudget))}</strong>. Modifie tes prévisions pour rentrer dans ton budget.
                 </p>
               </div>
             )}
 
-            <Button onClick={applyVitalToBudget} className="w-full" disabled={savingApplied || isOverBudget}>
+            <Button onClick={applyVitalToBudget} className="w-full" disabled={savingApplied || isSavedOverBudget}>
               <ArrowRight size={14} /> {savingApplied ? 'Enregistrement...' : 'Transformer en Revenu & Budgets'}
             </Button>
           </>
@@ -375,7 +400,7 @@ export default function IncomePage() {
       </Card>
 
       {totalIncome > 0 && breakdown.length > 0 && (
-        <Card>
+         <Card>
           <div className="mb-3 flex items-center justify-between">
             <CardTitle>Appliquer aux budgets</CardTitle>
             {applied && (<span className="flex items-center gap-1 text-xs font-medium text-brand-600"><CheckCircle2 size={14} /> Appliqué</span>)}
@@ -411,6 +436,7 @@ export default function IncomePage() {
         </form>
       </Modal>
 
+      {/* 🟢 MODALE DES PRÉVISIONS AVEC CALCUL EN TEMPS RÉEL */}
       <Modal open={vitalOpen} onClose={() => setVitalOpen(false)} title="Calculer mes prévisions">
         <form onSubmit={onSaveVital} className="space-y-4">
           <div className="grid grid-cols-2 gap-2">
@@ -426,14 +452,14 @@ export default function IncomePage() {
               type="number" 
               placeholder="Ex: 100000" 
               value={totalBudget} 
-              onChange={(e) => setTotalBudget(e.target.value)} 
+              onChange={(e) => { setTotalBudget(e.target.value); setShowVerification(false); }} 
               required
             />
           </div>
 
-          <p className="text-xs text-slate-500">Sélectionne tes dépenses fréquentes.</p>
+          <p className="text-xs text-slate-500">Sélectionne tes dépenses fréquentes. Le total se calcule en direct.</p>
           
-          <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-2">
+          <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-2">
             {allCategories.map(k => {
               const val = vitalForm[k.id] || { amount: '', frequency: 'monthly' };
               return (
@@ -448,7 +474,7 @@ export default function IncomePage() {
                       type="number" 
                       min="0" 
                       value={val.amount} 
-                      onChange={(e) => setVitalForm({ ...vitalForm, [k.id]: { ...val, amount: e.target.value } })}
+                      onChange={(e) => { setVitalForm({ ...vitalForm, [k.id]: { ...val, amount: e.target.value } }); setShowVerification(false); }}
                       placeholder="0"
                     />
                     <div>
@@ -467,23 +493,57 @@ export default function IncomePage() {
             })}
           </div>
 
-          <div className={`rounded-xl p-3 text-sm border ${isOverBudget ? 'bg-red-50 border-red-200' : 'bg-brand-50 border-brand-100'}`}>
+          {/* 🟢 TOTAL EN TEMPS RÉEL */}
+          <div className={`rounded-xl p-3 text-sm border ${isDraftOverBudget ? 'bg-red-50 border-red-200' : 'bg-brand-50 border-brand-100'}`}>
             <div className="flex justify-between items-center mb-1">
               <span className="font-medium">Total prévisions (mensuel) :</span>
-              <strong className={isOverBudget ? 'text-red-700' : 'text-brand-800'}>{formatCurrency(totalVitalMonthly)}</strong>
+              <strong className={isDraftOverBudget ? 'text-red-700' : 'text-brand-800'}>{formatCurrency(draftTotalVital)}</strong>
             </div>
             {totalBudget && (
-              <p className={`text-xs ${isOverBudget ? 'text-red-600' : 'text-brand-600'}`}>
-                {isOverBudget ? `Dépassement de ${formatCurrency(totalVitalMonthly - Number(totalBudget))}` : `Il te reste ${formatCurrency(Number(totalBudget) - totalVitalMonthly)}`}
+              <p className={`text-xs ${isDraftOverBudget ? 'text-red-600' : 'text-brand-600'}`}>
+                {isDraftOverBudget 
+                  ? `Attention, tu dépasses ton budget de ${formatCurrency(draftTotalVital - Number(totalBudget))}` 
+                  : `Il te reste ${formatCurrency(Number(totalBudget) - draftTotalVital)}`}
               </p>
             )}
           </div>
 
-          <Button type="submit" className="w-full" disabled={savingVital}>{savingVital ? 'Calcul...' : 'Enregistrer les prévisions'}</Button>
+          {/* 🟢 ALERTE SI ON DÉPASSE (après vérification) */}
+          {showVerification && isDraftOverBudget && (
+            <div className="rounded-xl border border-red-300 bg-red-100 p-3">
+              <p className="text-sm font-bold text-red-800 flex items-center gap-2">
+                <AlertTriangle size={16} /> Budget dépassé !
+              </p>
+              <p className="text-xs text-red-700 mt-1">
+                Tes prévisions dépassent ton budget total de <strong>{formatCurrency(draftTotalVital - Number(totalBudget))}</strong>.
+              </p>
+              <p className="text-xs text-red-700 mt-1">
+                <strong>Suggestion :</strong> Essaie de réduire les loisirs, les sorties, ou les "autres dépenses" pour rentrer dans ton budget.
+              </p>
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <Button 
+              type="button" 
+              variant="outline"
+              onClick={() => setShowVerification(true)}
+              className="flex-1"
+            >
+              Vérifier le budget
+            </Button>
+            <Button 
+              type="submit" 
+              className="flex-1" 
+              disabled={savingVital || (showVerification && isDraftOverBudget)}
+            >
+              {savingVital ? 'Enregistrement...' : (showVerification && isDraftOverBudget ? 'Corrige d\'abord' : 'Enregistrer')}
+            </Button>
+          </div>
         </form>
       </Modal>
 
       <ConfirmDialog open={!!deleteId} onClose={() => setDeleteId(null)} onConfirm={handleDelete} title="Supprimer ce revenu ?" message="Cette action est irréversible." confirmWord="SUPPRIMER" confirmLabel="Supprimer" variant="danger" />
     </div>
   );
-        }
+            }
