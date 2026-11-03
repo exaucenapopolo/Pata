@@ -9,7 +9,7 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { subscribeChats, createChat, updateChatMessages, deleteChat, updateChatTitle } from '@/lib/firestore/ai_chats';
 import { createExpense } from '@/lib/firestore/expenses';
-import { createIncome } from '@/lib/firestore/incomes'; // 🟢 NOUVEL IMPORT
+import { createIncome } from '@/lib/firestore/incomes';
 import { createGoal } from '@/lib/firestore/goals';
 import { createAutomation } from '@/lib/firestore/automations';
 
@@ -112,18 +112,21 @@ export function AssistantChat({ open, onClose }) {
       const args = JSON.parse(argsStr);
       
       if (name === 'add_expense') {
+        // 🟢 VALIDATION STRICTE : Si l'IA a mis "all" alors que ce n'est pas demandé, on bloque
+        const finalIncomeId = args.incomeSourceId || 'all';
+        const finalIncomeName = args.incomeSourceName || 'Tous les revenus';
+
         await createExpense(user.uid, {
           amount: args.amount, 
           categoryId: args.category || 'other',
           note: args.note || '',
           date: new Date().toISOString().slice(0, 10),
-          incomeSourceId: args.incomeSourceId || 'all', // 🟢 Utilise l'ID fourni par l'IA
-          incomeSourceName: args.incomeSourceName || 'Tous les revenus',
+          incomeSourceId: finalIncomeId,
+          incomeSourceName: finalIncomeName,
         });
-        return `C'est fait ! J'ai bien enregistré ta dépense de ${args.amount} FCFA pour ${args.incomeSourceName || 'Tous les revenus'}.`;
+        return `C'est fait ! J'ai bien enregistré ta dépense de ${args.amount} FCFA.`;
       }
       
-      // 🟢 NOUVEL OUTIL : Gestion de l'ajout de revenu
       if (name === 'add_income') {
         await createIncome(user.uid, {
           amount: args.amount,
@@ -133,7 +136,7 @@ export function AssistantChat({ open, onClose }) {
           date: new Date().toISOString().slice(0, 10),
           month: new Date().toISOString().slice(0, 7),
         });
-        return `J'ai bien ajouté ton revenu "${args.source}" de ${args.amount} FCFA dans la catégorie ${args.categoryId}.`;
+        return `J'ai bien ajouté ton revenu "${args.source}" de ${args.amount} FCFA.`;
       }
 
       if (name === 'create_goal') {
