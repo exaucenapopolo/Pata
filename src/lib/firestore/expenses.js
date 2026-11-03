@@ -1,29 +1,32 @@
-import {
-  collection, addDoc, updateDoc, deleteDoc, doc,
-  onSnapshot, query, orderBy, serverTimestamp,
-} from 'firebase/firestore';
-import { db } from '@/lib/firebase/client';
+import { auth } from '@/lib/firebase/client';
 
-const col = (uid) => collection(db, 'users', uid, 'expenses');
-
-export function subscribeExpenses(uid, cb) {
-  const q = query(col(uid), orderBy('date', 'desc'));
-  return onSnapshot(q, (snap) => {
-    cb(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-  });
-}
-
+// 🟢 La création passe par une API sécurisée pour vérifier les fonds
 export async function createExpense(uid, data) {
-  return addDoc(col(uid), {
-    amount: Number(data.amount),
-    categoryId: data.categoryId,
-    date: data.date,
-    note: data.note || '',
-    incomeSourceId: data.incomeSourceId || 'all',
-    incomeSourceName: data.incomeSourceName || 'Tous les revenus',
-    createdAt: serverTimestamp(),
+  const user = auth.currentUser;
+  if (!user) throw new Error('Utilisateur non connecté.');
+  
+  const token = await user.getIdToken();
+  
+  const res = await fetch('/api/expenses/add', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(data),
   });
+
+  const result = await res.json();
+  if (!res.ok || !result.success) {
+    throw new Error(result.error || 'Erreur lors de l\'enregistrement de la dépense.');
+  }
+  
+  return result;
 }
+
+// (On garde le reste tel quel pour la modification/suppression)
+import { updateDoc, deleteDoc, doc } from 'firebase/firestore';
+import { db } from '@/lib/firebase/client';
 
 export async function updateExpense(uid, id, patch) {
   await updateDoc(doc(db, 'users', uid, 'expenses', id), patch);
