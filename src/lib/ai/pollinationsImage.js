@@ -6,6 +6,7 @@ export async function generateImageWithPollinations(prompt) {
   // On encode le prompt pour l'URL
   const encodedPrompt = encodeURIComponent(prompt.slice(0, 500));
 
+  // 🟢 ENDPOINT CORRECT POUR L'API AUTHENTIFIÉE
   const url = `https://gen.pollinations.ai/image/${encodedPrompt}?model=flux&width=1024&height=1024&nologo=true`;
 
   const res = await fetch(url, {
@@ -17,11 +18,18 @@ export async function generateImageWithPollinations(prompt) {
 
   if (!res.ok) {
     const err = await res.text();
-    console.error('Pollinations Image Error:', err);
-    throw new Error('Erreur de génération d\'image avec Pollinations');
+    console.error('Pollinations Image Error:', res.status, err);
+    // On renvoie une erreur détaillée pour le frontend
+    if (res.status === 402) {
+      throw new Error('Crédit Pollinations épuisé. Vérifie ton solde Pollen sur enter.pollinations.ai.');
+    }
+    if (res.status === 401) {
+      throw new Error('Clé API Pollinations invalide. Vérifie ta variable POLLINATION_API_KEY.');
+    }
+    throw new Error(`Erreur Pollinations (${res.status}) : ${err.slice(0, 200)}`);
   }
 
-  // L'API renvoie directement l'image (binaire). On peut retourner l'URL
+  // L'API renvoie directement l'image (binaire). On retourne l'URL
   // car le navigateur pourra l'afficher directement.
   return url;
 }
