@@ -149,14 +149,16 @@ export function AssistantChat({ open, onClose }) {
       const args = JSON.parse(argsStr);
       
       if (name === 'add_expense') {
-        // 🟢 L'appel à createExpense passe par l'API qui vérifie les fonds.
-        // Si les fonds sont insuffisants, ça throw une erreur qu'on va catcher.
-        await createExpense(user.uid, {
-          amount: args.amount, categoryId: args.category || 'other',
-          note: args.note || '', date: new Date().toISOString().slice(0, 10),
-          incomeSourceId: args.incomeSourceId || 'all', incomeSourceName: args.incomeSourceName || 'Tous les revenus',
-        });
-        return `C'est fait ! J'ai bien enregistré ta dépense de ${args.amount} FCFA.`;
+        try {
+          await createExpense(user.uid, {
+            amount: args.amount, categoryId: args.category || 'other',
+            note: args.note || '', date: new Date().toISOString().slice(0, 10),
+            incomeSourceId: args.incomeSourceId || 'all', incomeSourceName: args.incomeSourceName || 'Tous les revenus',
+          });
+          return `C'est fait ! J'ai bien enregistré ta dépense de ${args.amount} FCFA.`;
+        } catch (err) {
+          return `ERREUR : ${err.message}`;
+        }
       }
       
       if (name === 'add_income') {
@@ -192,7 +194,6 @@ export function AssistantChat({ open, onClose }) {
 
       return "Action effectuée avec succès.";
     } catch (e) {
-      // 🟢 On renvoie l'erreur exacte (ex: "Fonds insuffisants") pour que l'IA la lise
       return `ERREUR : ${e.message}`;
     }
   };
