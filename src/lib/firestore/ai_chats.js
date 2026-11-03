@@ -1,5 +1,5 @@
 // src/lib/firestore/ai_chats.js
-import { collection, addDoc, updateDoc, doc, onSnapshot, query, orderBy, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, doc, onSnapshot, query, orderBy, serverTimestamp, deleteDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase/client';
 
 const col = (uid) => collection(db, 'users', uid, 'ai_chats');
@@ -21,8 +21,19 @@ export async function createChat(uid, firstMessage) {
 }
 
 export async function updateChatMessages(uid, chatId, messages) {
+  // 🟢 IMPORTANT : On retire l'audioData pour ne pas dépasser la limite de 1 Mo de Firestore
+  const safeMessages = messages.map(m => ({
+    role: m.role,
+    content: m.content,
+    wasAudio: m.wasAudio || false // On garde juste l'info que c'était un audio
+  }));
+
   await updateDoc(doc(db, 'users', uid, 'ai_chats', chatId), {
-    messages,
+    messages: safeMessages,
     updatedAt: serverTimestamp(),
   });
-    }
+}
+
+export async function deleteChat(uid, chatId) {
+  await deleteDoc(doc(db, 'users', uid, 'ai_chats', chatId));
+}
