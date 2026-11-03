@@ -12,7 +12,6 @@ export function subscribeExpenses(uid, cb) {
   });
 }
 
-// 🟢 SÉCURITÉ : On passe OBLIGATOIREMENT par l'API
 export async function createExpense(uid, data) {
   const user = auth.currentUser;
   if (!user) throw new Error('Utilisateur non connecté.');
@@ -30,7 +29,7 @@ export async function createExpense(uid, data) {
 
   const result = await res.json();
   if (!res.ok || !result.success) {
-    throw new Error(result.error || 'Erreur lors de l\'enregistrement.');
+    throw new Error(result.error || 'Erreur lors de l\'enregistrement de la dépense.');
   }
   
   return result;
