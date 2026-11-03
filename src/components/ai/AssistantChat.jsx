@@ -52,7 +52,7 @@ export function AssistantChat({ open, onClose }) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-  const [imageFile, setImageFile] = useState(null);
+  const [imageFile, setImageFile] = useState(null); // { file, base64, preview }
   const scrollRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -145,8 +145,12 @@ export function AssistantChat({ open, onClose }) {
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        const base64String = reader.result.split(',')[1];
-        setImageFile({ file, base64: base64String });
+        const base64String = reader.result; // On garde le Data URL pour l'aperçu
+        setImageFile({ 
+          file, 
+          base64: base64String.split(',')[1], // Pour l'API
+          preview: base64String // Pour l'affichage
+        });
       };
       reader.readAsDataURL(file);
     }
@@ -156,9 +160,12 @@ export function AssistantChat({ open, onClose }) {
     if ((!text.trim() && !imageFile) || loading) return;
     
     setLoading(true);
-    const userMsg = { role: 'user', content: text.trim() || 'Analyse cette image.' };
+    const userMsg = { 
+      role: 'user', 
+      content: text.trim() || 'Analyse cette image.',
+      imagePreview: imageFile?.preview // On sauvegarde l'aperçu pour l'afficher dans le chat
+    };
     
-    // 🟢 GESTION DE L'IMAGE
     if (imageFile) {
       const newMessages = [...messages, userMsg];
       setMessages(newMessages);
@@ -194,7 +201,6 @@ export function AssistantChat({ open, onClose }) {
       return;
     }
 
-    // 🟢 GESTION DU TEXTE ET DE L'AUDIO
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setInput('');
@@ -208,11 +214,10 @@ export function AssistantChat({ open, onClose }) {
       });
       const data = await res.json();
       
-      // Si c'est un audio
       if (data.isAudio && data.audio) {
         const botMsg = { 
           role: 'assistant', 
-          content: data.textReply, // On garde le texte pour l'historique
+          content: data.textReply, 
           audioData: data.audio, 
           wasAudio: true 
         };
@@ -229,7 +234,6 @@ export function AssistantChat({ open, onClose }) {
         return;
       }
 
-      // Si c'est du texte normal
       let finalReply = data.reply;
       
       try {
@@ -255,7 +259,7 @@ export function AssistantChat({ open, onClose }) {
     } catch (err) {
       setMessages([...newMessages, { role: 'assistant', content: "Désolée, j'ai eu une erreur technique." }]);
     } finally {
-      setLoading(false); // 🟢 TOUJOURS enlever le loader
+      setLoading(false);
     }
   };
 
@@ -285,11 +289,10 @@ export function AssistantChat({ open, onClose }) {
           </div>
         </div>
 
-        {/* 🟢 HISTORIQUE AMÉLIORÉ */}
         {showHistory && (
           <div className="absolute inset-0 z-10 bg-white p-4 overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold">Historique des conversations</h3>
+              <h3 className="font-bold">Historique</h3>
               <button onClick={() => setShowHistory(false)} className="text-slate-400 hover:bg-slate-100 p-1 rounded-full"><X size={16} /></button>
             </div>
             {chats.length === 0 ? (
@@ -339,6 +342,11 @@ export function AssistantChat({ open, onClose }) {
           
           {messages.map((m, i) => (
             <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
+              {m.role === 'user' && m.imagePreview && (
+                <div className="mb-1 max-w-[200px] overflow-hidden rounded-xl border border-slate-200">
+                  <img src={m.imagePreview} alt="Upload" className="h-auto w-full object-cover" />
+                </div>
+              )}
               {m.role === 'assistant' && m.wasAudio && m.audioData ? (
                 <div className="w-[260px] rounded-2xl bg-brand-50 p-3 border border-brand-100">
                   <div className="flex items-center gap-2 mb-2">
@@ -371,10 +379,14 @@ export function AssistantChat({ open, onClose }) {
 
         <div className="border-t border-slate-100 p-3 bg-white">
           {imageFile && (
-            <div className="mb-2 flex items-center gap-2 rounded-lg bg-slate-50 p-2 w-fit">
-              <ImageIcon size={14} className="text-brand-600" />
-              <span className="text-xs text-slate-600 truncate max-w-[150px]">{imageFile.file.name}</span>
-              <button onClick={() => setImageFile(null)} className="text-slate-400 hover:text-red-500"><X size={14} /></button>
+            <div className="mb-2 relative w-fit">
+              <img src={imageFile.preview} alt="Aperçu" className="h-20 w-auto rounded-lg border border-slate-200 shadow-sm" />
+              <button 
+                onClick={() => setImageFile(null)} 
+                className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-md hover:bg-red-600"
+              >
+                <X size={12} />
+              </button>
             </div>
           )}
           <form onSubmit={(e) => { e.preventDefault(); sendMessage(input); }} className="flex gap-2">
@@ -407,4 +419,4 @@ export function AssistantChat({ open, onClose }) {
       </div>
     </div>
   );
-    }
+  }
