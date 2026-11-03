@@ -2,9 +2,9 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Send, X, BrainCircuit, Loader2, Play, Plus, MessageSquare, Image as ImageIcon, Volume2 } from 'lucide-react';
+import { Send, X, BrainCircuit, Loader2, Plus, MessageSquare, Image as ImageIcon, Volume2, Trash2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { subscribeChats, createChat, updateChatMessages } from '@/lib/firestore/ai_chats';
+import { subscribeChats, createChat, updateChatMessages, deleteChat } from '@/lib/firestore/ai_chats';
 import { createExpense } from '@/lib/firestore/expenses';
 import { createGoal } from '@/lib/firestore/goals';
 import { createAutomation } from '@/lib/firestore/automations';
@@ -16,7 +16,7 @@ const SUGGESTIONS = [
   "Ajoute une dépense de 2000 FCFA pour le transport",
   "Crée un objectif d'épargne de 50 000 FCFA pour Noël",
   "Programme 500 FCFA de transport chaque jour",
-  "Explique-moi comment épargner en audio"
+  "Fais-moi mon bilan en audio"
 ];
 
 function MessageContent({ text }) {
@@ -77,6 +77,14 @@ export function AssistantChat({ open, onClose }) {
     setActiveChatId(chat.id);
     setMessages(chat.messages || []);
     setShowHistory(false);
+  };
+
+  const handleDeleteChat = async (e, chatId) => {
+    e.stopPropagation();
+    if (confirm('Supprimer cette conversation ?')) {
+      await deleteChat(user.uid, chatId);
+      if (activeChatId === chatId) startNewChat();
+    }
   };
 
   const executeToolCall = async (toolCall) => {
@@ -150,7 +158,7 @@ export function AssistantChat({ open, onClose }) {
     setLoading(true);
     const userMsg = { role: 'user', content: text.trim() || 'Analyse cette image.' };
     
-    // Si on a une image, on l'envoie à la route Vision
+    // 🟢 GESTION DE L'IMAGE
     if (imageFile) {
       const newMessages = [...messages, userMsg];
       setMessages(newMessages);
@@ -186,7 +194,7 @@ export function AssistantChat({ open, onClose }) {
       return;
     }
 
-    // Sinon, c'est une conversation texte normale
+    // 🟢 GESTION DU TEXTE ET DE L'AUDIO
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setInput('');
@@ -200,12 +208,13 @@ export function AssistantChat({ open, onClose }) {
       });
       const data = await res.json();
       
-      // 🟢 SI LA RÉPONSE EST UN AUDIO
+      // Si c'est un audio
       if (data.isAudio && data.audio) {
         const botMsg = { 
           role: 'assistant', 
-          content: null, 
-          audioData: data.audio 
+          content: data.textReply, // On garde le texte pour l'historique
+          audioData: data.audio, 
+          wasAudio: true 
         };
         const updatedMessages = [...newMessages, botMsg];
         setMessages(updatedMessages);
@@ -220,7 +229,7 @@ export function AssistantChat({ open, onClose }) {
         return;
       }
 
-      // Sinon, c'est une réponse texte normale
+      // Si c'est du texte normal
       let finalReply = data.reply;
       
       try {
@@ -246,7 +255,7 @@ export function AssistantChat({ open, onClose }) {
     } catch (err) {
       setMessages([...newMessages, { role: 'assistant', content: "Désolée, j'ai eu une erreur technique." }]);
     } finally {
-      setLoading(false);
+      setLoading(false); // 🟢 TOUJOURS enlever le loader
     }
   };
 
@@ -276,14 +285,30 @@ export function AssistantChat({ open, onClose }) {
           </div>
         </div>
 
+        {/* 🟢 HISTORIQUE AMÉLIORÉ */}
         {showHistory && (
           <div className="absolute inset-0 z-10 bg-white p-4 overflow-y-auto">
-            <h3 className="font-bold mb-4">Historique</h3>
-            {chats.map(c => (
-              <button key={c.id} onClick={() => loadChat(c)} className="w-full text-left p-3 rounded-xl hover:bg-slate-50 border mb-2 text-sm truncate">
-                {c.title}
-              </button>
-            ))}
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold">Historique des conversations</h3>
+              <button onClick={() => setShowHistory(false)} className="text-slate-400 hover:bg-slate-100 p-1 rounded-full"><X size={16} /></button>
+            </div>
+            {chats.length === 0 ? (
+              <p className="text-sm text-slate-500 text-center mt-10">Aucune conversation sauvegardée.</p>
+            ) : (
+              chats.map(c => (
+                <div key={c.id} className="group flex items-center gap-2 mb-2">
+                  <button 
+                    onClick={() => loadChat(c)} 
+                    className={`flex-1 text-left p-3 rounded-xl border text-sm truncate transition-colors ${activeChatId === c.id ? 'bg-brand-50 border-brand-200 text-brand-800' : 'hover:bg-slate-50 border-slate-200'}`}
+                  >
+                    {c.title || 'Conversation sans titre'}
+                  </button>
+                  <button onClick={(e) => handleDeleteChat(e, c.id)} className="p-2 text-slate-400 hover:text-red-500 rounded-lg hover:bg-red-50">
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              ))
+            )}
           </div>
         )}
 
@@ -314,14 +339,18 @@ export function AssistantChat({ open, onClose }) {
           
           {messages.map((m, i) => (
             <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
-              {/* 🟢 SI LE MESSAGE EST UN AUDIO, ON AFFICHE LE LECTEUR */}
-              {m.role === 'assistant' && m.audioData ? (
+              {m.role === 'assistant' && m.wasAudio && m.audioData ? (
                 <div className="w-[260px] rounded-2xl bg-brand-50 p-3 border border-brand-100">
                   <div className="flex items-center gap-2 mb-2">
                     <Volume2 size={16} className="text-brand-600" />
                     <span className="text-xs font-semibold text-brand-700">Message vocal</span>
                   </div>
                   <audio controls src={`data:audio/wav;base64,${m.audioData}`} className="h-8 w-full" />
+                </div>
+              ) : m.role === 'assistant' && m.wasAudio && !m.audioData ? (
+                <div className="w-[260px] rounded-2xl bg-slate-100 p-3 border border-slate-200 text-center">
+                  <p className="text-xs text-slate-500 italic">Message vocal (audio expiré)</p>
+                  <p className="text-[10px] text-slate-400 mt-1">Redemande pour l'écouter à nouveau.</p>
                 </div>
               ) : (
                 <div className={`max-w-[90%] rounded-2xl px-4 py-3 text-[13px] ${
@@ -378,4 +407,4 @@ export function AssistantChat({ open, onClose }) {
       </div>
     </div>
   );
-                  }
+    }
