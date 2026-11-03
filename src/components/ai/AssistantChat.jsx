@@ -16,7 +16,8 @@ const SUGGESTIONS = [
   "Ajoute une dépense de 2000 FCFA pour le transport",
   "Crée un objectif d'épargne de 50 000 FCFA pour Noël",
   "Programme 500 FCFA de transport chaque jour",
-  "Fais-moi mon bilan en audio"
+  "Fais-moi mon bilan en audio",
+  "Génère une image d'un cochon tirelire"
 ];
 
 function MessageContent({ text }) {
@@ -52,7 +53,7 @@ export function AssistantChat({ open, onClose }) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
-  const [imageFile, setImageFile] = useState(null); // { file, base64, preview }
+  const [imageFile, setImageFile] = useState(null);
   const scrollRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -145,11 +146,11 @@ export function AssistantChat({ open, onClose }) {
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        const base64String = reader.result; // On garde le Data URL pour l'aperçu
+        const base64String = reader.result;
         setImageFile({ 
           file, 
-          base64: base64String.split(',')[1], // Pour l'API
-          preview: base64String // Pour l'affichage
+          base64: base64String.split(',')[1], 
+          preview: base64String 
         });
       };
       reader.readAsDataURL(file);
@@ -163,9 +164,10 @@ export function AssistantChat({ open, onClose }) {
     const userMsg = { 
       role: 'user', 
       content: text.trim() || 'Analyse cette image.',
-      imagePreview: imageFile?.preview // On sauvegarde l'aperçu pour l'afficher dans le chat
+      imagePreview: imageFile?.preview
     };
     
+    // 🟢 GESTION DE L'IMAGE ENVOYÉE PAR L'UTILISATEUR
     if (imageFile) {
       const newMessages = [...messages, userMsg];
       setMessages(newMessages);
@@ -201,6 +203,7 @@ export function AssistantChat({ open, onClose }) {
       return;
     }
 
+    // 🟢 GESTION DU TEXTE
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setInput('');
@@ -214,6 +217,27 @@ export function AssistantChat({ open, onClose }) {
       });
       const data = await res.json();
       
+      // 🟢 SI C'EST UNE IMAGE GÉNÉRÉE
+      if (data.isImage && data.imageUrl) {
+        const botMsg = { 
+          role: 'assistant', 
+          content: null, 
+          generatedImage: data.imageUrl 
+        };
+        const updatedMessages = [...newMessages, botMsg];
+        setMessages(updatedMessages);
+
+        if (activeChatId) {
+          await updateChatMessages(user.uid, activeChatId, updatedMessages);
+        } else {
+          const newChatRef = await createChat(user.uid, text);
+          setActiveChatId(newChatRef.id);
+          await updateChatMessages(user.uid, newChatRef.id, updatedMessages);
+        }
+        return;
+      }
+
+      // 🟢 SI C'EST UN AUDIO
       if (data.isAudio && data.audio) {
         const botMsg = { 
           role: 'assistant', 
@@ -234,6 +258,7 @@ export function AssistantChat({ open, onClose }) {
         return;
       }
 
+      // 🟢 SINON, C'EST DU TEXTE NORMAL
       let finalReply = data.reply;
       
       try {
@@ -347,6 +372,12 @@ export function AssistantChat({ open, onClose }) {
                   <img src={m.imagePreview} alt="Upload" className="h-auto w-full object-cover" />
                 </div>
               )}
+              {m.role === 'assistant' && m.generatedImage && (
+                <div className="w-[260px] rounded-2xl bg-brand-50 p-2 border border-brand-100">
+                  <img src={m.generatedImage} alt="Image générée" className="w-full h-auto rounded-lg" />
+                  <p className="text-[10px] text-slate-500 mt-1 text-center italic">Image générée par Mč</p>
+                </div>
+              )}
               {m.role === 'assistant' && m.wasAudio && m.audioData ? (
                 <div className="w-[260px] rounded-2xl bg-brand-50 p-3 border border-brand-100">
                   <div className="flex items-center gap-2 mb-2">
@@ -360,13 +391,15 @@ export function AssistantChat({ open, onClose }) {
                   <p className="text-xs text-slate-500 italic">Message vocal (audio expiré)</p>
                   <p className="text-[10px] text-slate-400 mt-1">Redemande pour l'écouter à nouveau.</p>
                 </div>
-              ) : (
-                <div className={`max-w-[90%] rounded-2xl px-4 py-3 text-[13px] ${
-                  m.role === 'user' ? 'bg-brand-600 text-white rounded-br-sm' : 'bg-slate-100 text-slate-800 rounded-bl-sm'
-                }`}>
-                  {m.role === 'user' ? m.content : <MessageContent text={m.content} />}
+              ) : m.role === 'assistant' && !m.generatedImage && !m.wasAudio ? (
+                <div className={`max-w-[90%] rounded-2xl px-4 py-3 text-[13px] bg-slate-100 text-slate-800 rounded-bl-sm`}>
+                  <MessageContent text={m.content} />
                 </div>
-              )}
+              ) : m.role === 'user' && !m.imagePreview ? (
+                <div className={`max-w-[90%] rounded-2xl px-4 py-3 text-[13px] bg-brand-600 text-white rounded-br-sm`}>
+                  {m.content}
+                </div>
+              ) : null}
             </div>
           ))}
           {loading && (
@@ -407,7 +440,7 @@ export function AssistantChat({ open, onClose }) {
             </button>
             <input 
               type="text" value={input} onChange={(e) => setInput(e.target.value)} 
-              placeholder="Pose ta question ou envoie une image..." 
+              placeholder="Pose ta question, envoie une image ou demande une génération..." 
               className="h-11 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none focus:border-brand-500 focus:bg-white" 
               disabled={loading} 
             />
@@ -419,4 +452,4 @@ export function AssistantChat({ open, onClose }) {
       </div>
     </div>
   );
-  }
+      }
