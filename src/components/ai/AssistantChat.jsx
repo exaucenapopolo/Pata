@@ -8,8 +8,17 @@ import { subscribeChats, createChat, updateChatMessages } from '@/lib/firestore/
 import { createExpense } from '@/lib/firestore/expenses';
 import { createGoal } from '@/lib/firestore/goals';
 import { createAutomation } from '@/lib/firestore/automations';
-import { format } from 'date-fns';
-import { fr } from 'date-fns/locale';
+
+// 🟢 Les suggestions (anciennes + nouvelles)
+const SUGGESTIONS = [
+  "Quel est mon bilan financier ?",
+  "Comment mieux épargner ?",
+  "Où est-ce que je dépense le plus ?",
+  "Ajoute une dépense de 2000 FCFA pour le transport",
+  "Crée un objectif d'épargne de 50 000 FCFA pour Noël",
+  "Programme 500 FCFA de transport chaque jour",
+  "Fais-moi un bilan de ma situation"
+];
 
 export function AssistantChat({ open, onClose }) {
   const { user } = useAuth();
@@ -59,7 +68,7 @@ export function AssistantChat({ open, onClose }) {
           incomeSourceId: 'all',
           incomeSourceName: 'Tous les revenus',
         });
-        return `J'ai bien enregistré ta dépense de ${args.amount} FCFA pour ${args.note || args.category}.`;
+        return `C'est fait ! J'ai bien enregistré ta dépense de ${args.amount} FCFA pour ${args.note || args.category}.`;
       }
       
       if (name === 'create_goal') {
@@ -213,9 +222,26 @@ export function AssistantChat({ open, onClose }) {
         {/* Chat Body */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4 bg-white">
           {messages.length === 0 && (
-             <div className="text-center mt-10">
-               <BrainCircuit size={48} className="mx-auto text-brand-500 mb-4" />
-               <p className="text-sm text-slate-600">Je suis Mč. Demande-moi d'enregistrer une dépense, de créer un objectif, ou de te faire un bilan.</p>
+             <div className="space-y-4 mt-4">
+               <div className="text-center">
+                 <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-brand-50 text-brand-600 mb-3">
+                   <BrainCircuit size={32} />
+                 </div>
+                 <p className="text-sm text-slate-600 px-4">
+                   Bonjour {user?.displayName?.split(' ')[0] || 'toi'}. Je suis Mč, ton assistante financière. Pose-moi n’importe quelle question sur ta situation.
+                 </p>
+               </div>
+               <div className="space-y-2 mt-6">
+                 {SUGGESTIONS.map((s, i) => (
+                   <button 
+                     key={i} 
+                     onClick={() => sendMessage(s)} 
+                     className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-left text-[13px] text-slate-700 hover:border-brand-300 hover:bg-brand-50 transition-colors"
+                   >
+                     {s}
+                   </button>
+                 ))}
+               </div>
              </div>
           )}
           
@@ -258,4 +284,4 @@ export function AssistantChat({ open, onClose }) {
       </div>
     </div>
   );
-    }
+}
