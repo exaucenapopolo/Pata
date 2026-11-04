@@ -1,3 +1,4 @@
+/* eslint-disable react/no-unescaped-entities */
 'use client';
 
 import { useMemo, useState } from 'react';
@@ -19,9 +20,8 @@ import { useGoals } from '@/hooks/useGoals';
 import { useProfile } from '@/hooks/useProfile';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { generateAdvice, adviceIconColor } from '@/lib/advisor';
-import { formatCurrency, resolveCategory } from '@/lib/utils';
+import { formatCurrency, resolveCategory, getLocalMonth } from '@/lib/utils';
 
-const todayMonth = () => new Date().toISOString().slice(0, 7);
 const todayYear = () => String(new Date().getFullYear());
 
 const prevMonth = (m) => {
@@ -44,7 +44,7 @@ export default function ReportsPage() {
   const { goals } = useGoals();
   const { profile } = useProfile();
   const { customCategories } = useCustomCategories('expense');
-  const [month, setMonth] = useState(todayMonth());
+  const [month, setMonth] = useState(getLocalMonth());
   const [year, setYear] = useState(todayYear());
 
   const { budgets } = useBudgets(month);
