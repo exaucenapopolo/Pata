@@ -749,6 +749,72 @@ async function handleSubscriptionWebhook(request) {
     return NextResponse.json({ received: true });
   }
   }
+/* ═══════════════════ QUOTAS & LIMITES ═══════════════════ */
+async function checkServerQuota(uid, type) {
+  const userRef = adminDb.collection('users').doc(uid);
+  const userSnap = await userRef.get();
+  if (!userSnap.exists) return { allowed: false };
+
+  const data = userSnap.data();
+  const now = new Date();
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const premiumUntil = data.premiumUntil ? new Date(data.premiumUntil) : null;
+  const isPremium = premiumUntil && premiumUntil > now;
+
+  if (isPremium) return { allowed: true };
+
+  let stats = data.monthlyStats || {};
+  if (stats.lastResetMonth !== currentMonth) {
+    stats = { expenses: 0, incomes: 0, goals: 0, budgets: 0, lastResetMonth: currentMonth };
+  }
+
+  const limits = { expenses: 100, incomes: 5, goals: 2, budgets: 5 };
+  if ((stats[type] || 0) >= limits[type]) {
+    return { allowed: false };
+  }
+
+  stats[type] = (stats[type] || 0) + 1;
+  await userRef.update({ monthlyStats: stats });
+  return { allowed: true };
+}
+
+async function checkServerAIQuota(uid) {
+  const userRef = adminDb.collection('users').doc(uid);
+  const userSnap = await userRef.get();
+  if (!userSnap.exists) return { allowed: false };
+
+  const data = userSnap.data();
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  const premiumUntil = data.premiumUntil ? new Date(data.premiumUntil) : null;
+  const isPremium = premiumUntil && premiumUntil > now;
+
+  if (isPremium) return { allowed: true };
+
+  let dailyStats = data.dailyStats || {};
+  if (dailyStats.lastResetDate !== todayStr) {
+    dailyStats = { aiCount: 0, lastResetDate: todayStr };
+  }
+
+  if ((dailyStats.aiCount || 0) >= 3) {
+    return { allowed: false };
+  }
+
+  dailyStats.aiCount = (dailyStats.aiCount || 0) + 1;
+  await userRef.update({ dailyStats });
+  return { allowed: true };
+}
+
+// 🟢 Intégration dans handleAddExpense
+async function handleAddExpense(request) {
+  try {
+    const decoded = await authenticate(request);
+    const uid = decoded.uid;
+
+    const quota = await checkServerQuota(uid, 'expenses');
+    if (!quota.allowed) {
+      return errorResponse(`Limite gratuite atteinte : 100 dépenses par mois. Passe Premium pour continuer.`, 403);
+    }
 
 const ROUTES = {
   'fapshi/checkout':  { POST: handleFapshiCheckout },
