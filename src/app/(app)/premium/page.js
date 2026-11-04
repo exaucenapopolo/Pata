@@ -4,10 +4,10 @@
 import { useState } from 'react';
 import { useProfile } from '@/hooks/useProfile';
 import { useAuth } from '@/hooks/useAuth';
-import { getSubscriptionStatus } from '@/lib/firestore/subscriptions';
-import { Card } from '@/components/ui/Card';
+import { useRouter } from 'next/navigation';
+import { Card, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { CheckCircle2, Crown, Wallet, CreditCard, Calendar, AlertTriangle } from 'lucide-react';
+import { CheckCircle2, Crown, Wallet, ShieldCheck, Zap, TrendingUp, Calendar, AlertTriangle } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 
 const PRICE = 2500;
@@ -15,7 +15,7 @@ const PRICE = 2500;
 export default function PremiumPage() {
   const { user } = useAuth();
   const { profile } = useProfile();
-  const status = getSubscriptionStatus(profile);
+  const router = useRouter();
   const [months, setMonths] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -23,11 +23,16 @@ export default function PremiumPage() {
 
   const balance = profile?.balance || 0;
   const totalAmount = PRICE * months;
+  const missingAmount = Math.max(0, totalAmount - balance);
+
+  const now = new Date();
+  const premiumUntil = profile?.premiumUntil ? new Date(profile.premiumUntil) : null;
+  const isPremium = premiumUntil && premiumUntil > now;
 
   const handlePayWithBalance = async () => {
     setError('');
     if (balance < totalAmount) {
-      return setError(`Solde insuffisant. Il te faut ${formatCurrency(totalAmount)}, tu as ${formatCurrency(balance)}.`);
+      return setError(`Il te manque ${formatCurrency(missingAmount)} sur ton solde.`);
     }
     setLoading(true);
     try {
@@ -47,33 +52,14 @@ export default function PremiumPage() {
     }
   };
 
-  const handlePayWithFapshi = async () => {
-    setError('');
-    setLoading(true);
-    try {
-      const token = await user.getIdToken();
-      const res = await fetch('/api/subscription/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ months }),
-      });
-      const data = await res.json();
-      if (!data.success || !data.checkoutUrl) throw new Error(data.error || 'Erreur.');
-      window.location.href = data.checkoutUrl;
-    } catch (err) {
-      setError(err.message);
-      setLoading(false);
-    }
-  };
-
   return (
-    <div className="space-y-6 max-w-2xl mx-auto">
-      <div className="text-center">
+    <div className="space-y-6 max-w-2xl mx-auto pb-10">
+      <div className="text-center pt-4">
         <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-amber-100 text-amber-600 mb-3">
           <Crown size={32} />
         </div>
         <h1 className="text-3xl font-bold text-slate-900">Pata Premium</h1>
-        <p className="text-slate-500 mt-1">Débloque tout le potentiel de ton assistant financier.</p>
+        <p className="text-slate-500 mt-1">Ne subis plus tes finances. Prends le contrôle total.</p>
       </div>
 
       {success && (
@@ -90,22 +76,45 @@ export default function PremiumPage() {
         </div>
       )}
 
-      <Card>
+      <Card className="border-brand-200 shadow-md">
         <div className="text-center mb-6">
           <p className="text-4xl font-black text-slate-900">{formatCurrency(PRICE)}<span className="text-base font-medium text-slate-500"> / mois</span></p>
-          <p className="text-sm text-slate-500 mt-1">Moins d’un café par jour pour reprendre le contrôle.</p>
+          <p className="text-sm text-slate-500 mt-1">Moins qu'un plat de poulet pour une paix financière durable.</p>
         </div>
 
-        <ul className="space-y-3 mb-6">
-          <li className="flex items-center gap-2 text-sm text-slate-700"><CheckCircle2 size={16} className="text-brand-500" /> Dépenses, revenus et budgets illimités</li>
-          <li className="flex items-center gap-2 text-sm text-slate-700"><CheckCircle2 size={16} className="text-brand-500" /> Objectifs d’épargne illimités</li>
-          <li className="flex items-center gap-2 text-sm text-slate-700"><CheckCircle2 size={16} className="text-brand-500" /> Prévisions vitales et automatisations</li>
-          <li className="flex items-center gap-2 text-sm text-slate-700"><CheckCircle2 size={16} className="text-brand-500" /> Assistant Mč illimité (texte, audio, vision)</li>
-          <li className="flex items-center gap-2 text-sm text-slate-700"><CheckCircle2 size={16} className="text-brand-500" /> Exportation des données</li>
-        </ul>
+        <div className="space-y-4 mb-8">
+          <div className="flex items-start gap-3">
+            <ShieldCheck className="text-brand-500 shrink-0" size={20} />
+            <div>
+              <p className="text-sm font-semibold text-slate-800">Zéro restriction</p>
+              <p className="text-xs text-slate-500">Dépenses, revenus et budgets illimités. Plus de blocage à 100 dépenses.</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3">
+            <Zap className="text-brand-500 shrink-0" size={20} />
+            <div>
+              <p className="text-sm font-semibold text-slate-800">Assistant Mč illimité</p>
+              <p className="text-xs text-slate-500">Pose 100 questions par jour si tu veux. Génère des images, utilise la voix.</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3">
+            <TrendingUp className="text-brand-500 shrink-0" size={20} />
+            <div>
+              <p className="text-sm font-semibold text-slate-800">Objectifs illimités</p>
+              <p className="text-xs text-slate-500">Crée autant d'objectifs d'épargne que tu veux pour tes projets.</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3">
+            <CheckCircle2 className="text-brand-500 shrink-0" size={20} />
+            <div>
+              <p className="text-sm font-semibold text-slate-800">Prévisions Vitales</p>
+              <p className="text-xs text-slate-500">Calcule automatiquement ton budget de survie et transforme-le en revenus.</p>
+            </div>
+          </div>
+        </div>
 
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-slate-700 mb-2">Durée de l’abonnement</label>
+        <div className="mb-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
+          <label className="block text-sm font-medium text-slate-700 mb-2">Durée de l'abonnement</label>
           <select 
             value={months} 
             onChange={(e) => setMonths(Number(e.target.value))}
@@ -118,30 +127,51 @@ export default function PremiumPage() {
           </select>
         </div>
 
-        <div className="grid sm:grid-cols-2 gap-3">
-          <Button onClick={handlePayWithFapshi} disabled={loading} className="w-full">
-            <CreditCard size={16} /> Payer par Mobile Money
+        <div className="space-y-3">
+          <div className="flex justify-between items-center text-sm font-medium">
+            <span className="text-slate-600">Solde disponible</span>
+            <span className="text-slate-900">{formatCurrency(balance)}</span>
+          </div>
+          <div className="flex justify-between items-center text-sm font-medium border-b border-slate-100 pb-2">
+            <span className="text-slate-600">Montant à payer</span>
+            <span className="text-brand-600">{formatCurrency(totalAmount)}</span>
+          </div>
+          
+          <Button 
+            onClick={handlePayWithBalance} 
+            disabled={loading || missingAmount > 0} 
+            className="w-full"
+          >
+            <Wallet size={16} /> {loading ? 'Traitement...' : 'Payer avec mon solde'}
           </Button>
-          <Button onClick={handlePayWithBalance} variant="outline" disabled={loading || balance < totalAmount} className="w-full">
-            <Wallet size={16} /> Payer avec mon solde ({formatCurrency(balance)})
-          </Button>
-        </div>
 
-        <p className="text-xs text-slate-500 text-center mt-4">
-          Le solde Pata est l’argent réellement déposé sur la plateforme. Les revenus que tu enregistres ne sont pas débités ici.
-        </p>
+          {missingAmount > 0 && (
+            <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-center">
+              <p className="text-sm text-amber-800 font-medium">
+                Il te manque <strong>{formatCurrency(missingAmount)}</strong> sur ton solde.
+              </p>
+              <Button 
+                onClick={() => router.push('/wallet')} 
+                variant="outline" 
+                className="mt-2 text-amber-700 border-amber-300 hover:bg-amber-100"
+              >
+                Recharger mon solde
+              </Button>
+            </div>
+          )}
+        </div>
       </Card>
 
-      {status.isPremium && (
+      {isPremium && (
         <Card className="bg-brand-50 border-brand-200">
           <div className="flex items-center gap-2 text-brand-700">
             <Calendar size={18} />
             <p className="text-sm font-semibold">
-              Ton abonnement est actif jusqu’au {status.expiresAt.toLocaleDateString('fr-FR')} ({status.daysLeft} jours restants).
+              Ton abonnement est actif jusqu'au {premiumUntil.toLocaleDateString('fr-FR')}.
             </p>
           </div>
         </Card>
       )}
     </div>
   );
-          }
+    }
