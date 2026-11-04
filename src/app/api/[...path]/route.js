@@ -587,6 +587,168 @@ async function handleAIVision(request) {
     return errorResponse(error.message || 'Erreur d\'analyse d\'image.', 500);
   }
 }
+/* ═══════════════════ ROUTES ABONNEMENT ═══════════════════ */
+
+// 1. Initier le paiement Fapshi pour l'abonnement
+async function handleSubscriptionCheckout(request) {
+  try {
+    const decoded = await authenticate(request);
+    const uid = decoded.uid;
+    const body = await request.json();
+    const months = Math.max(1, parseInt(body.months) || 1);
+    const amount = 2500 * months;
+
+    const API_USER = process.env.FAPSHI_API_USER;
+    const SECRET_KEY = process.env.FAPSHI_SECRET_KEY;
+    if (!API_USER || !SECRET_KEY) return errorResponse('Configuration incomplète.', 500);
+
+    const userDoc = await adminDb.collection('users').doc(uid).get();
+    const userData = userDoc.exists ? userDoc.data() : {};
+
+    const baseUrl = getBaseUrl(request);
+    const origin = request.headers.get('origin') || baseUrl;
+
+    const payload = {
+      amount,
+      currency: 'XAF',
+      description: `Abonnement Pata Premium (${months} mois)`,
+      redirect_url: `${origin}/premium`,
+      webhook_url: `${baseUrl}/api/subscription/webhook`,
+      phone: userData.phone || '',
+      email: userData.email || decoded.email || '',
+      name: userData.displayName || 'Client',
+    };
+
+    // Appel Fapshi
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
+    const res = await fetch('https://live.fapshi.com/initiate-pay', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apiuser: API_USER, apikey: SECRET_KEY },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    }).catch(() => { clearTimeout(timer); throw new Error('Service indisponible.'); });
+    clearTimeout(timer);
+
+    const data = await res.json();
+    if (!res.ok) return errorResponse(data.message || 'Paiement refusé.', 400);
+
+    const checkoutUrl = data.data?.url || data.link || data.url;
+    const transId = data.transId || data.data?.transId;
+    if (!checkoutUrl || !transId) return errorResponse('Lien indisponible.', 502);
+
+    // Créer le document de transaction
+    await adminDb.collection('subscriptionPayments').doc(transId).set({
+      transId,
+      userId: uid,
+      amount,
+      months,
+      status: 'PENDING',
+      checkoutUrl,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+
+    return NextResponse.json({ success: true, checkoutUrl, transId });
+  } catch (error) {
+    return errorResponse(error.message, 500);
+  }
+}
+
+// 2. Payer avec le solde Pata (débit immédiat)
+async function handleSubscriptionPayWithBalance(request) {
+  try {
+    const decoded = await authenticate(request);
+    const uid = decoded.uid;
+    const body = await request.json();
+    const months = Math.max(1, parseInt(body.months) || 1);
+    const amount = 2500 * months;
+
+    const userRef = adminDb.collection('users').doc(uid);
+    const userDoc = await userRef.get();
+    if (!userDoc.exists) return errorResponse('Utilisateur introuvable.', 404);
+
+    const balance = userDoc.data().balance || 0;
+    if (balance < amount) {
+      return errorResponse(`Solde insuffisant. Tu as ${balance} FCFA, il te faut ${amount} FCFA.`);
+    }
+
+    // Calcul de la nouvelle date d'expiration
+    const now = new Date();
+    const currentPremiumUntil = userDoc.data().premiumUntil ? new Date(userDoc.data().premiumUntil) : null;
+    const baseDate = currentPremiumUntil && currentPremiumUntil > now ? currentPremiumUntil : now;
+    const newExpiration = new Date(baseDate.getTime() + months * 30 * 24 * 60 * 60 * 1000);
+
+    await userRef.update({
+      balance: balance - amount,
+      premiumUntil: newExpiration.toISOString(),
+      lastPaymentDate: now.toISOString(),
+      lastPaymentAmount: amount,
+      lastPaymentMethod: 'balance',
+    });
+
+    return NextResponse.json({ success: true, newExpiration: newExpiration.toISOString() });
+  } catch (error) {
+    return errorResponse(error.message, 500);
+  }
+}
+
+// 3. Webhook Fapshi pour l'abonnement
+async function handleSubscriptionWebhook(request) {
+  try {
+    const body = await request.json();
+    const transId = body.transId;
+    if (!transId) return NextResponse.json({ received: true });
+
+    const paymentRef = adminDb.collection('subscriptionPayments').doc(transId);
+    const paymentDoc = await paymentRef.get();
+    if (!paymentDoc.exists) return NextResponse.json({ received: true });
+
+    if (paymentDoc.data().status === 'CONFIRMED') {
+      return NextResponse.json({ received: true, alreadyConfirmed: true });
+    }
+
+    // Vérification auprès de Fapshi
+    const API_USER = process.env.FAPSHI_API_USER;
+    const SECRET_KEY = process.env.FAPSHI_SECRET_KEY;
+    const verifyRes = await fetch(`https://live.fapshi.com/payment-status/${transId}`, {
+      headers: { apiuser: API_USER, apikey: SECRET_KEY },
+    });
+    const verifyData = await verifyRes.json();
+    const realStatus = (verifyData.status || '').toUpperCase();
+
+    if (realStatus !== 'SUCCESSFUL') {
+      if (['FAILED', 'EXPIRED', 'CANCELED', 'REVERSED'].includes(realStatus)) {
+        await paymentRef.update({ status: 'FAILED' });
+      }
+      return NextResponse.json({ received: true, deferred: realStatus });
+    }
+
+    // Confirmer et activer le premium
+    const payment = paymentDoc.data();
+    const userRef = adminDb.collection('users').doc(payment.userId);
+    const userDoc = await userRef.get();
+    const userData = userDoc.exists ? userDoc.data() : {};
+
+    const now = new Date();
+    const currentPremiumUntil = userData.premiumUntil ? new Date(userData.premiumUntil) : null;
+    const baseDate = currentPremiumUntil && currentPremiumUntil > now ? currentPremiumUntil : now;
+    const newExpiration = new Date(baseDate.getTime() + payment.months * 30 * 24 * 60 * 60 * 1000);
+
+    await userRef.update({
+      premiumUntil: newExpiration.toISOString(),
+      lastPaymentDate: now.toISOString(),
+      lastPaymentAmount: payment.amount,
+      lastPaymentMethod: 'fapshi',
+    });
+
+    await paymentRef.update({ status: 'CONFIRMED', confirmedAt: FieldValue.serverTimestamp() });
+
+    return NextResponse.json({ received: true, status: 'CONFIRMED' });
+  } catch (error) {
+    console.error('Subscription webhook error:', error);
+    return NextResponse.json({ received: true });
+  }
+  }
 
 const ROUTES = {
   'fapshi/checkout':  { POST: handleFapshiCheckout },
@@ -602,6 +764,9 @@ const ROUTES = {
   'ai/chat':          { POST: handleAIChat },
   'ai/image':         { POST: handleAIImage },
   'ai/vision':        { POST: handleAIVision },
+  'subscription/checkout':   { POST: handleSubscriptionCheckout },
+'subscription/pay-balance':{ POST: handleSubscriptionPayWithBalance },
+'subscription/webhook':    { POST: handleSubscriptionWebhook },
 };
 
 async function dispatch(request, context) {
