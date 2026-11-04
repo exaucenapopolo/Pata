@@ -26,13 +26,13 @@ function getBaseUrl(request) {
   return process.env.FAPSHI_WEBHOOK_URL?.replace(/\/$/, '') || `${proto}://${host}`;
 }
 
-/* ═══════════════════ ROUTE ADD EXPENSE ═══════════════════ */
+/* ═══════════════════ ROUTE ADD EXPENSE (CASCADE) ═══════════════════ */
 async function handleAddExpense(request) {
   try {
     const decoded = await authenticate(request);
     const uid = decoded.uid;
     const body = await request.json();
-    const { amount, categoryId, note, date, incomeSourceId, incomeSourceName } = body;
+    const { amount, categoryId, note, date, incomeSourceId } = body;
 
     if (!amount || amount <= 0) return errorResponse('Montant invalide.');
 
@@ -44,46 +44,88 @@ async function handleAddExpense(request) {
     const incomes = incomesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     const expenses = expensesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-    const totalIncome = incomes.reduce((s, i) => s + (i.amount || 0), 0);
-    const totalExpense = expenses.reduce((s, e) => s + (e.amount || 0), 0);
-    const globalBalance = Math.max(0, totalIncome - totalExpense);
-
-    // 🟢 Si 'all', on vérifie le global
-    if (!incomeSourceId || incomeSourceId === 'all') {
-      if (amount > globalBalance) {
-        return errorResponse(`Solde global insuffisant. Il te reste ${globalBalance} FCFA au total.`);
-      }
-    } else {
-      // 🟢 Si ID spécifique, on vérifie CE revenu uniquement
-      const income = incomes.find(i => i.id === incomeSourceId);
-      if (!income) return errorResponse('Revenu introuvable.');
-      
-      const linkedExpenses = expenses.filter(e => e.incomeSourceId === incomeSourceId);
-      const linkedExpenseTotal = linkedExpenses.reduce((s, e) => s + (e.amount || 0), 0);
-      const incomeBalance = Math.max(0, (income.amount || 0) - linkedExpenseTotal);
-
-      if (amount > incomeBalance) {
-        return errorResponse(`Solde insuffisant sur ce revenu. Il reste seulement ${incomeBalance} FCFA sur "${income.source}".`);
-      }
-    }
-
-    await adminDb.collection('users').doc(uid).collection('expenses').add({
-      amount: Number(amount),
-      categoryId: categoryId || 'other',
-      note: note || '',
-      date: date || new Date().toISOString().slice(0, 10),
-      incomeSourceId: incomeSourceId || 'all',
-      incomeSourceName: incomeSourceName || 'Tous les revenus',
-      createdAt: FieldValue.serverTimestamp(),
+    // Calculer le solde de chaque revenu
+    const incomesWithBalance = incomes.map(inc => {
+      const linkedExpenses = expenses.filter(e => e.incomeSourceId === inc.id);
+      const spent = linkedExpenses.reduce((s, e) => s + (e.amount || 0), 0);
+      const remaining = Math.max(0, (inc.amount || 0) - spent);
+      return { ...inc, remaining };
     });
 
-    return NextResponse.json({ success: true });
+    const batch = adminDb.batch();
+    const expenseDate = date || new Date().toISOString().slice(0, 10);
+    const expenseNote = note || '';
+
+    // 🟢 LOGIQUE CASCADE : Si 'all', on trie du plus petit au plus grand
+    if (!incomeSourceId || incomeSourceId === 'all') {
+      const totalAvailable = incomesWithBalance.reduce((s, i) => s + i.remaining, 0);
+      
+      if (amount > totalAvailable) {
+        return errorResponse(`Fonds insuffisants. Le solde total de tes revenus est de ${totalAvailable} FCFA, mais tu demandes ${amount} FCFA.`);
+      }
+
+      // Trier par solde restant croissant (le plus petit d'abord)
+      const sortedIncomes = [...incomesWithBalance].sort((a, b) => a.remaining - b.remaining);
+      
+      let remainingToDeduct = amount;
+      let isFirstSplit = true;
+
+      for (const inc of sortedIncomes) {
+        if (remainingToDeduct <= 0) break;
+        if (inc.remaining <= 0) continue;
+
+        const deduct = Math.min(inc.remaining, remainingToDeduct);
+        
+        const expenseRef = adminDb.collection('users').doc(uid).collection('expenses').doc();
+        batch.set(expenseRef, {
+          amount: deduct,
+          categoryId: categoryId || 'other',
+          note: isFirstSplit ? expenseNote : `${expenseNote} (Partagé)`,
+          date: expenseDate,
+          incomeSourceId: inc.id,
+          incomeSourceName: inc.source,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+
+        remainingToDeduct -= deduct;
+        isFirstSplit = false;
+      }
+
+      await batch.commit();
+      return NextResponse.json({ success: true });
+
+    } else {
+      // 🟢 LOGIQUE CLASSIQUE : Un seul revenu ciblé
+      const inc = incomesWithBalance.find(i => i.id === incomeSourceId);
+      if (!inc) return errorResponse('Revenu introuvable.');
+
+      if (amount > inc.remaining) {
+        return errorResponse(`Fonds insuffisants. Il ne reste que ${inc.remaining} FCFA sur "${inc.source}".`);
+      }
+
+      const expenseRef = adminDb.collection('users').doc(uid).collection('expenses').doc();
+      batch.set(expenseRef, {
+        amount: Number(amount),
+        categoryId: categoryId || 'other',
+        note: expenseNote,
+        date: expenseDate,
+        incomeSourceId: inc.id,
+        incomeSourceName: inc.source,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+
+      await batch.commit();
+      return NextResponse.json({ success: true });
+    }
+
   } catch (error) {
     return errorResponse(error.message, 500);
   }
 }
 
-/* ═══════════════════ AUTRES ROUTES (identiques) ═══════════════════ */
+/* ═══════════════════ ROUTES FAPSHI / GOALS / AUTOMATIONS ═══════════════════ */
+// (Je garde les fonctions existantes pour que tu n'aies pas à recoller)
+
 async function handleFapshiCheckout(request) {
   try {
     const decoded = await authenticate(request);
@@ -355,7 +397,8 @@ async function handleAutomationsRun(request) {
   } catch (error) { return errorResponse(error.message, 500); }
 }
 
-/* ═══════════════════ AI CHAT ═══════════════════ */
+/* ═══════════════════ AI CHAT & AUTRES ═══════════════════ */
+
 async function handleAIChat(request) {
   try {
     const decoded = await authenticate(request);
@@ -423,7 +466,7 @@ async function handleAIChat(request) {
         type: 'function',
         function: {
           name: 'apply_budget_plan',
-          description: 'Appliquer un plan budgétaire complet (créer les budgets et éventuellement le revenu associé).',
+          description: 'Appliquer un plan budgétaire complet.',
           parameters: {
             type: 'object',
             properties: {
@@ -475,20 +518,19 @@ async function handleAIChat(request) {
       }
     ];
 
-    // 🟢 PROMPT ULTRA-STRICT POUR L'IA
     const SYSTEM_PROMPT = `Tu es Mč, l'assistante financière de Pata. Tu parles à ${userName}.
 
-RÈGLES DE SÉCURITÉ ABSOLUES (TU ES UNE IA, PAS UNE ROBOT) :
-1. Avant d'enregistrer une dépense, LIS ATTENTIVEMENT le "SOLDE GLOBAL" et le "DÉTAIL DES REVENUS" ci-dessous.
-2. Si l'utilisateur demande une dépense supérieure au solde de la source choisie (ex: s'il dit "Sur MC" et que MC a 5 000 FCFA, et qu'il demande 10 000), tu DOIS refuser et dire exactement ceci : "Impossible : le revenu 'MC' n'a que 5 000 FCFA disponibles."
-3. Si l'utilisateur dit "Tous les revenus" (incomeSourceId: 'all'), tu DOIS vérifier le SOLDE GLOBAL. S'il est négatif ou inférieur au montant, refuse et propose de réduire les dépenses ou d'ajouter un revenu.
-4. NE DIS JAMAIS "C'est fait !" avant d'avoir reçu la confirmation de l'outil. Le système te dira si ça a réussi ou échoué.
+RÈGLES DE SÉCURITÉ FINANCIÈRE (CRITIQUE) :
+1. Tu ne peux PAS enregistrer de dépense si le solde global est insuffisant.
+2. Avant d'enregistrer, LIS ATTENTIVEMENT le "SOLDE GLOBAL" et le "DÉTAIL DES REVENUS".
+3. Si la dépense dépasse le solde, refuse et explique poliment à l'utilisateur.
+4. Quand on choisit "Tous les revenus", l'application va automatiquement piocher dans les plus petits soldes pour compléter. Tu n'as pas à calculer ça, le système le fait pour toi.
 
 RÈGLES DE COMPORTEMENT :
 1. Ne salue pas l'utilisateur. Va droit au but.
-2. Sois concise et factuelle. Pas de tutoriels inutiles.
+2. Sois concise, factuelle, et en français.
 
-DONNÉES ACTUELLES (Mises à jour par l'application) :
+DONNÉES ACTUELLES :
 ${userContext}`;
 
     const trimmedHistory = messages.slice(-8).map(m => ({
