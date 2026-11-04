@@ -19,8 +19,9 @@ import { useBudgets } from '@/hooks/useBudgets';
 import { useGoals } from '@/hooks/useGoals';
 import { useProfile } from '@/hooks/useProfile';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
+import { useWeeklyReport } from '@/hooks/useWeeklyReport';
 import { generateAdvice, adviceIconColor } from '@/lib/advisor';
-import { formatCurrency, resolveCategory, getLocalMonth } from '@/lib/utils';
+import { formatCurrency, formatDate, resolveCategory, getLocalMonth } from '@/lib/utils';
 
 const todayYear = () => String(new Date().getFullYear());
 
@@ -44,6 +45,7 @@ export default function ReportsPage() {
   const { goals } = useGoals();
   const { profile } = useProfile();
   const { customCategories } = useCustomCategories('expense');
+  const { report: weeklyReport } = useWeeklyReport();
   const [month, setMonth] = useState(getLocalMonth());
   const [year, setYear] = useState(todayYear());
 
@@ -149,6 +151,46 @@ export default function ReportsPage() {
           </Button>
         </div>
       </div>
+
+      {weeklyReport && (
+        <Card>
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <CardTitle>Bilan automatique de la semaine</CardTitle>
+              <p className="mt-1 text-xs text-slate-500">
+                Du {formatDate(weeklyReport.weekStart, { day: '2-digit', month: 'long' })} au {formatDate(weeklyReport.weekEnd, { day: '2-digit', month: 'long', year: 'numeric' })}
+              </p>
+            </div>
+            <span className="text-xs text-slate-500">Comparaison avec la semaine précédente</span>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded-lg bg-slate-50 p-3">
+              <p className="text-[11px] text-slate-500">Revenus</p>
+              <p className="mt-1 text-sm font-bold text-brand-600">{formatCurrency(weeklyReport.totalIncome || 0)}</p>
+            </div>
+            <div className="rounded-lg bg-slate-50 p-3">
+              <p className="text-[11px] text-slate-500">Dépenses</p>
+              <p className="mt-1 text-sm font-bold text-red-500">{formatCurrency(weeklyReport.totalExpense || 0)}</p>
+            </div>
+            <div className="rounded-lg bg-slate-50 p-3">
+              <p className="text-[11px] text-slate-500">Différence</p>
+              <p className={`mt-1 text-sm font-bold ${(weeklyReport.net || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatCurrency(weeklyReport.net || 0)}</p>
+            </div>
+          </div>
+          {weeklyReport.expenseChangePercent !== null && weeklyReport.expenseChangePercent !== undefined && (
+            <p className="mt-3 text-xs text-slate-600">
+              Dépenses {weeklyReport.expenseChangePercent > 0 ? 'en hausse' : weeklyReport.expenseChangePercent < 0 ? 'en baisse' : 'stables'} de {Math.abs(weeklyReport.expenseChangePercent)} % par rapport à la semaine précédente.
+            </p>
+          )}
+          {Array.isArray(weeklyReport.advice) && weeklyReport.advice.length > 0 && (
+            <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+              {weeklyReport.advice.map((item, index) => (
+                <p key={index} className="text-sm leading-relaxed text-slate-700">{item}</p>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
 
       <div className="grid grid-cols-2 gap-3 sm:gap-4">
         <Card>

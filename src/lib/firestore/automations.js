@@ -17,6 +17,10 @@ export async function createAutomation(uid, data) {
     note: data.note || '',
     frequency: data.frequency, // 'daily', 'weekly', 'monthly'
     nextRun: data.nextRun, // Date ISO string
+    anchorDay: Number(data.anchorDay) || (data.nextRun ? new Date(data.nextRun).getUTCDate() : new Date().getUTCDate()),
+    endDate: data.endDate || null,
+    active: data.active !== false,
+    runCount: Number(data.runCount) || 0,
     incomeSourceId: data.incomeSourceId || 'all',
     incomeSourceName: data.incomeSourceName || 'Tous les revenus',
     createdAt: serverTimestamp(),

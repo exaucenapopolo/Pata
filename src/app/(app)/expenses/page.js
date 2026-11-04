@@ -143,9 +143,12 @@ export default function ExpensesPage() {
   };
 
   const handleDelete = async () => {
-    if (deleteId) {
+    if (!deleteId) return;
+    try {
       await deleteExpense(user.uid, deleteId);
       setDeleteId(null);
+    } catch (err) {
+      window.alert(err.message || 'Impossible de supprimer cette dépense.');
     }
   };
 

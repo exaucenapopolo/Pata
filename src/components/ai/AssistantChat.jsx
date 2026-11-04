@@ -9,11 +9,6 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { subscribeChats, createChat, updateChatMessages, deleteChat, updateChatTitle } from '@/lib/firestore/ai_chats';
-import { createExpense } from '@/lib/firestore/expenses';
-import { createIncome } from '@/lib/firestore/incomes';
-import { createGoal } from '@/lib/firestore/goals';
-import { createAutomation } from '@/lib/firestore/automations';
-import { upsertBudget } from '@/lib/firestore/budgets';
 
 const SUGGESTIONS = [
   "Quel est mon bilan financier ?",
@@ -145,87 +140,6 @@ export function AssistantChat({ open, onClose }) {
     textareaRef.current?.focus();
   };
 
-  const executeToolCall = async (toolCall) => {
-    try {
-      const { name, arguments: argsStr } = toolCall;
-      const args = JSON.parse(argsStr);
-      
-      if (name === 'add_expense') {
-        try {
-          await createExpense(user.uid, {
-            amount: args.amount, categoryId: args.category || 'other',
-            note: args.note || '', date: new Date().toISOString().slice(0, 10),
-            incomeSourceId: args.incomeSourceId || 'all', incomeSourceName: args.incomeSourceName || 'Tous les revenus',
-          });
-          return `C'est fait ! J'ai bien enregistré ta dépense de ${args.amount} FCFA.`;
-        } catch (err) {
-          return `ERREUR : ${err.message}`;
-        }
-      }
-      
-      if (name === 'add_income') {
-        await createIncome(user.uid, {
-          amount: args.amount, source: args.source, categoryId: args.categoryId,
-          note: args.note || '', date: new Date().toISOString().slice(0, 10),
-          month: new Date().toISOString().slice(0, 7),
-        });
-        return `J'ai bien ajouté ton revenu "${args.source}" de ${args.amount} FCFA.`;
-      }
-
-      if (name === 'apply_budget_plan') {
-        const { budgetName, totalIncome, plan } = args;
-        const currentMonth = new Date().toISOString().slice(0, 7);
-
-        const incomeRes = await createIncome(user.uid, {
-          amount: totalIncome,
-          source: budgetName,
-          categoryId: 'salary',
-          note: 'Créé via le plan budgétaire',
-          date: new Date().toISOString().slice(0, 10),
-          month: currentMonth,
-        });
-
-        const newIncomeId = incomeRes.id;
-
-        for (const item of plan) {
-          await upsertBudget(user.uid, {
-            categoryId: item.categoryId,
-            amount: item.amount,
-            month: currentMonth,
-            incomeSourceId: newIncomeId,
-          });
-        }
-
-        return `J'ai enregistré ton budget "${budgetName}" de ${totalIncome} FCFA et réparti les montants.`;
-      }
-
-      if (name === 'create_goal') {
-        await createGoal(user.uid, {
-          name: args.name, targetAmount: args.targetAmount, categoryId: 'savings',
-          startDate: new Date().toISOString().slice(0, 10), deadline: args.deadline,
-          frequencyDays: 7, penaltyAmount: 700,
-        });
-        return `J'ai créé ton objectif "${args.name}" de ${args.targetAmount} FCFA.`;
-      }
-
-      if (name === 'add_automation') {
-        const nextRun = new Date();
-        if (args.frequency === 'daily') nextRun.setDate(nextRun.getDate() + 1);
-        if (args.frequency === 'weekly') nextRun.setDate(nextRun.getDate() + 7);
-        if (args.frequency === 'monthly') nextRun.setMonth(nextRun.getMonth() + 1);
-        
-        await createAutomation(user.uid, {
-          amount: args.amount, categoryId: args.category || 'other', note: args.note,
-          frequency: args.frequency, nextRun: nextRun.toISOString(),
-        });
-        return `C'est noté ! J'enregistrerai automatiquement ${args.amount} FCFA pour ${args.note}.`;
-      }
-
-      return "Action effectuée avec succès.";
-    } catch (e) {
-      return `ERREUR : ${e.message}`;
-    }
-  };
 
   const handleImageSelect = (e) => {
     const file = e.target.files[0];
@@ -252,6 +166,7 @@ export function AssistantChat({ open, onClose }) {
     if (hasImageGen && !text) return alert("Décris l'image que tu veux générer.");
 
     setLoading(true);
+    const clientRequestId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     const userMsg = { 
       role: 'user', 
       content: rawText.trim() || 'Image',
@@ -298,6 +213,7 @@ export function AssistantChat({ open, onClose }) {
           body: JSON.stringify({ messages: cleanMessagesForVision, imageBase64: currentImage.base64 }),
         });
         const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || "Je n'ai pas pu analyser l'image.");
         
         const botMsg = { role: 'assistant', content: data.reply || "Je n'ai pas pu analyser l'image." };
         const updatedMessages = [...newMessages, botMsg];
@@ -312,25 +228,23 @@ export function AssistantChat({ open, onClose }) {
       }
 
       setImageFile(null);
-      const cleanMessages = [...messages, { role: 'user', content: text }];
+      const cleanMessages = [
+        ...messages.map((message) => ({ role: message.role, content: String(message.content || '') })),
+        { role: 'user', content: text },
+      ];
       const mode = hasAudio ? 'audio' : 'text';
 
       const res = await fetch('/api/ai/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ messages: cleanMessages, mode }),
+        body: JSON.stringify({ messages: cleanMessages, mode, clientRequestId }),
       });
       const data = await res.json();
       
       if (!data.success) throw new Error(data.error);
 
-      let finalReply = data.reply || "J'ai bien noté.";
-      try {
-        const parsed = JSON.parse(data.reply);
-        if (parsed.tool_call) {
-          // 🟢 On remplace la réponse de l'IA par le résultat de l'outil (succès ou erreur)
-          finalReply = await executeToolCall(parsed.tool_call);
-        }
-      } catch (e) {}
+      // Les outils financiers sont désormais exécutés et vérifiés côté serveur.
+      // Le client n'interprète plus de JSON d'appel d'outil et ne réexécute jamais une action.
+      const finalReply = data.reply || data.textReply || "J'ai bien noté.";
 
       const botMsg = { 
         role: 'assistant', 

@@ -1,5 +1,5 @@
 import {
-  collection, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy
+  collection, onSnapshot, query, orderBy
 } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase/client';
 
@@ -35,10 +35,24 @@ export async function createExpense(uid, data) {
   return result;
 }
 
+async function postExpenseAction(path, payload) {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Utilisateur non connecté.');
+  const token = await user.getIdToken();
+  const response = await fetch(`/api/expenses/${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  });
+  const result = await response.json();
+  if (!response.ok || !result.success) throw new Error(result.error || 'Opération impossible.');
+  return result;
+}
+
 export async function updateExpense(uid, id, patch) {
-  await updateDoc(doc(db, 'users', uid, 'expenses', id), patch);
+  return postExpenseAction('update', { ...patch, expenseId: id });
 }
 
 export async function deleteExpense(uid, id) {
-  await deleteDoc(doc(db, 'users', uid, 'expenses', id));
+  return postExpenseAction('delete', { expenseId: id });
 }

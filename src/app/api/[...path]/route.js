@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { FieldValue } from 'firebase-admin/firestore';
-import { chatWithGroq } from '@/lib/ai/groqClient';
+import { completeWithGroq } from '@/lib/ai/groqClient';
+import { AI_TOOLS, createExpenseForUser, updateExpenseForUser, deleteExpenseForUser, executeAITool, runAutomationForUser, generateWeeklyReportForUser } from '@/lib/ai/financialTools';
 import { generateAudioWithGemini } from '@/lib/ai/geminiTTS';
 import { chatWithGroqVision } from '@/lib/ai/groqVision';
 import { generateImageWithPollinations } from '@/lib/ai/pollinationsImage';
@@ -9,6 +10,7 @@ import { buildUserContext } from '@/lib/ai/buildUserContext';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 /* ═══════════════════ HELPERS ═══════════════════ */
 
@@ -39,66 +41,6 @@ const PLAN_LIMITS = {
     dailyAI: 3,
   },
 };
-
-async function checkMonthlyQuota(uid, type) {
-  const userRef = adminDb.collection('users').doc(uid);
-  const userSnap = await userRef.get();
-  if (!userSnap.exists) throw new Error('Utilisateur introuvable.');
-
-  const data = userSnap.data();
-  const now = new Date();
-  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const premiumUntil = data.premiumUntil ? new Date(data.premiumUntil) : null;
-  const isPremium = premiumUntil && premiumUntil > now;
-
-  if (isPremium) return { allowed: true, isPremium: true };
-
-  let stats = data.monthlyStats || {};
-  if (stats.lastResetMonth !== currentMonth) {
-    stats = { expenses: 0, incomes: 0, budgets: 0, goals: 0, lastResetMonth: currentMonth };
-  }
-
-  const currentCount = stats[type] || 0;
-  const limit = PLAN_LIMITS.FREE[type];
-
-  if (currentCount >= limit) {
-    return { allowed: false, currentCount, limit, isPremium: false };
-  }
-
-  stats[type] = currentCount + 1;
-  await userRef.update({ monthlyStats: stats });
-  
-  return { allowed: true, currentCount: stats[type], limit, isPremium: false };
-}
-
-async function checkDailyAIQuota(uid) {
-  const userRef = adminDb.collection('users').doc(uid);
-  const userSnap = await userRef.get();
-  if (!userSnap.exists) throw new Error('Utilisateur introuvable.');
-
-  const data = userSnap.data();
-  const now = new Date();
-  const todayStr = now.toISOString().slice(0, 10);
-  const premiumUntil = data.premiumUntil ? new Date(data.premiumUntil) : null;
-  const isPremium = premiumUntil && premiumUntil > now;
-
-  if (isPremium) return { allowed: true, isPremium: true };
-
-  let dailyStats = data.dailyStats || {};
-  if (dailyStats.lastResetDate !== todayStr) {
-    dailyStats = { aiCount: 0, lastResetDate: todayStr };
-  }
-
-  const currentCount = dailyStats.aiCount || 0;
-  if (currentCount >= PLAN_LIMITS.FREE.dailyAI) {
-    return { allowed: false, remaining: 0, limit: PLAN_LIMITS.FREE.dailyAI, isPremium: false };
-  }
-
-  dailyStats.aiCount = currentCount + 1;
-  await userRef.update({ dailyStats });
-  
-  return { allowed: true, remaining: PLAN_LIMITS.FREE.dailyAI - dailyStats.aiCount, isPremium: false };
-}
 
 /* ═══════════════════ ROUTES FAPSHI (DÉPÔTS) ═══════════════════ */
 
@@ -349,87 +291,41 @@ async function handleSubscriptionWebhook(request) {
 async function handleAddExpense(request) {
   try {
     const decoded = await authenticate(request);
-    const uid = decoded.uid;
-    
-    const quota = await checkMonthlyQuota(uid, 'expenses');
-    if (!quota.allowed) {
-      return errorResponse(`Limite gratuite atteinte (${quota.limit} dépenses/mois). Passe Premium pour continuer.`, 403);
-    }
-
     const body = await request.json();
-    const { amount, categoryId, note, date, incomeSourceId } = body;
+    const result = await createExpenseForUser(decoded.uid, body);
+    return NextResponse.json(result);
+  } catch (error) {
+    const message = error.message || 'Erreur lors de l’enregistrement de la dépense.';
+    const status = /limite gratuite/i.test(message) ? 403
+      : /introuvable|invalide|insuffisants|nom exact|plusieurs revenus|n’existe plus|n'existe plus|ne trouve pas|obligatoire|disponible|catégorie/i.test(message) ? 400 : 500;
+    return errorResponse(message, status);
+  }
+}
 
-    if (!amount || amount <= 0) return errorResponse('Montant invalide.');
+async function handleUpdateExpense(request) {
+  try {
+    const decoded = await authenticate(request);
+    const body = await request.json();
+    const result = await updateExpenseForUser(decoded.uid, body.expenseId || body.id, body);
+    return NextResponse.json(result);
+  } catch (error) {
+    const message = error.message || 'Erreur lors de la modification de la dépense.';
+    const status = /introuvable|invalide|insuffisants|nom exact|plusieurs revenus|n’existe plus|n'existe plus|ne trouve pas|disponible|manquant|catégorie/i.test(message) ? 400 : 500;
+    return errorResponse(message, status);
+  }
+}
 
-    const [incomesSnap, expensesSnap] = await Promise.all([
-      adminDb.collection('users').doc(uid).collection('incomes').get(),
-      adminDb.collection('users').doc(uid).collection('expenses').get(),
-    ]);
-
-    const incomes = incomesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    const expenses = expensesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-    const incomesWithBalance = incomes.map(inc => {
-      const linkedExpenses = expenses.filter(e => e.incomeSourceId === inc.id);
-      const spent = linkedExpenses.reduce((s, e) => s + (e.amount || 0), 0);
-      const remaining = Math.max(0, (inc.amount || 0) - spent);
-      return { ...inc, remaining };
-    });
-
-    const batch = adminDb.batch();
-    const expenseDate = date || new Date().toISOString().slice(0, 10);
-    const expenseNote = note || '';
-
-    if (!incomeSourceId || incomeSourceId === 'all') {
-      const totalAvailable = incomesWithBalance.reduce((s, i) => s + i.remaining, 0);
-      if (amount > totalAvailable) {
-        return errorResponse(`Fonds insuffisants. Le solde total de tes revenus est de ${totalAvailable} FCFA, mais tu demandes ${amount} FCFA.`);
-      }
-
-      const sortedIncomes = [...incomesWithBalance].sort((a, b) => a.remaining - b.remaining);
-      let remainingToDeduct = amount;
-      let isFirstSplit = true;
-
-      for (const inc of sortedIncomes) {
-        if (remainingToDeduct <= 0) break;
-        if (inc.remaining <= 0) continue;
-
-        const deduct = Math.min(inc.remaining, remainingToDeduct);
-        const expenseRef = adminDb.collection('users').doc(uid).collection('expenses').doc();
-        
-        batch.set(expenseRef, {
-          amount: deduct, categoryId: categoryId || 'other',
-          note: isFirstSplit ? expenseNote : `${expenseNote} (Partagé)`,
-          date: expenseDate, incomeSourceId: inc.id, incomeSourceName: inc.source,
-          createdAt: FieldValue.serverTimestamp(),
-        });
-
-        remainingToDeduct -= deduct;
-        isFirstSplit = false;
-      }
-
-      await batch.commit();
-      return NextResponse.json({ success: true });
-
-    } else {
-      const inc = incomesWithBalance.find(i => i.id === incomeSourceId);
-      if (!inc) return errorResponse('Revenu introuvable.');
-
-      if (amount > inc.remaining) {
-        return errorResponse(`Fonds insuffisants. Il ne reste que ${inc.remaining} FCFA sur "${inc.source}".`);
-      }
-
-      const expenseRef = adminDb.collection('users').doc(uid).collection('expenses').doc();
-      batch.set(expenseRef, {
-        amount: Number(amount), categoryId: categoryId || 'other', note: expenseNote,
-        date: expenseDate, incomeSourceId: inc.id, incomeSourceName: inc.source,
-        createdAt: FieldValue.serverTimestamp(),
-      });
-
-      await batch.commit();
-      return NextResponse.json({ success: true });
-    }
-  } catch (error) { return errorResponse(error.message, 500); }
+async function handleDeleteExpense(request) {
+  try {
+    const decoded = await authenticate(request);
+    const body = await request.json();
+    const result = await deleteExpenseForUser(decoded.uid, body.expenseId || body.id);
+    return NextResponse.json(result);
+  } catch (error) {
+    const message = error.message || 'Erreur lors de la suppression de la dépense.';
+    const status = /introuvable|manquant/i.test(message) ? 404 : 500;
+    return errorResponse(message, status);
+  }
 }
 
 /* ═══════════════════ ROUTES OBJECTIFS / AUTOMATISATIONS ═══════════════════ */
@@ -560,250 +456,339 @@ async function handleGoalCancel(request) {
 async function handleAutomationsRun(request) {
   try {
     const decoded = await authenticate(request);
-    const uid = decoded.uid;
-    const now = new Date().toISOString();
+    const result = await runAutomationForUser(decoded.uid);
+    return NextResponse.json({ success: true, ...result });
+  } catch (error) {
+    console.error('[API] Automation run error:', error.message);
+    return errorResponse(error.message || 'Erreur lors de l’exécution des automatisations.', 500);
+  }
+}
 
-    const snapshot = await adminDb.collection('users').doc(uid).collection('automations').get();
-    let executedCount = 0;
-
-    for (const doc of snapshot.docs) {
-      const auto = doc.data();
-      if (auto.nextRun <= now) {
-        const [incomesSnap, expensesSnap] = await Promise.all([
-          adminDb.collection('users').doc(uid).collection('incomes').get(),
-          adminDb.collection('users').doc(uid).collection('expenses').get(),
-        ]);
-        const totalIncome = incomesSnap.docs.reduce((s, d) => s + (d.data().amount || 0), 0);
-        const totalExpense = expensesSnap.docs.reduce((s, d) => s + (d.data().amount || 0), 0);
-        const globalBalance = totalIncome - totalExpense;
-
-        if (auto.amount <= globalBalance) {
-          await adminDb.collection('users').doc(uid).collection('expenses').add({
-            amount: auto.amount, categoryId: auto.categoryId, note: auto.note || 'Dépense automatique',
-            date: now.slice(0, 10), incomeSourceId: auto.incomeSourceId, incomeSourceName: auto.incomeSourceName,
-            createdAt: FieldValue.serverTimestamp(),
-          });
-        }
-
-        const next = new Date(auto.nextRun);
-        if (auto.frequency === 'daily') next.setDate(next.getDate() + 1);
-        else if (auto.frequency === 'weekly') next.setDate(next.getDate() + 7);
-        else if (auto.frequency === 'monthly') next.setMonth(next.getMonth() + 1);
-
-        await doc.ref.update({ nextRun: next.toISOString() });
-        executedCount++;
-      }
+async function handleAutomationsScheduler(request) {
+  try {
+    const expectedSecret = process.env.CRON_SECRET;
+    const authHeader = request.headers.get('authorization') || '';
+    const suppliedSecret = authHeader.startsWith('Bearer ')
+      ? authHeader.slice(7)
+      : request.headers.get('x-cron-secret');
+    if (!expectedSecret || suppliedSecret !== expectedSecret) {
+      return errorResponse('Accès au planificateur refusé.', 401);
     }
-    return NextResponse.json({ success: true, executed: executedCount });
-  } catch (error) { return errorResponse(error.message, 500); }
+
+    const usersSnapshot = await adminDb.collection('users').get();
+    let executed = 0;
+    let skipped = 0;
+    let completed = 0;
+    let weeklyReportsGenerated = 0;
+    const batchSize = 5;
+    for (let offset = 0; offset < usersSnapshot.docs.length; offset += batchSize) {
+      const batch = usersSnapshot.docs.slice(offset, offset + batchSize);
+      const results = await Promise.all(batch.map(async (userDoc) => {
+        const userResult = { executed: 0, skipped: 0, completed: 0, weeklyReportsGenerated: 0 };
+        try {
+          const automationResult = await runAutomationForUser(userDoc.id);
+          userResult.executed += automationResult.executed;
+          userResult.skipped += automationResult.skipped;
+          userResult.completed += automationResult.completed;
+          try {
+            const weeklyReport = await generateWeeklyReportForUser(userDoc.id);
+            if (weeklyReport.generated) userResult.weeklyReportsGenerated += 1;
+          } catch (reportError) {
+            console.error(`[CRON] Rapport hebdomadaire non généré pour ${userDoc.id}:`, reportError.message);
+          }
+        } catch (userError) {
+          // Une donnée invalide chez un utilisateur ne doit pas bloquer les autres.
+          userResult.skipped += 1;
+          console.error(`[CRON] Automatisations ignorées pour ${userDoc.id}:`, userError.message);
+        }
+        return userResult;
+      }));
+      results.forEach((result) => {
+        executed += result.executed;
+        skipped += result.skipped;
+        completed += result.completed;
+        weeklyReportsGenerated += result.weeklyReportsGenerated;
+      });
+    }
+    return NextResponse.json({ success: true, checkedUsers: usersSnapshot.size, executed, skipped, completed, weeklyReportsGenerated });
+  } catch (error) {
+    console.error('[API] Automation scheduler error:', error.message);
+    return errorResponse('Échec du planificateur des automatisations.', 500);
+  }
 }
 
 /* ═══════════════════ ROUTES IA ═══════════════════ */
 
+async function reserveDailyAIQuota(uid) {
+  const userRef = adminDb.collection('users').doc(uid);
+  return adminDb.runTransaction(async (transaction) => {
+    const userSnap = await transaction.get(userRef);
+    if (!userSnap.exists) throw new Error('Utilisateur introuvable.');
+    const userData = userSnap.data();
+    if (isPremiumAccount(userData)) return { allowed: true, isPremium: true, reserved: false };
+
+    const today = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Africa/Douala', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date());
+    let stats = userData.dailyStats || {};
+    if (stats.lastResetDate !== today) stats = { aiCount: 0, lastResetDate: today };
+    const count = Number(stats.aiCount) || 0;
+    if (count >= PLAN_LIMITS.FREE.dailyAI) {
+      return { allowed: false, remaining: 0, limit: PLAN_LIMITS.FREE.dailyAI, isPremium: false, reserved: false };
+    }
+    transaction.update(userRef, {
+      dailyStats: { aiCount: count + 1, lastResetDate: today },
+    });
+    return { allowed: true, remaining: PLAN_LIMITS.FREE.dailyAI - count - 1, isPremium: false, reserved: true, date: today };
+  });
+}
+
+async function releaseDailyAIQuota(uid, reservedDate) {
+  if (!reservedDate) return;
+  const userRef = adminDb.collection('users').doc(uid);
+  await adminDb.runTransaction(async (transaction) => {
+    const userSnap = await transaction.get(userRef);
+    if (!userSnap.exists) return;
+    const stats = userSnap.data().dailyStats || {};
+    if (stats.lastResetDate !== reservedDate) return;
+    transaction.update(userRef, {
+      dailyStats: { ...stats, aiCount: Math.max(0, (Number(stats.aiCount) || 0) - 1) },
+    });
+  });
+}
+
+function isPremiumAccount(data = {}) {
+  const value = data.premiumUntil;
+  const expiry = value?.toDate ? value.toDate() : new Date(value || 0);
+  return Number.isFinite(expiry.getTime()) && expiry > new Date();
+}
+
 async function handleAIChat(request) {
+  let reservedQuota = null;
+  let uid = null;
+  let hasSuccessfulToolExecution = false;
   try {
     const decoded = await authenticate(request);
-    const uid = decoded.uid;
-    
-    const quota = await checkDailyAIQuota(uid);
-    if (!quota.allowed) {
-      return errorResponse(`Tu as utilisé tes 3 questions gratuites aujourd'hui. Reviens demain ou passe Premium.`, 403);
+    uid = decoded.uid;
+    const body = await request.json();
+    const mode = body.mode === 'audio' ? 'audio' : 'text';
+    const incomingMessages = Array.isArray(body.messages) ? body.messages : [];
+    if (!incomingMessages.length) return errorResponse('Messages requis.', 400);
+
+    const history = incomingMessages.slice(-24).map((message) => ({
+      role: message.role === 'assistant' ? 'assistant' : 'user',
+      content: String(message.content || '').slice(0, 1800),
+    })).filter((message) => message.content.trim());
+    if (!history.length || history[history.length - 1].role !== 'user') {
+      return errorResponse('Le dernier message utilisateur est manquant.', 400);
     }
 
-    const body = await request.json();
-    const mode = body.mode || 'text'; 
-    const messages = Array.isArray(body.messages) ? body.messages : [];
-    if (messages.length === 0) return errorResponse('Messages requis.', 400);
+    const quota = await reserveDailyAIQuota(uid);
+    if (!quota.allowed) {
+      return errorResponse("Tu as utilisé tes 3 questions gratuites aujourd'hui. Reviens demain ou passe Premium.", 403);
+    }
+    if (quota.reserved) reservedQuota = quota.date;
 
-    const [userDoc, incomesSnap, expensesSnap, goalsSnap, budgetsSnap] = await Promise.all([
-      adminDb.collection('users').doc(uid).get(),
-      adminDb.collection('users').doc(uid).collection('incomes').limit(100).get(),
-      adminDb.collection('users').doc(uid).collection('expenses').limit(200).get(),
-      adminDb.collection('users').doc(uid).collection('goals').limit(20).get(),
-      adminDb.collection('users').doc(uid).collection('budgets').get(),
+    const userRef = adminDb.collection('users').doc(uid);
+    const [userDoc, incomesSnap, expensesSnap, goalsSnap, budgetsSnap, automationsSnap, memorySnap, categoriesSnap] = await Promise.all([
+      userRef.get(),
+      userRef.collection('incomes').orderBy('date', 'desc').limit(100).get(),
+      userRef.collection('expenses').orderBy('date', 'desc').limit(200).get(),
+      userRef.collection('goals').limit(20).get(),
+      userRef.collection('budgets').limit(50).get(),
+      userRef.collection('automations').limit(50).get(),
+      userRef.collection('ai_memory').doc('profile').get(),
+      userRef.collection('categories').limit(50).get(),
     ]);
+
+    const goalsWithDeposits = await Promise.all(goalsSnap.docs.map(async (goalDoc) => {
+      const depositsSnap = await goalDoc.ref.collection('deposits').get();
+      return { id: goalDoc.id, ...goalDoc.data(), deposits: depositsSnap.docs.map((depositDoc) => depositDoc.data()) };
+    }));
 
     const userData = {
       profile: userDoc.exists ? userDoc.data() : {},
-      incomes: incomesSnap.docs.map(d => ({ id: d.id, ...d.data() })),
-      expenses: expensesSnap.docs.map(d => ({ id: d.id, ...d.data() })),
-      goals: goalsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
-      budgets: budgetsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+      incomes: incomesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+      expenses: expensesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+      goals: goalsWithDeposits,
+      budgets: budgetsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+      automations: automationsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+      memories: Array.isArray(memorySnap.data()?.facts) ? memorySnap.data().facts : [],
+      categories: categoriesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+      now: new Date(),
     };
 
     const userContext = buildUserContext(userData);
     const userName = userData.profile?.displayName?.split(' ')[0] || 'Utilisateur';
+    const systemPrompt = `Tu es Mč, l’assistante financière de Pata. Tu échanges avec ${userName}. Tu es spécialiste du budget personnel, du suivi des revenus et dépenses, de l’épargne et des automatisations.
 
-    const tools = [
-      {
-        type: 'function',
-        function: {
-          name: 'add_expense',
-          parameters: {
-            type: 'object',
-            properties: {
-              amount: { type: 'number' },
-              category: { type: 'string' },
-              note: { type: 'string' },
-              incomeSourceId: { type: 'string', description: 'ID exact du revenu ou "all".' },
-              incomeSourceName: { type: 'string' }
-            },
-            required: ['amount', 'category', 'incomeSourceId']
-          }
-        }
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'add_income',
-          parameters: {
-            type: 'object',
-            properties: {
-              amount: { type: 'number' },
-              source: { type: 'string' },
-              categoryId: { type: 'string', enum: ['salary', 'business', 'gift', 'other_income'] },
-              note: { type: 'string' }
-            },
-            required: ['amount', 'source', 'categoryId']
-          }
-        }
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'apply_budget_plan',
-          description: 'Appliquer un plan budgétaire complet.',
-          parameters: {
-            type: 'object',
-            properties: {
-              budgetName: { type: 'string' },
-              totalIncome: { type: 'number' },
-              plan: {
-                type: 'array',
-                items: {
-                  type: 'object',
-                  properties: { categoryId: { type: 'string' }, amount: { type: 'number' } },
-                  required: ['categoryId', 'amount']
-                }
-              }
-            },
-            required: ['budgetName', 'totalIncome', 'plan']
-          }
-        }
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'add_automation',
-          parameters: {
-            type: 'object',
-            properties: {
-              amount: { type: 'number' },
-              category: { type: 'string' },
-              frequency: { type: 'string', enum: ['daily', 'weekly', 'monthly'] },
-              note: { type: 'string' }
-            },
-            required: ['amount', 'category', 'frequency']
-          }
-        }
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'create_goal',
-          parameters: {
-            type: 'object',
-            properties: {
-              name: { type: 'string' },
-              targetAmount: { type: 'number' },
-              deadline: { type: 'string' }
-            },
-            required: ['name', 'targetAmount', 'deadline']
-          }
-        }
-      }
-    ];
+RÈGLES NON NÉGOCIABLES
+1. Réponds toujours en français, directement, avec des explications concrètes et des calculs exacts. Ne salue pas à chaque message.
+2. Le dernier message s’inscrit dans une conversation : conserve les corrections, les précisions, les noms et les décisions des messages précédents. Une correction remplace l’information erronée; ne traite pas une correction comme une nouvelle opération.
+3. N’invente jamais de montant, date, revenu, catégorie, source, identifiant ou opération déjà faite. Utilise uniquement les informations fournies et les données Pata ci-dessous.
+4. Quand une information indispensable manque ou que plusieurs sources correspondent, pose une seule question claire. Ne lance aucun outil tant que tu n’as pas les champs nécessaires.
+5. Distingue une intention d’enregistrement d’une simple question, d’un exemple, d’une simulation ou d’un conseil. N’enregistre que lorsque l’utilisateur le demande clairement.
+6. Pour ajouter une dépense, utilise add_expense. Si la personne nomme une source (ex. « mon salaire », « le revenu TRIXHUB »), associe-la à l’ID exact de cette source. Ne mets JAMAIS le nom de la source uniquement dans la note. Si aucune source n’est précisée, utilise « all » pour répartir les fonds disponibles.
+7. Les soldes disponibles par revenu sont calculés en soustrayant les dépenses déjà associées à cet ID. Si le montant demandé dépasse le solde disponible de cette source (ou de toutes les sources), l’opération sera refusée. N’annonce jamais une réussite avant d’avoir reçu le résultat de l’outil.
+8. Pour établir un budget, applique_budget_plan ne doit jamais créer un revenu. Un budget est une enveloppe; ne crée un revenu que si la personne demande séparément de l’enregistrer.
+9. Pour créer une dépense récurrente, demande une précision si la fréquence, le montant ou la source explicitement voulue est ambiguë. Explique qu’une automatisation nécessite que le planificateur serveur soit configuré pour fonctionner même lorsque l’application est fermée.
+10. Les actions de modification, suppression ou mise en pause ne concernent que des identifiants exacts présents dans les données. Si la cible n’est pas certaine, demande laquelle. Les suppressions doivent être explicitement demandées.
+11. Tu peux mémoriser les objectifs, préférences, limites et corrections financières explicitement déclarés avec remember_user_context. La citation doit être copiée exactement depuis un message de l’utilisateur. Ne mémorise jamais une déduction ou une information incertaine.
+12. Après chaque outil, base ta réponse sur son résultat réel. Distingue clairement réussite, refus, dépense répartie sur plusieurs revenus et automatisation mise en pause.
+13. Ne prétends pas consulter un compte bancaire, un portefeuille externe ou une donnée qui n’existe pas dans Pata. Le solde calculé est uniquement celui des enregistrements Pata.
+14. Si l’utilisateur corrige un montant ou un libellé avant l’exécution, utilise la dernière correction uniquement et ne crée pas deux opérations.
 
-    const SYSTEM_PROMPT = `Tu es Mč, l'assistante financière de Pata. Tu parles à ${userName}.
-
-RÈGLES DE SÉCURITÉ FINANCIÈRE (CRITIQUE) :
-1. Tu ne peux PAS enregistrer de dépense si le solde global est insuffisant.
-2. Avant d'enregistrer, LIS ATTENTIVEMENT le "SOLDE GLOBAL" et le "DÉTAIL DES REVENUS".
-3. Si la dépense dépasse le solde, refuse et explique poliment à l'utilisateur.
-4. Quand on choisit "Tous les revenus", l'application va automatiquement piocher dans les plus petits soldes pour compléter.
-
-RÈGLES DE COMPORTEMENT :
-1. Ne salue pas l'utilisateur. Va droit au but.
-2. Sois concise, factuelle, et en français.
-
-DONNÉES ACTUELLES :
+DONNÉES FINANCIÈRES ACTUELLES
 ${userContext}`;
 
-    const trimmedHistory = messages.slice(-8).map(m => ({
-      role: m.role === 'assistant' ? 'assistant' : 'user',
-      content: String(m.content || '').slice(0, 500),
-    }));
+    const modelMessages = [
+      { role: 'system', content: systemPrompt },
+      ...history,
+    ];
+    const userMessages = history.filter((message) => message.role === 'user').map((message) => message.content);
+    const toolResults = [];
+    let reply = '';
+    let requiresFinalPass = false;
 
-    const reply = await chatWithGroq([
-      { role: 'system', content: SYSTEM_PROMPT },
-      ...trimmedHistory,
-    ], { maxTokens: 1000, temperature: 0.1, tools });
+    for (let round = 0; round < 4; round += 1) {
+      let completion;
+      try {
+        completion = await completeWithGroq(modelMessages, {
+          maxTokens: 1400,
+          temperature: 0.15,
+          tools: AI_TOOLS,
+          timeoutMs: 45000,
+        });
+      } catch (completionError) {
+        if (hasSuccessfulToolExecution) {
+          const successful = [...toolResults].reverse().find((item) => item.success);
+          reply = successful?.result?.message || 'L’opération a été enregistrée dans Pata. Le service de réponse a rencontré une erreur, mais l’enregistrement est confirmé.';
+          break;
+        }
+        throw completionError;
+      }
+      const assistantMessage = completion.message;
+      const calls = Array.isArray(assistantMessage.tool_calls) ? assistantMessage.tool_calls : [];
+      if (!calls.length) {
+        reply = String(assistantMessage.content || '').trim();
+        break;
+      }
+
+      modelMessages.push({
+        role: 'assistant',
+        content: assistantMessage.content || null,
+        tool_calls: calls,
+      });
+      for (const [callIndex, call] of calls.entries()) {
+        const toolName = call.function?.name;
+        let result;
+        try {
+          const requestId = String(body.clientRequestId || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80);
+          result = await executeAITool(uid, toolName, call.function?.arguments || '{}', userMessages, {
+            idempotencyKey: requestId ? `${requestId}_${round}_${callIndex}_${toolName}` : null,
+          });
+          hasSuccessfulToolExecution = true;
+          toolResults.push({ tool: toolName, success: true, result });
+        } catch (toolError) {
+          result = { success: false, error: toolError.message || 'Action impossible.' };
+          toolResults.push({ tool: toolName, success: false, result });
+        }
+        modelMessages.push({
+          role: 'tool',
+          tool_call_id: call.id,
+          name: toolName,
+          content: JSON.stringify(result),
+        });
+      }
+      requiresFinalPass = round === 3;
+    }
+
+    if (!reply && requiresFinalPass) {
+      try {
+        const finalCompletion = await completeWithGroq(modelMessages, {
+          maxTokens: 1200, temperature: 0.15, timeoutMs: 45000,
+        });
+        reply = String(finalCompletion.message.content || '').trim();
+      } catch (finalError) {
+        const successful = [...toolResults].reverse().find((item) => item.success);
+        reply = successful?.result?.message || 'Le traitement est terminé. Consulte les données enregistrées dans Pata pour le détail.';
+      }
+    }
+    if (!reply) {
+      const lastResult = toolResults[toolResults.length - 1]?.result;
+      reply = lastResult?.message || lastResult?.error || 'J’ai terminé le traitement, mais je n’ai pas pu générer le récapitulatif. Consulte les données enregistrées dans Pata.';
+    }
 
     if (mode === 'audio') {
       try {
         const audioBase64 = await generateAudioWithGemini(reply);
-        return NextResponse.json({ success: true, audio: audioBase64, isAudio: true, textReply: reply });
+        return NextResponse.json({ success: true, audio: audioBase64, isAudio: true, textReply: reply, reply, toolResults });
       } catch (ttsError) {
-        return NextResponse.json({ success: true, reply, audioError: 'Impossible de générer l\'audio.' });
+        return NextResponse.json({ success: true, reply, audioError: 'Impossible de générer l’audio.', toolResults });
       }
     }
 
-    return NextResponse.json({ success: true, reply });
+    return NextResponse.json({ success: true, reply, toolResults, quota: { remaining: quota.remaining, isPremium: quota.isPremium } });
   } catch (error) {
+    if (uid && reservedQuota && !hasSuccessfulToolExecution) {
+      try { await releaseDailyAIQuota(uid, reservedQuota); } catch (quotaError) {
+        console.error('[API] Impossible de restituer le quota IA:', quotaError.message);
+      }
+    }
     console.error('[API] AI chat error:', error.message);
-    return errorResponse(error.message || 'Erreur de l\'assistante.', 500);
+    return errorResponse(error.message || 'Erreur de l’assistante.', 500);
   }
 }
 
 async function handleAIImage(request) {
+  let uid = null;
+  let reservedDate = null;
   try {
     const decoded = await authenticate(request);
-    const uid = decoded.uid;
-    
-    const quota = await checkDailyAIQuota(uid);
-    if (!quota.allowed) {
-      return errorResponse(`Tu as utilisé tes 3 requêtes IA gratuites aujourd'hui. Reviens demain ou passe Premium.`, 403);
-    }
-
+    uid = decoded.uid;
     const body = await request.json();
-    const { prompt } = body;
+    const prompt = String(body.prompt || '').trim();
     if (!prompt) return errorResponse('Prompt manquant.', 400);
+
+    const quota = await reserveDailyAIQuota(uid);
+    if (!quota.allowed) return errorResponse(`Tu as utilisé tes 3 requêtes IA gratuites aujourd'hui. Reviens demain ou passe Premium.`, 403);
+    if (quota.reserved) reservedDate = quota.date;
 
     const imageUrl = await generateImageWithPollinations(prompt);
     return NextResponse.json({ success: true, imageUrl, isImage: true });
   } catch (error) {
+    if (uid && reservedDate) {
+      try { await releaseDailyAIQuota(uid, reservedDate); } catch (quotaError) {
+        console.error('[API] Impossible de restituer le quota image:', quotaError.message);
+      }
+    }
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
 
 async function handleAIVision(request) {
+  let uid = null;
+  let reservedDate = null;
   try {
     const decoded = await authenticate(request);
-    const uid = decoded.uid;
-    
-    const quota = await checkDailyAIQuota(uid);
-    if (!quota.allowed) {
-      return errorResponse(`Tu as utilisé tes 3 requêtes IA gratuites aujourd'hui. Reviens demain ou passe Premium.`, 403);
-    }
-
+    uid = decoded.uid;
     const body = await request.json();
     const { messages, imageBase64 } = body;
     if (!imageBase64) return errorResponse('Image manquante.', 400);
 
+    const quota = await reserveDailyAIQuota(uid);
+    if (!quota.allowed) return errorResponse(`Tu as utilisé tes 3 requêtes IA gratuites aujourd'hui. Reviens demain ou passe Premium.`, 403);
+    if (quota.reserved) reservedDate = quota.date;
+
     const reply = await chatWithGroqVision(messages || [], imageBase64);
     return NextResponse.json({ success: true, reply });
   } catch (error) {
-    return errorResponse(error.message || 'Erreur d\'analyse d\'image.', 500);
+    if (uid && reservedDate) {
+      try { await releaseDailyAIQuota(uid, reservedDate); } catch (quotaError) {
+        console.error('[API] Impossible de restituer le quota vision:', quotaError.message);
+      }
+    }
+    return errorResponse(error.message || 'Erreur d’analyse d’image.', 500);
   }
 }
 
@@ -822,7 +807,10 @@ const ROUTES = {
   'goals/withdraw':        { POST: handleGoalWithdraw },
   'goals/cancel':          { POST: handleGoalCancel },
   'automations/run':       { POST: handleAutomationsRun },
+  'automations/scheduler': { GET: handleAutomationsScheduler, POST: handleAutomationsScheduler },
   'expenses/add':          { POST: handleAddExpense },
+  'expenses/update':       { POST: handleUpdateExpense },
+  'expenses/delete':       { POST: handleDeleteExpense },
   'ai/chat':               { POST: handleAIChat },
   'ai/image':              { POST: handleAIImage },
   'ai/vision':             { POST: handleAIVision },
