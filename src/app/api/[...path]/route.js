@@ -10,6 +10,8 @@ import { buildUserContext } from '@/lib/ai/buildUserContext';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+/* ═══════════════════ HELPERS ═══════════════════ */
+
 async function authenticate(request) {
   const authHeader = request.headers.get('authorization');
   if (!authHeader?.startsWith('Bearer ')) throw new Error('Token manquant.');
@@ -26,105 +28,79 @@ function getBaseUrl(request) {
   return process.env.FAPSHI_WEBHOOK_URL?.replace(/\/$/, '') || `${proto}://${host}`;
 }
 
-/* ═══════════════════ ROUTE ADD EXPENSE (CASCADE) ═══════════════════ */
-async function handleAddExpense(request) {
-  try {
-    const decoded = await authenticate(request);
-    const uid = decoded.uid;
-    const body = await request.json();
-    const { amount, categoryId, note, date, incomeSourceId } = body;
+/* ═══════════════════ GESTION DES QUOTAS & SÉCURITÉ ═══════════════════ */
 
-    if (!amount || amount <= 0) return errorResponse('Montant invalide.');
+const PLAN_LIMITS = {
+  FREE: {
+    expenses: 60,
+    incomes: 2,
+    budgets: 2,
+    goals: 2,
+    dailyAI: 3,
+  },
+};
 
-    const [incomesSnap, expensesSnap] = await Promise.all([
-      adminDb.collection('users').doc(uid).collection('incomes').get(),
-      adminDb.collection('users').doc(uid).collection('expenses').get(),
-    ]);
+async function checkMonthlyQuota(uid, type) {
+  const userRef = adminDb.collection('users').doc(uid);
+  const userSnap = await userRef.get();
+  if (!userSnap.exists) throw new Error('Utilisateur introuvable.');
 
-    const incomes = incomesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    const expenses = expensesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const data = userSnap.data();
+  const now = new Date();
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const premiumUntil = data.premiumUntil ? new Date(data.premiumUntil) : null;
+  const isPremium = premiumUntil && premiumUntil > now;
 
-    // Calculer le solde de chaque revenu
-    const incomesWithBalance = incomes.map(inc => {
-      const linkedExpenses = expenses.filter(e => e.incomeSourceId === inc.id);
-      const spent = linkedExpenses.reduce((s, e) => s + (e.amount || 0), 0);
-      const remaining = Math.max(0, (inc.amount || 0) - spent);
-      return { ...inc, remaining };
-    });
+  if (isPremium) return { allowed: true, isPremium: true };
 
-    const batch = adminDb.batch();
-    const expenseDate = date || new Date().toISOString().slice(0, 10);
-    const expenseNote = note || '';
-
-    // 🟢 LOGIQUE CASCADE : Si 'all', on trie du plus petit au plus grand
-    if (!incomeSourceId || incomeSourceId === 'all') {
-      const totalAvailable = incomesWithBalance.reduce((s, i) => s + i.remaining, 0);
-      
-      if (amount > totalAvailable) {
-        return errorResponse(`Fonds insuffisants. Le solde total de tes revenus est de ${totalAvailable} FCFA, mais tu demandes ${amount} FCFA.`);
-      }
-
-      // Trier par solde restant croissant (le plus petit d'abord)
-      const sortedIncomes = [...incomesWithBalance].sort((a, b) => a.remaining - b.remaining);
-      
-      let remainingToDeduct = amount;
-      let isFirstSplit = true;
-
-      for (const inc of sortedIncomes) {
-        if (remainingToDeduct <= 0) break;
-        if (inc.remaining <= 0) continue;
-
-        const deduct = Math.min(inc.remaining, remainingToDeduct);
-        
-        const expenseRef = adminDb.collection('users').doc(uid).collection('expenses').doc();
-        batch.set(expenseRef, {
-          amount: deduct,
-          categoryId: categoryId || 'other',
-          note: isFirstSplit ? expenseNote : `${expenseNote} (Partagé)`,
-          date: expenseDate,
-          incomeSourceId: inc.id,
-          incomeSourceName: inc.source,
-          createdAt: FieldValue.serverTimestamp(),
-        });
-
-        remainingToDeduct -= deduct;
-        isFirstSplit = false;
-      }
-
-      await batch.commit();
-      return NextResponse.json({ success: true });
-
-    } else {
-      // 🟢 LOGIQUE CLASSIQUE : Un seul revenu ciblé
-      const inc = incomesWithBalance.find(i => i.id === incomeSourceId);
-      if (!inc) return errorResponse('Revenu introuvable.');
-
-      if (amount > inc.remaining) {
-        return errorResponse(`Fonds insuffisants. Il ne reste que ${inc.remaining} FCFA sur "${inc.source}".`);
-      }
-
-      const expenseRef = adminDb.collection('users').doc(uid).collection('expenses').doc();
-      batch.set(expenseRef, {
-        amount: Number(amount),
-        categoryId: categoryId || 'other',
-        note: expenseNote,
-        date: expenseDate,
-        incomeSourceId: inc.id,
-        incomeSourceName: inc.source,
-        createdAt: FieldValue.serverTimestamp(),
-      });
-
-      await batch.commit();
-      return NextResponse.json({ success: true });
-    }
-
-  } catch (error) {
-    return errorResponse(error.message, 500);
+  let stats = data.monthlyStats || {};
+  if (stats.lastResetMonth !== currentMonth) {
+    stats = { expenses: 0, incomes: 0, budgets: 0, goals: 0, lastResetMonth: currentMonth };
   }
+
+  const currentCount = stats[type] || 0;
+  const limit = PLAN_LIMITS.FREE[type];
+
+  if (currentCount >= limit) {
+    return { allowed: false, currentCount, limit, isPremium: false };
+  }
+
+  stats[type] = currentCount + 1;
+  await userRef.update({ monthlyStats: stats });
+  
+  return { allowed: true, currentCount: stats[type], limit, isPremium: false };
 }
 
-/* ═══════════════════ ROUTES FAPSHI / GOALS / AUTOMATIONS ═══════════════════ */
-// (Je garde les fonctions existantes pour que tu n'aies pas à recoller)
+async function checkDailyAIQuota(uid) {
+  const userRef = adminDb.collection('users').doc(uid);
+  const userSnap = await userRef.get();
+  if (!userSnap.exists) throw new Error('Utilisateur introuvable.');
+
+  const data = userSnap.data();
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  const premiumUntil = data.premiumUntil ? new Date(data.premiumUntil) : null;
+  const isPremium = premiumUntil && premiumUntil > now;
+
+  if (isPremium) return { allowed: true, isPremium: true };
+
+  let dailyStats = data.dailyStats || {};
+  if (dailyStats.lastResetDate !== todayStr) {
+    dailyStats = { aiCount: 0, lastResetDate: todayStr };
+  }
+
+  const currentCount = dailyStats.aiCount || 0;
+  if (currentCount >= PLAN_LIMITS.FREE.dailyAI) {
+    return { allowed: false, remaining: 0, limit: PLAN_LIMITS.FREE.dailyAI, isPremium: false };
+  }
+
+  dailyStats.aiCount = currentCount + 1;
+  await userRef.update({ dailyStats });
+  
+  return { allowed: true, remaining: PLAN_LIMITS.FREE.dailyAI - dailyStats.aiCount, isPremium: false };
+}
+
+/* ═══════════════════ ROUTES FAPSHI (DÉPÔTS) ═══════════════════ */
 
 async function handleFapshiCheckout(request) {
   try {
@@ -232,6 +208,231 @@ async function handleFapshiStatus(request) {
     return NextResponse.json({ success: true, status: 'PENDING' });
   } catch (error) { return errorResponse(error.message, 500); }
 }
+
+/* ═══════════════════ ROUTES ABONNEMENT ═══════════════════ */
+
+async function handleSubscriptionCheckout(request) {
+  try {
+    const decoded = await authenticate(request);
+    const uid = decoded.uid;
+    const body = await request.json();
+    const months = Math.max(1, parseInt(body.months) || 1);
+    const amount = 2500 * months;
+
+    const API_USER = process.env.FAPSHI_API_USER;
+    const SECRET_KEY = process.env.FAPSHI_SECRET_KEY;
+    if (!API_USER || !SECRET_KEY) return errorResponse('Configuration incomplète.', 500);
+
+    const userDoc = await adminDb.collection('users').doc(uid).get();
+    const userData = userDoc.exists ? userDoc.data() : {};
+
+    const baseUrl = getBaseUrl(request);
+    const origin = request.headers.get('origin') || baseUrl;
+
+    const payload = {
+      amount,
+      currency: 'XAF',
+      description: `Abonnement Pata Premium (${months} mois)`,
+      redirect_url: `${origin}/premium`,
+      webhook_url: `${baseUrl}/api/subscription/webhook`,
+      phone: userData.phone || '',
+      email: userData.email || decoded.email || '',
+      name: userData.displayName || 'Client',
+    };
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
+    const res = await fetch('https://live.fapshi.com/initiate-pay', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apiuser: API_USER, apikey: SECRET_KEY },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    }).catch(() => { clearTimeout(timer); throw new Error('Service indisponible.'); });
+    clearTimeout(timer);
+
+    const data = await res.json();
+    if (!res.ok) return errorResponse(data.message || 'Paiement refusé.', 400);
+
+    const checkoutUrl = data.data?.url || data.link || data.url;
+    const transId = data.transId || data.data?.transId;
+    if (!checkoutUrl || !transId) return errorResponse('Lien indisponible.', 502);
+
+    await adminDb.collection('subscriptionPayments').doc(transId).set({
+      transId, userId: uid, amount, months, status: 'PENDING', checkoutUrl, createdAt: FieldValue.serverTimestamp(),
+    });
+
+    return NextResponse.json({ success: true, checkoutUrl, transId });
+  } catch (error) { return errorResponse(error.message, 500); }
+}
+
+async function handleSubscriptionPayWithBalance(request) {
+  try {
+    const decoded = await authenticate(request);
+    const uid = decoded.uid;
+    const body = await request.json();
+    const months = Math.max(1, parseInt(body.months) || 1);
+    const amount = 2500 * months;
+
+    const userRef = adminDb.collection('users').doc(uid);
+    const userDoc = await userRef.get();
+    if (!userDoc.exists) return errorResponse('Utilisateur introuvable.', 404);
+
+    const balance = userDoc.data().balance || 0;
+    if (balance < amount) {
+      return errorResponse(`Solde insuffisant. Tu as ${balance} FCFA, il te faut ${amount} FCFA.`);
+    }
+
+    const now = new Date();
+    const currentPremiumUntil = userDoc.data().premiumUntil ? new Date(userDoc.data().premiumUntil) : null;
+    const baseDate = currentPremiumUntil && currentPremiumUntil > now ? currentPremiumUntil : now;
+    const newExpiration = new Date(baseDate.getTime() + months * 30 * 24 * 60 * 60 * 1000);
+
+    await userRef.update({
+      balance: balance - amount,
+      premiumUntil: newExpiration.toISOString(),
+      lastPaymentDate: now.toISOString(),
+      lastPaymentAmount: amount,
+      lastPaymentMethod: 'balance',
+    });
+
+    return NextResponse.json({ success: true, newExpiration: newExpiration.toISOString() });
+  } catch (error) { return errorResponse(error.message, 500); }
+}
+
+async function handleSubscriptionWebhook(request) {
+  try {
+    const body = await request.json();
+    const transId = body.transId;
+    if (!transId) return NextResponse.json({ received: true });
+
+    const paymentRef = adminDb.collection('subscriptionPayments').doc(transId);
+    const paymentDoc = await paymentRef.get();
+    if (!paymentDoc.exists || paymentDoc.data().status === 'CONFIRMED') return NextResponse.json({ received: true });
+
+    const API_USER = process.env.FAPSHI_API_USER;
+    const SECRET_KEY = process.env.FAPSHI_SECRET_KEY;
+    const verifyRes = await fetch(`https://live.fapshi.com/payment-status/${transId}`, { headers: { apiuser: API_USER, apikey: SECRET_KEY } });
+    const verifyData = await verifyRes.json();
+    const realStatus = (verifyData.status || '').toUpperCase();
+
+    if (realStatus !== 'SUCCESSFUL') {
+      if (['FAILED', 'EXPIRED', 'CANCELED', 'REVERSED'].includes(realStatus)) {
+        await paymentRef.update({ status: 'FAILED' });
+      }
+      return NextResponse.json({ received: true });
+    }
+
+    const payment = paymentDoc.data();
+    const userRef = adminDb.collection('users').doc(payment.userId);
+    const userDoc = await userRef.get();
+    const userData = userDoc.exists ? userDoc.data() : {};
+
+    const now = new Date();
+    const currentPremiumUntil = userData.premiumUntil ? new Date(userData.premiumUntil) : null;
+    const baseDate = currentPremiumUntil && currentPremiumUntil > now ? currentPremiumUntil : now;
+    const newExpiration = new Date(baseDate.getTime() + payment.months * 30 * 24 * 60 * 60 * 1000);
+
+    await userRef.update({
+      premiumUntil: newExpiration.toISOString(),
+      lastPaymentDate: now.toISOString(),
+      lastPaymentAmount: payment.amount,
+      lastPaymentMethod: 'fapshi',
+    });
+
+    await paymentRef.update({ status: 'CONFIRMED', confirmedAt: FieldValue.serverTimestamp() });
+    return NextResponse.json({ received: true });
+  } catch (error) { return NextResponse.json({ received: true }); }
+}
+
+/* ═══════════════════ ROUTES DÉPENSES (CASCADE + QUOTA) ═══════════════════ */
+
+async function handleAddExpense(request) {
+  try {
+    const decoded = await authenticate(request);
+    const uid = decoded.uid;
+    
+    const quota = await checkMonthlyQuota(uid, 'expenses');
+    if (!quota.allowed) {
+      return errorResponse(`Limite gratuite atteinte (${quota.limit} dépenses/mois). Passe Premium pour continuer.`, 403);
+    }
+
+    const body = await request.json();
+    const { amount, categoryId, note, date, incomeSourceId } = body;
+
+    if (!amount || amount <= 0) return errorResponse('Montant invalide.');
+
+    const [incomesSnap, expensesSnap] = await Promise.all([
+      adminDb.collection('users').doc(uid).collection('incomes').get(),
+      adminDb.collection('users').doc(uid).collection('expenses').get(),
+    ]);
+
+    const incomes = incomesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const expenses = expensesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    const incomesWithBalance = incomes.map(inc => {
+      const linkedExpenses = expenses.filter(e => e.incomeSourceId === inc.id);
+      const spent = linkedExpenses.reduce((s, e) => s + (e.amount || 0), 0);
+      const remaining = Math.max(0, (inc.amount || 0) - spent);
+      return { ...inc, remaining };
+    });
+
+    const batch = adminDb.batch();
+    const expenseDate = date || new Date().toISOString().slice(0, 10);
+    const expenseNote = note || '';
+
+    if (!incomeSourceId || incomeSourceId === 'all') {
+      const totalAvailable = incomesWithBalance.reduce((s, i) => s + i.remaining, 0);
+      if (amount > totalAvailable) {
+        return errorResponse(`Fonds insuffisants. Le solde total de tes revenus est de ${totalAvailable} FCFA, mais tu demandes ${amount} FCFA.`);
+      }
+
+      const sortedIncomes = [...incomesWithBalance].sort((a, b) => a.remaining - b.remaining);
+      let remainingToDeduct = amount;
+      let isFirstSplit = true;
+
+      for (const inc of sortedIncomes) {
+        if (remainingToDeduct <= 0) break;
+        if (inc.remaining <= 0) continue;
+
+        const deduct = Math.min(inc.remaining, remainingToDeduct);
+        const expenseRef = adminDb.collection('users').doc(uid).collection('expenses').doc();
+        
+        batch.set(expenseRef, {
+          amount: deduct, categoryId: categoryId || 'other',
+          note: isFirstSplit ? expenseNote : `${expenseNote} (Partagé)`,
+          date: expenseDate, incomeSourceId: inc.id, incomeSourceName: inc.source,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+
+        remainingToDeduct -= deduct;
+        isFirstSplit = false;
+      }
+
+      await batch.commit();
+      return NextResponse.json({ success: true });
+
+    } else {
+      const inc = incomesWithBalance.find(i => i.id === incomeSourceId);
+      if (!inc) return errorResponse('Revenu introuvable.');
+
+      if (amount > inc.remaining) {
+        return errorResponse(`Fonds insuffisants. Il ne reste que ${inc.remaining} FCFA sur "${inc.source}".`);
+      }
+
+      const expenseRef = adminDb.collection('users').doc(uid).collection('expenses').doc();
+      batch.set(expenseRef, {
+        amount: Number(amount), categoryId: categoryId || 'other', note: expenseNote,
+        date: expenseDate, incomeSourceId: inc.id, incomeSourceName: inc.source,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+
+      await batch.commit();
+      return NextResponse.json({ success: true });
+    }
+  } catch (error) { return errorResponse(error.message, 500); }
+}
+
+/* ═══════════════════ ROUTES OBJECTIFS / AUTOMATISATIONS ═══════════════════ */
 
 async function handleFundGoal(request) {
   try {
@@ -369,19 +570,19 @@ async function handleAutomationsRun(request) {
       const auto = doc.data();
       if (auto.nextRun <= now) {
         const [incomesSnap, expensesSnap] = await Promise.all([
-            adminDb.collection('users').doc(uid).collection('incomes').get(),
-            adminDb.collection('users').doc(uid).collection('expenses').get(),
+          adminDb.collection('users').doc(uid).collection('incomes').get(),
+          adminDb.collection('users').doc(uid).collection('expenses').get(),
         ]);
         const totalIncome = incomesSnap.docs.reduce((s, d) => s + (d.data().amount || 0), 0);
         const totalExpense = expensesSnap.docs.reduce((s, d) => s + (d.data().amount || 0), 0);
         const globalBalance = totalIncome - totalExpense;
 
         if (auto.amount <= globalBalance) {
-            await adminDb.collection('users').doc(uid).collection('expenses').add({
-                amount: auto.amount, categoryId: auto.categoryId, note: auto.note || 'Dépense automatique',
-                date: now.slice(0, 10), incomeSourceId: auto.incomeSourceId, incomeSourceName: auto.incomeSourceName,
-                createdAt: FieldValue.serverTimestamp(),
-            });
+          await adminDb.collection('users').doc(uid).collection('expenses').add({
+            amount: auto.amount, categoryId: auto.categoryId, note: auto.note || 'Dépense automatique',
+            date: now.slice(0, 10), incomeSourceId: auto.incomeSourceId, incomeSourceName: auto.incomeSourceName,
+            createdAt: FieldValue.serverTimestamp(),
+          });
         }
 
         const next = new Date(auto.nextRun);
@@ -397,14 +598,19 @@ async function handleAutomationsRun(request) {
   } catch (error) { return errorResponse(error.message, 500); }
 }
 
-/* ═══════════════════ AI CHAT & AUTRES ═══════════════════ */
+/* ═══════════════════ ROUTES IA ═══════════════════ */
 
 async function handleAIChat(request) {
   try {
     const decoded = await authenticate(request);
     const uid = decoded.uid;
-    const body = await request.json();
+    
+    const quota = await checkDailyAIQuota(uid);
+    if (!quota.allowed) {
+      return errorResponse(`Tu as utilisé tes 3 questions gratuites aujourd'hui. Reviens demain ou passe Premium.`, 403);
+    }
 
+    const body = await request.json();
     const mode = body.mode || 'text'; 
     const messages = Array.isArray(body.messages) ? body.messages : [];
     if (messages.length === 0) return errorResponse('Messages requis.', 400);
@@ -524,7 +730,7 @@ RÈGLES DE SÉCURITÉ FINANCIÈRE (CRITIQUE) :
 1. Tu ne peux PAS enregistrer de dépense si le solde global est insuffisant.
 2. Avant d'enregistrer, LIS ATTENTIVEMENT le "SOLDE GLOBAL" et le "DÉTAIL DES REVENUS".
 3. Si la dépense dépasse le solde, refuse et explique poliment à l'utilisateur.
-4. Quand on choisit "Tous les revenus", l'application va automatiquement piocher dans les plus petits soldes pour compléter. Tu n'as pas à calculer ça, le système le fait pour toi.
+4. Quand on choisit "Tous les revenus", l'application va automatiquement piocher dans les plus petits soldes pour compléter.
 
 RÈGLES DE COMPORTEMENT :
 1. Ne salue pas l'utilisateur. Va droit au but.
@@ -561,7 +767,14 @@ ${userContext}`;
 
 async function handleAIImage(request) {
   try {
-    await authenticate(request);
+    const decoded = await authenticate(request);
+    const uid = decoded.uid;
+    
+    const quota = await checkDailyAIQuota(uid);
+    if (!quota.allowed) {
+      return errorResponse(`Tu as utilisé tes 3 requêtes IA gratuites aujourd'hui. Reviens demain ou passe Premium.`, 403);
+    }
+
     const body = await request.json();
     const { prompt } = body;
     if (!prompt) return errorResponse('Prompt manquant.', 400);
@@ -575,10 +788,16 @@ async function handleAIImage(request) {
 
 async function handleAIVision(request) {
   try {
-    await authenticate(request);
+    const decoded = await authenticate(request);
+    const uid = decoded.uid;
+    
+    const quota = await checkDailyAIQuota(uid);
+    if (!quota.allowed) {
+      return errorResponse(`Tu as utilisé tes 3 requêtes IA gratuites aujourd'hui. Reviens demain ou passe Premium.`, 403);
+    }
+
     const body = await request.json();
     const { messages, imageBase64 } = body;
-
     if (!imageBase64) return errorResponse('Image manquante.', 400);
 
     const reply = await chatWithGroqVision(messages || [], imageBase64);
@@ -587,252 +806,26 @@ async function handleAIVision(request) {
     return errorResponse(error.message || 'Erreur d\'analyse d\'image.', 500);
   }
 }
-/* ═══════════════════ ROUTES ABONNEMENT ═══════════════════ */
 
-// 1. Initier le paiement Fapshi pour l'abonnement
-async function handleSubscriptionCheckout(request) {
-  try {
-    const decoded = await authenticate(request);
-    const uid = decoded.uid;
-    const body = await request.json();
-    const months = Math.max(1, parseInt(body.months) || 1);
-    const amount = 2500 * months;
-
-    const API_USER = process.env.FAPSHI_API_USER;
-    const SECRET_KEY = process.env.FAPSHI_SECRET_KEY;
-    if (!API_USER || !SECRET_KEY) return errorResponse('Configuration incomplète.', 500);
-
-    const userDoc = await adminDb.collection('users').doc(uid).get();
-    const userData = userDoc.exists ? userDoc.data() : {};
-
-    const baseUrl = getBaseUrl(request);
-    const origin = request.headers.get('origin') || baseUrl;
-
-    const payload = {
-      amount,
-      currency: 'XAF',
-      description: `Abonnement Pata Premium (${months} mois)`,
-      redirect_url: `${origin}/premium`,
-      webhook_url: `${baseUrl}/api/subscription/webhook`,
-      phone: userData.phone || '',
-      email: userData.email || decoded.email || '',
-      name: userData.displayName || 'Client',
-    };
-
-    // Appel Fapshi
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 12000);
-    const res = await fetch('https://live.fapshi.com/initiate-pay', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', apiuser: API_USER, apikey: SECRET_KEY },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    }).catch(() => { clearTimeout(timer); throw new Error('Service indisponible.'); });
-    clearTimeout(timer);
-
-    const data = await res.json();
-    if (!res.ok) return errorResponse(data.message || 'Paiement refusé.', 400);
-
-    const checkoutUrl = data.data?.url || data.link || data.url;
-    const transId = data.transId || data.data?.transId;
-    if (!checkoutUrl || !transId) return errorResponse('Lien indisponible.', 502);
-
-    // Créer le document de transaction
-    await adminDb.collection('subscriptionPayments').doc(transId).set({
-      transId,
-      userId: uid,
-      amount,
-      months,
-      status: 'PENDING',
-      checkoutUrl,
-      createdAt: FieldValue.serverTimestamp(),
-    });
-
-    return NextResponse.json({ success: true, checkoutUrl, transId });
-  } catch (error) {
-    return errorResponse(error.message, 500);
-  }
-}
-
-// 2. Payer avec le solde Pata (débit immédiat)
-async function handleSubscriptionPayWithBalance(request) {
-  try {
-    const decoded = await authenticate(request);
-    const uid = decoded.uid;
-    const body = await request.json();
-    const months = Math.max(1, parseInt(body.months) || 1);
-    const amount = 2500 * months;
-
-    const userRef = adminDb.collection('users').doc(uid);
-    const userDoc = await userRef.get();
-    if (!userDoc.exists) return errorResponse('Utilisateur introuvable.', 404);
-
-    const balance = userDoc.data().balance || 0;
-    if (balance < amount) {
-      return errorResponse(`Solde insuffisant. Tu as ${balance} FCFA, il te faut ${amount} FCFA.`);
-    }
-
-    // Calcul de la nouvelle date d'expiration
-    const now = new Date();
-    const currentPremiumUntil = userDoc.data().premiumUntil ? new Date(userDoc.data().premiumUntil) : null;
-    const baseDate = currentPremiumUntil && currentPremiumUntil > now ? currentPremiumUntil : now;
-    const newExpiration = new Date(baseDate.getTime() + months * 30 * 24 * 60 * 60 * 1000);
-
-    await userRef.update({
-      balance: balance - amount,
-      premiumUntil: newExpiration.toISOString(),
-      lastPaymentDate: now.toISOString(),
-      lastPaymentAmount: amount,
-      lastPaymentMethod: 'balance',
-    });
-
-    return NextResponse.json({ success: true, newExpiration: newExpiration.toISOString() });
-  } catch (error) {
-    return errorResponse(error.message, 500);
-  }
-}
-
-// 3. Webhook Fapshi pour l'abonnement
-async function handleSubscriptionWebhook(request) {
-  try {
-    const body = await request.json();
-    const transId = body.transId;
-    if (!transId) return NextResponse.json({ received: true });
-
-    const paymentRef = adminDb.collection('subscriptionPayments').doc(transId);
-    const paymentDoc = await paymentRef.get();
-    if (!paymentDoc.exists) return NextResponse.json({ received: true });
-
-    if (paymentDoc.data().status === 'CONFIRMED') {
-      return NextResponse.json({ received: true, alreadyConfirmed: true });
-    }
-
-    // Vérification auprès de Fapshi
-    const API_USER = process.env.FAPSHI_API_USER;
-    const SECRET_KEY = process.env.FAPSHI_SECRET_KEY;
-    const verifyRes = await fetch(`https://live.fapshi.com/payment-status/${transId}`, {
-      headers: { apiuser: API_USER, apikey: SECRET_KEY },
-    });
-    const verifyData = await verifyRes.json();
-    const realStatus = (verifyData.status || '').toUpperCase();
-
-    if (realStatus !== 'SUCCESSFUL') {
-      if (['FAILED', 'EXPIRED', 'CANCELED', 'REVERSED'].includes(realStatus)) {
-        await paymentRef.update({ status: 'FAILED' });
-      }
-      return NextResponse.json({ received: true, deferred: realStatus });
-    }
-
-    // Confirmer et activer le premium
-    const payment = paymentDoc.data();
-    const userRef = adminDb.collection('users').doc(payment.userId);
-    const userDoc = await userRef.get();
-    const userData = userDoc.exists ? userDoc.data() : {};
-
-    const now = new Date();
-    const currentPremiumUntil = userData.premiumUntil ? new Date(userData.premiumUntil) : null;
-    const baseDate = currentPremiumUntil && currentPremiumUntil > now ? currentPremiumUntil : now;
-    const newExpiration = new Date(baseDate.getTime() + payment.months * 30 * 24 * 60 * 60 * 1000);
-
-    await userRef.update({
-      premiumUntil: newExpiration.toISOString(),
-      lastPaymentDate: now.toISOString(),
-      lastPaymentAmount: payment.amount,
-      lastPaymentMethod: 'fapshi',
-    });
-
-    await paymentRef.update({ status: 'CONFIRMED', confirmedAt: FieldValue.serverTimestamp() });
-
-    return NextResponse.json({ received: true, status: 'CONFIRMED' });
-  } catch (error) {
-    console.error('Subscription webhook error:', error);
-    return NextResponse.json({ received: true });
-  }
-  }
-/* ═══════════════════ QUOTAS & LIMITES ═══════════════════ */
-async function checkServerQuota(uid, type) {
-  const userRef = adminDb.collection('users').doc(uid);
-  const userSnap = await userRef.get();
-  if (!userSnap.exists) return { allowed: false };
-
-  const data = userSnap.data();
-  const now = new Date();
-  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const premiumUntil = data.premiumUntil ? new Date(data.premiumUntil) : null;
-  const isPremium = premiumUntil && premiumUntil > now;
-
-  if (isPremium) return { allowed: true };
-
-  let stats = data.monthlyStats || {};
-  if (stats.lastResetMonth !== currentMonth) {
-    stats = { expenses: 0, incomes: 0, goals: 0, budgets: 0, lastResetMonth: currentMonth };
-  }
-
-  const limits = { expenses: 100, incomes: 5, goals: 2, budgets: 5 };
-  if ((stats[type] || 0) >= limits[type]) {
-    return { allowed: false };
-  }
-
-  stats[type] = (stats[type] || 0) + 1;
-  await userRef.update({ monthlyStats: stats });
-  return { allowed: true };
-}
-
-async function checkServerAIQuota(uid) {
-  const userRef = adminDb.collection('users').doc(uid);
-  const userSnap = await userRef.get();
-  if (!userSnap.exists) return { allowed: false };
-
-  const data = userSnap.data();
-  const now = new Date();
-  const todayStr = now.toISOString().slice(0, 10);
-  const premiumUntil = data.premiumUntil ? new Date(data.premiumUntil) : null;
-  const isPremium = premiumUntil && premiumUntil > now;
-
-  if (isPremium) return { allowed: true };
-
-  let dailyStats = data.dailyStats || {};
-  if (dailyStats.lastResetDate !== todayStr) {
-    dailyStats = { aiCount: 0, lastResetDate: todayStr };
-  }
-
-  if ((dailyStats.aiCount || 0) >= 3) {
-    return { allowed: false };
-  }
-
-  dailyStats.aiCount = (dailyStats.aiCount || 0) + 1;
-  await userRef.update({ dailyStats });
-  return { allowed: true };
-}
-
-// 🟢 Intégration dans handleAddExpense
-async function handleAddExpense(request) {
-  try {
-    const decoded = await authenticate(request);
-    const uid = decoded.uid;
-
-    const quota = await checkServerQuota(uid, 'expenses');
-    if (!quota.allowed) {
-      return errorResponse(`Limite gratuite atteinte : 100 dépenses par mois. Passe Premium pour continuer.`, 403);
-    }
+/* ═══════════════════ ROUTEUR PRINCIPAL ═══════════════════ */
 
 const ROUTES = {
-  'fapshi/checkout':  { POST: handleFapshiCheckout },
-  'fapshi/webhook':   { POST: handleFapshiWebhook },
-  'fapshi/status':    { POST: handleFapshiStatus },
-  'wallet/fund-goal': { POST: handleFundGoal },
-  'goals/borrow':     { POST: handleGoalBorrow },
-  'goals/repay':      { POST: handleRepayLoan },
-  'goals/withdraw':   { POST: handleGoalWithdraw },
-  'goals/cancel':     { POST: handleGoalCancel },
-  'automations/run':  { POST: handleAutomationsRun },
-  'expenses/add':     { POST: handleAddExpense },
-  'ai/chat':          { POST: handleAIChat },
-  'ai/image':         { POST: handleAIImage },
-  'ai/vision':        { POST: handleAIVision },
-  'subscription/checkout':   { POST: handleSubscriptionCheckout },
-'subscription/pay-balance':{ POST: handleSubscriptionPayWithBalance },
-'subscription/webhook':    { POST: handleSubscriptionWebhook },
+  'fapshi/checkout':       { POST: handleFapshiCheckout },
+  'fapshi/webhook':        { POST: handleFapshiWebhook },
+  'fapshi/status':         { POST: handleFapshiStatus },
+  'subscription/checkout': { POST: handleSubscriptionCheckout },
+  'subscription/pay-balance': { POST: handleSubscriptionPayWithBalance },
+  'subscription/webhook':  { POST: handleSubscriptionWebhook },
+  'wallet/fund-goal':      { POST: handleFundGoal },
+  'goals/borrow':          { POST: handleGoalBorrow },
+  'goals/repay':           { POST: handleRepayLoan },
+  'goals/withdraw':        { POST: handleGoalWithdraw },
+  'goals/cancel':          { POST: handleGoalCancel },
+  'automations/run':       { POST: handleAutomationsRun },
+  'expenses/add':          { POST: handleAddExpense },
+  'ai/chat':               { POST: handleAIChat },
+  'ai/image':              { POST: handleAIImage },
+  'ai/vision':             { POST: handleAIVision },
 };
 
 async function dispatch(request, context) {
