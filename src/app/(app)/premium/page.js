@@ -148,7 +148,7 @@ export default function PremiumPage() {
           {missingAmount > 0 && (
             <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-center">
               <p className="text-sm text-amber-800 font-medium">
-                Il te manque <strong>{formatCurrency(missingAmount)}</strong> sur ton solde.
+                Il te manque : <strong>{formatCurrency(missingAmount)}</strong> sur ton solde.
               </p>
               <Button 
                 onClick={() => router.push('/wallet')} 
