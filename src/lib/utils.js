@@ -1,6 +1,12 @@
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { DEFAULT_CURRENCY, DEFAULT_LOCALE } from './constants';
+// 🟢 IMPORT CRITIQUE AJOUTÉ
+import { 
+  DEFAULT_CURRENCY, 
+  DEFAULT_LOCALE, 
+  EXPENSE_CATEGORIES, 
+  GOAL_CATEGORIES 
+} from './constants';
 
 export function cn(...inputs) {
   return twMerge(clsx(inputs));
@@ -24,23 +30,17 @@ export function formatDate(date, opts) {
   ).format(d);
 }
 
-// 🟢 FONCTION ANTI-UTC : Renvoie le mois local exact (ex: "2026-11")
+// 🟢 ANTI-UTC
 export function getLocalMonth() {
   const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  return `${year}-${month}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
-// 🟢 FONCTION ANTI-UTC : Renvoie le premier jour du mois local
 export function getFirstOfMonth() {
   const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  return `${year}-${month}-01`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
 }
 
-// 🟢 FONCTION ANTI-UTC : Renvoie le dernier jour du mois local
 export function getLastOfMonth() {
   const d = new Date();
   const year = d.getFullYear();
