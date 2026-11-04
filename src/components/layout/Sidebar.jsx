@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  LayoutDashboard, Wallet, Banknote, TrendingUp, Target, BarChart3, Settings, PiggyBank,
+  LayoutDashboard, Wallet, Banknote, TrendingUp, Target, BarChart3, Settings, PiggyBank, Crown
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -15,6 +15,7 @@ const NAV = [
   { href: '/budgets',   label: 'Budgets',         icon: PiggyBank },
   { href: '/goals',     label: 'Objectifs',       icon: Target },
   { href: '/reports',   label: 'Rapports',        icon: BarChart3 },
+  { href: '/premium',   label: 'Premium',         icon: Crown },
   { href: '/settings',  label: 'Paramètres',      icon: Settings },
 ];
 
@@ -47,4 +48,4 @@ export function Sidebar() {
       </nav>
     </aside>
   );
-      }
+                   }
