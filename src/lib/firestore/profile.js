@@ -11,6 +11,8 @@ export async function ensureUserProfile(user) {
     email: user.email,
     displayName: user.displayName || user.email?.split('@')[0] || 'Utilisateur',
     currency: 'XAF',
+    currencyRates: { XAF: 1, EUR: 1 / 655.957, USD: 1 / 600 },
+    currencyRateUpdatedAt: new Date().toISOString(),
     penaltyDefault: 500,
     createdAt: serverTimestamp(),
   };

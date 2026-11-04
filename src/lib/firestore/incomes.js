@@ -3,6 +3,7 @@ import {
   onSnapshot, query, orderBy, serverTimestamp, getDocs, where,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase/client';
+import { reserveCreationQuota } from '@/lib/usageLimits';
 
 const col = (uid) => collection(db, 'users', uid, 'incomes');
 
@@ -14,6 +15,7 @@ export function subscribeIncomes(uid, cb) {
 }
 
 export async function createIncome(uid, data) {
+  await reserveCreationQuota(uid, 'incomes');
   return addDoc(col(uid), {
     amount: Number(data.amount),
     source: data.source || 'Salaire',

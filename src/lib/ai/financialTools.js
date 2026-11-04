@@ -8,6 +8,26 @@ const EXPENSE_CATEGORIES = [
 const INCOME_CATEGORIES = ['salary', 'business', 'gift', 'other_income'];
 const FREQUENCIES = ['daily', 'weekly', 'monthly'];
 const FREE_EXPENSE_LIMIT = 60;
+const FREE_CREATE_LIMITS = { incomes: 2, budgets: 2, goals: 2, vitalForecasts: 1, durationForecasts: 1 };
+
+function incrementFreeQuota(userData, type, count = 1) {
+  if (isPremium(userData)) return null;
+  const currentMonth = monthKey();
+  const previous = userData.monthlyStats || {};
+  const stats = previous.lastResetMonth === currentMonth
+    ? { ...previous }
+    : { expenses: 0, incomes: 0, budgets: 0, goals: 0, vitalForecasts: 0, durationForecasts: 0, lastResetMonth: currentMonth };
+  const limit = FREE_CREATE_LIMITS[type];
+  if (!limit) throw new Error('Type de création non reconnu.');
+  const current = Number(stats[type]) || 0;
+  if (current + count > limit) {
+    const label = type === 'incomes' ? 'revenus' : type === 'budgets' ? 'budgets' : type === 'goals' ? 'objectifs' : 'prévisions';
+    throw new Error(`Tu as atteint la limite gratuite de ${limit} ${label} par mois. Passe à Premium pour continuer.`);
+  }
+  stats[type] = current + count;
+  stats.lastResetMonth = currentMonth;
+  return stats;
+}
 
 const todayDouala = () => new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Africa/Douala', year: 'numeric', month: '2-digit', day: '2-digit',
@@ -721,6 +741,41 @@ export const AI_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'create_duration_forecast',
+      description: 'Créer une prévision enregistrée de durée de vie du capital quand l’utilisateur le demande clairement. Il faut un capital et au moins une dépense quotidienne, hebdomadaire ou mensuelle. Les montants sont en FCFA.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' }, capital: { type: 'integer' }, dailyExpense: { type: 'integer' },
+          weeklyExpense: { type: 'integer' }, monthlyExpense: { type: 'integer' },
+        },
+        required: ['capital'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_subscription_status',
+      description: 'Consulter l’état réel de l’abonnement Premium de l’utilisateur, sa date de début connue, sa date d’expiration et le nombre de jours restants. À utiliser quand il demande son statut ou sa durée.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'activate_premium_from_balance',
+      description: 'Acheter ou renouveler Premium avec le solde Pata uniquement si l’utilisateur le demande clairement. Prix fixe de 2 500 FCFA par mois. Vérifier le solde avant de valider. Si insuffisant, expliquer précisément le manque et proposer la recharge du portefeuille.',
+      parameters: {
+        type: 'object',
+        properties: { months: { type: 'integer', minimum: 1, maximum: 12, description: 'Nombre de mois demandé.' } },
+        required: ['months'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'remember_user_context',
       description: 'Mémoriser une préférence financière, un objectif, une contrainte ou une correction explicitement déclarée pour personnaliser les prochains échanges. Ne mémorise aucune supposition. sourceQuote doit être une citation textuelle exacte provenant d’un message utilisateur.',
       parameters: {
@@ -740,10 +795,17 @@ async function addIncome(uid, args) {
   if (!source) throw new Error('Le nom de la source du revenu est obligatoire.');
   const categoryId = INCOME_CATEGORIES.includes(args.categoryId) ? args.categoryId : 'other_income';
   const date = /^\d{4}-\d{2}-\d{2}$/.test(String(args.date || '')) ? args.date : todayDouala();
+  const userRef = userRefFor(uid);
   const ref = subcol(uid, 'incomes').doc();
-  await ref.set({
-    amount, source, categoryId, note: cleanText(args.note, 250), date,
-    month: date.slice(0, 7), createdAt: FieldValue.serverTimestamp(),
+  await adminDb.runTransaction(async (transaction) => {
+    const userSnap = await transaction.get(userRef);
+    if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
+    const stats = incrementFreeQuota(userSnap.data(), 'incomes', 1);
+    transaction.create(ref, {
+      amount, source, categoryId, note: cleanText(args.note, 250), date,
+      month: date.slice(0, 7), createdAt: FieldValue.serverTimestamp(),
+    });
+    if (stats) transaction.update(userRef, { monthlyStats: stats });
   });
   return { message: `Revenu « ${source} » enregistré.`, amount, source, incomeId: ref.id, date };
 }
@@ -764,7 +826,10 @@ async function applyBudgetPlan(uid, args) {
   }
 
   const budgets = subcol(uid, 'budgets');
+  const userRef = userRefFor(uid);
   const result = await adminDb.runTransaction(async (transaction) => {
+    const userSnapshot = await transaction.get(userRef);
+    if (!userSnapshot.exists) throw new Error('Profil utilisateur introuvable.');
     if (sourceId !== 'all') {
       const incomeSnapshot = await transaction.get(incomeCollection.doc(sourceId));
       if (!incomeSnapshot.exists) throw new Error('La source choisie pour ce budget est introuvable. Aucun budget n’a été modifié.');
@@ -785,10 +850,13 @@ async function applyBudgetPlan(uid, args) {
         }, create: true });
       }
     }
+    const newCount = writes.filter((write) => write.create).length;
+    const nextStats = newCount ? incrementFreeQuota(userSnapshot.data(), 'budgets', newCount) : null;
     writes.forEach((write) => {
       if (write.create) transaction.create(write.ref, write.data);
       else transaction.update(write.ref, write.data);
     });
+    if (nextStats) transaction.update(userRef, { monthlyStats: nextStats });
     return writes.length;
   });
   return { message: `${result} enveloppe(s) budgétaire(s) enregistrée(s) pour ${month}.`, count: result, month, incomeSourceId: sourceId };
@@ -801,12 +869,19 @@ async function addGoal(uid, args) {
   if (args.deadline && !/^\d{4}-\d{2}-\d{2}$/.test(String(args.deadline))) throw new Error('Date d’échéance invalide. Utilise AAAA-MM-JJ.');
   const deadline = args.deadline || null;
   const categoryId = ['savings', 'transport', 'food', 'housing', 'health', 'other'].includes(args.categoryId) ? args.categoryId : 'savings';
+  const userRef = userRefFor(uid);
   const ref = subcol(uid, 'goals').doc();
-  await ref.set({
-    name, type: 'goal', categoryId, targetAmount,
-    startDate: todayDouala(), deadline,
-    frequencyDays: 7, penaltyAmount: 700,
-    debtBalance: 0, pinned: false, createdAt: FieldValue.serverTimestamp(),
+  await adminDb.runTransaction(async (transaction) => {
+    const userSnap = await transaction.get(userRef);
+    if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
+    const stats = incrementFreeQuota(userSnap.data(), 'goals', 1);
+    transaction.create(ref, {
+      name, type: 'goal', categoryId, targetAmount,
+      startDate: todayDouala(), deadline,
+      frequencyDays: 7, penaltyAmount: 700,
+      debtBalance: 0, pinned: false, createdAt: FieldValue.serverTimestamp(),
+    });
+    if (stats) transaction.update(userRef, { monthlyStats: stats });
   });
   return { message: `Objectif « ${name} » créé.`, goalId: ref.id, targetAmount, deadline };
 }
@@ -901,6 +976,101 @@ async function rememberUserContext(uid, args, userMessages) {
   return { message: 'Préférence ou information personnelle enregistrée pour les prochains échanges.', kind };
 }
 
+async function createDurationForecast(uid, args) {
+  const capital = asPositiveMoney(args.capital, 'Capital à prévoir');
+  const dailyExpense = Math.max(0, Math.round(Number(args.dailyExpense) || 0));
+  const weeklyExpense = Math.max(0, Math.round(Number(args.weeklyExpense) || 0));
+  const monthlyExpense = Math.max(0, Math.round(Number(args.monthlyExpense) || 0));
+  const averageDaily = dailyExpense + weeklyExpense / 7 + monthlyExpense / 30.4375;
+  if (averageDaily <= 0) throw new Error('Indique au moins une dépense quotidienne, hebdomadaire ou mensuelle.');
+  const days = Math.floor(capital / averageDaily);
+  const userRef = userRefFor(uid);
+  const now = new Date();
+  const name = cleanText(args.name, 100) || 'Prévision sans titre';
+  const result = {
+    id: `forecast_${now.getTime()}`, name, capital, dailyExpense, weeklyExpense, monthlyExpense,
+    averageDaily: Math.round(averageDaily), estimatedDays: days,
+    estimatedEndDate: new Date(now.getTime() + days * 86400000).toISOString().slice(0, 10),
+    createdAt: now.toISOString(),
+  };
+  await adminDb.runTransaction(async (transaction) => {
+    const userSnap = await transaction.get(userRef);
+    if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
+    const data = userSnap.data();
+    const stats = incrementFreeQuota(data, 'durationForecasts', 1);
+    const forecasts = Array.isArray(data.durationForecasts) ? data.durationForecasts : [];
+    transaction.update(userRef, { durationForecasts: [...forecasts, result].slice(-50), ...(stats ? { monthlyStats: stats } : {}) });
+  });
+  return { ...result, message: `Prévision « ${name} » enregistrée. Avec ${capital.toLocaleString('fr-FR')} FCFA et ce rythme de dépenses, ton argent devrait durer environ ${days} jour(s).` };
+}
+
+async function getSubscriptionStatus(uid) {
+  const userSnap = await userRefFor(uid).get();
+  if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
+  const data = userSnap.data();
+  const expiry = toDate(data.premiumUntil);
+  const active = Boolean(expiry && expiry > new Date());
+  const lastPayment = toDate(data.lastPaymentDate);
+  const daysLeft = active ? Math.max(0, Math.ceil((expiry.getTime() - Date.now()) / 86400000)) : 0;
+  return {
+    active,
+    daysLeft,
+    expiresAt: expiry?.toISOString() || null,
+    startedAt: lastPayment?.toISOString() || null,
+    balance: Number(data.balance) || 0,
+    message: active
+      ? `Ton abonnement Premium est actif. Il te reste ${daysLeft} jour(s), jusqu’au ${expiry.toLocaleDateString('fr-FR')}.`
+      : 'Ton abonnement Premium n’est pas actif actuellement.',
+  };
+}
+
+async function activatePremiumFromBalance(uid, args, idempotencyKey = null) {
+  const months = Math.floor(Number(args.months));
+  if (!Number.isInteger(months) || months < 1 || months > 12) throw new Error('Choisis une durée comprise entre 1 et 12 mois.');
+  const amount = 2500 * months;
+  const userRef = userRefFor(uid);
+  const paymentRef = adminDb.collection('subscriptionPayments').doc();
+  const actionRef = idempotencyKey ? subcol(uid, 'ai_actions').doc(String(idempotencyKey).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 140)) : null;
+
+  return adminDb.runTransaction(async (transaction) => {
+    const reads = [transaction.get(userRef)];
+    if (actionRef) reads.push(transaction.get(actionRef));
+    const [userSnap, actionSnap] = await Promise.all(reads);
+    if (actionRef && actionSnap?.exists) return actionSnap.data().result;
+    if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
+    const userData = userSnap.data();
+    const balance = Number(userData.balance) || 0;
+    if (balance < amount) {
+      const missing = amount - balance;
+      throw new Error(`Ton solde Pata est de ${balance.toLocaleString('fr-FR')} FCFA. Il manque ${missing.toLocaleString('fr-FR')} FCFA pour payer ${months} mois de Premium. Tu peux recharger ton portefeuille depuis la page « Portefeuille ».`);
+    }
+    const now = new Date();
+    const currentExpiry = toDate(userData.premiumUntil);
+    const baseDate = currentExpiry && currentExpiry > now ? currentExpiry : now;
+    const expiresAt = new Date(baseDate.getTime() + months * 30 * 86400000);
+    const result = {
+      success: true, months, amount, balanceAfter: balance - amount,
+      expiresAt: expiresAt.toISOString(),
+      message: `C’est confirmé : Premium est activé pour ${months} mois. Ton accès est valable jusqu’au ${expiresAt.toLocaleDateString('fr-FR')}.`,
+    };
+    transaction.update(userRef, {
+      balance: balance - amount,
+      premiumUntil: expiresAt.toISOString(),
+      lastPaymentDate: now.toISOString(),
+      lastPaymentAmount: amount,
+      lastPaymentMethod: 'balance',
+      premiumLastStartDate: now.toISOString(),
+    });
+    transaction.create(paymentRef, {
+      transId: paymentRef.id, userId: uid, amount, months,
+      status: 'CONFIRMED', method: 'balance',
+      createdAt: FieldValue.serverTimestamp(), confirmedAt: FieldValue.serverTimestamp(),
+    });
+    if (actionRef) transaction.create(actionRef, { result, createdAt: FieldValue.serverTimestamp() });
+    return result;
+  });
+}
+
 export async function executeAITool(uid, toolName, rawArgs, userMessages = [], options = {}) {
   let args = rawArgs;
   if (typeof args === 'string') {
@@ -923,6 +1093,9 @@ export async function executeAITool(uid, toolName, rawArgs, userMessages = [], o
     case 'pause_automation': return setAutomationActive(uid, args, false);
     case 'resume_automation': return setAutomationActive(uid, args, true);
     case 'update_goal': return updateGoal(uid, args);
+    case 'create_duration_forecast': return createDurationForecast(uid, args);
+    case 'get_subscription_status': return getSubscriptionStatus(uid);
+    case 'activate_premium_from_balance': return activatePremiumFromBalance(uid, args, options.idempotencyKey || null);
     case 'remember_user_context': return rememberUserContext(uid, args, userMessages);
     default: throw new Error(`Action non prise en charge : ${toolName}`);
   }

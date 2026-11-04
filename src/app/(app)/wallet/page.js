@@ -120,13 +120,13 @@ export default function WalletPage() {
         </p>
       </div>
 
-      <Card className="border-0 bg-gradient-to-br from-brand-600 to-brand-700 text-white">
+      <Card className="border border-slate-200 bg-white">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wider opacity-80">Solde disponible</p>
-            <p className="mt-1 text-3xl font-bold">{formatCurrency(balance)}</p>
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Solde disponible</p>
+            <p className="mt-1 text-3xl font-bold tracking-tight text-slate-950">{formatCurrency(balance)}</p>
           </div>
-          <Banknote size={40} className="opacity-40" />
+          <Banknote size={32} className="text-slate-300" />
         </div>
       </Card>
 

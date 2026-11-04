@@ -97,7 +97,7 @@ export function buildUserContext(userData) {
   }).join('\n');
 
   const goalLines = goals.map((goal) => {
-    const totalDeposited = (goal.deposits || []).reduce((sum, deposit) => sum + (Number(deposit.amount) || 0), 0);
+    const totalDeposited = (goal.deposits || []).filter((deposit) => deposit.source !== 'loan').reduce((sum, deposit) => sum + (Number(deposit.amount) || 0), 0);
     const progress = Number(goal.targetAmount) > 0
       ? Math.round((totalDeposited / Number(goal.targetAmount)) * 100)
       : null;
@@ -105,20 +105,23 @@ export function buildUserContext(userData) {
   }).join('\n');
 
   const automationLines = automations.map((item) =>
-    `- ID: ${item.id} | ${money(item.amount)} FCFA | ${resolveCategory(item.categoryId, 'expense').label} | fréquence: ${item.frequency} | prochaine: ${item.nextRun || 'non définie'} | état: ${item.active === false ? 'en pause' : 'active'} | source: ${item.incomeSourceName || item.incomeSourceId || 'Tous les revenus'}`
+    `- ID: ${item.id} | ${money(item.amount)} FCFA | ${expenseCategoryLabel(item.categoryId)} | fréquence: ${item.frequency} | prochaine: ${item.nextRun || 'non définie'} | état: ${item.active === false ? 'en pause' : 'active'} | source: ${item.incomeSourceName || item.incomeSourceId || 'Tous les revenus'}`
   ).join('\n');
 
   const memoryLines = memories.map((item) => `- [${item.kind || 'contexte'}] ${item.fact}`).join('\n');
   const vitalNeeds = profile?.vitalNeeds || {};
   const vitalLines = Object.entries(vitalNeeds).map(([key, value]) => {
-    const category = resolveCategory(key, 'expense');
-    return `- ${category.label}: ${money(value?.amount)} FCFA / ${value?.frequency === 'daily' ? 'jour' : value?.frequency === 'weekly' ? 'semaine' : 'mois'}`;
+    const categoryLabel = expenseCategoryLabel(key);
+    return `- ${categoryLabel}: ${money(value?.amount)} FCFA / ${value?.frequency === 'daily' ? 'jour' : value?.frequency === 'weekly' ? 'semaine' : 'mois'}`;
   }).join('\n');
 
   return `
 === PROFIL ET PARAMÈTRES ===
 Prénom: ${profile?.displayName?.split(' ')[0] || 'Utilisateur'}
-Devise: ${profile?.currency || 'XAF'} (FCFA au Cameroun si aucune autre précision)
+Devise d’affichage: ${profile?.currency || 'XAF'} (les montants financiers de référence sont stockés en XAF). Facteurs de conversion connus : EUR ${Number(profile?.currencyRates?.EUR || (1 / 655.957)).toFixed(8)} par FCFA ; USD ${Number(profile?.currencyRates?.USD || (1 / 600)).toFixed(8)} par FCFA. Si l’utilisateur a choisi EUR ou USD, affiche les réponses monétaires dans cette devise et précise une seule fois que la conversion est indicative.
+Solde du portefeuille Pata: ${money(profile?.balance)} FCFA. Il s’agit d’un solde interne Pata, pas d’un compte bancaire.
+Statut Premium: ${profile?.premiumUntil && new Date(profile.premiumUntil) > now ? `actif jusqu’au ${new Date(profile.premiumUntil).toLocaleDateString('fr-FR')}` : 'non actif'}.
+Prévisions de durée du capital enregistrées: ${(Array.isArray(profile?.durationForecasts) ? profile.durationForecasts : []).map((item) => `${item.name}: ${money(item.capital)} FCFA, environ ${item.estimatedDays} jours, fin estimée ${item.estimatedEndDate}`).join(' ; ') || 'Aucune'}.
 Date locale de référence: ${now.toLocaleString('fr-CM', { timeZone: 'Africa/Douala' })}
 
 === BILAN GLOBAL CUMULÉ DES DONNÉES ENREGISTRÉES ===

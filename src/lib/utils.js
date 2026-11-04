@@ -12,13 +12,34 @@ export function cn(...inputs) {
   return twMerge(clsx(inputs));
 }
 
-export function formatCurrency(amount, currency = DEFAULT_CURRENCY, locale = DEFAULT_LOCALE) {
+const FALLBACK_XAF_RATES = { XAF: 1, EUR: 1 / 655.957, USD: 1 / 600 };
+
+export function setPreferredCurrency(currency, rates = null) {
+  if (typeof window === 'undefined') return;
+  const supported = ['XAF', 'EUR', 'USD'].includes(currency) ? currency : DEFAULT_CURRENCY;
+  window.__PATA_CURRENCY__ = supported;
+  window.__PATA_CURRENCY_RATES__ = { ...FALLBACK_XAF_RATES, ...(rates && typeof rates === 'object' ? rates : {}) };
+}
+
+export function getPreferredCurrencyCode() {
+  return (typeof window !== 'undefined' && window.__PATA_CURRENCY__) || DEFAULT_CURRENCY;
+}
+
+export function convertCurrencyAmount(amount, currency = null) {
+  const activeCurrency = currency || getPreferredCurrencyCode();
+  const rates = (typeof window !== 'undefined' && window.__PATA_CURRENCY_RATES__) || FALLBACK_XAF_RATES;
+  return Number(amount || 0) * (Number(rates[activeCurrency]) || 1);
+}
+
+export function formatCurrency(amount, currency = null, locale = DEFAULT_LOCALE) {
   if (amount == null || Number.isNaN(Number(amount))) return '—';
+  const activeCurrency = currency || getPreferredCurrencyCode();
+  const convertedAmount = convertCurrencyAmount(amount, activeCurrency);
   return new Intl.NumberFormat(locale, {
     style: 'currency',
-    currency,
-    maximumFractionDigits: 0,
-  }).format(Number(amount));
+    currency: activeCurrency,
+    maximumFractionDigits: activeCurrency === 'XAF' ? 0 : 2,
+  }).format(convertedAmount);
 }
 
 export function formatDate(date, opts) {

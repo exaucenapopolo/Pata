@@ -81,6 +81,12 @@ export default function DashboardPage() {
 
   const periodIncomeTotal = periodIncomes.reduce((s, i) => s + (i.amount || 0), 0);
   const periodExpenseTotal = periodExpenses.reduce((s, e) => s + (e.amount || 0), 0);
+  const incomeById = useMemo(() => new Map(incomes.map((income) => [income.id, income])), [incomes]);
+  const previousIncomeSpend = useMemo(() => periodExpenses.reduce((sum, expense) => {
+    const source = incomeById.get(expense.incomeSourceId);
+    return source && String(source.date || source.month || '').slice(0, 10) < startDate
+      ? sum + (Number(expense.amount) || 0) : sum;
+  }, 0), [periodExpenses, incomeById, startDate]);
   const prevTotalIncome = prevIncomes.reduce((s, i) => s + (i.amount || 0), 0);
   const prevTotalExpense = prevExpenses.reduce((s, e) => s + (e.amount || 0), 0);
 
@@ -198,14 +204,20 @@ export default function DashboardPage() {
         <Card>
           <div className="flex items-center gap-2 text-slate-500">
             <PiggyBank size={16} />
-            <CardTitle>Revenus dispo.</CardTitle>
+            <CardTitle>Fonds antérieurs utilisés</CardTitle>
           </div>
-          <CardValue>{formatCurrency(globalBalance)}</CardValue>
-          <p className="mt-1 text-xs text-slate-500">
-            {incomes.filter(i => i.amount > 0).length} source(s) active(s)
+          <CardValue>{formatCurrency(previousIncomeSpend)}</CardValue>
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            Dépenses de la période financées par des revenus reçus avant cette période.
           </p>
         </Card>
       </div>
+
+      {previousIncomeSpend > 0 && (
+        <div className="rounded-xl border border-blue-100 bg-blue-50/70 px-4 py-3 text-sm leading-6 text-blue-900">
+          Une partie de tes dépenses ({formatCurrency(previousIncomeSpend)}) a été financée par des revenus reçus avant la période affichée. Cet argent ne vient donc pas de revenus générés ce mois-ci : tu utilises une réserve déjà disponible.
+        </div>
+      )}
 
       {advices.length > 0 && (
         <Card>

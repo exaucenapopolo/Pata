@@ -5,7 +5,7 @@ import { useState, useRef, useEffect } from 'react';
 import { 
   Send, X, BrainCircuit, Loader2, Plus, MessageSquare, 
   Image as ImageIcon, Volume2, Trash2, Menu, Edit2, Check, Download,
-  Sparkles
+  Sparkles, Copy, CheckCheck
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { subscribeChats, createChat, updateChatMessages, deleteChat, updateChatTitle } from '@/lib/firestore/ai_chats';
@@ -26,32 +26,140 @@ const MENTIONS = [
   { id: 'vision', label: 'Vision', icon: ImageIcon, color: 'text-purple-500', description: 'Analyser une image' },
 ];
 
-function MessageContent({ text }) {
-  if (!text) return null;
-  const cleanText = text.replace(/\*\*/g, '').replace(/#/g, '');
-  const lines = cleanText.split('\n');
-
-  return (
-    <div className="space-y-2">
-      {lines.map((line, index) => {
-        const trimmed = line.trim();
-        if (!trimmed) return <div key={index} className="h-2" />;
-        
-        if (trimmed.startsWith('- ')) {
-          return (
-            <div key={index} className="flex gap-2 pl-1">
-              <span className="shrink-0 text-brand-600 font-bold mt-0.5">•</span>
-              <span className="flex-1">{trimmed.substring(2)}</span>
-            </div>
-          );
-        }
-        return <p key={index} className="leading-relaxed">{line}</p>;
-      })}
-    </div>
-  );
+function cleanAssistantText(value) {
+  return String(value || '')
+    .replace(/\bapply_budget_plan\b/gi, 'préparer un budget')
+    .replace(/\badd_expense\b/gi, 'enregistrer une dépense')
+    .replace(/\bupdate_expense\b/gi, 'modifier une dépense')
+    .replace(/\bdelete_expense\b/gi, 'supprimer une dépense')
+    .replace(/\badd_income\b/gi, 'enregistrer un revenu')
+    .replace(/\bcreate_goal\b/gi, 'créer un objectif')
+    .replace(/\badd_automation\b/gi, 'programmer une opération récurrente')
+    .replace(/\bget_subscription_status\b/gi, 'consulter ton abonnement')
+    .replace(/\bactivate_premium_from_balance\b/gi, 'activer Premium avec ton solde')
+    .replace(/\bcreate_duration_forecast\b/gi, 'enregistrer une prévision de durée')
+    .replace(/\bpause_automation\b/gi, 'mettre en pause une opération programmée')
+    .replace(/\bresume_automation\b/gi, 'reprendre une opération programmée')
+    .replace(/\bupdate_goal\b/gi, 'modifier un objectif')
+    .replace(/\bremember_user_context\b/gi, 'mémoriser cette préférence')
+    .replace(/\bincomeSourceId\b|\bcategoryId\b|\bpremiumUntil\b/gi, 'information de ton compte')
+    .replace(/\bFirestore\b|\bJSON\b|\bAPI\b|\btool call\b/gi, 'service de Pata');
 }
 
-export function AssistantChat({ open, onClose }) {
+function renderInline(value, keyPrefix = 'inline') {
+  const parts = String(value || '').split(/(`[^`]+`|\*\*[^*]+\*\*)/g).filter(Boolean);
+  return parts.map((part, index) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={`${keyPrefix}-${index}`} className="font-semibold text-slate-900">{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith('`') && part.endsWith('`')) {
+      return <code key={`${keyPrefix}-${index}`} className="rounded bg-slate-200/70 px-1.5 py-0.5 text-[0.92em] text-slate-700">{part.slice(1, -1)}</code>;
+    }
+    return <span key={`${keyPrefix}-${index}`}>{part}</span>;
+  });
+}
+
+function splitTableRow(line) {
+  return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((cell) => cell.trim());
+}
+
+function isTableDivider(line) {
+  return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
+}
+
+function MessageContent({ text }) {
+  if (!text) return null;
+  const lines = cleanAssistantText(text).replace(/\r/g, '').split('\n');
+  const blocks = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const current = lines[index];
+    const trimmed = current.trim();
+    if (!trimmed) { index += 1; continue; }
+
+    if (trimmed.includes('|') && index + 1 < lines.length && isTableDivider(lines[index + 1])) {
+      const headers = splitTableRow(current);
+      index += 2;
+      const rows = [];
+      while (index < lines.length && lines[index].trim().includes('|')) {
+        rows.push(splitTableRow(lines[index]));
+        index += 1;
+      }
+      blocks.push(
+        <div key={`table-${blocks.length}`} className="my-3 max-w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[420px] border-collapse text-left text-xs sm:text-sm">
+              <thead className="bg-slate-100 text-slate-700">
+                <tr>{headers.map((header, cellIndex) => <th key={cellIndex} className="whitespace-nowrap border-b border-slate-200 px-3 py-2.5 font-semibold">{renderInline(header, `th-${cellIndex}`)}</th>)}</tr>
+              </thead>
+              <tbody>{rows.map((row, rowIndex) => (
+                <tr key={rowIndex} className={rowIndex % 2 ? 'bg-slate-50/70' : 'bg-white'}>
+                  {headers.map((_, cellIndex) => <td key={cellIndex} className="border-b border-slate-100 px-3 py-2.5 align-top text-slate-700">{renderInline(row[cellIndex] || '—', `td-${rowIndex}-${cellIndex}`)}</td>)}
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        </div>
+      );
+      continue;
+    }
+
+    if (/^#{1,3}\s/.test(trimmed)) {
+      const level = trimmed.match(/^#+/)[0].length;
+      const content = trimmed.replace(/^#{1,3}\s*/, '');
+      const className = level === 1 ? 'mt-3 text-base font-bold text-slate-900' : level === 2 ? 'mt-3 text-sm font-bold text-slate-900' : 'mt-2 text-sm font-semibold text-slate-800';
+      blocks.push(<p key={`heading-${blocks.length}`} className={className}>{renderInline(content)}</p>);
+      index += 1;
+      continue;
+    }
+
+    if (/^[-*]\s+/.test(trimmed)) {
+      const items = [];
+      while (index < lines.length && /^\s*[-*]\s+/.test(lines[index])) {
+        items.push(lines[index].replace(/^\s*[-*]\s+/, ''));
+        index += 1;
+      }
+      blocks.push(<ul key={`list-${blocks.length}`} className="my-2 list-disc space-y-1 pl-5 text-slate-700">{items.map((item, itemIndex) => <li key={itemIndex}>{renderInline(item, `li-${itemIndex}`)}</li>)}</ul>);
+      continue;
+    }
+
+    if (/^\d+[.)]\s+/.test(trimmed)) {
+      const items = [];
+      while (index < lines.length && /^\s*\d+[.)]\s+/.test(lines[index])) {
+        items.push(lines[index].replace(/^\s*\d+[.)]\s+/, ''));
+        index += 1;
+      }
+      blocks.push(<ol key={`olist-${blocks.length}`} className="my-2 list-decimal space-y-1 pl-5 text-slate-700">{items.map((item, itemIndex) => <li key={itemIndex}>{renderInline(item, `oli-${itemIndex}`)}</li>)}</ol>);
+      continue;
+    }
+
+    if (trimmed.startsWith('> ')) {
+      blocks.push(<blockquote key={`quote-${blocks.length}`} className="my-2 border-l-2 border-brand-400 pl-3 text-slate-600">{renderInline(trimmed.slice(2))}</blockquote>);
+      index += 1;
+      continue;
+    }
+
+    blocks.push(<p key={`p-${blocks.length}`} className="leading-relaxed text-slate-700">{renderInline(trimmed, `p-${blocks.length}`)}</p>);
+    index += 1;
+  }
+
+  return <div className="space-y-1.5 break-words">{blocks}</div>;
+}
+
+function getSuggestedPrompts(text = '') {
+  const value = String(text).toLowerCase();
+  const suggestions = [];
+  if (/budget|dépense|catégorie/.test(value)) suggestions.push('Aide-moi à réduire mes dépenses dans ce poste.');
+  if (/revenu|source|solde/.test(value)) suggestions.push('Montre-moi les revenus qui disposent encore d’un solde.');
+  if (/épargne|objectif/.test(value)) suggestions.push('Aide-moi à améliorer mon plan d’épargne.');
+  if (/prévision|vital|durée/.test(value)) suggestions.push('Analyse mes prévisions plus en profondeur.');
+  if (/premium|abonnement/.test(value)) suggestions.push('Vérifie la durée restante de mon abonnement.');
+  if (!suggestions.length) suggestions.push('Fais-moi une recommandation adaptée à ma situation actuelle.');
+  return [...new Set(suggestions)].slice(0, 2);
+}
+
+export function AssistantChat({ open, onClose, initialPrompt = "" }) {
   const { user } = useAuth();
   const [chats, setChats] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
@@ -69,11 +177,22 @@ export function AssistantChat({ open, onClose }) {
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
   const scrollRef = useRef(null);
+  const longPressTimer = useRef(null);
 
   useEffect(() => {
     if (!user) return;
     return subscribeChats(user.uid, setChats);
   }, [user]);
+
+  useEffect(() => {
+    if (open && initialPrompt) {
+      setInput(initialPrompt);
+      setActiveChatId(null);
+      setMessages([]);
+      setShowSidebar(false);
+      setTimeout(() => textareaRef.current?.focus(), 50);
+    }
+  }, [open, initialPrompt]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -115,6 +234,27 @@ export function AssistantChat({ open, onClose }) {
       await updateChatTitle(user.uid, chatId, titleInput);
     }
     setEditingTitleId(null);
+  };
+
+  const copyMessage = async (content) => {
+    if (!content || typeof navigator === 'undefined') return;
+    try {
+      await navigator.clipboard.writeText(String(content));
+    } catch {
+      const textarea = document.createElement('textarea');
+      textarea.value = String(content);
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      textarea.remove();
+    }
+  };
+
+  const sendPromptSuggestion = (prompt) => {
+    setInput(prompt);
+    textareaRef.current?.focus();
   };
 
   const handleInputChange = (e) => {
@@ -250,7 +390,8 @@ export function AssistantChat({ open, onClose }) {
         role: 'assistant', 
         content: finalReply,
         audioData: data.isAudio ? data.audio : null, 
-        wasAudio: data.isAudio || false 
+        wasAudio: data.isAudio || false,
+        quickActions: Array.isArray(data.quickActions) ? data.quickActions : [],
       };
       const updatedMessages = [...newMessages, botMsg];
       setMessages(updatedMessages);
@@ -369,24 +510,64 @@ export function AssistantChat({ open, onClose }) {
                         <Download size={14} />
                       </a>
                     </div>
+                    <button type="button" onClick={() => sendPromptSuggestion('@image Crée une nouvelle image sur le même sujet que la précédente, avec une composition différente.')} className="mt-2 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-brand-700 hover:bg-brand-50">Créer une autre image</button>
                   </div>
                 )}
 
-                {m.role === 'assistant' && m.wasAudio && m.audioData ? (
-                  <div className="w-[260px] rounded-2xl bg-brand-50 p-3 border border-brand-100">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Volume2 size={16} className="text-brand-600" />
-                      <span className="text-xs font-semibold text-brand-700">Message vocal</span>
+                {m.role === 'assistant' && m.wasAudio ? (
+                  <div className="max-w-[96%] sm:max-w-[92%] min-w-0">
+                    <div
+                      className="rounded-2xl rounded-bl-sm border border-slate-200 bg-slate-50 px-4 py-3 text-[13px] text-slate-800 shadow-sm"
+                      onContextMenu={(event) => { event.preventDefault(); copyMessage(m.content); }}
+                      onTouchStart={() => { longPressTimer.current = setTimeout(() => copyMessage(m.content), 550); }}
+                      onTouchEnd={() => { if (longPressTimer.current) clearTimeout(longPressTimer.current); }}
+                      onTouchMove={() => { if (longPressTimer.current) clearTimeout(longPressTimer.current); }}
+                    >
+                      <div className="mb-2 flex items-center gap-2">
+                        <Volume2 size={15} className="text-brand-600" />
+                        <span className="text-xs font-semibold text-brand-700">Réponse vocale</span>
+                      </div>
+                      {m.audioData ? (
+                        <audio controls src={`data:audio/wav;base64,${m.audioData}`} className="mb-3 h-9 w-full" />
+                      ) : (
+                        <p className="mb-2 text-xs text-slate-500 italic">Le fichier vocal n’est plus disponible, mais le texte de la réponse reste accessible.</p>
+                      )}
+                      <MessageContent text={m.content} />
                     </div>
-                    <audio controls src={`data:audio/wav;base64,${m.audioData}`} className="h-8 w-full" />
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2 px-1">
+                      <button type="button" onClick={() => copyMessage(m.content)} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800">
+                        <Copy size={12} /> Copier la réponse
+                      </button>
+                      {Array.isArray(m.quickActions) && m.quickActions.map((action, actionIndex) => (
+                        <a key={`${action.href}-${actionIndex}`} href={action.href} className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-brand-700 hover:border-brand-300 hover:bg-brand-50">{action.label}</a>
+                      ))}
+                      {getSuggestedPrompts(m.content).map((prompt, promptIndex) => (
+                        <button key={`${i}-${promptIndex}`} type="button" onClick={() => sendPromptSuggestion(prompt)} className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-left text-[11px] font-medium text-slate-600 hover:border-brand-300 hover:text-brand-700">{prompt}</button>
+                      ))}
+                    </div>
                   </div>
-                ) : m.role === 'assistant' && m.wasAudio && !m.audioData ? (
-                  <div className="w-[260px] rounded-2xl bg-slate-100 p-3 border border-slate-200 text-center">
-                    <p className="text-xs text-slate-500 italic">Message vocal (expiré)</p>
-                  </div>
-                ) : m.role === 'assistant' && !m.generatedImage && !m.wasAudio ? (
-                  <div className={`max-w-[90%] rounded-2xl px-4 py-3 text-[13px] bg-slate-100 text-slate-800 rounded-bl-sm`}>
-                    <MessageContent text={m.content} />
+                ) : m.role === 'assistant' && !m.generatedImage ? (
+                  <div className="max-w-[96%] sm:max-w-[92%] min-w-0">
+                    <div
+                      className="rounded-2xl rounded-bl-sm border border-slate-200 bg-slate-50 px-4 py-3 text-[13px] text-slate-800 shadow-sm"
+                      onContextMenu={(event) => { event.preventDefault(); copyMessage(m.content); }}
+                      onTouchStart={() => { longPressTimer.current = setTimeout(() => copyMessage(m.content), 550); }}
+                      onTouchEnd={() => { if (longPressTimer.current) clearTimeout(longPressTimer.current); }}
+                      onTouchMove={() => { if (longPressTimer.current) clearTimeout(longPressTimer.current); }}
+                    >
+                      <MessageContent text={m.content} />
+                    </div>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2 px-1">
+                      <button type="button" onClick={() => copyMessage(m.content)} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800">
+                        <Copy size={12} /> Copier la réponse
+                      </button>
+                      {Array.isArray(m.quickActions) && m.quickActions.map((action, actionIndex) => (
+                        <a key={`${action.href}-${actionIndex}`} href={action.href} className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-brand-700 hover:border-brand-300 hover:bg-brand-50">{action.label}</a>
+                      ))}
+                      {getSuggestedPrompts(m.content).map((prompt, promptIndex) => (
+                        <button key={`${i}-${promptIndex}`} type="button" onClick={() => sendPromptSuggestion(prompt)} className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-left text-[11px] font-medium text-slate-600 hover:border-brand-300 hover:text-brand-700">{prompt}</button>
+                      ))}
+                    </div>
                   </div>
                 ) : m.role === 'user' && !m.imagePreview ? (
                   <div className={`max-w-[90%] rounded-2xl px-4 py-3 text-[13px] bg-brand-600 text-white rounded-br-sm`}>

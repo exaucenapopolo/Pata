@@ -5,6 +5,7 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { useAuth } from '@/hooks/useAuth';
 import { db } from '@/lib/firebase/client';
 import { ensureUserProfile, updateUserProfile } from '@/lib/firestore/profile';
+import { setPreferredCurrency } from '@/lib/utils';
 
 export function useProfile() {
   const { user } = useAuth();
@@ -12,7 +13,7 @@ export function useProfile() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user) { setProfile(null); setLoading(false); return; }
+    if (!user) { setProfile(null); setPreferredCurrency('XAF'); setLoading(false); return; }
 
     let active = true;
     let unsub = null;
@@ -21,7 +22,9 @@ export function useProfile() {
       if (!active) return;
       unsub = onSnapshot(doc(db, 'users', user.uid), (snap) => {
         if (snap.exists()) {
-          setProfile({ id: snap.id, ...snap.data() });
+          const nextProfile = { id: snap.id, ...snap.data() };
+          setProfile(nextProfile);
+          setPreferredCurrency(nextProfile.currency || 'XAF', nextProfile.currencyRates || null);
         }
         setLoading(false);
       });

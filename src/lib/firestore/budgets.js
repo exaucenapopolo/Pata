@@ -1,8 +1,9 @@
 import {
   collection, addDoc, updateDoc, deleteDoc, doc,
-  onSnapshot, query, where, serverTimestamp, getDocs,
+  onSnapshot, query, where, serverTimestamp, getDocs, limit, orderBy,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase/client';
+import { reserveCreationQuota } from '@/lib/usageLimits';
 
 const col = (uid) => collection(db, 'users', uid, 'budgets');
 
@@ -33,6 +34,7 @@ export async function upsertBudget(uid, { categoryId, amount, month, incomeSourc
     return snap.docs[0].id;
   }
   
+  await reserveCreationQuota(uid, 'budgets');
   const created = await addDoc(col(uid), {
     categoryId,
     amount: Number(amount),
@@ -45,4 +47,9 @@ export async function upsertBudget(uid, { categoryId, amount, month, incomeSourc
 
 export async function deleteBudget(uid, id) {
   await deleteDoc(doc(db, 'users', uid, 'budgets', id));
+}
+
+export function subscribeAllBudgets(uid, cb) {
+  const q = query(col(uid), orderBy('month', 'desc'), limit(150));
+  return onSnapshot(q, (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
 }

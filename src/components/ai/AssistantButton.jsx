@@ -1,11 +1,21 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { BrainCircuit } from 'lucide-react';
 import { AssistantChat } from './AssistantChat';
 
 export function AssistantButton() {
   const [open, setOpen] = useState(false);
+  const [initialPrompt, setInitialPrompt] = useState('');
+
+  useEffect(() => {
+    const handleOpen = (event) => {
+      setInitialPrompt(String(event.detail?.prompt || ''));
+      setOpen(true);
+    };
+    window.addEventListener('pata:assistant-open', handleOpen);
+    return () => window.removeEventListener('pata:assistant-open', handleOpen);
+  }, []);
 
   return (
     <>
@@ -20,7 +30,7 @@ export function AssistantButton() {
           <span className="relative inline-flex rounded-full h-3 w-3 bg-brand-500"></span>
         </span>
       </button>
-      <AssistantChat open={open} onClose={() => setOpen(false)} />
+      <AssistantChat open={open} initialPrompt={initialPrompt} onClose={() => { setOpen(false); setInitialPrompt(''); }} />
     </>
   );
 }

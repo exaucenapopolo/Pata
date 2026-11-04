@@ -1,6 +1,7 @@
 import { getApps, initializeApp, cert } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
+import { getMessaging } from 'firebase-admin/messaging';
 
 function ensureInit() {
   if (getApps().length) return;
@@ -35,5 +36,14 @@ export const adminDb = new Proxy({}, {
     const db = getFirestore();
     const value = db[prop];
     return typeof value === 'function' ? value.bind(db) : value;
+  },
+});
+
+export const adminMessaging = new Proxy({}, {
+  get(_, prop) {
+    ensureInit();
+    const messaging = getMessaging();
+    const value = messaging[prop];
+    return typeof value === 'function' ? value.bind(messaging) : value;
   },
 });

@@ -1,16 +1,56 @@
-/* eslint-disable react/no-unescaped-entities */
 'use client';
 
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
+import Link from 'next/link';
 import { useProfile } from '@/hooks/useProfile';
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from 'next/navigation';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { CheckCircle2, Crown, Wallet, ShieldCheck, Zap, TrendingUp, Calendar, AlertTriangle } from 'lucide-react';
+import { Check, Minus, ShieldCheck, Wallet, CalendarDays, ArrowRight } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 
 const PRICE = 2500;
+const BENEFITS = [
+  { group: 'Gestion quotidienne', items: [
+    ['Enregistrer des dépenses', '60 par mois', 'Sans limite'],
+    ['Enregistrer des revenus', '2 par mois', 'Sans limite'],
+    ['Créer des budgets', '2 par mois', 'Sans limite'],
+    ['Créer des objectifs d’épargne', '2 par mois', 'Sans limite'],
+    ['Prévisions vitales', '1 création par mois', 'Sans limite'],
+    ['Suivre les soldes de chaque revenu', true, true],
+    ['Modifier et supprimer les opérations', true, true],
+  ]},
+  { group: 'Assistante Mč', items: [
+    ['Questions à l’assistante', '3 par jour', 'Sans limite*'],
+    ['Enregistrer et corriger des opérations par chat', true, true],
+    ['Conseils et analyses personnalisés', true, true],
+    ['Créer des images et analyser des images', 'Accès limité par jour', 'Accès sans quota Pata*'],
+    ['Réponses vocales', 'Accès limité par jour', 'Accès sans quota Pata*'],
+  ]},
+  { group: 'Prévisions et planification', items: [
+    ['Prévisions vitales et leur analyse avec Mč', '1 création par mois', 'Sans limite'],
+    ['Prévisions de durée de vie du capital', '1 création par mois', 'Sans limite'],
+    ['Analyse de scénarios et recommandations', true, true],
+  ]},
+  { group: 'Organisation et suivi', items: [
+    ['Dépenses récurrentes programmées', true, true],
+    ['Bilans hebdomadaires automatiques', true, true],
+    ['Historique et comparaison des périodes', true, true],
+    ['Suivi des dates de consommation des revenus', true, true],
+    ['Détails des dépenses par catégorie de budget', true, true],
+    ['Alertes et rappels personnalisés', true, true],
+    ['Rapports et comparaison des périodes', true, true],
+    ['Suivi du portefeuille Pata', true, true],
+    ['Export et téléchargement des données', true, true],
+  ]},
+];
+
+function Value({ value }) {
+  if (value === true) return <span className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700"><Check size={15} /> Inclus</span>;
+  if (value === false) return <span className="inline-flex items-center gap-1.5 text-sm text-slate-400"><Minus size={15} /> Non inclus</span>;
+  return <span className="text-sm text-slate-600">{value}</span>;
+}
 
 export default function PremiumPage() {
   const { user } = useAuth();
@@ -21,19 +61,18 @@ export default function PremiumPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
 
-  const balance = profile?.balance || 0;
+  const balance = Number(profile?.balance) || 0;
   const totalAmount = PRICE * months;
   const missingAmount = Math.max(0, totalAmount - balance);
-
   const now = new Date();
   const premiumUntil = profile?.premiumUntil ? new Date(profile.premiumUntil) : null;
-  const isPremium = premiumUntil && premiumUntil > now;
+  const isPremium = Boolean(premiumUntil && premiumUntil > now);
+  const daysLeft = isPremium ? Math.max(0, Math.ceil((premiumUntil.getTime() - now.getTime()) / 86400000)) : 0;
 
   const handlePayWithBalance = async () => {
     setError('');
-    if (balance < totalAmount) {
-      return setError(`Il te manque ${formatCurrency(missingAmount)} sur ton solde.`);
-    }
+    if (!user) return setError('Connecte-toi pour continuer.');
+    if (balance < totalAmount) return setError(`Ton solde est insuffisant. Il manque ${formatCurrency(missingAmount)}.`);
     setLoading(true);
     try {
       const token = await user.getIdToken();
@@ -43,135 +82,132 @@ export default function PremiumPage() {
         body: JSON.stringify({ months }),
       });
       const data = await res.json();
-      if (!data.success) throw new Error(data.error || 'Erreur.');
+      if (!res.ok || !data.success) throw new Error(data.error || 'Le paiement n’a pas pu être confirmé.');
       setSuccess(true);
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Une erreur est survenue.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="space-y-6 max-w-2xl mx-auto pb-10">
-      <div className="text-center pt-4">
-        <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-amber-100 text-amber-600 mb-3">
-          <Crown size={32} />
+    <div className="mx-auto max-w-5xl space-y-6 pb-10">
+      <header className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-7">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="max-w-2xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Offre Pata</p>
+            <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">Passe à Pata Premium</h1>
+            <p className="mt-2 text-sm leading-6 text-slate-600">Plus de marge pour suivre ton argent, préparer tes décisions et utiliser ton assistante financière au quotidien.</p>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-right">
+            <p className="text-xs font-medium text-slate-500">À partir de</p>
+            <p className="mt-1 text-3xl font-bold tracking-tight text-slate-950">2 500 <span className="text-base font-semibold text-slate-500">FCFA</span></p>
+            <p className="text-xs text-slate-500">pour 30 jours</p>
+          </div>
         </div>
-        <h1 className="text-3xl font-bold text-slate-900">Pata Premium</h1>
-        <p className="text-slate-500 mt-1">Ne subis plus tes finances. Prends le contrôle total.</p>
-      </div>
-
-      {success && (
-        <div className="rounded-xl bg-brand-50 border border-brand-200 p-4 flex items-center gap-2 text-brand-700">
-          <CheckCircle2 size={18} />
-          <p className="text-sm font-semibold">Félicitations ! Ton abonnement est actif.</p>
-        </div>
-      )}
-
-      {error && (
-        <div className="rounded-xl bg-red-50 border border-red-200 p-4 flex items-center gap-2 text-red-700">
-          <AlertTriangle size={18} />
-          <p className="text-sm font-semibold">{error}</p>
-        </div>
-      )}
-
-      <Card className="border-brand-200 shadow-md">
-        <div className="text-center mb-6">
-          <p className="text-4xl font-black text-slate-900">{formatCurrency(PRICE)}<span className="text-base font-medium text-slate-500"> / mois</span></p>
-          <p className="text-sm text-slate-500 mt-1">Moins qu'un plat de poulet pour une paix financière durable.</p>
-        </div>
-
-        <div className="space-y-4 mb-8">
-          <div className="flex items-start gap-3">
-            <ShieldCheck className="text-brand-500 shrink-0" size={20} />
+        {isPremium && (
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
             <div>
-              <p className="text-sm font-semibold text-slate-800">Zéro restriction</p>
-              <p className="text-xs text-slate-500">Dépenses, revenus et budgets illimités. Plus de blocage à 100 dépenses.</p>
+              <p className="text-sm font-semibold text-emerald-900">Ton abonnement est actif</p>
+              <p className="mt-0.5 text-xs text-emerald-800">Il reste {daysLeft} jour(s), jusqu’au {premiumUntil.toLocaleDateString('fr-FR')}.</p>
             </div>
+            <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-emerald-700">Premium actif</span>
           </div>
-          <div className="flex items-start gap-3">
-            <Zap className="text-brand-500 shrink-0" size={20} />
-            <div>
-              <p className="text-sm font-semibold text-slate-800">Assistant Mč illimité</p>
-              <p className="text-xs text-slate-500">Pose 100 questions par jour si tu veux. Génère des images, utilise la voix.</p>
-            </div>
+        )}
+      </header>
+
+      {success && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">Paiement confirmé. Ton abonnement Premium vient d’être prolongé.</div>}
+      {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
+
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <CardTitle>Ce que Premium t’apporte</CardTitle>
+            <p className="mt-1 text-xs text-slate-500">Compare précisément les deux formules.</p>
           </div>
-          <div className="flex items-start gap-3">
-            <TrendingUp className="text-brand-500 shrink-0" size={20} />
-            <div>
-              <p className="text-sm font-semibold text-slate-800">Objectifs illimités</p>
-              <p className="text-xs text-slate-500">Crée autant d'objectifs d'épargne que tu veux pour tes projets.</p>
-            </div>
-          </div>
-          <div className="flex items-start gap-3">
-            <CheckCircle2 className="text-brand-500 shrink-0" size={20} />
-            <div>
-              <p className="text-sm font-semibold text-slate-800">Prévisions Vitales</p>
-              <p className="text-xs text-slate-500">Calcule automatiquement ton budget de survie et transforme-le en revenus.</p>
-            </div>
-          </div>
+          <span className="text-xs font-medium text-slate-500">Gratuit ou 2 500 FCFA / mois</span>
         </div>
-
-        <div className="mb-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
-          <label className="block text-sm font-medium text-slate-700 mb-2">Durée de l'abonnement</label>
-          <select 
-            value={months} 
-            onChange={(e) => setMonths(Number(e.target.value))}
-            className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"
-          >
-            <option value={1}>1 mois — {formatCurrency(PRICE)}</option>
-            <option value={3}>3 mois — {formatCurrency(PRICE * 3)}</option>
-            <option value={6}>6 mois — {formatCurrency(PRICE * 6)}</option>
-            <option value={12}>12 mois — {formatCurrency(PRICE * 12)}</option>
-          </select>
+        <div className="mt-4 hidden overflow-x-auto rounded-xl border border-slate-200 sm:block">
+          <table className="w-full min-w-[650px] border-collapse text-left text-sm">
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="px-4 py-3 font-semibold text-slate-700">Fonctionnalité</th>
+                <th className="px-4 py-3 font-semibold text-slate-600">Gratuit</th>
+                <th className="bg-slate-100 px-4 py-3 font-semibold text-slate-900">Premium</th>
+              </tr>
+            </thead>
+            <tbody>
+              {BENEFITS.map((group) => (
+                <Fragment key={group.group}>
+                  <tr key={`${group.group}-heading`}><th colSpan={3} className="border-t border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-500">{group.group}</th></tr>
+                  {group.items.map(([label, free, premium]) => (
+                    <tr key={label} className="border-t border-slate-100">
+                      <td className="px-4 py-3 text-slate-700">{label}</td>
+                      <td className="px-4 py-3"><Value value={free} /></td>
+                      <td className="bg-emerald-50/40 px-4 py-3"><Value value={premium} /></td>
+                    </tr>
+                  ))}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
         </div>
+        <div className="mt-4 space-y-4 sm:hidden">
+          {BENEFITS.map((group) => (
+            <section key={`mobile-${group.group}`} className="space-y-2">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{group.group}</h3>
+              {group.items.map(([label, free, premium]) => (
+                <div key={`mobile-${label}`} className="rounded-lg border border-slate-200 p-3">
+                  <p className="text-sm font-semibold text-slate-800">{label}</p>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <div><p className="text-[10px] uppercase tracking-wide text-slate-400">Gratuit</p><Value value={free} /></div>
+                    <div><p className="text-[10px] uppercase tracking-wide text-slate-400">Premium</p><Value value={premium} /></div>
+                  </div>
+                </div>
+              ))}
+            </section>
+          ))}
+        </div>
+        <p className="mt-3 text-[11px] leading-5 text-slate-500">* Les fonctions d’IA restent soumises à la disponibilité du fournisseur IA et aux règles de sécurité de Pata. « Sans limite » signifie sans quota quotidien imposé par le forfait Pata.</p>
+      </Card>
 
-        <div className="space-y-3">
-          <div className="flex justify-between items-center text-sm font-medium">
-            <span className="text-slate-600">Solde disponible</span>
-            <span className="text-slate-900">{formatCurrency(balance)}</span>
+      <Card>
+        <div className="grid gap-5 md:grid-cols-[1fr_300px] md:items-center">
+          <div>
+            <CardTitle>Choisis la durée de ton abonnement</CardTitle>
+            <p className="mt-1 text-sm text-slate-500">Chaque mois ajoute 30 jours à ton accès. Si tu es déjà Premium, la durée restante est conservée.</p>
+            <label className="mt-4 block text-xs font-semibold text-slate-600" htmlFor="premium-months">Durée</label>
+            <select id="premium-months" value={months} onChange={(event) => setMonths(Number(event.target.value))} className="mt-1 h-11 w-full max-w-sm rounded-lg border border-slate-300 bg-white px-3 text-sm">
+              <option value={1}>1 mois — 2 500 FCFA</option>
+              <option value={3}>3 mois — 7 500 FCFA</option>
+              <option value={6}>6 mois — 15 000 FCFA</option>
+              <option value={12}>12 mois — 30 000 FCFA</option>
+            </select>
           </div>
-          <div className="flex justify-between items-center text-sm font-medium border-b border-slate-100 pb-2">
-            <span className="text-slate-600">Montant à payer</span>
-            <span className="text-brand-600">{formatCurrency(totalAmount)}</span>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="flex justify-between text-sm"><span className="text-slate-500">Solde Pata</span><strong className="text-slate-900">{formatCurrency(balance)}</strong></div>
+            <div className="mt-2 flex justify-between border-t border-slate-200 pt-2 text-sm"><span className="text-slate-500">Total à payer</span><strong className="text-slate-900">{formatCurrency(totalAmount)}</strong></div>
+            {missingAmount > 0 && <p className="mt-2 text-xs text-amber-700">Il manque {formatCurrency(missingAmount)} sur ton portefeuille.</p>}
+            <Button onClick={handlePayWithBalance} disabled={loading || balance < totalAmount} className="mt-4 w-full">
+              <Wallet size={16} /> {loading ? 'Paiement en cours…' : 'Payer avec mon solde'}
+            </Button>
+            {missingAmount > 0 && <Link href="/wallet" className="mt-3 flex items-center justify-center gap-1 text-sm font-semibold text-brand-700 hover:underline">Recharger mon portefeuille <ArrowRight size={14} /></Link>}
           </div>
-          
-          <Button 
-            onClick={handlePayWithBalance} 
-            disabled={loading || missingAmount > 0} 
-            className="w-full"
-          >
-            <Wallet size={16} /> {loading ? 'Traitement...' : 'Payer avec mon solde'}
-          </Button>
-
-          {missingAmount > 0 && (
-            <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-center">
-              <p className="text-sm text-amber-800 font-medium">
-                Il te manque : <strong>{formatCurrency(missingAmount)}</strong> sur ton solde.
-              </p>
-              <Button 
-                onClick={() => router.push('/wallet')} 
-                variant="outline" 
-                className="mt-2 text-amber-700 border-amber-300 hover:bg-amber-100"
-              >
-                Recharger mon solde
-              </Button>
-            </div>
-          )}
         </div>
       </Card>
 
-      {isPremium && (
-        <Card className="bg-brand-50 border-brand-200">
-          <div className="flex items-center gap-2 text-brand-700">
-            <Calendar size={18} />
-            <p className="text-sm font-semibold">
-              Ton abonnement est actif jusqu'au {premiumUntil.toLocaleDateString('fr-FR')}.
-            </p>
-          </div>
-        </Card>
-      )}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="flex items-center gap-2 text-slate-700"><ShieldCheck size={17} /><p className="text-sm font-semibold">Paiement contrôlé</p></div>
+          <p className="mt-2 text-xs leading-5 text-slate-500">Le solde est vérifié et débité côté serveur. L’accès n’est prolongé qu’après confirmation du paiement.</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="flex items-center gap-2 text-slate-700"><CalendarDays size={17} /><p className="text-sm font-semibold">Suivi de l’échéance</p></div>
+          <p className="mt-2 text-xs leading-5 text-slate-500">La date de fin apparaît ici et dans les échanges avec Mč lorsque tu lui demandes l’état de ton abonnement.</p>
+        </div>
+      </div>
+      <p className="text-center text-xs text-slate-500">Tu peux continuer à utiliser gratuitement les principales fonctions de Pata sans t’abonner.</p>
     </div>
   );
-    }
+}

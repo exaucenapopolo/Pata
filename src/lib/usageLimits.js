@@ -3,14 +3,35 @@ import { doc, getDoc, updateDoc, increment, serverTimestamp } from 'firebase/fir
 import { db } from '@/lib/firebase/client';
 
 export const FREE_LIMITS = {
-  EXPENSES: 100,
-  INCOMES: 5,
+  EXPENSES: 60,
+  INCOMES: 2,
   GOALS: 2,
-  BUDGETS: 5,
+  BUDGETS: 2,
+  VITALFORECASTS: 1,
+  DURATIONFORECASTS: 1,
   DAILY_AI: 3,
 };
 
 export const PREMIUM_PRICE = 2500;
+
+/** Réservation serveur d'une création gratuite. Les suppressions ne restituent jamais le quota. */
+export async function reserveCreationQuota(uid, type) {
+  const { auth } = await import('@/lib/firebase/client');
+  const currentUser = auth.currentUser;
+  if (!currentUser || currentUser.uid !== uid) throw new Error('Session expirée. Reconnecte-toi puis réessaie.');
+  const requestId = typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  const token = await currentUser.getIdToken();
+  const response = await fetch('/api/usage/reserve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ type, requestId }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.success) throw new Error(result.error || 'Limite gratuite atteinte.');
+  return result;
+}
 
 /**
  * Vérifie et incrémente le quota. Utilisé côté Client.

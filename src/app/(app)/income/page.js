@@ -26,6 +26,8 @@ import { upsertBudget } from '@/lib/firestore/budgets';
 import { computeBudgetBreakdown } from '@/lib/budgetRules';
 import { INCOME_CATEGORIES, EXPENSE_CATEGORIES } from '@/lib/constants';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import { reserveCreationQuota } from '@/lib/usageLimits';
+import { useBudgets } from '@/hooks/useBudgets';
 
 // 🟢 DATES LOCALES (Pas de décalage UTC)
 const todayMonth = () => {
@@ -61,6 +63,7 @@ export default function IncomePage() {
   const [error, setError] = useState('');
   const [rulesSavedAt, setRulesSavedAt] = useState(null);
   const [selectedIncomeToApply, setSelectedIncomeToApply] = useState('all');
+  const { budgets: appliedBudgets } = useBudgets(month, selectedIncomeToApply);
   const [deleteId, setDeleteId] = useState(null);
 
   // 🟢 États des prévisions
@@ -70,18 +73,90 @@ export default function IncomePage() {
   const [totalBudget, setTotalBudget] = useState('');
   const [savingVital, setSavingVital] = useState(false);
   const [showVerification, setShowVerification] = useState(false); // Pour le bouton "Vérifier"
+  const [durationName, setDurationName] = useState('');
+  const [durationCapital, setDurationCapital] = useState('');
+  const [durationDaily, setDurationDaily] = useState('');
+  const [durationWeekly, setDurationWeekly] = useState('');
+  const [durationMonthly, setDurationMonthly] = useState('');
+  const [durationError, setDurationError] = useState('');
+  const [savingDuration, setSavingDuration] = useState(false);
 
   const incomesWithBalance = useMemo(() => {
     return incomes.map((inc) => {
-      const linkedExpenses = expenses.filter((e) => e.incomeSourceId === inc.id);
-      const spent = linkedExpenses.reduce((s, e) => s + (e.amount || 0), 0);
-      const remaining = Math.max(0, (inc.amount || 0) - spent);
-      return { ...inc, spent, remaining, isExhausted: remaining === 0 && spent > 0 };
+      const linkedExpenses = expenses.filter((e) => e.incomeSourceId === inc.id).sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+      const spent = linkedExpenses.reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0);
+      const remaining = Math.max(0, (Number(inc.amount) || 0) - spent);
+      let cumulative = 0;
+      let exhaustedDate = null;
+      for (const expense of linkedExpenses) {
+        cumulative += Number(expense.amount) || 0;
+        if (cumulative >= Number(inc.amount) && Number(inc.amount) > 0) { exhaustedDate = expense.date || null; break; }
+      }
+      const createdDate = inc.date || (inc.createdAt?.toDate ? inc.createdAt.toDate().toISOString().slice(0, 10) : null);
+      const endDate = exhaustedDate || todayIso();
+      const durationDays = createdDate ? Math.max(0, Math.floor((new Date(`${endDate}T00:00:00`).getTime() - new Date(`${createdDate}T00:00:00`).getTime()) / 86400000)) : null;
+      return { ...inc, spent, remaining, createdDate, exhaustedDate, durationDays, isExhausted: remaining === 0 && spent > 0 };
     });
   }, [incomes, expenses]);
 
   const activeIncomes = useMemo(() => incomesWithBalance.filter(i => !i.isExhausted), [incomesWithBalance]);
   const totalAvailable = activeIncomes.reduce((s, i) => s + i.remaining, 0);
+
+  const durationForecasts = Array.isArray(profile?.durationForecasts) ? profile.durationForecasts : [];
+  const dailyRate = Math.max(0, Number(durationDaily) || 0) + Math.max(0, Number(durationWeekly) || 0) / 7 + Math.max(0, Number(durationMonthly) || 0) / 30.4375;
+  const calculatedDurationDays = dailyRate > 0 && Number(durationCapital) > 0 ? Math.floor(Number(durationCapital) / dailyRate) : null;
+  const formatDuration = (days) => {
+    if (!Number.isFinite(Number(days)) || days < 0) return '—';
+    if (days < 1) return 'Moins d’un jour';
+    const years = Math.floor(days / 365);
+    const months = Math.floor((days % 365) / 30);
+    const remainingDays = days % 30;
+    const parts = [];
+    if (years) parts.push(`${years} an${years > 1 ? 's' : ''}`);
+    if (months) parts.push(`${months} mois`);
+    if (remainingDays && parts.length < 2) parts.push(`${remainingDays} jour${remainingDays > 1 ? 's' : ''}`);
+    return parts.join(' et ') || 'Moins d’un jour';
+  };
+
+  const saveDurationForecast = async (event) => {
+    event.preventDefault();
+    setDurationError('');
+    const capital = Math.round(Number(durationCapital));
+    if (!capital || capital <= 0 || dailyRate <= 0) return setDurationError('Indique un capital positif et au moins une dépense par jour, semaine ou mois.');
+    setSavingDuration(true);
+    try {
+      await reserveCreationQuota(user.uid, 'durationForecasts');
+      const days = Math.floor(capital / dailyRate);
+      const now = new Date();
+      const forecast = {
+        id: `forecast_${now.getTime()}`,
+        name: durationName.trim() || `Prévision du ${now.toLocaleDateString('fr-FR')}`,
+        capital,
+        dailyExpense: Math.max(0, Math.round(Number(durationDaily) || 0)),
+        weeklyExpense: Math.max(0, Math.round(Number(durationWeekly) || 0)),
+        monthlyExpense: Math.max(0, Math.round(Number(durationMonthly) || 0)),
+        averageDaily: Math.round(dailyRate),
+        estimatedDays: days,
+        estimatedEndDate: new Date(now.getTime() + days * 86400000).toISOString().slice(0, 10),
+        createdAt: now.toISOString(),
+      };
+      await save({ durationForecasts: [...durationForecasts, forecast].slice(-50) });
+      setDurationName(''); setDurationCapital(''); setDurationDaily(''); setDurationWeekly(''); setDurationMonthly('');
+    } catch (error) {
+      setDurationError(error.message || 'Impossible d’enregistrer cette prévision.');
+    } finally {
+      setSavingDuration(false);
+    }
+  };
+
+  const removeDurationForecast = async (id) => {
+    if (!confirm('Supprimer cette prévision ? Cette suppression ne restitue pas le quota de création du mois.')) return;
+    await save({ durationForecasts: durationForecasts.filter((item) => item.id !== id) });
+  };
+
+  const analyzeWithAssistant = (prompt) => {
+    window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt } }));
+  };
 
   const monthIncomes = useMemo(() => incomesWithBalance.filter((i) => i.month === month).sort((a, b) => (a.date < b.date ? 1 : -1)), [incomesWithBalance, month]);
   const totalIncome = monthIncomes.reduce((s, i) => s + (i.amount || 0), 0);
@@ -158,10 +233,26 @@ export default function IncomePage() {
         }
       });
       
-      await save({ 
+      const currentMonth = todayMonth();
+      const premiumActive = Boolean(profile?.premiumUntil && new Date(profile.premiumUntil) > new Date());
+      if (!premiumActive && profile?.vitalForecastCreatedMonth !== currentMonth) {
+        await reserveCreationQuota(user.uid, 'vitalForecasts');
+      }
+      const snapshot = {
+        id: `vital_${Date.now()}`,
+        name: budgetName || 'Prévision vitale',
+        totalBudget: Number(totalBudget) || 0,
+        needs: cleaned,
+        month: currentMonth,
+        createdAt: new Date().toISOString(),
+      };
+      const history = Array.isArray(profile?.vitalForecastHistory) ? profile.vitalForecastHistory : [];
+      await save({
         vitalNeeds: cleaned,
         vitalBudgetName: budgetName,
-        vitalTotalBudget: Number(totalBudget) || 0
+        vitalTotalBudget: Number(totalBudget) || 0,
+        vitalForecastCreatedMonth: currentMonth,
+        vitalForecastHistory: [...history, snapshot].slice(-50),
       });
       
       setVitalOpen(false);
@@ -175,6 +266,15 @@ export default function IncomePage() {
 
   const applyVitalToBudget = async () => {
     if (!savedTotalVital) return;
+    const premiumActive = Boolean(profile?.premiumUntil && new Date(profile.premiumUntil) > new Date());
+    const requiredBudgets = allCategories.filter((category) => Number(vitalNeeds[category.id]?.amount) > 0).length;
+    const currentMonthKey = todayMonth();
+    const stats = profile?.monthlyStats || {};
+    const usedBudgets = stats.lastResetMonth === currentMonthKey ? Number(stats.budgets) || 0 : 0;
+    if (!premiumActive && usedBudgets + requiredBudgets > 2) {
+      alert(`Ton compte gratuit peut créer 2 budgets par mois. Cette répartition en nécessite ${requiredBudgets} et il t’en reste ${Math.max(0, 2 - usedBudgets)}. Passe à Premium ou réduis le nombre de catégories avant de transformer cette prévision.`);
+      return;
+    }
     setSavingApplied(true);
     try {
       const currentMonth = todayMonth();
@@ -235,6 +335,15 @@ export default function IncomePage() {
 
   const onApplyBudgets = async () => {
     if (!breakdown.length || !isValid) return;
+    const premiumActive = Boolean(profile?.premiumUntil && new Date(profile.premiumUntil) > new Date());
+    const newBudgetCount = breakdown.filter((item) => !appliedBudgets.some((budget) => budget.categoryId === item.key && (budget.incomeSourceId || 'all') === selectedIncomeToApply)).length;
+    const currentMonthKey = todayMonth();
+    const stats = profile?.monthlyStats || {};
+    const usedBudgets = stats.lastResetMonth === currentMonthKey ? Number(stats.budgets) || 0 : 0;
+    if (!premiumActive && usedBudgets + newBudgetCount > 2) {
+      alert(`Il te reste ${Math.max(0, 2 - usedBudgets)} création(s) de budget sur ton compte gratuit ce mois-ci, mais cette répartition en nécessite ${newBudgetCount}. Les budgets déjà existants peuvent être modifiés sans consommer une nouvelle création.`);
+      return;
+    }
     setSavingApplied(true);
     try {
       for (const item of breakdown) {
@@ -259,6 +368,20 @@ export default function IncomePage() {
         </div>
         <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm" />
       </div>
+
+      {Array.isArray(profile?.vitalForecastHistory) && profile.vitalForecastHistory.length > 0 && (
+        <Card>
+          <div className="mb-3 flex items-center justify-between"><CardTitle>Historique des prévisions vitales</CardTitle><span className="text-xs text-slate-400">{profile.vitalForecastHistory.length} enregistrée(s)</span></div>
+          <div className="space-y-2">
+            {profile.vitalForecastHistory.slice().reverse().slice(0, 8).map((forecast) => (
+              <div key={forecast.id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 px-3 py-2.5">
+                <div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-800">{forecast.name}</p><p className="text-xs text-slate-500">{forecast.month} · {Object.keys(forecast.needs || {}).length} catégorie(s)</p></div>
+                <strong className="shrink-0 text-sm text-slate-900">{formatCurrency(forecast.totalBudget)}</strong>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       {/* 🟢 CARTE DES PRÉVISIONS ENREGISTRÉES */}
       <Card className={savedTotalVital > 0 && Number(totalBudget) >= savedTotalVital ? 'border-brand-200' : isSavedOverBudget ? 'border-red-200' : ''}>
@@ -324,10 +447,56 @@ export default function IncomePage() {
               </div>
             )}
 
-            <Button onClick={applyVitalToBudget} className="w-full" disabled={savingApplied || isSavedOverBudget}>
-              <ArrowRight size={14} /> {savingApplied ? 'Enregistrement...' : 'Transformer en Revenu & Budgets'}
-            </Button>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Button onClick={applyVitalToBudget} className="w-full" disabled={savingApplied || isSavedOverBudget}>
+                <ArrowRight size={14} /> {savingApplied ? 'Enregistrement...' : 'Transformer en Revenu & Budgets'}
+              </Button>
+              <Button variant="outline" onClick={() => analyzeWithAssistant(`Analyse en profondeur mes Prévisions vitales. Nom : ${profile?.vitalBudgetName || 'Budget'}. Budget total : ${Number(totalBudget) || 0} FCFA. Détail mensuel par catégorie : ${allCategories.map((category) => { const need = vitalNeeds[category.id]; if (!need?.amount) return null; const frequency = FREQUENCIES.find((item) => item.id === need.frequency); return `${category.label}: ${Number(need.amount) * (frequency?.multiplier || 1)} FCFA/mois`; }).filter(Boolean).join('; ')}. Explique les points de vigilance et propose des améliorations concrètes sans modifier mes données.`)} className="w-full">
+                Continuer l’analyse avec Mč
+              </Button>
+            </div>
           </>
+        )}
+      </Card>
+
+      <Card>
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <CardTitle>Combien de temps mon argent va-t-il durer ?</CardTitle>
+            <p className="mt-1 text-xs leading-5 text-slate-500">Indique la somme dont tu disposes et ton rythme de dépenses. Pata estime le nombre de jours avant épuisement du capital.</p>
+          </div>
+          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">{profile?.premiumUntil && new Date(profile.premiumUntil) > new Date() ? 'Prévisions illimitées' : '1 nouvelle prévision / mois en gratuit'}</span>
+        </div>
+        <form onSubmit={saveDurationForecast} className="grid gap-3 sm:grid-cols-2">
+          <Input label="Nom de la prévision" placeholder="Ex. Mon capital de novembre" value={durationName} onChange={(event) => setDurationName(event.target.value)} />
+          <Input label="Capital disponible (FCFA)" type="number" min="1" value={durationCapital} onChange={(event) => setDurationCapital(event.target.value)} required />
+          <Input label="Dépenses par jour (FCFA)" type="number" min="0" value={durationDaily} onChange={(event) => setDurationDaily(event.target.value)} />
+          <Input label="Dépenses par semaine (FCFA)" type="number" min="0" value={durationWeekly} onChange={(event) => setDurationWeekly(event.target.value)} />
+          <Input label="Dépenses par mois (FCFA)" type="number" min="0" value={durationMonthly} onChange={(event) => setDurationMonthly(event.target.value)} />
+          <div className="flex flex-col justify-end rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <p className="text-[11px] text-slate-500">Durée estimée</p>
+            <p className="mt-1 text-lg font-bold text-slate-900">{calculatedDurationDays === null ? 'À calculer' : formatDuration(calculatedDurationDays)}</p>
+            {calculatedDurationDays !== null && <p className="text-[11px] text-slate-500">Environ {calculatedDurationDays} jour(s), si le rythme reste identique.</p>}
+          </div>
+          {durationError && <p className="sm:col-span-2 text-xs text-red-600">{durationError}</p>}
+          <div className="sm:col-span-2"><Button type="submit" disabled={savingDuration} className="w-full sm:w-auto">{savingDuration ? 'Enregistrement…' : 'Enregistrer cette prévision'}</Button></div>
+        </form>
+        {durationForecasts.length > 0 && (
+          <div className="mt-5 space-y-2 border-t border-slate-100 pt-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Mes prévisions enregistrées</p>
+            {durationForecasts.map((forecast) => (
+              <div key={forecast.id} className="rounded-lg border border-slate-200 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div><p className="text-sm font-semibold text-slate-800">{forecast.name}</p><p className="mt-0.5 text-xs text-slate-500">Capital : {formatCurrency(forecast.capital)} · Moyenne : {formatCurrency(forecast.averageDaily)} / jour</p></div>
+                  <button type="button" onClick={() => removeDurationForecast(forecast.id)} className="text-xs text-slate-400 hover:text-red-600">Supprimer</button>
+                </div>
+                <div className="mt-2 flex flex-wrap items-end justify-between gap-2">
+                  <div><p className="text-xs text-slate-500">Durée estimée</p><p className="text-base font-bold text-brand-700">{formatDuration(forecast.estimatedDays)}</p><p className="text-[11px] text-slate-500">Jusqu’au {formatDate(forecast.estimatedEndDate)}</p></div>
+                  <Button type="button" size="sm" variant="outline" onClick={() => analyzeWithAssistant(`Analyse cette prévision de durée du capital et donne-moi des conseils concrets. Nom : ${forecast.name}. Capital : ${forecast.capital} FCFA. Dépense quotidienne : ${forecast.dailyExpense} FCFA. Hebdomadaire : ${forecast.weeklyExpense} FCFA. Mensuelle : ${forecast.monthlyExpense} FCFA. Moyenne par jour : ${forecast.averageDaily} FCFA. Durée estimée : ${forecast.estimatedDays} jours, jusqu’au ${forecast.estimatedEndDate}.`)}>Analyser avec Mč</Button>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </Card>
 
@@ -351,6 +520,11 @@ export default function IncomePage() {
                         {inc.isExhausted && (<span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">Épuisé</span>)}
                       </div>
                       <p className="text-xs text-slate-500">{formatDate(inc.date)} — {INCOME_CATEGORIES.find(c => c.id === inc.categoryId)?.label || 'Revenu'}</p>
+                      <p className="mt-0.5 text-[11px] text-slate-400">
+                        {inc.isExhausted && inc.exhaustedDate
+                          ? `Épuisé le ${formatDate(inc.exhaustedDate)}${inc.durationDays !== null ? ` · utilisé en ${formatDuration(inc.durationDays)}` : ''}`
+                          : `En cours depuis ${formatDate(inc.createdDate || inc.date)}${inc.durationDays !== null ? ` · ${formatDuration(inc.durationDays)} écoulé(s)` : ''}`}
+                      </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">

@@ -3,6 +3,7 @@ import {
   onSnapshot, query, orderBy, serverTimestamp, getDocs,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase/client';
+import { reserveCreationQuota } from '@/lib/usageLimits';
 
 const col = (uid) => collection(db, 'users', uid, 'goals');
 const depositsCol = (uid, gid) => collection(db, 'users', uid, 'goals', gid, 'deposits');
@@ -22,6 +23,7 @@ export function subscribeDeposits(uid, goalId, cb) {
 }
 
 export async function createGoal(uid, data) {
+  await reserveCreationQuota(uid, 'goals');
   const base = {
     name: String(data.name || '').trim(),
     type: data.type || 'goal',

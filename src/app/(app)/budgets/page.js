@@ -2,7 +2,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { PiggyBank, Pencil, Landmark } from 'lucide-react';
+import { PiggyBank, Pencil, Landmark, ChevronRight, MessageCircle, CalendarDays } from 'lucide-react';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { Button } from '@/components/ui/Button';
@@ -14,10 +14,10 @@ import { useBudgets } from '@/hooks/useBudgets';
 import { useExpenses } from '@/hooks/useExpenses';
 import { useIncomes } from '@/hooks/useIncomes';
 import { upsertBudget, deleteBudget } from '@/lib/firestore/budgets';
-import { EXPENSE_CATEGORIES } from '@/lib/constants';
-import { formatCurrency } from '@/lib/utils';
+import { useCustomCategories } from '@/hooks/useCustomCategories';
+import { formatCurrency, getLocalMonth } from '@/lib/utils';
 
-const todayMonth = () => new Date().toISOString().slice(0, 7);
+const todayMonth = () => getLocalMonth();
 
 export default function BudgetsPage() {
   const { user } = useAuth();
@@ -27,18 +27,19 @@ export default function BudgetsPage() {
   const { incomes } = useIncomes();
   const { budgets } = useBudgets(month, selectedIncome);
   const { expenses } = useExpenses();
+  const { categories: expenseCategories } = useCustomCategories('expense');
 
   const [editing, setEditing] = useState(null);
   const [amount, setAmount] = useState('');
   const [saving, setSaving] = useState(false);
+  const [details, setDetails] = useState(null);
 
   const monthIncomes = useMemo(() => incomes.filter(i => i.month === month), [incomes, month]);
 
   const monthExpenses = useMemo(() => {
     let filtered = expenses.filter((e) => e.date?.startsWith(month));
-    if (selectedIncome === 'all') {
-      filtered = filtered.filter(e => !e.incomeSourceId || e.incomeSourceId === 'all');
-    } else {
+    // En vue globale, inclure toutes les parts des dépenses réparties entre plusieurs revenus.
+    if (selectedIncome !== 'all') {
       filtered = filtered.filter(e => e.incomeSourceId === selectedIncome);
     }
     return filtered;
@@ -53,14 +54,14 @@ export default function BudgetsPage() {
   }, [monthExpenses]);
 
   const enriched = useMemo(() => {
-    return EXPENSE_CATEGORIES.map((c) => {
+    return expenseCategories.map((c) => {
       const budget = budgets.find((b) => b.categoryId === c.id);
       const spent = spentByCategory[c.id] || 0;
       const allocated = budget?.amount || 0;
       const usage = allocated > 0 ? (spent / allocated) * 100 : spent > 0 ? 100 : 0;
-      return { ...c, budgetId: budget?.id, allocated, spent, usage, remaining: allocated - spent };
+      return { ...c, budgetId: budget?.id, allocated, spent, usage, remaining: allocated - spent, expenses: monthExpenses.filter((expense) => expense.categoryId === c.id) };
     });
-  }, [budgets, spentByCategory]);
+  }, [budgets, spentByCategory, monthExpenses, expenseCategories]);
 
   const totalAllocated = enriched.reduce((s, c) => s + c.allocated, 0);
   const totalSpent = enriched.reduce((s, c) => s + c.spent, 0);
@@ -132,13 +133,16 @@ export default function BudgetsPage() {
       <div className="grid gap-3 sm:grid-cols-2">
         {enriched.map((c) => (
           <Card key={c.id}>
-            <div className="mb-2 flex items-start justify-between">
+            <button type="button" onClick={() => setDetails(c)} className="mb-2 flex w-full items-start justify-between text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-300">
               <div className="flex items-center gap-2">
                 <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: c.color }} />
                 <p className="text-sm font-semibold text-slate-800">{c.label}</p>
               </div>
+              <span className="inline-flex items-center gap-1 text-xs text-slate-400">Détails <ChevronRight size={14} /></span>
+            </button>
+            <div className="mb-2 flex items-start justify-end">
               <button
-                onClick={() => openEdit(c)}
+                onClick={(event) => { event.stopPropagation(); openEdit(c); }}
                 className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                 aria-label="Modifier"
               >
@@ -171,6 +175,39 @@ export default function BudgetsPage() {
           </Card>
         ))}
       </div>
+
+      <Modal open={!!details} onClose={() => setDetails(null)} title={details ? `Détail du budget — ${details.label}` : ''}>
+        {details && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-2">
+              <div className="rounded-lg bg-slate-50 p-3"><p className="text-[11px] text-slate-500">Alloué</p><p className="mt-1 text-sm font-bold text-slate-900">{formatCurrency(details.allocated)}</p></div>
+              <div className="rounded-lg bg-slate-50 p-3"><p className="text-[11px] text-slate-500">Dépensé</p><p className="mt-1 text-sm font-bold text-red-600">{formatCurrency(details.spent)}</p></div>
+              <div className="rounded-lg bg-slate-50 p-3"><p className="text-[11px] text-slate-500">Restant</p><p className={`mt-1 text-sm font-bold ${details.remaining < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{formatCurrency(details.remaining)}</p></div>
+            </div>
+            <div className="rounded-lg border border-slate-200 p-3">
+              <div className="flex justify-between text-xs text-slate-500"><span>Consommation</span><strong>{details.usage.toFixed(0)} %</strong></div>
+              <ProgressBar value={Math.min(100, details.usage)} color={details.usage > 100 ? '#ef4444' : details.usage > 80 ? '#f59e0b' : details.color} />
+              <p className="mt-2 text-xs leading-5 text-slate-500">{details.remaining < 0 ? `Tu as dépassé cette enveloppe de ${formatCurrency(Math.abs(details.remaining))}.` : `Il te reste ${formatCurrency(details.remaining)} pour cette catégorie.`}</p>
+            </div>
+            <div>
+              <div className="mb-2 flex items-center justify-between"><h3 className="text-sm font-semibold text-slate-800">Dépenses enregistrées</h3><span className="text-xs text-slate-500">{details.expenses.length} opération(s)</span></div>
+              {details.expenses.length === 0 ? <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-500">Aucune dépense dans cette catégorie pour ce mois.</p> : (
+                <ul className="max-h-56 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-100">
+                  {details.expenses.slice().sort((a,b) => String(b.date || '').localeCompare(String(a.date || ''))).map((expense) => (
+                    <li key={expense.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                      <div className="min-w-0"><p className="truncate text-sm font-medium text-slate-800">{expense.note || details.label}</p><p className="text-xs text-slate-500">{expense.date || 'Date inconnue'}{expense.incomeSourceName ? ` · ${expense.incomeSourceName}` : ''}</p></div>
+                      <strong className="shrink-0 text-sm text-slate-900">{formatCurrency(expense.amount)}</strong>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <Button type="button" className="w-full" onClick={() => { const prompt = `Aide-moi à améliorer mon budget ${details.label} pour ${month}. Montant prévu : ${details.allocated} FCFA. Dépenses enregistrées : ${details.spent} FCFA. Reste : ${details.remaining} FCFA. Analyse les opérations et propose des changements réalistes sans modifier mes données.`; window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt } })); setDetails(null); }}>
+              <MessageCircle size={15} /> Demander conseil à Mč
+            </Button>
+          </div>
+        )}
+      </Modal>
 
       <Modal
         open={!!editing}
