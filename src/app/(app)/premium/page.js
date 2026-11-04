@@ -1,10 +1,11 @@
+/* eslint-disable react/no-unescaped-entities */
 'use client';
 
 import { useState } from 'react';
 import { useProfile } from '@/hooks/useProfile';
 import { useAuth } from '@/hooks/useAuth';
 import { getSubscriptionStatus } from '@/lib/firestore/subscriptions';
-import { Card, CardTitle } from '@/components/ui/Card';
+import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { CheckCircle2, Crown, Wallet, CreditCard, Calendar, AlertTriangle } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
@@ -92,19 +93,19 @@ export default function PremiumPage() {
       <Card>
         <div className="text-center mb-6">
           <p className="text-4xl font-black text-slate-900">{formatCurrency(PRICE)}<span className="text-base font-medium text-slate-500"> / mois</span></p>
-          <p className="text-sm text-slate-500 mt-1">Moins d'un café par jour pour reprendre le contrôle.</p>
+          <p className="text-sm text-slate-500 mt-1">Moins d’un café par jour pour reprendre le contrôle.</p>
         </div>
 
         <ul className="space-y-3 mb-6">
           <li className="flex items-center gap-2 text-sm text-slate-700"><CheckCircle2 size={16} className="text-brand-500" /> Dépenses, revenus et budgets illimités</li>
-          <li className="flex items-center gap-2 text-sm text-slate-700"><CheckCircle2 size={16} className="text-brand-500" /> Objectifs d'épargne illimités</li>
+          <li className="flex items-center gap-2 text-sm text-slate-700"><CheckCircle2 size={16} className="text-brand-500" /> Objectifs d’épargne illimités</li>
           <li className="flex items-center gap-2 text-sm text-slate-700"><CheckCircle2 size={16} className="text-brand-500" /> Prévisions vitales et automatisations</li>
           <li className="flex items-center gap-2 text-sm text-slate-700"><CheckCircle2 size={16} className="text-brand-500" /> Assistant Mč illimité (texte, audio, vision)</li>
           <li className="flex items-center gap-2 text-sm text-slate-700"><CheckCircle2 size={16} className="text-brand-500" /> Exportation des données</li>
         </ul>
 
         <div className="mb-4">
-          <label className="block text-sm font-medium text-slate-700 mb-2">Durée de l'abonnement</label>
+          <label className="block text-sm font-medium text-slate-700 mb-2">Durée de l’abonnement</label>
           <select 
             value={months} 
             onChange={(e) => setMonths(Number(e.target.value))}
@@ -127,7 +128,7 @@ export default function PremiumPage() {
         </div>
 
         <p className="text-xs text-slate-500 text-center mt-4">
-          Le solde Pata est l'argent réellement déposé sur la plateforme. Les revenus que tu enregistres ne sont pas débités ici.
+          Le solde Pata est l’argent réellement déposé sur la plateforme. Les revenus que tu enregistres ne sont pas débités ici.
         </p>
       </Card>
 
@@ -136,11 +137,11 @@ export default function PremiumPage() {
           <div className="flex items-center gap-2 text-brand-700">
             <Calendar size={18} />
             <p className="text-sm font-semibold">
-              Ton abonnement est actif jusqu'au {status.expiresAt.toLocaleDateString('fr-FR')} ({status.daysLeft} jours restants).
+              Ton abonnement est actif jusqu’au {status.expiresAt.toLocaleDateString('fr-FR')} ({status.daysLeft} jours restants).
             </p>
           </div>
         </Card>
       )}
     </div>
   );
-}
+          }
