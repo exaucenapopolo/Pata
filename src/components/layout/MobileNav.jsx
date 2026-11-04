@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard, Wallet, Banknote, Target, Menu, X,
-  TrendingUp, PiggyBank, BarChart3, Settings, LogOut
+  TrendingUp, PiggyBank, BarChart3, Settings, LogOut, Crown
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -21,7 +21,7 @@ const MORE_NAV = [
   { href: '/income',    label: 'Revenus',    icon: TrendingUp },
   { href: '/budgets',   label: 'Budgets',    icon: PiggyBank },
   { href: '/reports',   label: 'Rapports',   icon: BarChart3 },
-  { href: '/premium',   label: 'Premium',    icon: Crown },  // 🟢 Nouveau
+  { href: '/premium',   label: 'Premium',    icon: Crown },
   { href: '/settings',  label: 'Paramètres', icon: Settings },
 ];
 
@@ -39,7 +39,6 @@ export function MobileNav() {
 
   return (
     <>
-      {/* Menu "Plus" (Bottom Sheet) */}
       {showMore && (
         <div className="fixed inset-0 z-[60] flex flex-col justify-end bg-black/40 md:hidden">
           <div className="flex-1" onClick={() => setShowMore(false)} />
@@ -85,7 +84,6 @@ export function MobileNav() {
         </div>
       )}
 
-      {/* Barre de navigation principale (en bas) avec support du Safe Area */}
       <nav className="fixed bottom-0 left-0 right-0 z-50 flex border-t border-slate-200 bg-white pb-[env(safe-area-inset-bottom)] md:hidden">
         {MAIN_NAV.map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(href + '/');
@@ -117,4 +115,4 @@ export function MobileNav() {
       </nav>
     </>
   );
-              }
+                      }
