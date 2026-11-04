@@ -18,27 +18,22 @@ import { useGoals } from '@/hooks/useGoals';
 import { useProfile } from '@/hooks/useProfile';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { generateAdvice, adviceIconColor } from '@/lib/advisor';
-import { formatCurrency, formatDate, resolveCategory } from '@/lib/utils';
+import { formatCurrency, formatDate, resolveCategory, getFirstOfMonth, getLastOfMonth } from '@/lib/utils';
 
-const firstOfMonth = () => {
+const todayIso = () => {
   const d = new Date();
-  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
-const lastOfMonth = () => {
-  const d = new Date();
-  return new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
-};
-const todayIso = () => new Date().toISOString().slice(0, 10);
 
 const ADVICE_ICONS = { success: CheckCircle2, danger: AlertTriangle, warning: AlertTriangle, tip: Lightbulb, info: Info };
 
 export default function DashboardPage() {
-  const [customStart, setCustomStart] = useState(firstOfMonth());
+  const [customStart, setCustomStart] = useState(getFirstOfMonth());
   const [customEnd, setCustomEnd] = useState(todayIso());
   const [showCustomPeriod, setShowCustomPeriod] = useState(false);
 
-  const startDate = showCustomPeriod ? customStart : firstOfMonth();
-  const endDate = showCustomPeriod ? customEnd : lastOfMonth();
+  const startDate = showCustomPeriod ? customStart : getFirstOfMonth();
+  const endDate = showCustomPeriod ? customEnd : getLastOfMonth();
 
   const { incomes } = useIncomes();
   const { expenses } = useExpenses();
@@ -80,12 +75,10 @@ export default function DashboardPage() {
     [incomes, prevStartDate, prevEndDate]
   );
 
-  // 🟢 On calcule le solde global basé sur TOUTES les données (pas juste la période)
   const totalIncome = incomes.reduce((s, i) => s + (i.amount || 0), 0);
   const totalExpense = expenses.reduce((s, e) => s + (e.amount || 0), 0);
-  const globalBalance = Math.max(0, totalIncome - totalExpense); // Ne descend jamais sous 0
+  const globalBalance = totalIncome - totalExpense;
 
-  // Périodes (pour les comparaisons)
   const periodIncomeTotal = periodIncomes.reduce((s, i) => s + (i.amount || 0), 0);
   const periodExpenseTotal = periodExpenses.reduce((s, e) => s + (e.amount || 0), 0);
   const prevTotalIncome = prevIncomes.reduce((s, i) => s + (i.amount || 0), 0);
@@ -197,7 +190,7 @@ export default function DashboardPage() {
             <Wallet size={16} />
             <CardTitle>Solde Global</CardTitle>
           </div>
-          <CardValue className="text-slate-900">
+          <CardValue className={globalBalance < 0 ? 'text-red-600' : 'text-slate-900'}>
             {formatCurrency(globalBalance)}
           </CardValue>
           <p className="mt-1 text-xs text-slate-500">Tout compte confondu</p>
@@ -345,4 +338,4 @@ export default function DashboardPage() {
       </Card>
     </div>
   );
-                                        }
+      }
