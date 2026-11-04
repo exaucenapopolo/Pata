@@ -21,6 +21,7 @@ const MORE_NAV = [
   { href: '/income',    label: 'Revenus',    icon: TrendingUp },
   { href: '/budgets',   label: 'Budgets',    icon: PiggyBank },
   { href: '/reports',   label: 'Rapports',   icon: BarChart3 },
+  { href: '/premium',   label: 'Premium',    icon: Crown },  // 🟢 Nouveau
   { href: '/settings',  label: 'Paramètres', icon: Settings },
 ];
 
