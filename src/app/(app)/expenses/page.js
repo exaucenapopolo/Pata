@@ -15,17 +15,12 @@ import { useExpenses } from '@/hooks/useExpenses';
 import { useIncomes } from '@/hooks/useIncomes';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { createExpense, updateExpense, deleteExpense } from '@/lib/firestore/expenses';
-import { formatCurrency, formatDate, resolveCategory } from '@/lib/utils';
+import { formatCurrency, formatDate, resolveCategory, getFirstOfMonth, getLastOfMonth, getLocalMonth } from '@/lib/utils';
 
-const firstOfMonth = () => {
+const todayIso = () => {
   const d = new Date();
-  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
-const lastOfMonth = () => {
-  const d = new Date();
-  return new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
-};
-const todayIso = () => new Date().toISOString().slice(0, 10);
 
 const emptyForm = () => ({
   id: null,
@@ -44,7 +39,7 @@ export default function ExpensesPage() {
   const { customCategories } = useCustomCategories('expense');
   
   const [showCustomPeriod, setShowCustomPeriod] = useState(false);
-  const [customStart, setCustomStart] = useState(firstOfMonth());
+  const [customStart, setCustomStart] = useState(getFirstOfMonth());
   const [customEnd, setCustomEnd] = useState(todayIso());
   
   const [filterCategory, setFilterCategory] = useState('all');
@@ -54,8 +49,8 @@ export default function ExpensesPage() {
   const [error, setError] = useState('');
   const [deleteId, setDeleteId] = useState(null);
 
-  const startDate = showCustomPeriod ? customStart : firstOfMonth();
-  const endDate = showCustomPeriod ? customEnd : lastOfMonth();
+  const startDate = showCustomPeriod ? customStart : getFirstOfMonth();
+  const endDate = showCustomPeriod ? customEnd : getLastOfMonth();
 
   const incomesWithBalance = useMemo(() => {
     return incomes.map((inc) => {
@@ -65,6 +60,11 @@ export default function ExpensesPage() {
       return { ...inc, spent, remaining, isExhausted: remaining === 0 && spent > 0 };
     });
   }, [incomes, expenses]);
+
+  const totalGlobalBalance = useMemo(
+    () => incomesWithBalance.reduce((s, i) => s + i.remaining, 0),
+    [incomesWithBalance]
+  );
 
   const sortedIncomesForSelect = useMemo(() => {
     return [...incomesWithBalance].sort((a, b) => {
@@ -132,7 +132,6 @@ export default function ExpensesPage() {
       if (form.id) {
         await updateExpense(user.uid, form.id, payload);
       } else {
-        // 🟢 Appel sécurisé
         await createExpense(user.uid, payload);
       }
       setOpen(false);
@@ -304,7 +303,8 @@ export default function ExpensesPage() {
               }}
               className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"
             >
-              <option value="all">Tous les revenus (Global)</option>
+              {/* 🟢 AFFICHAGE DU VRAI SOLDE TOTAL */}
+              <option value="all">Tous les revenus (Total: {formatCurrency(totalGlobalBalance)})</option>
               {sortedIncomesForSelect.map((inc) => (
                 <option 
                   key={inc.id} 
@@ -345,11 +345,11 @@ export default function ExpensesPage() {
         onClose={() => setDeleteId(null)} 
         onConfirm={handleDelete} 
         title="Supprimer cette dépense ?" 
-        message="Cette action est irréversible. Le montant sera retiré de vos dépenses et le solde de votre source de revenu sera recalculé." 
+        message="Cette action est irréversible." 
         confirmWord="SUPPRIMER" 
         confirmLabel="Supprimer" 
         variant="danger" 
       />
     </div>
   );
-      }
+    }
