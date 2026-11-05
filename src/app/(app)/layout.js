@@ -8,6 +8,7 @@ import { PremiumReminder } from '@/components/PremiumReminder'; // 🟢 Nouveau
 import { AssistantButton } from '@/components/ai/AssistantButton';
 import { SmartBackButton } from '@/components/layout/SmartBackButton';
 import { NotificationNudge } from '@/components/NotificationNudge';
+import { NotificationInbox } from '@/components/NotificationInbox';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 
 export default function AppLayout({ children }) {
@@ -28,6 +29,7 @@ export default function AppLayout({ children }) {
         <Header />
         <PremiumReminder />  {/* 🟢 Bandeau d'alerte */}
         <NotificationNudge />
+        <NotificationInbox />
         <main className="flex-1 px-4 py-6 pb-24 sm:px-6 md:pb-6"><SmartBackButton />{children}</main>
         <Footer />
       </div>

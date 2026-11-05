@@ -293,6 +293,38 @@ async function handleSubscriptionWebhook(request) {
   } catch (error) { return NextResponse.json({ received: true }); }
 }
 
+
+async function handleNotificationsInbox(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const snapshot = await adminDb.collection('users').doc(uid).collection('notifications')
+      .orderBy('createdAt', 'desc').limit(40).get();
+    const notifications = snapshot.docs
+      .filter((doc) => !doc.data()?.readAt && doc.data()?.read !== true)
+      .slice(0, 20)
+      .map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) }));
+    return NextResponse.json({ success: true, notifications, unreadCount: notifications.length });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de charger les notifications.', 401);
+  }
+}
+
+async function handleNotificationRead(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const notificationId = String(body.notificationId || '').trim().slice(0, 150);
+    if (!notificationId || notificationId.includes('/')) return errorResponse('Notification invalide.', 400);
+    const notificationRef = adminDb.collection('users').doc(uid).collection('notifications').doc(notificationId);
+    const notificationSnap = await notificationRef.get();
+    if (!notificationSnap.exists) return errorResponse('Cette notification n’existe plus.', 404);
+    await notificationRef.set({ read: true, readAt: FieldValue.serverTimestamp() }, { merge: true });
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de marquer cette notification comme lue.', 400);
+  }
+}
+
 async function handleNotificationSubscription(request, remove = false) {
   try {
     const { uid } = await authenticate(request);
@@ -1610,20 +1642,70 @@ async function aggregateTotal(query, field = 'amount') {
   }
 }
 
+
+async function getGoalCashDepositSummary(goalRef) {
+  try {
+    const result = await goalRef.collection('deposits')
+      .where('source', '==', 'wallet')
+      .aggregate({ total: AggregateField.sum('amount'), count: AggregateField.count() })
+      .get();
+    return { total: Math.max(0, Number(result.data().total) || 0), count: Math.max(0, Number(result.data().count) || 0) };
+  } catch (error) {
+    console.warn('[ADMIN SAVINGS AGGREGATE]', goalRef.path, error.message);
+    return { total: 0, count: 0, unavailable: true };
+  }
+}
+
+async function calculateAdminSavingsOverview() {
+  try {
+    const snapshot = await adminDb.collectionGroup('goals').get();
+    const goals = snapshot.docs.map((doc) => ({ ref: doc.ref, data: doc.data() }));
+    const activeGoals = goals.filter(({ data }) => !data.closed && !data.withdrawnAt);
+    const categoryBreakdown = new Map();
+    const typeBreakdown = new Map();
+    let totalProtectedSavings = 0;
+    let activeDepositCount = 0;
+
+    for (let offset = 0; offset < activeGoals.length; offset += 10) {
+      const batch = activeGoals.slice(offset, offset + 10);
+      const amounts = await Promise.all(batch.map(({ ref }) => getGoalCashDepositSummary(ref)));
+      batch.forEach(({ data }, index) => {
+        const amount = amounts[index].total;
+        totalProtectedSavings += amount;
+        activeDepositCount += amounts[index].count;
+        const category = String(data.categoryId || 'other');
+        const type = String(data.type || 'goal');
+        categoryBreakdown.set(category, (categoryBreakdown.get(category) || 0) + amount);
+        typeBreakdown.set(type, (typeBreakdown.get(type) || 0) + amount);
+      });
+    }
+    return {
+      totalGoals: goals.length, activeGoals: activeGoals.length, closedGoals: goals.length - activeGoals.length,
+      totalProtectedSavings, activeDepositCount,
+      byCategory: [...categoryBreakdown.entries()].map(([categoryId, amount]) => ({ categoryId, amount })).sort((a, b) => b.amount - a.amount),
+      byType: [...typeBreakdown.entries()].map(([type, amount]) => ({ type, amount })).sort((a, b) => b.amount - a.amount),
+    };
+  } catch (error) {
+    console.error('[ADMIN SAVINGS OVERVIEW]', error.message);
+    return { totalGoals: 0, activeGoals: 0, closedGoals: 0, totalProtectedSavings: 0, activeDepositCount: 0, byCategory: [], byType: [], unavailable: true };
+  }
+}
+
 async function handleAdminOverview(request) {
   try {
     await requireAdmin(request);
     const nowIso = new Date().toISOString();
     const users = adminDb.collection('users');
     const withdrawals = adminDb.collection('withdrawalRequests');
-    const [userTotals, premiumCount, deposits, subscriptions, paidPayouts, pendingPayouts, latestUsers, latestDeposits, latestWithdrawals, topBalances, topExpenses, leastExpenses, topIncomes, lifetimeExpenses, lifetimeIncomes] = await Promise.all([
+    const [userTotals, premiumCount, deposits, subscriptions, paidPayouts, pendingPayouts, latestUsers, latestDeposits, latestWithdrawals, topBalances, topExpenses, leastExpenses, topIncomes, lifetimeExpenses, lifetimeIncomes, savings] = await Promise.all([
       aggregateTotal(users, 'balance'),
       users.where('premiumUntil', '>', nowIso).count().get().then((snap) => snap.data().count).catch(() => 0),
       aggregateTotal(adminDb.collection('deposits').where('status', '==', 'CONFIRMED')),
       aggregateTotal(adminDb.collection('subscriptionPayments').where('status', '==', 'CONFIRMED')),
       aggregateTotal(withdrawals.where('status', '==', 'PAID')),
       aggregateTotal(withdrawals.where('status', 'in', ['PENDING_REVIEW', 'PROCESSING', 'RECONCILIATION_REQUIRED'])),
-      users.orderBy('createdAt', 'desc').limit(8).get().catch(() => ({ docs: [] })),
+      // Include legacy profiles even when createdAt is not present.
+      users.orderBy(FieldPath.documentId()).limit(100).get().catch(() => ({ docs: [] })),
       adminDb.collection('deposits').orderBy('createdAt', 'desc').limit(8).get().catch(() => ({ docs: [] })),
       withdrawals.orderBy('createdAt', 'desc').limit(12).get().catch(() => ({ docs: [] })),
       users.orderBy('balance', 'desc').limit(5).get().catch(() => ({ docs: [] })),
@@ -1632,45 +1714,119 @@ async function handleAdminOverview(request) {
       users.orderBy('lifetimeIncomeAmount', 'desc').limit(5).get().catch(() => ({ docs: [] })),
       aggregateTotal(users, 'lifetimeExpenseAmount'),
       aggregateTotal(users, 'lifetimeIncomeAmount'),
+      calculateAdminSavingsOverview(),
     ]);
-    return NextResponse.json({ success: true, stats: {
-      totalUsers: userTotals.count,
-      premiumUsers: Number(premiumCount) || 0,
-      walletLiability: userTotals.total,
-      confirmedDeposits: deposits.total,
-      depositCount: deposits.count,
-      subscriptionRevenue: subscriptions.total,
-      subscriptionCount: subscriptions.count,
-      paidWithdrawals: paidPayouts.total,
-      paidWithdrawalCount: paidPayouts.count,
-      pendingWithdrawals: pendingPayouts.total,
-      pendingWithdrawalCount: pendingPayouts.count,
-      lifetimeExpenseVolume: lifetimeExpenses.total,
-      lifetimeIncomeVolume: lifetimeIncomes.total,
-    },
-    latestUsers: latestUsers.docs.map(safeAdminUser),
-    latestDeposits: latestDeposits.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })),
-    latestWithdrawals: latestWithdrawals.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })),
-    leaders: { balances: topBalances.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })), expenses: topExpenses.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })), leastExpenses: leastExpenses.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })), incomes: topIncomes.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })) },
-    note: 'Les montants cumulés utilisent des compteurs enregistrés sur chaque profil, sans parcourir toutes les dépenses et tous les revenus. Les conversations et détails d’un compte ne sont chargés que lorsque tu ouvres sa fiche.' });
-  } catch (error) { return errorResponse(error.message || 'Accès administrateur refusé.', 401); }
+    const recentUsers = latestUsers.docs.map(safeAdminUser)
+      .sort((a, b) => (Date.parse(b.createdAt || b.lastSeenAt || 0) || 0) - (Date.parse(a.createdAt || a.lastSeenAt || 0) || 0))
+      .slice(0, 8);
+    return NextResponse.json({
+      success: true,
+      stats: {
+        totalUsers: userTotals.count,
+        premiumUsers: Number(premiumCount) || 0,
+        walletLiability: userTotals.total,
+        confirmedDeposits: deposits.total,
+        depositCount: deposits.count,
+        subscriptionRevenue: subscriptions.total,
+        subscriptionCount: subscriptions.count,
+        paidWithdrawals: paidPayouts.total,
+        paidWithdrawalCount: paidPayouts.count,
+        pendingWithdrawals: pendingPayouts.total,
+        pendingWithdrawalCount: pendingPayouts.count,
+        lifetimeExpenseVolume: lifetimeExpenses.total,
+        lifetimeIncomeVolume: lifetimeIncomes.total,
+        protectedSavings: savings.totalProtectedSavings,
+        activeSavingsGoals: savings.activeGoals,
+      },
+      savingsSummary: savings,
+      latestUsers: recentUsers,
+      latestDeposits: latestDeposits.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })),
+      latestWithdrawals: latestWithdrawals.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })),
+      leaders: {
+        balances: topBalances.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })),
+        expenses: topExpenses.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })),
+        leastExpenses: leastExpenses.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })),
+        incomes: topIncomes.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })),
+      },
+      note: 'Le montant protégé correspond aux versements du portefeuille vers les objectifs encore actifs. Les emprunts et les objectifs déjà retirés ne sont pas inclus.',
+    });
+  } catch (error) {
+    return errorResponse(error.message || 'Accès administrateur refusé.', 401);
+  }
+}
+
+
+async function handleAdminSavings(request) {
+  try {
+    await requireAdmin(request);
+    const url = new URL(request.url);
+    const limit = Math.max(5, Math.min(60, Number(url.searchParams.get('limit')) || 30));
+    const cursor = String(url.searchParams.get('cursor') || '').slice(0, 500);
+    let query = adminDb.collectionGroup('goals').orderBy(FieldPath.documentId());
+    if (cursor) {
+      let cursorPath = '';
+      try { cursorPath = Buffer.from(cursor, 'base64url').toString('utf8'); } catch { /* invalid cursor */ }
+      if (!/^users\/[^/]+\/goals\/[^/]+$/.test(cursorPath)) return errorResponse('Repère de pagination invalide.', 400);
+      const cursorDoc = await adminDb.doc(cursorPath).get();
+      if (!cursorDoc.exists) return errorResponse('La liste a changé. Actualise les objectifs.', 409);
+      query = query.startAfter(cursorDoc);
+    }
+    const [snapshot, summary] = await Promise.all([query.limit(limit + 1).get(), calculateAdminSavingsOverview()]);
+    const hasMore = snapshot.docs.length > limit;
+    const docs = snapshot.docs.slice(0, limit);
+    const userIds = [...new Set(docs.map((doc) => doc.ref.parent.parent?.id).filter(Boolean))];
+    const userSnaps = await Promise.all(userIds.map((uid) => adminDb.collection('users').doc(uid).get()));
+    const userMap = new Map(userSnaps.filter((doc) => doc.exists).map((doc) => [doc.id, doc.data()]));
+    const goals = [];
+    for (let offset = 0; offset < docs.length; offset += 10) {
+      const group = docs.slice(offset, offset + 10);
+      const amounts = await Promise.all(group.map((doc) => getGoalCashDepositSummary(doc.ref)));
+      group.forEach((doc, index) => {
+        const data = doc.data();
+        const uid = doc.ref.parent.parent?.id || '';
+        const user = userMap.get(uid) || {};
+        const active = !data.closed && !data.withdrawnAt;
+        const depositedAmount = active ? amounts[index].total : 0;
+        const targetAmount = Math.max(0, Number(data.targetAmount) || 0);
+        goals.push({
+          id: doc.id, userId: uid, userName: user.displayName || 'Utilisateur', email: user.email || '',
+          name: data.name || (data.type === 'piggybank' ? 'Tirelire' : 'Objectif'),
+          type: data.type || 'goal', categoryId: data.categoryId || 'other',
+          targetAmount, depositedAmount, debtBalance: Math.max(0, Number(data.debtBalance) || 0),
+          progress: targetAmount > 0 ? Math.min(100, Math.round((depositedAmount / targetAmount) * 100)) : null,
+          createdAt: serializeAdminValue(data.createdAt || null), deadline: data.deadline || null,
+          withdrawalPending: Boolean(data.withdrawalPending), active, closed: !active,
+        });
+      });
+    }
+    return NextResponse.json({
+      success: true, goals, summary, hasMore,
+      nextCursor: hasMore && docs.length ? Buffer.from(docs[docs.length - 1].ref.path, 'utf8').toString('base64url') : null,
+    });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de charger les objectifs d’épargne.', 401);
+  }
 }
 
 async function handleAdminUsers(request) {
   try {
     await requireAdmin(request);
     const url = new URL(request.url);
-    const limitValue = Math.max(5, Math.min(40, Number(url.searchParams.get('limit')) || 25));
+    const limitValue = Math.max(5, Math.min(100, Number(url.searchParams.get('limit')) || 40));
     const cursor = String(url.searchParams.get('cursor') || '').slice(0, 150);
-    let query = adminDb.collection('users').orderBy('createdAt', 'desc');
+    let query = adminDb.collection('users').orderBy(FieldPath.documentId());
     if (cursor) {
+      if (cursor.includes('/')) return errorResponse('Repère de pagination invalide.', 400);
       const cursorDoc = await adminDb.collection('users').doc(cursor).get();
-      if (cursorDoc.exists) query = query.startAfter(cursorDoc);
+      if (!cursorDoc.exists) return errorResponse('La page a changé. Recharge la liste des comptes.', 409);
+      query = query.startAfter(cursorDoc);
     }
     const snapshot = await query.limit(limitValue + 1).get();
     const hasMore = snapshot.docs.length > limitValue;
-    const docs = snapshot.docs.slice(0, limitValue);
-    return NextResponse.json({ success: true, users: docs.map(safeAdminUser), nextCursor: hasMore ? docs[docs.length - 1]?.id || null : null });
+    const docs = snapshot.docs.slice(0, limitValue).map(safeAdminUser).sort((a, b) =>
+      (Date.parse(b.createdAt || b.lastSeenAt || 0) || 0) - (Date.parse(a.createdAt || a.lastSeenAt || 0) || 0)
+    );
+    return NextResponse.json({ success: true, users: docs, nextCursor: hasMore ? snapshot.docs[limitValue - 1]?.id || null : null });
   } catch (error) { return errorResponse(error.message || 'Impossible de charger les comptes.', 401); }
 }
 
@@ -1681,43 +1837,100 @@ async function handleAdminUserDetail(request) {
     const uid = String(url.searchParams.get('uid') || '').slice(0, 150);
     if (!uid || uid.includes('/')) return errorResponse('Compte invalide.', 400);
     const userRef = adminDb.collection('users').doc(uid);
-    const [userDoc, chatsSnap, expensesSnap, incomesSnap, notificationsSnap] = await Promise.all([
+    const [userDoc, chatsSnap, expensesSnap, incomesSnap, goalsSnap, notificationsSnap] = await Promise.all([
       userRef.get(),
       userRef.collection('ai_chats').orderBy('updatedAt', 'desc').limit(12).get().catch(() => ({ docs: [] })),
-      userRef.collection('expenses').orderBy('date', 'desc').limit(8).get().catch(() => ({ docs: [] })),
-      userRef.collection('incomes').orderBy('date', 'desc').limit(8).get().catch(() => ({ docs: [] })),
+      userRef.collection('expenses').orderBy('date', 'desc').limit(10).get().catch(() => ({ docs: [] })),
+      userRef.collection('incomes').orderBy('date', 'desc').limit(10).get().catch(() => ({ docs: [] })),
+      userRef.collection('goals').orderBy('createdAt', 'desc').limit(20).get().catch(() => ({ docs: [] })),
       userRef.collection('notifications').orderBy('createdAt', 'desc').limit(5).get().catch(() => ({ docs: [] })),
     ]);
     if (!userDoc.exists) return errorResponse('Compte introuvable.', 404);
     const chats = chatsSnap.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) }));
-    const safeUser = { ...userDoc.data() }; delete safeUser.pushTokens; delete safeUser.monthlyStats; delete safeUser.dailyStats;
-    return NextResponse.json({ success: true, user: { id: uid, ...serializeAdminValue(safeUser) }, chats, expenses: expensesSnap.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })), incomes: incomesSnap.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })), notifications: notificationsSnap.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })) });
-  } catch (error) { return errorResponse(error.message || 'Impossible de charger ce compte.', 401); }
+    const goals = [];
+    for (let offset = 0; offset < goalsSnap.docs.length; offset += 10) {
+      const group = goalsSnap.docs.slice(offset, offset + 10);
+      const amounts = await Promise.all(group.map((doc) => getGoalCashDepositSummary(doc.ref)));
+      group.forEach((doc, index) => {
+        const data = doc.data();
+        const depositedAmount = amounts[index].total;
+        const targetAmount = Math.max(0, Number(data.targetAmount) || 0);
+        goals.push({
+          id: doc.id, ...serializeAdminValue(data), depositedAmount,
+          progress: targetAmount > 0 ? Math.min(100, Math.round((depositedAmount / targetAmount) * 100)) : null,
+          active: !data.closed && !data.withdrawnAt,
+        });
+      });
+    }
+    const safeUser = { ...userDoc.data() };
+    delete safeUser.pushTokens; delete safeUser.monthlyStats; delete safeUser.dailyStats;
+    const recentExpenses = expensesSnap.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) }));
+    const recentIncomes = incomesSnap.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) }));
+    return NextResponse.json({
+      success: true,
+      user: { id: uid, ...serializeAdminValue(safeUser) }, chats, goals,
+      totalSavingsInGoals: goals.filter((goal) => goal.active).reduce((sum, goal) => sum + goal.depositedAmount, 0),
+      recentExpenseVolume: recentExpenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
+      recentIncomeVolume: recentIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
+      expenses: recentExpenses, incomes: recentIncomes,
+      notifications: notificationsSnap.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })),
+    });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de charger ce compte.', 401);
+  }
 }
 
 async function handleAdminPopularQuestions(request) {
   try {
     await requireAdmin(request);
-    // Échantillon borné : aucune lecture exhaustive de toutes les conversations.
-    const snapshot = await adminDb.collectionGroup('ai_chats').orderBy('updatedAt', 'desc').limit(60).get();
-    const counts = new Map();
-    let conversationsSampled = 0;
-    snapshot.docs.forEach((doc) => {
-      const messages = Array.isArray(doc.data()?.messages) ? doc.data().messages : [];
-      const latestUserMessages = messages.filter((message) => message?.role === 'user').slice(-3);
-      if (latestUserMessages.length) conversationsSampled += 1;
-      latestUserMessages.forEach((message) => {
-        const question = String(message.content || message.text || '').replace(/\s+/g, ' ').trim().slice(0, 180);
-        if (!question || question.length < 5) return;
-        const key = question.toLocaleLowerCase('fr-FR');
-        const current = counts.get(key) || { question, count: 0 };
-        current.count += 1;
-        counts.set(key, current);
-      });
+    const url = new URL(request.url);
+    const limit = Math.max(5, Math.min(30, Number(url.searchParams.get('limit')) || 20));
+    const cursor = String(url.searchParams.get('cursor') || '').slice(0, 500);
+    let query = adminDb.collectionGroup('ai_chats').orderBy('updatedAt', 'desc');
+    if (cursor) {
+      let cursorPath = '';
+      try { cursorPath = Buffer.from(cursor, 'base64url').toString('utf8'); } catch { /* invalid cursor */ }
+      if (!/^users\/[^/]+\/ai_chats\/[^/]+$/.test(cursorPath)) return errorResponse('Repère de pagination invalide.', 400);
+      const cursorDoc = await adminDb.doc(cursorPath).get();
+      if (!cursorDoc.exists) return errorResponse('La liste a changé. Actualise les discussions.', 409);
+      query = query.startAfter(cursorDoc);
+    }
+    const snapshot = await query.limit(limit + 1).get();
+    const hasMore = snapshot.docs.length > limit;
+    const docs = snapshot.docs.slice(0, limit);
+    const conversations = [];
+    for (let offset = 0; offset < docs.length; offset += 10) {
+      const group = docs.slice(offset, offset + 10);
+      const items = await Promise.all(group.map(async (chatDoc) => {
+        const userRef = chatDoc.ref.parent.parent;
+        const userSnap = userRef ? await userRef.get().catch(() => null) : null;
+        const userData = userSnap?.exists ? userSnap.data() : {};
+        const chatData = chatDoc.data() || {};
+        const messages = Array.isArray(chatData.messages) ? chatData.messages : [];
+        return {
+          id: chatDoc.id, userId: userRef?.id || '',
+          user: { displayName: userData.displayName || 'Utilisateur', email: userData.email || '', phone: userData.phone || '' },
+          title: String(chatData.title || 'Discussion sans titre').slice(0, 120),
+          createdAt: serializeAdminValue(chatData.createdAt || null),
+          updatedAt: serializeAdminValue(chatData.updatedAt || chatData.createdAt || null),
+          messageCount: messages.length,
+          messages: messages.map((message) => ({
+            role: message?.role === 'assistant' ? 'assistant' : 'user',
+            content: String(message?.content || message?.text || '').slice(0, 5000),
+            createdAt: serializeAdminValue(message?.createdAt || message?.timestamp || null),
+          })),
+        };
+      }));
+      conversations.push(...items);
+    }
+    return NextResponse.json({
+      success: true, conversations, conversationCount: conversations.length,
+      hasMore,
+      nextCursor: hasMore && docs.length ? Buffer.from(docs[docs.length - 1].ref.path, 'utf8').toString('base64url') : null,
     });
-    const questions = [...counts.values()].sort((a, b) => b.count - a.count).slice(0, 15);
-    return NextResponse.json({ success: true, questions, sampledConversations: conversationsSampled, sampleSize: snapshot.size, limitedSample: true });
-  } catch (error) { return errorResponse(error.message || 'Impossible de charger les questions.', 401); }
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de charger les discussions IA.', 401);
+  }
 }
 
 async function handleAdminWithdrawals(request) {
@@ -1919,6 +2132,49 @@ async function handleGoalWithdrawalRequest(request, actionType = 'withdraw') {
   } catch (error) { return errorResponse(error.message || 'Impossible de créer la demande de retrait.', 400); }
 }
 
+
+async function handleAdminNotificationRecipients(request) {
+  try {
+    await requireAdmin(request);
+    const url = new URL(request.url);
+    const limit = Math.max(5, Math.min(100, Number(url.searchParams.get('limit')) || 50));
+    const cursor = String(url.searchParams.get('cursor') || '').slice(0, 150);
+    const users = adminDb.collection('users');
+    const queryStats = await Promise.all([
+      users.count().get().catch(() => null),
+      users.where('notificationsEnabled', '==', true).count().get().catch(() => null),
+    ]);
+    let query = users.orderBy(FieldPath.documentId());
+    if (cursor) {
+      if (cursor.includes('/')) return errorResponse('Repère de pagination invalide.', 400);
+      const cursorDoc = await users.doc(cursor).get();
+      if (!cursorDoc.exists) return errorResponse('La liste a changé. Actualise les destinataires.', 409);
+      query = query.startAfter(cursorDoc);
+    }
+    const snapshot = await query.limit(limit + 1).get();
+    const hasMore = snapshot.docs.length > limit;
+    const docs = snapshot.docs.slice(0, limit);
+    return NextResponse.json({
+      success: true,
+      totalUsers: Number(queryStats[0]?.data()?.count) || 0,
+      optedInUsers: Number(queryStats[1]?.data()?.count) || 0,
+      recipients: docs.map((doc) => {
+        const data = doc.data() || {};
+        const tokens = Array.isArray(data.pushTokens) ? data.pushTokens.filter((token) => typeof token === 'string' && token.length > 20) : [];
+        return {
+          id: doc.id, displayName: data.displayName || 'Utilisateur', email: data.email || '', phone: data.phone || '',
+          notificationsEnabled: Boolean(data.notificationsEnabled && tokens.length), deviceCount: tokens.length,
+          createdAt: serializeAdminValue(data.createdAt || null), lastSeenAt: serializeAdminValue(data.lastSeenAt || null),
+        };
+      }),
+      hasMore,
+      nextCursor: hasMore && docs.length ? docs[docs.length - 1].id : null,
+    });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de charger les destinataires.', 401);
+  }
+}
+
 async function handleAdminNotificationSync(request) {
   try {
     await requireAdmin(request);
@@ -1967,16 +2223,89 @@ async function handleAdminBroadcast(request) {
     const title = String(body.title || '').trim().slice(0, 80);
     const message = String(body.message || '').trim().slice(0, 220);
     const path = String(body.path || '/dashboard');
+    const recipientMode = body.recipientMode === 'selected' ? 'selected' : 'all';
+    const recipientIds = [...new Set((Array.isArray(body.recipientIds) ? body.recipientIds : [])
+      .map((value) => String(value || '').trim()).filter((value) => value && !value.includes('/')))].slice(0, 500);
     if (!title || !message) return errorResponse('Écris un titre et un message.', 400);
     if (!path.startsWith('/') || path.startsWith('//')) return errorResponse('Lien interne invalide.', 400);
-    const messageId = await adminMessaging.send({
-      topic: 'pata_all_users',
-      notification: { title, body: message },
-      data: { url: path, tag: `pata-admin-${Date.now()}` },
-      webpush: { notification: { icon: '/android-chrome-192x192.png', badge: '/android-chrome-192x192.png', tag: `pata-admin-${Date.now()}`, renotify: false } },
+    if (recipientMode === 'selected' && !recipientIds.length) return errorResponse('Sélectionne au moins un destinataire.', 400);
+
+    let recipientDocs = [];
+    if (recipientMode === 'all') {
+      recipientDocs = (await adminDb.collection('users').orderBy(FieldPath.documentId()).get()).docs;
+    } else {
+      for (let offset = 0; offset < recipientIds.length; offset += 10) {
+        const refs = recipientIds.slice(offset, offset + 10).map((uid) => adminDb.collection('users').doc(uid));
+        const snapshots = await Promise.all(refs.map((ref) => ref.get()));
+        recipientDocs.push(...snapshots.filter((doc) => doc.exists));
+      }
+    }
+    if (!recipientDocs.length) return errorResponse('Aucun compte destinataire trouvé.', 404);
+
+    const tag = `pata-admin-${Date.now()}`;
+    const notificationId = adminDb.collection('notificationIds').doc().id;
+    let inAppDelivered = 0;
+    for (let offset = 0; offset < recipientDocs.length; offset += 400) {
+      const batch = adminDb.batch();
+      const group = recipientDocs.slice(offset, offset + 400);
+      group.forEach((userDoc) => {
+        const notificationRef = userDoc.ref.collection('notifications').doc(notificationId);
+        batch.set(notificationRef, { title, body: message, target: path, source: 'admin', readAt: null, createdAt: FieldValue.serverTimestamp() });
+      });
+      await batch.commit();
+      inAppDelivered += group.length;
+    }
+
+    const optedTokens = [...new Set(recipientDocs.flatMap((doc) => {
+      const data = doc.data() || {};
+      if (!data.notificationsEnabled) return [];
+      return Array.isArray(data.pushTokens) ? data.pushTokens.filter((token) => typeof token === 'string' && token.length > 20) : [];
+    }))];
+    let pushSent = 0;
+    let pushFailed = 0;
+    let pushMode = recipientMode === 'all' ? 'topic' : 'selected-devices';
+    let pushError = '';
+    try {
+      if (recipientMode === 'all') {
+        await adminMessaging.send({
+          topic: 'pata_all_users',
+          notification: { title, body: message },
+          data: { title, body: message, url: path, tag },
+          webpush: { notification: { icon: '/android-chrome-192x192.png', badge: '/android-chrome-192x192.png', tag, renotify: false } },
+        });
+        // Topic send returns a message ID, not per-device delivery receipts.
+        pushSent = 0;
+      } else if (optedTokens.length) {
+        for (let offset = 0; offset < optedTokens.length; offset += 500) {
+          const chunk = optedTokens.slice(offset, offset + 500);
+          const result = await adminMessaging.sendEachForMulticast({
+            tokens: chunk, notification: { title, body: message },
+            data: { title, body: message, url: path, tag },
+            webpush: { notification: { icon: '/android-chrome-192x192.png', badge: '/android-chrome-192x192.png', tag, renotify: false } },
+          });
+          pushSent += result.successCount;
+          pushFailed += result.failureCount;
+        }
+      } else {
+        pushMode = 'in-app-only';
+      }
+    } catch (error) {
+      pushError = error.message || 'Erreur du service de notifications push.';
+      console.error('[ADMIN BROADCAST PUSH]', error.code || error.message);
+    }
+    return NextResponse.json({
+      success: true, notificationId, recipientMode, inAppDelivered,
+      optedInDevices: optedTokens.length, pushSent, pushFailed, pushMode, pushError: pushError || null,
+      message: pushError
+        ? `Notification enregistrée dans Pata pour ${inAppDelivered} compte(s), mais l’envoi push a échoué : ${pushError}`
+        : recipientMode === 'all'
+          ? `Notification enregistrée dans Pata pour ${inAppDelivered} compte(s) ; diffusion push soumise au groupe des appareils inscrits (${optedTokens.length} jeton(s) actuellement enregistrés).`
+          : `Notification enregistrée dans Pata pour ${inAppDelivered} compte(s) ; ${pushSent} appareil(s) ont accepté le message push et ${pushFailed} ont échoué.`,
     });
-    return NextResponse.json({ success: true, messageId, message: 'Notification envoyée au groupe des appareils inscrits.' });
-  } catch (error) { return errorResponse(error.message || 'La diffusion n’a pas pu être envoyée.', 502); }
+  } catch (error) {
+    console.error('[ADMIN BROADCAST]', error.code || error.message);
+    return errorResponse(error.message || 'La diffusion n’a pas pu être enregistrée.', 502);
+  }
 }
 
 /* ═══════════════════ ROUTEUR PRINCIPAL ═══════════════════ */
@@ -1997,6 +2326,8 @@ const ROUTES = {
   'admin/unlock': { POST: handleAdminUnlock },
   'admin/logout': { POST: handleAdminLogout },
   'admin/overview': { GET: handleAdminOverview },
+  'admin/savings': { GET: handleAdminSavings },
+  'admin/notification-recipients': { GET: handleAdminNotificationRecipients },
   'admin/users': { GET: handleAdminUsers },
   'admin/user-detail': { GET: handleAdminUserDetail },
   'admin/questions': { GET: handleAdminPopularQuestions },
@@ -2012,6 +2343,8 @@ const ROUTES = {
   'notifications/subscribe': { POST: (request) => handleNotificationSubscription(request, false) },
   'notifications/unsubscribe': { POST: (request) => handleNotificationSubscription(request, true) },
   'notifications/test': { POST: handleNotificationTest },
+  'notifications/inbox': { GET: handleNotificationsInbox },
+  'notifications/read': { POST: handleNotificationRead },
   'notifications/scheduler': { GET: handleNotificationScheduler, POST: handleNotificationScheduler },
   'currency/rates':        { GET: handleCurrencyRates },
   'usage/reserve':         { POST: handleReserveQuota },
