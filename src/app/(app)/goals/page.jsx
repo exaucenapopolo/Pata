@@ -91,6 +91,8 @@ function buildGoalAdvices(plan, balance, goalName) {
 
 function ConfirmWithdrawModal({ goal, actionType, onClose, onConfirm, busy }) {
   const deposits = useDeposits(goal.id);
+  const [phone, setPhone] = useState('');
+  const [network, setNetwork] = useState('mtn');
   const plan = computeGoalPlan(goal, deposits);
   const isPiggybank = goal.type === 'piggybank';
   const isCancel = actionType === 'cancel';
@@ -112,9 +114,9 @@ function ConfirmWithdrawModal({ goal, actionType, onClose, onConfirm, busy }) {
         <div className="flex items-start gap-3 rounded-xl bg-slate-50 p-3">
           <Info className="mt-0.5 shrink-0 text-slate-500" size={18} />
           <p className="text-sm text-slate-700">
-            {isPiggybank ? "Vous allez casser votre tirelire. Tout sera reversé sur votre portefeuille (sans pénalité)."
-              : isCancel ? "Attention : annuler entraîne une pénalité de 10%."
-              : "Vous allez clôturer cet objectif atteint. Le montant net sera reversé."}
+            {isPiggybank ? "Ta demande sera vérifiée avant l’envoi de l’argent sur ton numéro Mobile Money."
+              : isCancel ? "Attention : l’annulation entraîne une pénalité de 10 %. Le montant net sera vérifié avant l’envoi."
+              : "Ta demande sera vérifiée avant l’envoi du montant disponible sur ton numéro Mobile Money."}
           </p>
         </div>
         <div className="space-y-2 rounded-xl border border-slate-200 p-3">
@@ -125,8 +127,16 @@ function ConfirmWithdrawModal({ goal, actionType, onClose, onConfirm, busy }) {
             <span className="text-slate-800">Net à recevoir</span><span className="text-brand-600">{formatCurrency(netRefund)}</span>
           </div>
         </div>
+        <div className="space-y-3">
+          <label className="block text-sm font-medium text-slate-700">Numéro Mobile Money de réception
+            <input value={phone} onChange={(event) => setPhone(event.target.value)} inputMode="tel" placeholder="6XXXXXXXX" className="mt-1 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm" />
+          </label>
+          <label className="block text-sm font-medium text-slate-700">Réseau de réception
+            <select value={network} onChange={(event) => setNetwork(event.target.value)} className="mt-1 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="mtn">MTN Mobile Money</option><option value="orange">Orange Money</option></select>
+          </label>
+        </div>
         <div className="flex flex-col gap-2">
-          <Button onClick={() => onConfirm(actionType)} disabled={busy || netRefund <= 0} className="w-full">{busy ? 'Traitement…' : 'Confirmer'}</Button>
+          <Button onClick={() => onConfirm(actionType, { phone, network })} disabled={busy || netRefund < 100 || phone.replace(/\D/g, '').length < 9} className="w-full">{busy ? 'Traitement…' : 'Confirmer'}</Button>
           <Button variant="outline" onClick={() => window.open(`https://wa.me/${waNumber}?text=${waMessage}`, '_blank')} className="w-full text-green-600 border-green-200 hover:bg-green-50"><MessageCircle size={16} /> Envoyer sur WhatsApp</Button>
           <Button variant="ghost" onClick={onClose} className="w-full">Fermer</Button>
         </div>
@@ -442,7 +452,7 @@ export default function GoalsPage() {
   const [deleteGoalId, setDeleteGoalId] = useState(null);
 
   const sortedGoals = useMemo(() => {
-    return [...goals].sort((a, b) => {
+    return [...goals].filter((goal) => !goal.closed).sort((a, b) => {
       if (a.pinned && !b.pinned) return -1;
       if (!a.pinned && b.pinned) return 1;
       const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
@@ -457,15 +467,15 @@ export default function GoalsPage() {
   const askWithdraw = (goal, type) => { setConfirmGoal(goal); setConfirmType(type); };
   const handleTogglePin = async (id, currentStatus) => { await toggleGoalPin(user.uid, id, currentStatus); };
 
-  const handleConfirmAction = async () => {
+  const handleConfirmAction = async (action, payoutDetails) => {
     if (!confirmGoal || !confirmType) return;
     setConfirmBusy(true);
     try {
       const token = await user.getIdToken();
-      const res = await fetch(`/api/goals/${confirmType}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ goalId: confirmGoal.id }) });
+      const res = await fetch(`/api/goals/${confirmType}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ goalId: confirmGoal.id, ...payoutDetails }) });
       const data = await res.json();
       if (data.success) {
-        alert(confirmGoal.type === 'piggybank' ? 'Tirelire cassée.' : (confirmType === 'cancel' ? 'Objectif annulé.' : 'Argent récupéré.'));
+        alert(`Demande envoyée pour ${formatCurrency(data.amount)}. Le paiement sera effectué après vérification.`);
         setConfirmGoal(null); setConfirmType(null); setSelected(null);
       } else { alert(data.error); }
     } catch { alert('Erreur.'); } finally { setConfirmBusy(false); }

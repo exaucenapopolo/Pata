@@ -39,9 +39,15 @@ export function AuthProvider({ children }) {
   }, []);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
+    const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       setLoading(false);
+      if (u) {
+        try {
+          const token = await u.getIdToken();
+          await fetch('/api/profile/activity', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+        } catch (error) { console.warn('Activité du compte non synchronisée :', error?.message); }
+      }
     });
     return unsub;
   }, []);

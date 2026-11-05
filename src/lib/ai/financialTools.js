@@ -134,9 +134,10 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
     : null;
 
   return adminDb.runTransaction(async (transaction) => {
-    const readTasks = [transaction.get(userRef), transaction.get(incomesQuery), transaction.get(expensesQuery)];
+    const budgetQuery = subcol(uid, 'budgets').where('month', '==', String(date).slice(0, 7));
+    const readTasks = [transaction.get(userRef), transaction.get(incomesQuery), transaction.get(expensesQuery), transaction.get(budgetQuery)];
     if (idempotencyRef) readTasks.push(transaction.get(idempotencyRef));
-    const [userSnap, incomesSnap, expensesSnap, idempotencySnap] = await Promise.all(readTasks);
+    const [userSnap, incomesSnap, expensesSnap, budgetsSnap, idempotencySnap] = await Promise.all(readTasks);
     if (idempotencyRef && idempotencySnap?.exists) return idempotencySnap.data().result;
     if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
 
@@ -184,6 +185,54 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
       allocations = [{ income, amount }];
     }
 
+    // Vérifie les enveloppes budgétaires avant toute écriture. L'utilisateur garde le dernier mot.
+    const plannedBySource = new Map();
+    allocations.forEach(({ income, amount: allocated }) => {
+      plannedBySource.set(income.id, (plannedBySource.get(income.id) || 0) + allocated);
+    });
+    const warnings = [];
+    const budgetRows = budgetsSnap?.docs?.map((doc) => ({ id: doc.id, ...doc.data() })) || [];
+    for (const budget of budgetRows) {
+      if (budget.categoryId !== categoryId) continue;
+      const sourceId = budget.incomeSourceId || 'all';
+      const planned = sourceId === 'all'
+        ? amount
+        : (plannedBySource.get(sourceId) || 0);
+      if (planned <= 0) continue;
+      const spentBefore = expenses
+        .filter((expense) => String(expense.date || '').slice(0, 7) === String(date).slice(0, 7)
+          && expense.categoryId === categoryId
+          && (sourceId === 'all' || expense.incomeSourceId === sourceId))
+        .reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0);
+      const limit = Number(budget.amount) || 0;
+      if (limit > 0 && spentBefore + planned > limit) {
+        warnings.push({
+          budgetId: budget.id,
+          incomeSourceId: sourceId,
+          allocated: limit,
+          alreadySpent: spentBefore,
+          planned,
+          after: spentBefore + planned,
+          excess: spentBefore + planned - limit,
+        });
+      }
+    }
+    if (warnings.length && input.confirmBudgetOverrun !== true) {
+      const warningText = warnings.map((item) => {
+        const label = item.incomeSourceId === 'all' ? 'tous les revenus' : (incomes.find((income) => income.id === item.incomeSourceId)?.source || 'ce revenu');
+        return `${label} : budget ${item.allocated.toLocaleString('fr-FR')} FCFA, déjà dépensé ${item.alreadySpent.toLocaleString('fr-FR')} FCFA, après cette opération ${item.after.toLocaleString('fr-FR')} FCFA (dépassement ${item.excess.toLocaleString('fr-FR')} FCFA)`;
+      }).join(' ; ');
+      return {
+        success: false,
+        confirmationRequired: true,
+        message: `Attention : cette dépense dépassera le budget prévu. ${warningText}. Veux-tu quand même l'enregistrer ?`,
+        warnings,
+        amount,
+        date,
+        categoryId,
+      };
+    }
+
     const created = [];
     allocations.forEach(({ income, amount: allocated }, index) => {
       const expenseRef = expenseCollection.doc();
@@ -202,8 +251,12 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
 
     if (countQuota && !isPremium(userData)) {
       nextStats = { ...nextStats, expenses: (Number(nextStats.expenses) || 0) + 1, lastResetMonth: currentMonth };
-      transaction.update(userRef, { monthlyStats: nextStats });
     }
+    transaction.set(userRef, {
+      lifetimeExpenseAmount: FieldValue.increment(amount),
+      lifetimeExpenseCount: FieldValue.increment(1),
+      ...(countQuota && !isPremium(userData) ? { monthlyStats: nextStats } : {}),
+    }, { merge: true });
 
     const result = { success: true, amount, date, categoryId, allocations: created, recordsCreated: created.length };
     if (idempotencyRef) transaction.create(idempotencyRef, { result, createdAt: FieldValue.serverTimestamp() });
@@ -240,6 +293,7 @@ export async function updateExpenseForUser(uid, expenseId, input) {
       : validatedRequestedCategory;
     const note = input.note === undefined ? cleanText(previousData.note, 250) : cleanText(input.note, 250);
     const date = input.date || previousData.date || todayDouala();
+    const budgetSnap = await transaction.get(subcol(uid, 'budgets').where('month', '==', String(date).slice(0, 7)));
     const requestedSourceId = input.incomeSourceId === undefined
       ? (previousData.incomeSourceId || 'all') : input.incomeSourceId;
     const requestedSourceName = input.incomeSourceName === undefined
@@ -277,6 +331,29 @@ export async function updateExpenseForUser(uid, expenseId, input) {
     }
 
     if (!allocations.length) throw new Error('Aucun revenu disponible pour cette dépense.');
+    const plannedBySource = new Map();
+    allocations.forEach(({ income, amount: allocated }) => plannedBySource.set(income.id, (plannedBySource.get(income.id) || 0) + allocated));
+    const budgetWarnings = [];
+    for (const doc of budgetSnap.docs) {
+      const budget = doc.data();
+      if (budget.categoryId !== categoryId) continue;
+      const budgetSourceId = budget.incomeSourceId || 'all';
+      const planned = budgetSourceId === 'all' ? amount : (plannedBySource.get(budgetSourceId) || 0);
+      if (planned <= 0) continue;
+      const alreadySpent = expenses.filter((item) => String(item.date || '').slice(0, 7) === String(date).slice(0, 7)
+        && item.categoryId === categoryId
+        && (budgetSourceId === 'all' || item.incomeSourceId === budgetSourceId))
+        .reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+      const allocated = Number(budget.amount) || 0;
+      if (allocated > 0 && alreadySpent + planned > allocated) budgetWarnings.push({
+        source: budgetSourceId === 'all' ? 'tous les revenus' : (incomes.find((item) => item.id === budgetSourceId)?.source || 'ce revenu'),
+        allocated, alreadySpent, after: alreadySpent + planned, excess: alreadySpent + planned - allocated,
+      });
+    }
+    if (budgetWarnings.length && input.confirmBudgetOverrun !== true) {
+      const details = budgetWarnings.map((item) => `${item.source} : budget ${item.allocated.toLocaleString('fr-FR')} FCFA, après modification ${item.after.toLocaleString('fr-FR')} FCFA (dépassement ${item.excess.toLocaleString('fr-FR')} FCFA`).join(' ; ');
+      return { success: false, confirmationRequired: true, message: `Attention : cette modification ferait dépasser un budget. ${details}. Veux-tu quand même enregistrer la modification ?`, warnings: budgetWarnings, amount, date, categoryId };
+    }
     const first = allocations[0];
     transaction.update(expenseRef, {
       amount: first.amount,
@@ -419,6 +496,29 @@ export async function runAutomationForUser(uid, now = new Date()) {
         const expenseDate = new Intl.DateTimeFormat('en-CA', {
           timeZone: 'Africa/Douala', year: 'numeric', month: '2-digit', day: '2-digit',
         }).format(now);
+        const budgetSnapshot = await transaction.get(subcol(uid, 'budgets').where('month', '==', expenseDate.slice(0, 7)));
+        const plannedBySource = new Map();
+        allocations.forEach(({ income, amount: allocated }) => plannedBySource.set(income.id, (plannedBySource.get(income.id) || 0) + allocated));
+        const budgetWarnings = [];
+        for (const budgetDoc of budgetSnapshot.docs) {
+          const budget = budgetDoc.data();
+          if (budget.categoryId !== auto.categoryId) continue;
+          const budgetSource = budget.incomeSourceId || 'all';
+          const planned = budgetSource === 'all' ? amount : (plannedBySource.get(budgetSource) || 0);
+          if (planned <= 0) continue;
+          const alreadySpent = expenses.filter((item) => String(item.date || '').slice(0, 7) === expenseDate.slice(0, 7)
+            && item.categoryId === auto.categoryId
+            && (budgetSource === 'all' || item.incomeSourceId === budgetSource))
+            .reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+          const allocated = Number(budget.amount) || 0;
+          if (allocated > 0 && alreadySpent + planned > allocated) {
+            const sourceLabel = budgetSource === 'all' ? 'tous les revenus' : (incomes.find((item) => item.id === budgetSource)?.source || 'ce revenu');
+            budgetWarnings.push(`${sourceLabel} : budget ${allocated.toLocaleString('fr-FR')} FCFA, après cette opération ${ (alreadySpent + planned).toLocaleString('fr-FR')} FCFA`);
+          }
+        }
+        if (budgetWarnings.length) {
+          message = `Dépense non enregistrée : elle dépasserait le budget prévu. ${budgetWarnings.join(' ; ')}. Tu peux ajuster le budget ou enregistrer manuellement après confirmation.`;
+        } else {
         const plannedExpenses = allocations.map(({ income, amount: allocated }, index) => {
           // Deterministic ID: retries of the same due occurrence cannot duplicate a charge.
           const runStamp = String(dueDate.getTime());
@@ -452,6 +552,7 @@ export async function runAutomationForUser(uid, now = new Date()) {
           plannedExpenses.forEach((item) => transaction.create(item.ref, item.data));
           status = 'EXECUTED';
           message = `Dépense automatique enregistrée : ${amount.toLocaleString('fr-FR')} FCFA.`;
+        }
         }
       }
 
@@ -601,6 +702,7 @@ export const AI_TOOLS = [
           date: { type: 'string', description: 'Date YYYY-MM-DD uniquement si elle a été indiquée; sinon omettre.' },
           incomeSourceId: { type: 'string', description: 'ID exact de la source dans les données, ou all si toutes les sources.' },
           incomeSourceName: { type: 'string', description: 'Nom exact de la source, utilisé uniquement pour retrouver/confirmer son ID.' },
+          confirmBudgetOverrun: { type: 'boolean', description: 'Mettre true uniquement si l’utilisateur a explicitement accepté après avoir vu l’avertissement de dépassement.' },
         },
         required: ['amount', 'categoryId'],
       },
@@ -618,6 +720,7 @@ export const AI_TOOLS = [
           categoryId: { type: 'string', description: 'Identifiant de catégorie standard ou personnalisée.' },
           note: { type: 'string' }, date: { type: 'string' },
           incomeSourceId: { type: 'string' }, incomeSourceName: { type: 'string' },
+          confirmBudgetOverrun: { type: 'boolean', description: 'Mettre true uniquement après que l’utilisateur a explicitement accepté l’avertissement de dépassement.' },
         },
         required: ['expenseId'],
       },
@@ -805,7 +908,7 @@ async function addIncome(uid, args) {
       amount, source, categoryId, note: cleanText(args.note, 250), date,
       month: date.slice(0, 7), createdAt: FieldValue.serverTimestamp(),
     });
-    if (stats) transaction.update(userRef, { monthlyStats: stats });
+    transaction.set(userRef, { lifetimeIncomeAmount: FieldValue.increment(amount), lifetimeIncomeCount: FieldValue.increment(1), ...(stats ? { monthlyStats: stats } : {}) }, { merge: true });
   });
   return { message: `Revenu « ${source} » enregistré.`, amount, source, incomeId: ref.id, date };
 }
@@ -1081,7 +1184,8 @@ export async function executeAITool(uid, toolName, rawArgs, userMessages = [], o
   switch (toolName) {
     case 'add_expense': {
       const result = await createExpenseForUser(uid, args, { idempotencyKey: options.idempotencyKey || null });
-      const allocationText = result.allocations.map((item) => `${item.amount.toLocaleString('fr-FR')} FCFA depuis « ${item.incomeSourceName} »`).join(' + ');
+      if (result.confirmationRequired) return result;
+      const allocationText = (result.allocations || []).map((item) => `${item.amount.toLocaleString('fr-FR')} FCFA depuis « ${item.incomeSourceName} »`).join(' + ');
       return { ...result, message: `Dépense enregistrée : ${result.amount.toLocaleString('fr-FR')} FCFA. Répartition : ${allocationText}.` };
     }
     case 'update_expense': return updateExpenseForUser(uid, args.expenseId, args);

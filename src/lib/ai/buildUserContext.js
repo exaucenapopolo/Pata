@@ -54,6 +54,13 @@ export function buildUserContext(userData) {
   const globalBalance = totalIncome - totalExpense;
   const currentIncomeTotal = currentIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
   const currentExpenseTotal = currentExpenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const previousIncomeSpend = currentExpenses.reduce((sum, expense) => {
+    const source = sourceBalances.find((income) => income.id === expense.incomeSourceId);
+    return source && String(source.date || '').slice(0, 7) < currentMonth
+      ? sum + (Number(expense.amount) || 0) : sum;
+  }, 0);
+  const currentMonthIncomeGap = Math.max(0, currentExpenseTotal - currentIncomeTotal);
+  const previousMonthFundsExplainingGap = Math.min(previousIncomeSpend, currentMonthIncomeGap);
   const previousIncomeTotal = previousIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
   const previousExpenseTotal = previousExpenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
   const monthlyTrend = completedMonths.map((period) => {
@@ -131,7 +138,9 @@ Solde calculé: ${money(globalBalance)} FCFA
 Attention: ce solde est un calcul des revenus moins les dépenses récupérés dans Pata, pas une lecture d'un compte bancaire externe. Les données récupérées sont plafonnées à 100 revenus et 200 dépenses récentes pour maîtriser les lectures Firestore.
 
 === COMPARAISON MENSUELLE ===
-Mois courant ${currentMonth}: revenus ${money(currentIncomeTotal)} FCFA; dépenses ${money(currentExpenseTotal)} FCFA; différence ${money(currentIncomeTotal - currentExpenseTotal)} FCFA.
+Mois courant ${currentMonth}: revenus reçus pendant ce mois ${money(currentIncomeTotal)} FCFA; dépenses enregistrées pendant ce mois ${money(currentExpenseTotal)} FCFA.
+Dépenses du mois financées par des revenus reçus avant ce mois: ${money(previousIncomeSpend)} FCFA. Partie du dépassement apparent expliquée par ces revenus antérieurs: ${money(previousMonthFundsExplainingGap)} FCFA.
+RÈGLE D'INTERPRÉTATION: ne dis jamais que l'utilisateur a dépensé plus que ses moyens, qu'il est en déficit ou que son solde est négatif en comparant uniquement les revenus reçus ce mois-ci aux dépenses du mois. Il peut utiliser des revenus enregistrés les mois précédents. Présente séparément les revenus reçus pendant la période, les dépenses de la période et la part financée par les revenus antérieurs. Le solde global cumulé et les soldes par source restent les références pour juger des ressources réellement disponibles.
 Mois précédent ${previousMonth}: revenus ${money(previousIncomeTotal)} FCFA; dépenses ${money(previousExpenseTotal)} FCFA; différence ${money(previousIncomeTotal - previousExpenseTotal)} FCFA.
 Moyenne mensuelle des 3 derniers mois complets (${completedMonths.join(', ')}): revenus ${money(averageMonthlyIncome)} FCFA; dépenses ${money(averageMonthlyExpense)} FCFA; solde moyen estimé ${money(averageMonthlyIncome - averageMonthlyExpense)} FCFA. Il s’agit d’une moyenne descriptive, pas d’une garantie de revenu futur.
 

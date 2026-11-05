@@ -31,6 +31,7 @@ export default function SettingsPage() {
   const [automations, setAutomations] = useState([]);
   const [displayName, setDisplayName] = useState('');
   const [currency, setCurrency] = useState('XAF');
+  const [theme, setTheme] = useState('light');
   const [penaltyDefault, setPenaltyDefault] = useState(500);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -44,6 +45,7 @@ export default function SettingsPage() {
     if (profile) {
       setDisplayName(profile.displayName || '');
       setCurrency(profile.currency || 'XAF');
+      setTheme(profile.theme === 'dark' ? 'dark' : 'light');
       setPenaltyDefault(profile.penaltyDefault ?? 500);
     }
   }, [profile]);
@@ -67,6 +69,7 @@ export default function SettingsPage() {
       await save({
         displayName: displayName.trim() || 'Utilisateur',
         currency,
+        theme,
         currencyRates,
         currencyRateUpdatedAt: new Date().toISOString(),
         penaltyDefault: Number(penaltyDefault) || 0,
@@ -141,6 +144,10 @@ export default function SettingsPage() {
             <option value="EUR">Euro (EUR)</option>
             <option value="USD">Dollar US (USD)</option>
           </Select>
+          <Select label="Apparence de l’application" value={theme} onChange={(e) => { const nextTheme = e.target.value === 'dark' ? 'dark' : 'light'; setTheme(nextTheme); document.documentElement.classList.toggle('dark', nextTheme === 'dark'); document.documentElement.dataset.theme = nextTheme; try { localStorage.setItem('pata-theme', nextTheme); } catch { /* stockage indisponible */ } }}>
+            <option value="light">Mode clair</option>
+            <option value="dark">Mode sombre</option>
+          </Select>
           <p className="text-xs leading-5 text-slate-500">Les valeurs sont conservées en XAF. Pata les convertit à l’écran dans la devise sélectionnée, selon le dernier taux disponible.</p>
           <Input
             label="Amende par défaut (FCFA)"
@@ -169,7 +176,7 @@ export default function SettingsPage() {
 
       <Card>
         <div className="mb-2 flex items-center gap-2"><Bell size={17} className="text-slate-500" /><CardTitle>Notifications</CardTitle></div>
-        <p className="mb-3 text-xs leading-5 text-slate-500">Active les rappels utiles de Pata, même lorsque l’application n’est pas ouverte. Ton navigateur doit autoriser les notifications.</p>
+        <p className="mb-3 text-xs leading-5 text-slate-500">Active les rappels utiles de Pata sur cet appareil. Tu peux les désactiver à tout moment.</p>
         <NotificationSettings />
       </Card>
 

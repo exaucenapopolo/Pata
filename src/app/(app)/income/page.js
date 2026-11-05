@@ -150,7 +150,7 @@ export default function IncomePage() {
   };
 
   const removeDurationForecast = async (id) => {
-    if (!confirm('Supprimer cette prévision ? Cette suppression ne restitue pas le quota de création du mois.')) return;
+    if (!confirm('Supprimer cette prévision ? Cette suppression ne te rendra pas une création gratuite pour ce mois.')) return;
     await save({ durationForecasts: durationForecasts.filter((item) => item.id !== id) });
   };
 

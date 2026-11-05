@@ -130,9 +130,19 @@ export default function ExpensesPage() {
       };
 
       if (form.id) {
-        await updateExpense(user.uid, form.id, payload);
+        let result = await updateExpense(user.uid, form.id, payload);
+        if (result.confirmationRequired) {
+          const accepted = window.confirm(`${result.message}\n\nSouhaites-tu continuer ?`);
+          if (!accepted) return;
+          result = await updateExpense(user.uid, form.id, { ...payload, confirmBudgetOverrun: true });
+        }
       } else {
-        await createExpense(user.uid, payload);
+        let result = await createExpense(user.uid, payload);
+        if (result.confirmationRequired) {
+          const accepted = window.confirm(`${result.message}\n\nSouhaites-tu continuer ?`);
+          if (!accepted) return;
+          result = await createExpense(user.uid, { ...payload, confirmBudgetOverrun: true });
+        }
       }
       setOpen(false);
     } catch (err) {

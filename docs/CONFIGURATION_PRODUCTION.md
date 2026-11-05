@@ -40,3 +40,7 @@ Les notifications ne sont envoyées qu'aux utilisateurs qui ont activé les noti
 - Ne copie jamais de fichier `.env`, `.env.local` ou de clé privée dans GitHub.
 - Le fichier `.env.example` ne contient que les noms des variables à configurer.
 - Les pages « Confidentialité » et « Conditions d'utilisation » sont des textes de départ à faire relire et adapter avant une mise en service commerciale selon les pays visés.
+
+## 5. Accès administrateur et retraits
+
+Consulte `docs/ADMIN_NOTIFICATIONS_WITHDRAWALS.md` pour le détail de l'accès administrateur, la configuration Web Push, la synchronisation des anciens appareils et les retraits Fapshi. La variable `CODE_ADMIN` doit rester une variable serveur privée, sans préfixe `NEXT_PUBLIC_`. Pour les retraits, configure un service Fapshi Payout distinct et commence en sandbox.

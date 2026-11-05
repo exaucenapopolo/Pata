@@ -22,11 +22,11 @@ const BENEFITS = [
     ['Modifier et supprimer les opérations', true, true],
   ]},
   { group: 'Assistante Mč', items: [
-    ['Questions à l’assistante', '3 par jour', 'Sans limite*'],
+    ['Questions à l’assistante', '3 utilisations par jour', 'Utilisation élargie*'],
     ['Enregistrer et corriger des opérations par chat', true, true],
     ['Conseils et analyses personnalisés', true, true],
-    ['Créer des images et analyser des images', 'Accès limité par jour', 'Accès sans quota Pata*'],
-    ['Réponses vocales', 'Accès limité par jour', 'Accès sans quota Pata*'],
+    ['Créer et analyser des images', 'Utilisation limitée', 'Utilisation élargie*'],
+    ['Écouter les réponses vocales', 'Utilisation limitée', 'Utilisation élargie*'],
   ]},
   { group: 'Prévisions et planification', items: [
     ['Prévisions vitales et leur analyse avec Mč', '1 création par mois', 'Sans limite'],
@@ -99,6 +99,7 @@ export default function PremiumPage() {
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Offre Pata</p>
             <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">Passe à Pata Premium</h1>
             <p className="mt-2 text-sm leading-6 text-slate-600">Plus de marge pour suivre ton argent, préparer tes décisions et utiliser ton assistante financière au quotidien.</p>
+            <div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt: 'Résume-moi les avantages essentiels de Pata Premium par rapport à la version gratuite, en langage simple et en quelques points.' } }))} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">Résumer avec Mč</button><button type="button" onClick={() => window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt: 'Explique-moi concrètement chaque avantage de Pata Premium et donne-moi des exemples liés à la gestion de mon argent.' } }))} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">Plus d’explications</button></div>
           </div>
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-right">
             <p className="text-xs font-medium text-slate-500">À partir de</p>
@@ -119,6 +120,31 @@ export default function PremiumPage() {
 
       {success && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">Paiement confirmé. Ton abonnement Premium vient d’être prolongé.</div>}
       {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
+
+      <Card>
+        <div className="grid gap-5 md:grid-cols-[1fr_300px] md:items-center">
+          <div>
+            <CardTitle>Choisis la durée de ton abonnement</CardTitle>
+            <p className="mt-1 text-sm text-slate-500">Chaque mois ajoute 30 jours à ton accès. Si tu es déjà Premium, la durée restante est conservée.</p>
+            <label className="mt-4 block text-xs font-semibold text-slate-600" htmlFor="premium-months">Durée</label>
+            <select id="premium-months" value={months} onChange={(event) => setMonths(Number(event.target.value))} className="mt-1 h-11 w-full max-w-sm rounded-lg border border-slate-300 bg-white px-3 text-sm">
+              <option value={1}>1 mois — 2 500 FCFA</option>
+              <option value={3}>3 mois — 7 500 FCFA</option>
+              <option value={6}>6 mois — 15 000 FCFA</option>
+              <option value={12}>12 mois — 30 000 FCFA</option>
+            </select>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="flex justify-between text-sm"><span className="text-slate-500">Solde Pata</span><strong className="text-slate-900">{formatCurrency(balance)}</strong></div>
+            <div className="mt-2 flex justify-between border-t border-slate-200 pt-2 text-sm"><span className="text-slate-500">Total à payer</span><strong className="text-slate-900">{formatCurrency(totalAmount)}</strong></div>
+            {missingAmount > 0 && <p className="mt-2 text-xs text-amber-700">Il manque {formatCurrency(missingAmount)} sur ton portefeuille.</p>}
+            <Button onClick={handlePayWithBalance} disabled={loading || balance < totalAmount} className="mt-4 w-full">
+              <Wallet size={16} /> {loading ? 'Paiement en cours…' : 'Payer avec mon solde'}
+            </Button>
+            {missingAmount > 0 && <Link href="/wallet" className="mt-3 flex items-center justify-center gap-1 text-sm font-semibold text-brand-700 hover:underline">Recharger mon portefeuille <ArrowRight size={14} /></Link>}
+          </div>
+        </div>
+      </Card>
 
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -169,33 +195,10 @@ export default function PremiumPage() {
             </section>
           ))}
         </div>
-        <p className="mt-3 text-[11px] leading-5 text-slate-500">* Les fonctions d’IA restent soumises à la disponibilité du fournisseur IA et aux règles de sécurité de Pata. « Sans limite » signifie sans quota quotidien imposé par le forfait Pata.</p>
+        <p className="mt-3 text-[11px] leading-5 text-slate-500">* Les fonctions d’intelligence artificielle restent soumises à leur disponibilité et aux règles de sécurité de Pata. Premium permet une utilisation plus large, sans garantir une disponibilité illimitée.</p>
       </Card>
 
-      <Card>
-        <div className="grid gap-5 md:grid-cols-[1fr_300px] md:items-center">
-          <div>
-            <CardTitle>Choisis la durée de ton abonnement</CardTitle>
-            <p className="mt-1 text-sm text-slate-500">Chaque mois ajoute 30 jours à ton accès. Si tu es déjà Premium, la durée restante est conservée.</p>
-            <label className="mt-4 block text-xs font-semibold text-slate-600" htmlFor="premium-months">Durée</label>
-            <select id="premium-months" value={months} onChange={(event) => setMonths(Number(event.target.value))} className="mt-1 h-11 w-full max-w-sm rounded-lg border border-slate-300 bg-white px-3 text-sm">
-              <option value={1}>1 mois — 2 500 FCFA</option>
-              <option value={3}>3 mois — 7 500 FCFA</option>
-              <option value={6}>6 mois — 15 000 FCFA</option>
-              <option value={12}>12 mois — 30 000 FCFA</option>
-            </select>
-          </div>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <div className="flex justify-between text-sm"><span className="text-slate-500">Solde Pata</span><strong className="text-slate-900">{formatCurrency(balance)}</strong></div>
-            <div className="mt-2 flex justify-between border-t border-slate-200 pt-2 text-sm"><span className="text-slate-500">Total à payer</span><strong className="text-slate-900">{formatCurrency(totalAmount)}</strong></div>
-            {missingAmount > 0 && <p className="mt-2 text-xs text-amber-700">Il manque {formatCurrency(missingAmount)} sur ton portefeuille.</p>}
-            <Button onClick={handlePayWithBalance} disabled={loading || balance < totalAmount} className="mt-4 w-full">
-              <Wallet size={16} /> {loading ? 'Paiement en cours…' : 'Payer avec mon solde'}
-            </Button>
-            {missingAmount > 0 && <Link href="/wallet" className="mt-3 flex items-center justify-center gap-1 text-sm font-semibold text-brand-700 hover:underline">Recharger mon portefeuille <ArrowRight size={14} /></Link>}
-          </div>
-        </div>
-      </Card>
+
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="rounded-xl border border-slate-200 bg-white p-4">

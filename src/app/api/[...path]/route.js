@@ -1,12 +1,14 @@
 import { NextResponse } from 'next/server';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { adminAuth, adminDb, adminMessaging } from '@/lib/firebase/admin';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, FieldPath, AggregateField } from 'firebase-admin/firestore';
 import { completeWithGroq } from '@/lib/ai/groqClient';
 import { AI_TOOLS, createExpenseForUser, updateExpenseForUser, deleteExpenseForUser, executeAITool, runAutomationForUser, generateWeeklyReportForUser } from '@/lib/ai/financialTools';
 import { generateAudioWithGemini } from '@/lib/ai/geminiTTS';
 import { chatWithGroqVision } from '@/lib/ai/groqVision';
 import { generateImageWithPollinations } from '@/lib/ai/pollinationsImage';
 import { buildUserContext } from '@/lib/ai/buildUserContext';
+import { computeGoalPlan } from '@/lib/goalCalc';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -299,17 +301,47 @@ async function handleNotificationSubscription(request, remove = false) {
     if (token.length < 40 || token.length > 4096) return errorResponse('Jeton de notification invalide.', 400);
     const userRef = adminDb.collection('users').doc(uid);
     if (remove) {
-      await adminDb.runTransaction(async (transaction) => {
-        const snapshot = await transaction.get(userRef);
-        const remaining = (Array.isArray(snapshot.data()?.pushTokens) ? snapshot.data().pushTokens : []).filter((item) => item !== token);
-        transaction.set(userRef, { pushTokens: FieldValue.arrayRemove(token), notificationsEnabled: remaining.length > 0, notificationsUpdatedAt: FieldValue.serverTimestamp() }, { merge: true });
-      });
+      await userRef.set({ pushTokens: FieldValue.arrayRemove(token), notificationsUpdatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      try { await adminMessaging.unsubscribeFromTopic([token], 'pata_all_users'); } catch (topicError) { console.warn('[PUSH] Retrait du groupe impossible:', topicError.code || topicError.message); }
+      const fresh = await userRef.get();
+      const remaining = Array.isArray(fresh.data()?.pushTokens) ? fresh.data().pushTokens : [];
+      await userRef.set({ notificationsEnabled: remaining.length > 0 }, { merge: true });
     } else {
       await userRef.set({ pushTokens: FieldValue.arrayUnion(token), notificationsEnabled: true, notificationsUpdatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      await adminMessaging.subscribeToTopic([token], 'pata_all_users');
     }
     return NextResponse.json({ success: true });
   } catch (error) {
     return errorResponse(error.message || 'Impossible d’enregistrer les notifications.', 400);
+  }
+}
+
+async function handleNotificationTest(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const token = String(body.token || '').trim();
+    if (token.length < 40 || token.length > 4096) return errorResponse('Appareil non reconnu.', 400);
+    const userRef = adminDb.collection('users').doc(uid);
+    const userSnap = await userRef.get();
+    const savedTokens = Array.isArray(userSnap.data()?.pushTokens) ? userSnap.data().pushTokens : [];
+    if (!savedTokens.includes(token)) {
+      await userRef.set({ pushTokens: FieldValue.arrayUnion(token), notificationsEnabled: true, notificationsUpdatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      await adminMessaging.subscribeToTopic([token], 'pata_all_users');
+    }
+    const messageId = await adminMessaging.send({
+      token,
+      notification: { title: 'Pata — test réussi', body: 'Les notifications sont bien reliées à cet appareil.' },
+      data: { url: '/settings', tag: `pata-test-${Date.now()}` },
+      webpush: { notification: { icon: '/android-chrome-192x192.png', badge: '/android-chrome-192x192.png', tag: `pata-test-${Date.now()}`, renotify: true } },
+    });
+    return NextResponse.json({ success: true, messageId });
+  } catch (error) {
+    const message = error.code === 'messaging/registration-token-not-registered'
+      ? 'Cet appareil doit être reconnecté aux rappels. Désactive puis réactive les notifications.'
+      : 'Le test de notification a échoué. Vérifie les paramètres de notification de cet appareil.';
+    console.error('[PUSH TEST]:', error.code || error.message);
+    return errorResponse(message, 502);
   }
 }
 
@@ -781,7 +813,7 @@ async function handleAIChat(request) {
 
     const quota = await reserveDailyAIQuota(uid);
     if (!quota.allowed) {
-      return errorResponse("Tu as utilisé tes 3 questions gratuites aujourd'hui. Reviens demain ou passe Premium.", 403);
+      return errorResponse("Tu as utilisé tes 3 utilisations gratuites de l’assistante aujourd’hui. Tu pourras recommencer demain ou découvrir Premium.", 403);
     }
     if (quota.reserved) reservedQuota = quota.date;
 
@@ -851,7 +883,7 @@ RÈGLES NON NÉGOCIABLES
 6. Pour ajouter une dépense, utilise add_expense. Si la personne nomme une source (ex. « mon salaire », « le revenu TRIXHUB »), associe-la à l’ID exact de cette source. Ne mets JAMAIS le nom de la source uniquement dans la note. Si aucune source n’est précisée, utilise « all » pour répartir les fonds disponibles.
 7. Les soldes disponibles par revenu sont calculés en soustrayant les dépenses déjà associées à cet ID. Si le montant demandé dépasse le solde disponible de cette source (ou de toutes les sources), l’opération sera refusée. N’annonce jamais une réussite avant d’avoir reçu le résultat de l’outil.
 8. Pour établir un budget, tu dois uniquement créer ou actualiser les enveloppes demandées. Un budget n’est jamais un revenu : ne crée un revenu que si la personne demande séparément de l’enregistrer.
-9. Pour créer une dépense récurrente, demande une précision si la fréquence, le montant ou la source explicitement voulue est ambiguë. Explique qu’une automatisation nécessite que le planificateur serveur soit configuré pour fonctionner même lorsque l’application est fermée.
+9. Pour créer une dépense récurrente, demande une précision si la fréquence, le montant ou la source explicitement voulue est ambiguë. Explique simplement que les opérations programmées peuvent continuer à fonctionner même lorsque l’utilisateur ne consulte pas l’application. Ne révèle pas les réglages internes nécessaires à ce fonctionnement.
 10. Les actions de modification, suppression ou mise en pause ne concernent que des identifiants exacts présents dans les données. Si la cible n’est pas certaine, demande laquelle. Les suppressions doivent être explicitement demandées.
 11. Tu peux mémoriser les objectifs, préférences, limites et corrections financières explicitement déclarés avec remember_user_context. La citation doit être copiée exactement depuis un message de l’utilisateur. Ne mémorise jamais une déduction ou une information incertaine.
 12. Après chaque outil, base ta réponse sur son résultat réel. Distingue clairement réussite, refus, dépense répartie sur plusieurs revenus et automatisation mise en pause.
@@ -861,6 +893,8 @@ RÈGLES NON NÉGOCIABLES
 16. Pour expliquer une fonction, guide l’utilisateur étape par étape avec les libellés visibles. Tu peux proposer un bouton pour ouvrir Dépenses (/expenses), Revenus (/income), Budgets (/budgets), Objectifs (/goals), Portefeuille (/wallet), Rapports (/reports), Premium (/premium) ou Paramètres (/settings).
 17. Explique les catégories avec leurs noms courants, les montants dans la devise d’affichage lorsqu’elle est connue, et les calculs sans vocabulaire technique. Ne dis jamais « identifiant », « quota », « collection », « transaction serveur » ou le nom d’une fonction interne à un utilisateur ordinaire; dis simplement ce qui se passe et ce qu’il doit faire.
 18. Pour un abonnement Premium, commence par vérifier son statut et son solde. S’il demande explicitement de s’abonner et que le solde suffit, propose/execute le paiement uniquement avec son accord clair. Si le solde est insuffisant, explique la somme manquante et propose le Portefeuille. Ne prétends jamais qu’un paiement est confirmé avant le résultat réel.
+19. Si une action indique qu’elle dépasserait un budget et demande une confirmation, n’affirme pas qu’elle est enregistrée. Explique le budget concerné, le montant prévu et le dépassement avec des mots simples, puis demande clairement si l’utilisateur souhaite continuer. Ne confirme l’action qu’après son accord explicite.
+20. Ne révèle jamais aux utilisateurs les détails réservés à l’équipe (fournisseurs, clés, planificateurs, quotas internes, base de données, services de notification ou architecture). Explique uniquement le résultat utile et les étapes visibles dans l’application.
 19. Pour les questions « comment faire », donne d’abord les étapes visibles dans l’application; si l’utilisateur préfère, fais l’action toi-même lorsque les outils disponibles le permettent.
 20. Quand une opération est prise en charge et que les informations sont suffisantes, propose de la faire pour l’utilisateur; n’effectue pas d’action financière sans demande claire.
 21. Propose une seule suite utile à la fin, en lien direct avec la conversation. Si une image ou une réponse vocale serait réellement utile, indique simplement qu’il peut utiliser @Image ou @Audio.
@@ -915,8 +949,9 @@ ${userContext}`;
           result = await executeAITool(uid, toolName, call.function?.arguments || '{}', userMessages, {
             idempotencyKey: requestId ? `${requestId}_${round}_${callIndex}_${toolName}` : null,
           });
-          hasSuccessfulToolExecution = true;
-          toolResults.push({ tool: toolName, success: true, result });
+          const actionSucceeded = result?.confirmationRequired !== true && result?.success !== false;
+          if (actionSucceeded) hasSuccessfulToolExecution = true;
+          toolResults.push({ tool: toolName, success: actionSucceeded, result });
         } catch (toolError) {
           result = { success: false, error: toolError.message || 'Action impossible.' };
           toolResults.push({ tool: toolName, success: false, result });
@@ -1001,7 +1036,7 @@ async function handleAIImage(request) {
     if (!prompt) return errorResponse('Prompt manquant.', 400);
 
     const quota = await reserveDailyAIQuota(uid);
-    if (!quota.allowed) return errorResponse(`Tu as utilisé tes 3 requêtes IA gratuites aujourd'hui. Reviens demain ou passe Premium.`, 403);
+    if (!quota.allowed) return errorResponse(`Tu as utilisé tes 3 utilisations gratuites de l’assistante aujourd’hui. Tu pourras recommencer demain ou découvrir Premium.`, 403);
     if (quota.reserved) reservedDate = quota.date;
 
     const imageUrl = await generateImageWithPollinations(prompt);
@@ -1027,7 +1062,7 @@ async function handleAIVision(request) {
     if (!imageBase64) return errorResponse('Image manquante.', 400);
 
     const quota = await reserveDailyAIQuota(uid);
-    if (!quota.allowed) return errorResponse(`Tu as utilisé tes 3 requêtes IA gratuites aujourd'hui. Reviens demain ou passe Premium.`, 403);
+    if (!quota.allowed) return errorResponse(`Tu as utilisé tes 3 utilisations gratuites de l’assistante aujourd’hui. Tu pourras recommencer demain ou découvrir Premium.`, 403);
     if (quota.reserved) reservedDate = quota.date;
 
     const reply = await chatWithGroqVision(messages || [], imageBase64);
@@ -1042,6 +1077,517 @@ async function handleAIVision(request) {
   }
 }
 
+/* ═══════════════════ ACTIVITÉ DU COMPTE & STATISTIQUES ═══════════════════ */
+
+async function handleProfileActivity(request) {
+  try {
+    const decoded = await authenticate(request);
+    const userRef = adminDb.collection('users').doc(decoded.uid);
+    await userRef.set({ lastSeenAt: FieldValue.serverTimestamp(), email: decoded.email || null }, { merge: true });
+    return NextResponse.json({ success: true });
+  } catch (error) { return errorResponse(error.message || 'Impossible de mettre à jour le profil.', 401); }
+}
+
+async function handleIncomeAnalyticsEvent(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const incomeId = String(body.incomeId || '').slice(0, 150);
+    if (!incomeId || incomeId.includes('/')) return errorResponse('Revenu invalide.', 400);
+    const userRef = adminDb.collection('users').doc(uid);
+    const incomeRef = userRef.collection('incomes').doc(incomeId);
+    const markerRef = userRef.collection('analyticsEvents').doc(`income_${incomeId}`);
+    await adminDb.runTransaction(async (transaction) => {
+      const [incomeSnap, markerSnap] = await Promise.all([transaction.get(incomeRef), transaction.get(markerRef)]);
+      if (!incomeSnap.exists) throw new Error('Revenu introuvable.');
+      if (markerSnap.exists) return;
+      const amount = Math.max(0, Number(incomeSnap.data().amount) || 0);
+      transaction.set(markerRef, { type: 'income_created', amount, createdAt: FieldValue.serverTimestamp() });
+      transaction.set(userRef, { lifetimeIncomeAmount: FieldValue.increment(amount), lifetimeIncomeCount: FieldValue.increment(1) }, { merge: true });
+    });
+    return NextResponse.json({ success: true });
+  } catch (error) { return errorResponse(error.message || 'Statistique indisponible.', 400); }
+}
+
+/* ═══════════════════ ADMINISTRATION SÉCURISÉE ═══════════════════ */
+
+function safeStringEqual(left, right) {
+  const a = Buffer.from(String(left || ''), 'utf8');
+  const b = Buffer.from(String(right || ''), 'utf8');
+  return a.length === b.length && a.length > 0 && timingSafeEqual(a, b);
+}
+
+function createAdminSession(uid, expiresAt) {
+  const secret = process.env.CODE_ADMIN;
+  const payload = `${uid}:${expiresAt}`;
+  const signature = createHmac('sha256', secret).update(payload).digest('base64url');
+  return `${payload}:${signature}`;
+}
+
+function verifyAdminSession(request, uid) {
+  const secret = process.env.CODE_ADMIN;
+  if (!secret) return false;
+  const cookies = String(request.headers.get('cookie') || '').split(';').map((part) => part.trim());
+  const raw = cookies.find((part) => part.startsWith('pata_admin_session='))?.slice('pata_admin_session='.length);
+  if (!raw) return false;
+  let decoded;
+  try { decoded = decodeURIComponent(raw); } catch { return false; }
+  const parts = decoded.split(':');
+  if (parts.length !== 3) return false;
+  const [sessionUid, expiresText, signature] = parts;
+  const expiresAt = Number(expiresText);
+  if (sessionUid !== uid || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) return false;
+  const expected = createHmac('sha256', secret).update(`${sessionUid}:${expiresAt}`).digest('base64url');
+  return safeStringEqual(signature, expected);
+}
+
+async function requireAdmin(request) {
+  const decoded = await authenticate(request);
+  if (!verifyAdminSession(request, decoded.uid)) throw new Error('Session administrateur expirée. Entre de nouveau ton code.');
+  return decoded;
+}
+
+async function handleAdminUnlock(request) {
+  try {
+    const decoded = await authenticate(request);
+    const configuredCode = String(process.env.CODE_ADMIN || '');
+    if (configuredCode.length < 16) return errorResponse('La protection administrateur doit contenir au moins 16 caractères.', 503);
+    const body = await request.json();
+    const supplied = String(body.code || '');
+    const ip = String(request.headers.get('x-forwarded-for') || 'unknown').split(',')[0].trim().slice(0, 100);
+    const attemptId = createHash('sha256').update(ip).digest('hex');
+    const attemptRef = adminDb.collection('adminLoginAttempts').doc(attemptId);
+    const attemptSnap = await attemptRef.get();
+    const attemptData = attemptSnap.exists ? attemptSnap.data() : {};
+    const lockedUntil = attemptData.lockedUntil?.toDate ? attemptData.lockedUntil.toDate().getTime() : (typeof attemptData.lockedUntil === 'string' ? new Date(attemptData.lockedUntil).getTime() : Number(attemptData.lockedUntil || 0));
+    if (lockedUntil > Date.now()) return errorResponse('Trop de tentatives. Réessaie dans quelques minutes.', 429);
+
+    if (!safeStringEqual(supplied, configuredCode)) {
+      await adminDb.runTransaction(async (transaction) => {
+        const fresh = await transaction.get(attemptRef);
+        const current = fresh.exists ? fresh.data() : {};
+        const count = (Number(current.count) || 0) + 1;
+        transaction.set(attemptRef, {
+          count: count >= 5 ? 0 : count,
+          lockedUntil: count >= 5 ? new Date(Date.now() + 15 * 60 * 1000).toISOString() : null,
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+      });
+      return errorResponse('Code administrateur incorrect.', 401);
+    }
+
+    await attemptRef.delete().catch(() => {});
+    const expiresAt = Date.now() + 4 * 60 * 60 * 1000;
+    const response = NextResponse.json({ success: true, expiresAt });
+    response.cookies.set('pata_admin_session', createAdminSession(decoded.uid, expiresAt), {
+      httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict',
+      path: '/', maxAge: 4 * 60 * 60,
+    });
+    return response;
+  } catch (error) { return errorResponse(error.message || 'Accès refusé.', 401); }
+}
+
+async function handleAdminLogout(request) {
+  try {
+    await requireAdmin(request);
+    const response = NextResponse.json({ success: true });
+    response.cookies.set('pata_admin_session', '', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', path: '/', maxAge: 0 });
+    return response;
+  } catch (error) { return errorResponse(error.message, 401); }
+}
+
+function safeAdminUser(doc) {
+  const data = { ...doc.data() };
+  delete data.pushTokens; delete data.monthlyStats; delete data.dailyStats; delete data.password;
+  return { id: doc.id, ...serializeAdminValue(data) };
+}
+
+function serializeAdminValue(value) {
+  if (value?.toDate && typeof value.toDate === 'function') return value.toDate().toISOString();
+  if (Array.isArray(value)) return value.map(serializeAdminValue);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, serializeAdminValue(child)]));
+  return value;
+}
+
+async function aggregateTotal(query, field = 'amount') {
+  try {
+    const snapshot = await query.aggregate({ count: AggregateField.count(), total: AggregateField.sum(field) }).get();
+    return { count: Number(snapshot.data().count) || 0, total: Number(snapshot.data().total) || 0 };
+  } catch (error) {
+    console.warn('[ADMIN AGGREGATE]', error.message);
+    return { count: 0, total: 0, unavailable: true };
+  }
+}
+
+async function handleAdminOverview(request) {
+  try {
+    await requireAdmin(request);
+    const nowIso = new Date().toISOString();
+    const users = adminDb.collection('users');
+    const withdrawals = adminDb.collection('withdrawalRequests');
+    const [userTotals, premiumCount, deposits, subscriptions, paidPayouts, pendingPayouts, latestUsers, latestDeposits, latestWithdrawals, topBalances, topExpenses, leastExpenses, topIncomes, lifetimeExpenses, lifetimeIncomes] = await Promise.all([
+      aggregateTotal(users, 'balance'),
+      users.where('premiumUntil', '>', nowIso).count().get().then((snap) => snap.data().count).catch(() => 0),
+      aggregateTotal(adminDb.collection('deposits').where('status', '==', 'CONFIRMED')),
+      aggregateTotal(adminDb.collection('subscriptionPayments').where('status', '==', 'CONFIRMED')),
+      aggregateTotal(withdrawals.where('status', '==', 'PAID')),
+      aggregateTotal(withdrawals.where('status', 'in', ['PENDING_REVIEW', 'PROCESSING', 'RECONCILIATION_REQUIRED'])),
+      users.orderBy('createdAt', 'desc').limit(8).get().catch(() => ({ docs: [] })),
+      adminDb.collection('deposits').orderBy('createdAt', 'desc').limit(8).get().catch(() => ({ docs: [] })),
+      withdrawals.orderBy('createdAt', 'desc').limit(12).get().catch(() => ({ docs: [] })),
+      users.orderBy('balance', 'desc').limit(5).get().catch(() => ({ docs: [] })),
+      users.orderBy('lifetimeExpenseAmount', 'desc').limit(5).get().catch(() => ({ docs: [] })),
+      users.where('lifetimeExpenseAmount', '>', 0).orderBy('lifetimeExpenseAmount', 'asc').limit(5).get().catch(() => ({ docs: [] })),
+      users.orderBy('lifetimeIncomeAmount', 'desc').limit(5).get().catch(() => ({ docs: [] })),
+      aggregateTotal(users, 'lifetimeExpenseAmount'),
+      aggregateTotal(users, 'lifetimeIncomeAmount'),
+    ]);
+    return NextResponse.json({ success: true, stats: {
+      totalUsers: userTotals.count,
+      premiumUsers: Number(premiumCount) || 0,
+      walletLiability: userTotals.total,
+      confirmedDeposits: deposits.total,
+      depositCount: deposits.count,
+      subscriptionRevenue: subscriptions.total,
+      subscriptionCount: subscriptions.count,
+      paidWithdrawals: paidPayouts.total,
+      paidWithdrawalCount: paidPayouts.count,
+      pendingWithdrawals: pendingPayouts.total,
+      pendingWithdrawalCount: pendingPayouts.count,
+      lifetimeExpenseVolume: lifetimeExpenses.total,
+      lifetimeIncomeVolume: lifetimeIncomes.total,
+    },
+    latestUsers: latestUsers.docs.map(safeAdminUser),
+    latestDeposits: latestDeposits.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })),
+    latestWithdrawals: latestWithdrawals.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })),
+    leaders: { balances: topBalances.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })), expenses: topExpenses.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })), leastExpenses: leastExpenses.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })), incomes: topIncomes.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })) },
+    note: 'Les montants cumulés utilisent des compteurs enregistrés sur chaque profil, sans parcourir toutes les dépenses et tous les revenus. Les conversations et détails d’un compte ne sont chargés que lorsque tu ouvres sa fiche.' });
+  } catch (error) { return errorResponse(error.message || 'Accès administrateur refusé.', 401); }
+}
+
+async function handleAdminUsers(request) {
+  try {
+    await requireAdmin(request);
+    const url = new URL(request.url);
+    const limitValue = Math.max(5, Math.min(40, Number(url.searchParams.get('limit')) || 25));
+    const cursor = String(url.searchParams.get('cursor') || '').slice(0, 150);
+    let query = adminDb.collection('users').orderBy('createdAt', 'desc');
+    if (cursor) {
+      const cursorDoc = await adminDb.collection('users').doc(cursor).get();
+      if (cursorDoc.exists) query = query.startAfter(cursorDoc);
+    }
+    const snapshot = await query.limit(limitValue + 1).get();
+    const hasMore = snapshot.docs.length > limitValue;
+    const docs = snapshot.docs.slice(0, limitValue);
+    return NextResponse.json({ success: true, users: docs.map(safeAdminUser), nextCursor: hasMore ? docs[docs.length - 1]?.id || null : null });
+  } catch (error) { return errorResponse(error.message || 'Impossible de charger les comptes.', 401); }
+}
+
+async function handleAdminUserDetail(request) {
+  try {
+    await requireAdmin(request);
+    const url = new URL(request.url);
+    const uid = String(url.searchParams.get('uid') || '').slice(0, 150);
+    if (!uid || uid.includes('/')) return errorResponse('Compte invalide.', 400);
+    const userRef = adminDb.collection('users').doc(uid);
+    const [userDoc, chatsSnap, expensesSnap, incomesSnap, notificationsSnap] = await Promise.all([
+      userRef.get(),
+      userRef.collection('ai_chats').orderBy('updatedAt', 'desc').limit(12).get().catch(() => ({ docs: [] })),
+      userRef.collection('expenses').orderBy('date', 'desc').limit(8).get().catch(() => ({ docs: [] })),
+      userRef.collection('incomes').orderBy('date', 'desc').limit(8).get().catch(() => ({ docs: [] })),
+      userRef.collection('notifications').orderBy('createdAt', 'desc').limit(5).get().catch(() => ({ docs: [] })),
+    ]);
+    if (!userDoc.exists) return errorResponse('Compte introuvable.', 404);
+    const chats = chatsSnap.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) }));
+    const safeUser = { ...userDoc.data() }; delete safeUser.pushTokens; delete safeUser.monthlyStats; delete safeUser.dailyStats;
+    return NextResponse.json({ success: true, user: { id: uid, ...serializeAdminValue(safeUser) }, chats, expenses: expensesSnap.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })), incomes: incomesSnap.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })), notifications: notificationsSnap.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })) });
+  } catch (error) { return errorResponse(error.message || 'Impossible de charger ce compte.', 401); }
+}
+
+async function handleAdminPopularQuestions(request) {
+  try {
+    await requireAdmin(request);
+    // Échantillon borné : aucune lecture exhaustive de toutes les conversations.
+    const snapshot = await adminDb.collectionGroup('ai_chats').orderBy('updatedAt', 'desc').limit(60).get();
+    const counts = new Map();
+    let conversationsSampled = 0;
+    snapshot.docs.forEach((doc) => {
+      const messages = Array.isArray(doc.data()?.messages) ? doc.data().messages : [];
+      const latestUserMessages = messages.filter((message) => message?.role === 'user').slice(-3);
+      if (latestUserMessages.length) conversationsSampled += 1;
+      latestUserMessages.forEach((message) => {
+        const question = String(message.content || message.text || '').replace(/\s+/g, ' ').trim().slice(0, 180);
+        if (!question || question.length < 5) return;
+        const key = question.toLocaleLowerCase('fr-FR');
+        const current = counts.get(key) || { question, count: 0 };
+        current.count += 1;
+        counts.set(key, current);
+      });
+    });
+    const questions = [...counts.values()].sort((a, b) => b.count - a.count).slice(0, 15);
+    return NextResponse.json({ success: true, questions, sampledConversations: conversationsSampled, sampleSize: snapshot.size, limitedSample: true });
+  } catch (error) { return errorResponse(error.message || 'Impossible de charger les questions.', 401); }
+}
+
+async function handleAdminWithdrawals(request) {
+  try {
+    await requireAdmin(request);
+    const snapshot = await adminDb.collection('withdrawalRequests').orderBy('createdAt', 'desc').limit(40).get();
+    return NextResponse.json({ success: true, withdrawals: snapshot.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })) });
+  } catch (error) { return errorResponse(error.message || 'Impossible de charger les demandes.', 401); }
+}
+
+async function unlockGoalAfterPayout(uid, goalId, status, requestId) {
+  if (!goalId) return;
+  const goalRef = adminDb.collection('users').doc(uid).collection('goals').doc(goalId);
+  const patch = { withdrawalPending: false, withdrawalRequestId: null, withdrawalStatus: status };
+  if (status === 'PAID') { patch.withdrawnAt = FieldValue.serverTimestamp(); patch.closed = true; }
+  await goalRef.set(patch, { merge: true }).catch(() => {});
+}
+
+async function handleAdminRejectWithdrawal(request) {
+  try {
+    await requireAdmin(request);
+    const body = await request.json();
+    const requestId = String(body.requestId || '').slice(0, 150);
+    if (!requestId || requestId.includes('/')) return errorResponse('Demande invalide.', 400);
+    const requestRef = adminDb.collection('withdrawalRequests').doc(requestId);
+    const result = await adminDb.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(requestRef);
+      if (!snapshot.exists) throw new Error('Demande introuvable.');
+      const data = snapshot.data();
+      if (data.status !== 'PENDING_REVIEW') throw new Error('Cette demande a déjà été traitée.');
+      transaction.update(requestRef, { status: 'REJECTED', adminNote: String(body.reason || 'Demande refusée après vérification.').slice(0, 300), reviewedAt: FieldValue.serverTimestamp() });
+      return data;
+    });
+    await unlockGoalAfterPayout(result.userId, result.goalId, 'REJECTED', requestId);
+    return NextResponse.json({ success: true });
+  } catch (error) { return errorResponse(error.message || 'Impossible de refuser la demande.', 400); }
+}
+
+async function handleAdminApproveWithdrawal(request) {
+  let requestRef = null;
+  let requestData = null;
+  try {
+    await requireAdmin(request);
+    const body = await request.json();
+    const requestId = String(body.requestId || '').slice(0, 150);
+    if (!requestId || requestId.includes('/')) return errorResponse('Demande invalide.', 400);
+    requestRef = adminDb.collection('withdrawalRequests').doc(requestId);
+    requestData = await adminDb.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(requestRef);
+      if (!snapshot.exists) throw new Error('Demande introuvable.');
+      const data = snapshot.data();
+      if (data.status !== 'PENDING_REVIEW') throw new Error('Cette demande a déjà été traitée.');
+      transaction.update(requestRef, { status: 'SENDING', reviewedAt: FieldValue.serverTimestamp() });
+      return data;
+    });
+
+    const apiUser = process.env.FAPSHI_PAYOUT_API_USER;
+    const apiKey = process.env.FAPSHI_PAYOUT_SECRET_KEY;
+    if (!apiUser || !apiKey) {
+      await requestRef.update({ status: 'PENDING_REVIEW', adminNote: 'Le service de paiement des retraits n’est pas configuré.' });
+      return errorResponse('Le service de retrait n’est pas encore configuré. Les clés de retrait Fapshi sont distinctes des clés de dépôt.', 503);
+    }
+    const baseUrl = String(process.env.FAPSHI_PAYOUT_BASE_URL || 'https://sandbox.fapshi.com').replace(/\/$/, '');
+    if (!['https://sandbox.fapshi.com', 'https://live.fapshi.com'].includes(baseUrl)) {
+      await requestRef.update({ status: 'PENDING_REVIEW', adminNote: 'Adresse du service de retrait invalide.' });
+      return errorResponse('Configuration du service de retrait invalide.', 503);
+    }
+    const payload = {
+      amount: Math.floor(Number(requestData.amount) || 0),
+      phone: requestData.phone,
+      medium: requestData.medium,
+      name: requestData.displayName || 'Client Pata',
+      email: requestData.email || undefined,
+      userId: requestData.userId,
+      externalId: requestRef.id,
+      message: `Retrait Pata — ${requestData.goalName || 'épargne'}`,
+    };
+    if (!Number.isInteger(payload.amount) || payload.amount < 100 || payload.amount > 500000) throw new Error('Le montant du retrait doit être compris entre 100 et 500 000 FCFA pour une seule opération Fapshi.');
+    const response = await fetch(`${baseUrl}/payout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apiuser: apiUser, apikey: apiKey },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(20000),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const providerMessage = String(result.message || 'Le prestataire n’a pas confirmé le retrait.').slice(0, 300);
+      if (response.status >= 500 || response.status === 408 || response.status === 429) {
+        await requestRef.update({ status: 'RECONCILIATION_REQUIRED', providerMessage: `Réponse incertaine du prestataire (${response.status}). Vérification manuelle requise avant tout nouvel essai.` });
+        return errorResponse('La réponse du prestataire est incertaine. Vérifie cette demande dans ton espace Fapshi avant toute nouvelle tentative.', 502);
+      }
+      await requestRef.update({ status: 'FAILED', providerMessage, failedAt: FieldValue.serverTimestamp() });
+      await unlockGoalAfterPayout(requestData.userId, requestData.goalId, 'FAILED', requestRef.id);
+      await adminDb.collection('users').doc(requestData.userId).collection('notifications').doc(`withdrawal-${requestRef.id}`).set({ title: 'Retrait non effectué', body: 'Le prestataire n’a pas pu effectuer ce retrait. Ta demande a été débloquée ; contacte le support si nécessaire.', target: '/goals', createdAt: FieldValue.serverTimestamp() }).catch(() => {});
+      return errorResponse(providerMessage, 502);
+    }
+    if (!result.transId) {
+      await requestRef.update({ status: 'RECONCILIATION_REQUIRED', providerMessage: 'Le prestataire a répondu sans identifiant de paiement. Vérification manuelle requise.' });
+      return errorResponse('Le prestataire a répondu de manière inattendue. Vérifie le paiement dans ton espace Fapshi avant toute nouvelle action.', 502);
+    }
+    await requestRef.update({ status: 'PROCESSING', fapshiTransId: result.transId, providerMessage: result.message || 'Demande transmise au prestataire.', providerDateInitiated: result.dateInitiated || null, submittedAt: FieldValue.serverTimestamp() });
+    return NextResponse.json({ success: true, status: 'PROCESSING', transId: result.transId });
+  } catch (error) {
+    if (requestRef && requestData) {
+      // En cas de timeout réseau, ne pas relancer automatiquement : Fapshi peut avoir reçu le paiement.
+      await requestRef.update({ status: 'RECONCILIATION_REQUIRED', providerMessage: 'Réponse incertaine. Vérification manuelle requise avant tout nouvel essai.' }).catch(() => {});
+    }
+    return errorResponse(error.message || 'Impossible de transmettre le retrait.', 502);
+  }
+}
+
+async function handleFapshiPayoutWebhook(request) {
+  try {
+    const expectedSecret = process.env.FAPSHI_PAYOUT_WEBHOOK_SECRET;
+    const suppliedSecret = request.headers.get('x-wh-secret') || '';
+    if (!expectedSecret || !safeStringEqual(suppliedSecret, expectedSecret)) return errorResponse('Webhook non autorisé.', 401);
+    const body = await request.json();
+    if (String(body.transType || '').toLowerCase() !== 'payout' || !body.externalId) return NextResponse.json({ received: true });
+    const requestRef = adminDb.collection('withdrawalRequests').doc(String(body.externalId));
+    const snapshot = await requestRef.get();
+    if (!snapshot.exists) return NextResponse.json({ received: true });
+    const data = snapshot.data();
+    const status = String(body.status || '').toUpperCase();
+    if (status === 'SUCCESSFUL') {
+      if (data.status !== 'PAID') {
+        await requestRef.update({ status: 'PAID', fapshiTransId: body.transId || data.fapshiTransId || null, financialTransId: body.financialTransId || null, paidAt: FieldValue.serverTimestamp(), providerPayload: { status, amount: Number(body.amount) || data.amount } });
+        await unlockGoalAfterPayout(data.userId, data.goalId, 'PAID', requestRef.id);
+        const userRef = adminDb.collection('users').doc(data.userId);
+        await userRef.collection('notifications').doc(`withdrawal-${requestRef.id}`).set({ title: 'Retrait envoyé', body: `Ton retrait de ${Number(data.amount).toLocaleString('fr-FR')} FCFA a été envoyé.`, target: '/goals', createdAt: FieldValue.serverTimestamp() });
+      }
+    } else if (['FAILED', 'EXPIRED'].includes(status) && !['PAID', 'FAILED'].includes(data.status)) {
+      await requestRef.update({ status: 'FAILED', providerMessage: String(body.reason || 'Le prestataire n’a pas pu effectuer le retrait.').slice(0, 300), failedAt: FieldValue.serverTimestamp() });
+      await unlockGoalAfterPayout(data.userId, data.goalId, 'FAILED', requestRef.id);
+      await adminDb.collection('users').doc(data.userId).collection('notifications').doc(`withdrawal-${requestRef.id}`).set({ title: 'Retrait non effectué', body: 'Le prestataire n’a pas pu effectuer ce retrait. Ta demande a été débloquée ; contacte le support si nécessaire.', target: '/goals', createdAt: FieldValue.serverTimestamp() }).catch(() => {});
+    }
+    return NextResponse.json({ received: true });
+  } catch (error) {
+    console.error('[FAPSHI PAYOUT WEBHOOK]', error.message);
+    return NextResponse.json({ received: true });
+  }
+}
+
+async function handleGoalWithdrawalRequest(request, actionType = 'withdraw') {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const goalId = String(body.goalId || '').slice(0, 150);
+    const phoneRaw = String(body.phone || '').replace(/[^0-9+]/g, '');
+    let phone = phoneRaw.replace(/^\+/, '');
+    if (phone.startsWith('237') && phone.length === 12) phone = phone.slice(3);
+    if (!/^6[0-9]{8}$/.test(phone)) return errorResponse('Entre un numéro Mobile Money camerounais valide à 9 chiffres.', 400);
+    const medium = body.network === 'orange' ? 'orange money' : body.network === 'mtn' ? 'mobile money' : '';
+    if (!medium) return errorResponse('Choisis MTN Mobile Money ou Orange Money.', 400);
+    if (!goalId || goalId.includes('/')) return errorResponse('Épargne introuvable.', 400);
+
+    const userRef = adminDb.collection('users').doc(uid);
+    const goalRef = userRef.collection('goals').doc(goalId);
+    const requestRef = adminDb.collection('withdrawalRequests').doc();
+    const result = await adminDb.runTransaction(async (transaction) => {
+      const [userSnap, goalSnap, depositsSnap] = await Promise.all([
+        transaction.get(userRef), transaction.get(goalRef), transaction.get(goalRef.collection('deposits')),
+      ]);
+      if (!userSnap.exists || !goalSnap.exists) throw new Error('Épargne introuvable.');
+      const goal = goalSnap.data();
+      if (goal.withdrawalPending || goal.withdrawnAt) throw new Error('Une demande de retrait est déjà en cours pour cette épargne.');
+      const deposits = depositsSnap.docs.map((doc) => doc.data());
+      const totalDeposited = deposits.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+      const debt = Number(goal.debtBalance) || 0;
+      const plan = computeGoalPlan({ ...goal, id: goalSnap.id }, deposits);
+      if (actionType === 'withdraw' && goal.type !== 'piggybank' && !plan.isReached) throw new Error('Cet objectif n’a pas encore atteint son montant cible. Tu peux l’annuler si tu souhaites récupérer les fonds, avec les conditions affichées.');
+      const penalty = actionType === 'cancel' && goal.type !== 'piggybank' ? Math.round(totalDeposited * 0.10) : 0;
+      const platformFee = Math.max(0, Math.round(Number(process.env.PATA_WITHDRAWAL_FEE_XAF) || 0));
+      const amount = Math.floor(Math.max(0, totalDeposited - debt - penalty - platformFee));
+      if (amount < 100) throw new Error('Le montant disponible est inférieur au minimum de retrait de 100 FCFA.');
+      if (amount > 500000) throw new Error('Le retrait dépasse le plafond de 500 000 FCFA accepté par Fapshi pour une seule opération. Contacte le support Pata pour organiser la suite sans risquer de bloquer ton épargne.');
+      const userData = userSnap.data();
+      transaction.create(requestRef, {
+        userId: uid,
+        email: userData.email || '',
+        displayName: userData.displayName || 'Utilisateur',
+        phone, medium,
+        goalId,
+        goalName: goal.name || (goal.type === 'piggybank' ? 'Tirelire' : 'Objectif'),
+        goalType: goal.type || 'goal',
+        actionType,
+        grossAmount: totalDeposited,
+        debtDeduction: debt,
+        cancellationPenalty: penalty,
+        platformFee,
+        amount,
+        currency: 'XAF',
+        status: 'PENDING_REVIEW',
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      transaction.update(goalRef, { withdrawalPending: true, withdrawalRequestId: requestRef.id, withdrawalStatus: 'PENDING_REVIEW' });
+      return { amount, grossAmount: totalDeposited, debt, penalty, platformFee, requestId: requestRef.id };
+    });
+    return NextResponse.json({ success: true, ...result, message: 'Ta demande a été envoyée. Elle sera vérifiée avant l’envoi de l’argent.' });
+  } catch (error) { return errorResponse(error.message || 'Impossible de créer la demande de retrait.', 400); }
+}
+
+async function handleAdminNotificationSync(request) {
+  try {
+    await requireAdmin(request);
+    const url = new URL(request.url);
+    const cursor = String(url.searchParams.get('cursor') || '').slice(0, 150);
+    const requestedLimit = Number(url.searchParams.get('limit')) || 300;
+    const limit = Math.min(400, Math.max(50, Math.floor(requestedLimit)));
+    let query = adminDb.collection('users')
+      .where('notificationsEnabled', '==', true)
+      .orderBy(FieldPath.documentId())
+      .limit(limit);
+    if (cursor) {
+      if (cursor.includes('/')) return errorResponse('Repère de pagination invalide.', 400);
+      const cursorDoc = await adminDb.collection('users').doc(cursor).get();
+      if (!cursorDoc.exists) return errorResponse('La page a changé. Relance la synchronisation depuis le début.', 409);
+      query = query.startAfter(cursorDoc);
+    }
+    const snapshot = await query.get();
+    const tokens = [...new Set(snapshot.docs.flatMap((doc) => {
+      const values = doc.data()?.pushTokens;
+      return Array.isArray(values) ? values.filter((token) => typeof token === 'string' && token.length > 20) : [];
+    }))];
+    let subscribed = 0;
+    for (let index = 0; index < tokens.length; index += 500) {
+      const chunk = tokens.slice(index, index + 500);
+      const result = await adminMessaging.subscribeToTopic(chunk, 'pata_all_users');
+      subscribed += Number(result.successCount) || 0;
+    }
+    const lastDoc = snapshot.docs[snapshot.docs.length - 1];
+    return NextResponse.json({
+      success: true,
+      usersScanned: snapshot.size,
+      devicesFound: tokens.length,
+      devicesSubscribed: subscribed,
+      nextCursor: snapshot.size === limit ? (lastDoc?.id || null) : null,
+      hasMore: snapshot.size === limit,
+      message: `${snapshot.size} comptes vérifiés et ${subscribed} appareils ajoutés au groupe de notifications.`,
+    });
+  } catch (error) { return errorResponse(error.message || 'Synchronisation des appareils impossible.', 401); }
+}
+
+async function handleAdminBroadcast(request) {
+  try {
+    await requireAdmin(request);
+    const body = await request.json();
+    const title = String(body.title || '').trim().slice(0, 80);
+    const message = String(body.message || '').trim().slice(0, 220);
+    const path = String(body.path || '/dashboard');
+    if (!title || !message) return errorResponse('Écris un titre et un message.', 400);
+    if (!path.startsWith('/') || path.startsWith('//')) return errorResponse('Lien interne invalide.', 400);
+    const messageId = await adminMessaging.send({
+      topic: 'pata_all_users',
+      notification: { title, body: message },
+      data: { url: path, tag: `pata-admin-${Date.now()}` },
+      webpush: { notification: { icon: '/android-chrome-192x192.png', badge: '/android-chrome-192x192.png', tag: `pata-admin-${Date.now()}`, renotify: false } },
+    });
+    return NextResponse.json({ success: true, messageId, message: 'Notification envoyée au groupe des appareils inscrits.' });
+  } catch (error) { return errorResponse(error.message || 'La diffusion n’a pas pu être envoyée.', 502); }
+}
+
 /* ═══════════════════ ROUTEUR PRINCIPAL ═══════════════════ */
 
 const ROUTES = {
@@ -1054,12 +1600,27 @@ const ROUTES = {
   'wallet/fund-goal':      { POST: handleFundGoal },
   'goals/borrow':          { POST: handleGoalBorrow },
   'goals/repay':           { POST: handleRepayLoan },
-  'goals/withdraw':        { POST: handleGoalWithdraw },
-  'goals/cancel':          { POST: handleGoalCancel },
+  'goals/withdraw':        { POST: (request) => handleGoalWithdrawalRequest(request, 'withdraw') },
+  'goals/cancel':          { POST: (request) => handleGoalWithdrawalRequest(request, 'cancel') },
+  'fapshi/payout-webhook': { POST: handleFapshiPayoutWebhook },
+  'admin/unlock': { POST: handleAdminUnlock },
+  'admin/logout': { POST: handleAdminLogout },
+  'admin/overview': { GET: handleAdminOverview },
+  'admin/users': { GET: handleAdminUsers },
+  'admin/user-detail': { GET: handleAdminUserDetail },
+  'admin/questions': { GET: handleAdminPopularQuestions },
+  'admin/withdrawals': { GET: handleAdminWithdrawals },
+  'admin/withdrawal/approve': { POST: handleAdminApproveWithdrawal },
+  'admin/withdrawal/reject': { POST: handleAdminRejectWithdrawal },
+  'admin/notifications/broadcast': { POST: handleAdminBroadcast },
+  'admin/notifications/sync': { POST: handleAdminNotificationSync },
+  'profile/activity': { POST: handleProfileActivity },
+  'analytics/income-created': { POST: handleIncomeAnalyticsEvent },
   'automations/run':       { POST: handleAutomationsRun },
   'automations/scheduler': { GET: handleAutomationsScheduler, POST: handleAutomationsScheduler },
   'notifications/subscribe': { POST: (request) => handleNotificationSubscription(request, false) },
   'notifications/unsubscribe': { POST: (request) => handleNotificationSubscription(request, true) },
+  'notifications/test': { POST: handleNotificationTest },
   'notifications/scheduler': { GET: handleNotificationScheduler, POST: handleNotificationScheduler },
   'currency/rates':        { GET: handleCurrencyRates },
   'usage/reserve':         { POST: handleReserveQuota },
