@@ -20,6 +20,7 @@ export function generateAdvice({
   goals = [],
   totalIncome = 0,
   previousIncome = 0,
+  previousIncomeSpend = 0,
   customCategories = [],
   userName = 'toi',
 }) {
@@ -106,26 +107,36 @@ export function generateAdvice({
 
   /* ────── 4. Taux d'épargne ────── */
   if (totalIncome > 0 && totalExpense > 0) {
-    const savingsRate = ((totalIncome - totalExpense) / totalIncome) * 100;
-    if (savingsRate >= 20) {
+    const availableForPeriod = totalIncome + Math.max(0, Number(previousIncomeSpend) || 0);
+    const periodRemainder = availableForPeriod - totalExpense;
+    const savingsRate = availableForPeriod > 0 ? (periodRemainder / availableForPeriod) * 100 : null;
+    if (previousIncomeSpend > 0 && totalExpense > totalIncome) {
+      advices.push({
+        id: 'previous-reserve-used',
+        type: 'success',
+        message: `Tu as utilisé ${formatCurrency(previousIncomeSpend)} de revenus conservés lors des périodes précédentes pour financer une partie de tes dépenses actuelles. C’est une réserve que tu avais déjà constituée, pas un revenu qui a disparu. Continue à suivre son évolution.`,
+        priority: 88,
+      });
+    }
+    if (savingsRate !== null && savingsRate >= 20) {
       advices.push({
         id: 'savings-good',
         type: 'success',
-        message: `Tu gardes ${savingsRate.toFixed(0)}% de tes revenus (${formatCurrency(totalIncome - totalExpense)}). C'est excellent, tu peux envisager d'investir cette épargne.`,
+        message: `Après prise en compte de tes réserves antérieures, il te reste ${formatCurrency(Math.max(0, periodRemainder))} sur les ressources disponibles pour cette période.`,
         priority: 40,
       });
-    } else if (savingsRate >= 0 && savingsRate < 10) {
+    } else if (savingsRate !== null && savingsRate >= 0 && savingsRate < 10) {
       advices.push({
         id: 'savings-low',
         type: 'warning',
-        message: `Tu n'épargnes que ${savingsRate.toFixed(0)}% de tes revenus. Essaie de viser 20% pour ${formatCurrency(totalIncome * 0.2)} mis de côté par mois.`,
+        message: `Il te reste peu de marge sur les ressources disponibles pour cette période. Vérifie les dépenses variables avant les prochaines sorties d’argent.`,
         priority: 70,
       });
-    } else if (savingsRate < 0) {
+    } else if (savingsRate !== null && savingsRate < 0 && previousIncomeSpend <= 0) {
       advices.push({
         id: 'savings-negative',
-        type: 'danger',
-        message: `Attention${name ? ' ' + name : ''} : tu as dépensé ${formatCurrency(Math.abs(totalIncome - totalExpense))} de plus que ce que tu as gagné. Tu puises dans tes réserves.`,
+        type: 'warning',
+        message: `Les dépenses enregistrées dépassent les revenus saisis pour cette période. Vérifie si certaines réserves ou sources de financement ne sont pas encore enregistrées dans Pata.`,
         priority: 100,
       });
     }

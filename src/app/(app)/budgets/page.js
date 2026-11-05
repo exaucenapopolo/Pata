@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useAuth } from '@/hooks/useAuth';
+import { useProfile } from '@/hooks/useProfile';
 import { useBudgets } from '@/hooks/useBudgets';
 import { useExpenses } from '@/hooks/useExpenses';
 import { useIncomes } from '@/hooks/useIncomes';
@@ -21,6 +22,7 @@ const todayMonth = () => getLocalMonth();
 
 export default function BudgetsPage() {
   const { user } = useAuth();
+  const { profile } = useProfile();
   const [month, setMonth] = useState(todayMonth());
   const [selectedIncome, setSelectedIncome] = useState('all');
   
@@ -33,6 +35,7 @@ export default function BudgetsPage() {
   const [amount, setAmount] = useState('');
   const [saving, setSaving] = useState(false);
   const [details, setDetails] = useState(null);
+  const [saveError, setSaveError] = useState('');
 
   const monthIncomes = useMemo(() => incomes.filter(i => i.month === month), [incomes, month]);
 
@@ -63,6 +66,12 @@ export default function BudgetsPage() {
     });
   }, [budgets, spentByCategory, monthExpenses, expenseCategories]);
 
+  const currentMonthKey = todayMonth();
+  const budgetExpiry = profile?.premiumUntil?.toDate ? profile.premiumUntil.toDate() : new Date(profile?.premiumUntil || 0);
+  const budgetPremium = Number.isFinite(budgetExpiry.getTime()) && budgetExpiry > new Date();
+  const usedBudgetQuota = profile?.monthlyStats?.lastResetMonth === currentMonthKey ? Number(profile?.monthlyStats?.budgets) || 0 : 0;
+  const budgetQuotaReached = !budgetPremium && usedBudgetQuota >= 2;
+
   const totalAllocated = enriched.reduce((s, c) => s + c.allocated, 0);
   const totalSpent = enriched.reduce((s, c) => s + c.spent, 0);
 
@@ -76,6 +85,7 @@ export default function BudgetsPage() {
     const value = Number(amount);
     if (!value || value < 0) return;
     setSaving(true);
+    setSaveError('');
     try {
       if (value === 0 && editing.budgetId) {
         await deleteBudget(user.uid, editing.budgetId);
@@ -88,6 +98,8 @@ export default function BudgetsPage() {
         });
       }
       setEditing(null);
+    } catch (error) {
+      setSaveError(error.message || 'Impossible d’enregistrer ce budget.');
     } finally {
       setSaving(false);
     }
@@ -101,6 +113,7 @@ export default function BudgetsPage() {
           <p className="text-sm text-slate-500">
             {formatCurrency(totalSpent)} dépensés sur {formatCurrency(totalAllocated)} alloués
           </p>
+          {!budgetPremium && <p className="mt-1 text-xs text-slate-500">Créations de budgets : {usedBudgetQuota} / 2 ce mois-ci.</p>}
         </div>
         <div className="flex flex-wrap gap-2">
           <input
@@ -142,9 +155,11 @@ export default function BudgetsPage() {
             </button>
             <div className="mb-2 flex items-start justify-end">
               <button
-                onClick={(event) => { event.stopPropagation(); openEdit(c); }}
-                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                aria-label="Modifier"
+                onClick={(event) => { event.stopPropagation(); setSaveError(''); openEdit(c); }}
+                disabled={!c.budgetId && budgetQuotaReached}
+                className={`rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 ${!c.budgetId && budgetQuotaReached ? 'cursor-not-allowed opacity-30' : ''}`}
+                aria-label="Modifier ou définir le budget"
+                title={!c.budgetId && budgetQuotaReached ? 'Limite gratuite atteinte' : 'Modifier le budget'}
               >
                 <Pencil size={14} />
               </button>
@@ -175,6 +190,8 @@ export default function BudgetsPage() {
           </Card>
         ))}
       </div>
+
+      {budgetQuotaReached && <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3"><p className="text-xs text-amber-800">Tu as utilisé tes deux créations de budget gratuites ce mois-ci. Les enveloppes déjà créées restent modifiables.</p><Button size="sm" onClick={() => window.location.assign('/premium')}>Passer à Premium</Button></div>}
 
       <Modal open={!!details} onClose={() => setDetails(null)} title={details ? `Détail du budget — ${details.label}` : ''}>
         {details && (
@@ -236,6 +253,7 @@ export default function BudgetsPage() {
             <p className="text-xs text-slate-500">
               Mets 0 pour supprimer le budget de cette catégorie.
             </p>
+            {saveError && <p role="alert" className="rounded-lg bg-red-50 p-2 text-sm text-red-700">{saveError}</p>}
             <Button type="submit" className="w-full" disabled={saving}>
               {saving ? 'Enregistrement…' : 'Enregistrer'}
             </Button>

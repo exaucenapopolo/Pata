@@ -117,6 +117,21 @@ export default function SettingsPage() {
     URL.revokeObjectURL(url);
   };
 
+  const localMonthKey = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Douala', year: 'numeric', month: '2-digit' }).format(new Date());
+  const localDayKey = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Douala', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  const stats = profile?.monthlyStats?.lastResetMonth === localMonthKey ? (profile.monthlyStats || {}) : {};
+  const expiry = profile?.premiumUntil?.toDate ? profile.premiumUntil.toDate() : new Date(profile?.premiumUntil || 0);
+  const isPremium = Number.isFinite(expiry.getTime()) && expiry > new Date();
+  const usageRows = [
+    ['Dépenses', Number(stats.expenses) || 0, 60],
+    ['Revenus', Number(stats.incomes) || 0, 2],
+    ['Budgets', Number(stats.budgets) || 0, 2],
+    ['Objectifs et tirelires', Number(stats.goals) || 0, 1],
+    ['Prévisions vitales', Number(stats.vitalForecasts) || 0, 1],
+    ['Estimations de durée', Number(stats.durationForecasts) || 0, 1],
+  ];
+  const dailyStats = profile?.dailyStats?.lastResetDate === localDayKey ? profile.dailyStats : {};
+
   const onLogout = async () => {
     if (!confirm('Se déconnecter ?')) return;
     await logout();
@@ -129,6 +144,27 @@ export default function SettingsPage() {
         <h1 className="text-2xl font-bold text-slate-900">Paramètres</h1>
         <p className="text-sm text-slate-500">Personnalise ton compte et tes préférences.</p>
       </div>
+
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div><CardTitle>Mon abonnement</CardTitle><p className="mt-1 text-xs text-slate-500">Ton offre et ton utilisation pour le mois en cours.</p></div>
+          <span className={`rounded-full px-3 py-1 text-xs font-semibold ${isPremium ? 'bg-amber-50 text-amber-800' : 'bg-slate-100 text-slate-700'}`}>{isPremium ? 'Premium' : 'Gratuit'}</span>
+        </div>
+        {isPremium ? (
+          <p className="mt-3 text-sm text-slate-600">Accès Premium jusqu’au {expiry.toLocaleDateString('fr-FR')}.</p>
+        ) : (
+          <div className="mt-3 space-y-2">
+            {usageRows.map(([label, used, limit]) => (
+              <div key={label} className="flex items-center justify-between gap-3 border-b border-slate-100 py-2 last:border-0">
+                <span className="text-sm text-slate-700">{label}</span>
+                <span className={`shrink-0 text-sm font-semibold ${used >= limit ? 'text-amber-700' : 'text-slate-600'}`}>{used} / {limit}</span>
+              </div>
+            ))}
+            <div className="flex items-center justify-between gap-3 pt-1"><span className="text-sm text-slate-700">Messages à Mč aujourd’hui</span><span className="text-sm font-semibold text-slate-600">{Number(dailyStats.aiCount) || 0} / 3</span></div>
+            <Button type="button" className="mt-2 w-full" onClick={() => router.push('/premium')}>Découvrir Premium</Button>
+          </div>
+        )}
+      </Card>
 
       <Card>
         <CardTitle className="mb-3">Profil</CardTitle>

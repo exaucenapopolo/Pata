@@ -88,14 +88,14 @@ function MessageContent({ text }) {
       }
       blocks.push(
         <div key={`table-${blocks.length}`} className="my-3 max-w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[420px] border-collapse text-left text-xs sm:text-sm">
+          <div className="w-full max-w-full overflow-hidden">
+            <table className="w-full table-fixed border-collapse text-left text-[11px] sm:text-sm">
               <thead className="bg-slate-100 text-slate-700">
-                <tr>{headers.map((header, cellIndex) => <th key={cellIndex} className="whitespace-nowrap border-b border-slate-200 px-3 py-2.5 font-semibold">{renderInline(header, `th-${cellIndex}`)}</th>)}</tr>
+                <tr>{headers.map((header, cellIndex) => <th key={cellIndex} className="break-words border-b border-slate-200 px-2 py-2 font-semibold sm:px-3 sm:py-2.5">{renderInline(header, `th-${cellIndex}`)}</th>)}</tr>
               </thead>
               <tbody>{rows.map((row, rowIndex) => (
                 <tr key={rowIndex} className={rowIndex % 2 ? 'bg-slate-50/70' : 'bg-white'}>
-                  {headers.map((_, cellIndex) => <td key={cellIndex} className="border-b border-slate-100 px-3 py-2.5 align-top text-slate-700">{renderInline(row[cellIndex] || '—', `td-${rowIndex}-${cellIndex}`)}</td>)}
+                  {headers.map((_, cellIndex) => <td key={cellIndex} className="break-words border-b border-slate-100 px-2 py-2 align-top text-slate-700 sm:px-3 sm:py-2.5">{renderInline(row[cellIndex] || '—', `td-${rowIndex}-${cellIndex}`)}</td>)}
                 </tr>
               ))}</tbody>
             </table>
@@ -528,7 +528,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
                         <span className="text-xs font-semibold text-brand-700">Réponse vocale</span>
                       </div>
                       {m.audioData ? (
-                        <audio controls src={`data:audio/wav;base64,${m.audioData}`} className="mb-3 h-9 w-full" />
+                        <div className="mb-3 rounded-xl border border-slate-200 bg-white p-2.5"><audio controls preload="metadata" src={`data:audio/wav;base64,${m.audioData}`} className="h-10 w-full" /><p className="mt-1 text-[10px] text-slate-400">Lecture audio · Tu peux mettre en pause ou reprendre à tout moment.</p></div>
                       ) : (
                         <p className="mb-2 text-xs text-slate-500 italic">Le fichier vocal n’est plus disponible, mais le texte de la réponse reste accessible.</p>
                       )}
@@ -577,10 +577,21 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
               </div>
             ))}
             {loading && (
-               <div className="flex items-start gap-2 bg-slate-100 w-fit px-4 py-2 rounded-2xl rounded-bl-sm">
-                 <Loader2 size={14} className="animate-spin text-brand-600" />
-                 <span className="text-xs text-slate-600">Mč réfléchit...</span>
-               </div>
+              <div className="flex w-fit max-w-[88%] items-center gap-3 rounded-2xl rounded-bl-sm border border-slate-200 bg-white px-4 py-3 shadow-sm" role="status" aria-live="polite">
+                <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-50">
+                  <span className="absolute inset-0 animate-ping rounded-full bg-brand-200/60" />
+                  <BrainCircuit size={16} className="relative text-brand-700" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-xs font-semibold text-slate-800">Mč prépare sa réponse</span>
+                  <span className="mt-1 flex items-center gap-1.5" aria-hidden="true">
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand-500 [animation-delay:-0.2s]" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand-500 [animation-delay:-0.1s]" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-brand-500" />
+                    <span className="ml-1 text-[10px] text-slate-500">Un instant…</span>
+                  </span>
+                </span>
+              </div>
             )}
           </div>
 

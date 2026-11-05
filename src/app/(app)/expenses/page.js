@@ -2,7 +2,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Plus, Trash2, Wallet, Pencil, Landmark, Calendar } from 'lucide-react';
+import { Plus, Trash2, Wallet, Pencil, Landmark, Calendar, Repeat } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -15,6 +15,7 @@ import { useExpenses } from '@/hooks/useExpenses';
 import { useIncomes } from '@/hooks/useIncomes';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { createExpense, updateExpense, deleteExpense } from '@/lib/firestore/expenses';
+import { createAutomation } from '@/lib/firestore/automations';
 import { formatCurrency, formatDate, resolveCategory, getFirstOfMonth, getLastOfMonth, getLocalMonth } from '@/lib/utils';
 
 const todayIso = () => {
@@ -48,6 +49,10 @@ export default function ExpensesPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [deleteId, setDeleteId] = useState(null);
+  const [recurringExpense, setRecurringExpense] = useState(null);
+  const [recurringFrequency, setRecurringFrequency] = useState('daily');
+  const [recurringSaving, setRecurringSaving] = useState(false);
+  const [recurringError, setRecurringError] = useState('');
 
   const startDate = showCustomPeriod ? customStart : getFirstOfMonth();
   const endDate = showCustomPeriod ? customEnd : getLastOfMonth();
@@ -162,6 +167,41 @@ export default function ExpensesPage() {
     }
   };
 
+  const makeExpenseRecurring = async (event) => {
+    event.preventDefault();
+    if (!recurringExpense || !user) return;
+    setRecurringSaving(true);
+    setRecurringError('');
+    try {
+      const baseDate = new Date(`${recurringExpense.date || todayIso()}T12:00:00`);
+      const anchorDay = baseDate.getDate();
+      if (recurringFrequency === 'daily') baseDate.setDate(baseDate.getDate() + 1);
+      else if (recurringFrequency === 'weekly') baseDate.setDate(baseDate.getDate() + 7);
+      else {
+        baseDate.setDate(1);
+        baseDate.setMonth(baseDate.getMonth() + 1);
+        baseDate.setDate(Math.min(anchorDay, new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, 0).getDate()));
+      }
+      await createAutomation(user.uid, {
+        amount: recurringExpense.amount,
+        categoryId: recurringExpense.categoryId,
+        note: recurringExpense.note || 'Dépense récurrente',
+        frequency: recurringFrequency,
+        nextRun: baseDate.toISOString(),
+        anchorDay,
+        endDate: null,
+        active: true,
+        incomeSourceId: recurringExpense.incomeSourceId || 'all',
+        incomeSourceName: recurringExpense.incomeSourceName || 'Tous les revenus',
+      });
+      setRecurringExpense(null);
+    } catch (error) {
+      setRecurringError(error.message || 'Impossible de programmer cette dépense.');
+    } finally {
+      setRecurringSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -256,6 +296,9 @@ export default function ExpensesPage() {
                         <span className="text-sm font-bold text-slate-800">
                           {formatCurrency(e.amount)}
                         </span>
+                        <button type="button" onClick={() => { setRecurringExpense(e); setRecurringFrequency('daily'); setRecurringError(''); }} className="rounded-lg p-1.5 text-slate-400 hover:bg-brand-50 hover:text-brand-700" aria-label="Rendre cette dépense récurrente" title="Rendre récurrente">
+                          <Repeat size={15} />
+                        </button>
                         <button
                           onClick={() => openEdit(e)}
                           className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
@@ -351,6 +394,29 @@ export default function ExpensesPage() {
             {saving ? 'Enregistrement…' : form.id ? 'Mettre à jour' : 'Ajouter'}
           </Button>
         </form>
+      </Modal>
+
+      <Modal open={!!recurringExpense} onClose={() => setRecurringExpense(null)} title="Programmer cette dépense">
+        {recurringExpense && (
+          <form onSubmit={makeExpenseRecurring} className="space-y-3">
+            <div className="rounded-lg bg-slate-50 p-3">
+              <p className="text-sm font-semibold text-slate-800">{formatCurrency(recurringExpense.amount)} · {resolveCategory(recurringExpense.categoryId, 'expense', customCategories)?.label || 'Dépense'}</p>
+              <p className="mt-1 text-xs text-slate-500">{recurringExpense.note || 'Sans note'}</p>
+            </div>
+            <label className="block text-sm font-medium text-slate-700">Fréquence
+              <select value={recurringFrequency} onChange={(event) => setRecurringFrequency(event.target.value)} className="mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm">
+                <option value="daily">Chaque jour</option><option value="weekly">Chaque semaine</option><option value="monthly">Chaque mois</option>
+              </select>
+            </label>
+            <p className="text-xs leading-5 text-slate-500">La première occurrence sera programmée après la dépense choisie. Tu pourras ensuite gérer cette opération dans les automatisations.</p>
+            <button type="button" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700" onClick={() => {
+              const prompt = `Je souhaite rendre cette dépense récurrente. Montant : ${recurringExpense.amount} FCFA. Catégorie : ${recurringExpense.categoryId}. Note : ${recurringExpense.note || 'aucune'}. Fréquence choisie : ${recurringFrequency}. Explique les avantages, les risques de solde insuffisant et comment modifier ou arrêter cette programmation. Ne crée rien sans mon accord.`;
+              window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt } }));
+            }}>Demander conseil à Mč</button>
+            {recurringError && <p role="alert" className="text-sm text-red-600">{recurringError}</p>}
+            <Button type="submit" className="w-full" disabled={recurringSaving}>{recurringSaving ? 'Programmation…' : 'Confirmer la programmation'}</Button>
+          </form>
+        )}
       </Modal>
 
       <ConfirmDialog 

@@ -39,7 +39,7 @@ const PLAN_LIMITS = {
     expenses: 60,
     incomes: 2,
     budgets: 2,
-    goals: 2,
+    goals: 1,
     vitalForecasts: 1,
     durationForecasts: 1,
     dailyAI: 3,
@@ -329,12 +329,18 @@ async function handleNotificationTest(request) {
       await userRef.set({ pushTokens: FieldValue.arrayUnion(token), notificationsEnabled: true, notificationsUpdatedAt: FieldValue.serverTimestamp() }, { merge: true });
       await adminMessaging.subscribeToTopic([token], 'pata_all_users');
     }
+    const tag = `pata-test-${Date.now()}`;
     const messageId = await adminMessaging.send({
       token,
-      notification: { title: 'Pata — test réussi', body: 'Les notifications sont bien reliées à cet appareil.' },
-      data: { url: '/settings', tag: `pata-test-${Date.now()}` },
-      webpush: { notification: { icon: '/android-chrome-192x192.png', badge: '/android-chrome-192x192.png', tag: `pata-test-${Date.now()}`, renotify: true } },
+      data: {
+        title: 'Pata — test réussi',
+        body: 'Les notifications sont bien reliées à cet appareil.',
+        url: '/settings',
+        tag,
+      },
+      webpush: { headers: { TTL: '60' } },
     });
+    console.info('[PATA PUSH TEST ACCEPTED]', { uid, messageId, tokenSuffix: token.slice(-8) });
     return NextResponse.json({ success: true, messageId });
   } catch (error) {
     const message = error.code === 'messaging/registration-token-not-registered'
@@ -474,6 +480,185 @@ async function handleCurrencyRates(request) {
   }
 }
 
+
+function getDoualaMonthKey(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Douala', year: 'numeric', month: '2-digit' }).formatToParts(date);
+  return `${parts.find((part) => part.type === 'year')?.value}-${parts.find((part) => part.type === 'month')?.value}`;
+}
+
+function normalizeMonthlyStatsForMonth(stats = {}, month) {
+  return stats.lastResetMonth === month
+    ? { ...stats }
+    : { ...stats, expenses: 0, incomes: 0, budgets: 0, goals: 0, vitalForecasts: 0, durationForecasts: 0, lastResetMonth: month };
+}
+
+function addMonthsSafe(dateText, count) {
+  const date = new Date(`${dateText}T12:00:00`);
+  const day = date.getDate();
+  date.setDate(1);
+  date.setMonth(date.getMonth() + count);
+  const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  date.setDate(Math.min(day, lastDay));
+  return date;
+}
+
+function monthKeysBetween(startDate, endDate) {
+  const start = new Date(`${startDate.slice(0, 7)}-01T12:00:00`);
+  const end = new Date(`${endDate.slice(0, 7)}-01T12:00:00`);
+  const keys = [];
+  while (start <= end && keys.length < 36) {
+    keys.push(`${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`);
+    start.setMonth(start.getMonth() + 1);
+  }
+  return keys;
+}
+
+async function handleCreateIncome(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const amount = Math.round(Number(body.amount));
+    const source = String(body.source || 'Revenu').trim().slice(0, 100);
+    const categoryId = String(body.categoryId || 'salary').trim().slice(0, 80);
+    const date = String(body.date || new Date().toISOString().slice(0, 10));
+    const month = String(body.month || date.slice(0, 7));
+    const note = String(body.note || '').trim().slice(0, 250);
+    if (!Number.isSafeInteger(amount) || amount <= 0) return errorResponse('Indique un montant de revenu valide.', 400);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{4}-\d{2}$/.test(month) || month !== date.slice(0, 7)) return errorResponse('La date du revenu est invalide.', 400);
+    const userRef = adminDb.collection('users').doc(uid);
+    const incomeRef = userRef.collection('incomes').doc();
+    const result = await adminDb.runTransaction(async (transaction) => {
+      const userSnap = await transaction.get(userRef);
+      if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
+      const userData = userSnap.data();
+      const currentMonth = getDoualaMonthKey();
+      const stats = normalizeMonthlyStatsForMonth(userData.monthlyStats || {}, currentMonth);
+      const current = Number(stats.incomes) || 0;
+      if (!isPremiumAccount(userData) && current >= PLAN_LIMITS.FREE.incomes) {
+        throw new Error(`Tu as atteint les ${PLAN_LIMITS.FREE.incomes} revenus autorisés ce mois-ci avec le compte gratuit. Passe à Premium pour en ajouter davantage.`);
+      }
+      stats.incomes = current + 1;
+      stats.lastResetMonth = currentMonth;
+      transaction.create(incomeRef, {
+        amount, source: source || 'Revenu', categoryId, month, date, note,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      transaction.update(userRef, {
+        monthlyStats: stats,
+        lifetimeIncomeAmount: FieldValue.increment(amount),
+        lifetimeIncomeCount: FieldValue.increment(1),
+      });
+      return { id: incomeRef.id, current: stats.incomes, limit: PLAN_LIMITS.FREE.incomes };
+    });
+    return NextResponse.json({ success: true, ...result });
+  } catch (error) {
+    const status = /atteint|introuvable|invalide/i.test(error.message || '') ? 403 : 500;
+    return errorResponse(error.message || 'Impossible d’enregistrer ce revenu.', status);
+  }
+}
+
+async function handleUpsertBudget(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const categoryId = String(body.categoryId || '').trim().slice(0, 100);
+    const amount = Math.round(Number(body.amount));
+    const month = String(body.month || '');
+    const incomeSourceId = String(body.incomeSourceId || 'all').trim().slice(0, 150);
+    if (!categoryId || !/^\d{4}-\d{2}$/.test(month) || !Number.isSafeInteger(amount) || amount <= 0) return errorResponse('Vérifie la catégorie, la période et le montant du budget.', 400);
+    const userRef = adminDb.collection('users').doc(uid);
+    const budgetQuery = userRef.collection('budgets').where('month', '==', month).where('categoryId', '==', categoryId).where('incomeSourceId', '==', incomeSourceId);
+    const result = await adminDb.runTransaction(async (transaction) => {
+      const [userSnap, existingSnap] = await Promise.all([transaction.get(userRef), transaction.get(budgetQuery)]);
+      if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
+      if (!existingSnap.empty) {
+        const existing = existingSnap.docs[0];
+        transaction.update(existing.ref, { amount, updatedAt: FieldValue.serverTimestamp() });
+        return { id: existing.id, updated: true };
+      }
+      const userData = userSnap.data();
+      const currentMonth = getDoualaMonthKey();
+      const stats = normalizeMonthlyStatsForMonth(userData.monthlyStats || {}, currentMonth);
+      const current = Number(stats.budgets) || 0;
+      if (!isPremiumAccount(userData) && current >= PLAN_LIMITS.FREE.budgets) {
+        throw new Error(`Tu as atteint les ${PLAN_LIMITS.FREE.budgets} budgets autorisés ce mois-ci avec le compte gratuit. Passe à Premium pour continuer.`);
+      }
+      stats.budgets = current + 1;
+      stats.lastResetMonth = currentMonth;
+      const budgetRef = userRef.collection('budgets').doc();
+      transaction.create(budgetRef, { categoryId, amount, month, incomeSourceId, createdAt: FieldValue.serverTimestamp() });
+      transaction.update(userRef, { monthlyStats: stats });
+      return { id: budgetRef.id, created: true, current: stats.budgets, limit: PLAN_LIMITS.FREE.budgets };
+    });
+    return NextResponse.json({ success: true, ...result });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible d’enregistrer ce budget.', /atteint|introuvable|invalide/i.test(error.message || '') ? 403 : 500);
+  }
+}
+
+async function handleCreateGoal(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const name = String(body.name || '').trim().slice(0, 100);
+    const type = body.type === 'piggybank' ? 'piggybank' : 'goal';
+    const categoryId = String(body.categoryId || 'savings').trim().slice(0, 80);
+    if (!name) return errorResponse('Le nom de l’épargne est requis.', 400);
+    const startDate = String(body.startDate || new Date().toISOString().slice(0, 10));
+    const deadline = String(body.deadline || '');
+    const targetAmount = Math.round(Number(body.targetAmount));
+    if (type === 'goal') {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(deadline) || deadline <= startDate || !Number.isSafeInteger(targetAmount) || targetAmount <= 0) return errorResponse('Vérifie le montant et les dates de ton objectif.', 400);
+    }
+    const userRef = adminDb.collection('users').doc(uid);
+    const goalsQuery = userRef.collection('goals');
+    const reservationsQuery = userRef.collection('goal_quota_reservations');
+    const goalRef = goalsQuery.doc();
+    const result = await adminDb.runTransaction(async (transaction) => {
+      const [userSnap, goalsSnap, reservationsSnap] = await Promise.all([transaction.get(userRef), transaction.get(goalsQuery), transaction.get(reservationsQuery)]);
+      if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
+      const userData = userSnap.data();
+      const currentMonth = getDoualaMonthKey();
+      const stats = normalizeMonthlyStatsForMonth(userData.monthlyStats || {}, currentMonth);
+      const current = Number(stats.goals) || 0;
+      const premium = isPremiumAccount(userData);
+      if (!premium && current >= PLAN_LIMITS.FREE.goals) throw new Error('Tu as atteint la création d’épargne autorisée ce mois-ci avec le compte gratuit. Passe à Premium pour continuer.');
+      if (!premium && type === 'goal') {
+        const maxDeadline = addMonthsSafe(startDate, 2);
+        if (new Date(`${deadline}T12:00:00`) > maxDeadline) throw new Error('Avec le compte gratuit, un objectif peut durer jusqu’à deux mois. Pour une durée plus longue, passe à Premium.');
+        const wantedMonths = new Set(monthKeysBetween(startDate, deadline));
+        const alreadyReserved = reservationsSnap.docs.some((document) => wantedMonths.has(document.id));
+        const legacyOverlap = goalsSnap.docs.some((document) => {
+          const existing = document.data();
+          if (existing.closed || existing.withdrawnAt || existing.type !== 'goal' || !existing.startDate || !existing.deadline) return false;
+          return monthKeysBetween(String(existing.startDate), String(existing.deadline)).some((key) => wantedMonths.has(key));
+        });
+        if (alreadyReserved || legacyOverlap) throw new Error('Un autre objectif occupe déjà au moins un des mois choisis. Termine-le ou passe à Premium pour planifier plusieurs objectifs en parallèle.');
+        for (const monthKey of wantedMonths) {
+          transaction.create(reservationsQuery.doc(monthKey), { goalId: goalRef.id, month: monthKey, createdAt: FieldValue.serverTimestamp() });
+        }
+      }
+      stats.goals = current + 1;
+      stats.lastResetMonth = currentMonth;
+      const record = {
+        name, type, categoryId, debtBalance: 0, pinned: false,
+        createdAt: FieldValue.serverTimestamp(),
+      };
+      if (type === 'goal') Object.assign(record, {
+        targetAmount, startDate, deadline,
+        frequencyDays: Math.max(1, Math.floor(Number(body.frequencyDays) || 7)),
+        penaltyAmount: Math.max(0, Math.round(Number(body.penaltyAmount) || 0)),
+      });
+      transaction.create(goalRef, record);
+      transaction.update(userRef, { monthlyStats: stats });
+      return { id: goalRef.id, current: stats.goals, limit: PLAN_LIMITS.FREE.goals };
+    });
+    return NextResponse.json({ success: true, ...result });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de créer cette épargne.', /atteint|deux mois|occupe|introuvable|vérifie/i.test(error.message || '') ? 403 : 500);
+  }
+}
+
 async function handleReserveQuota(request) {
   try {
     const { uid } = await authenticate(request);
@@ -512,6 +697,118 @@ async function handleReserveQuota(request) {
   } catch (error) {
     return errorResponse(error.message || 'Impossible de vérifier la limite de ton compte.', 403);
   }
+}
+
+async function handleSaveVitalForecast(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const name = String(body.name || 'Prévision vitale').trim().slice(0, 100) || 'Prévision vitale';
+    const needsInput = body.needs && typeof body.needs === 'object' && !Array.isArray(body.needs) ? body.needs : {};
+    const needs = {};
+    const multipliers = { daily: 30, weekly: 4, monthly: 1 };
+    let computedTotal = 0;
+    for (const [categoryId, value] of Object.entries(needsInput).slice(0, 40)) {
+      const amount = Math.round(Number(value?.amount));
+      const frequency = String(value?.frequency || 'monthly');
+      if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 1_000_000_000 || !multipliers[frequency]) continue;
+      needs[String(categoryId).slice(0, 80)] = { amount, frequency };
+      computedTotal += amount * multipliers[frequency];
+    }
+    const totalBudget = Math.round(Number(body.totalBudget) || computedTotal);
+    if (!Object.keys(needs).length || !Number.isSafeInteger(totalBudget) || totalBudget <= 0 || totalBudget > 10_000_000_000) return errorResponse('Ajoute au moins un besoin avec un montant valide.', 400);
+    const userRef = adminDb.collection('users').doc(uid);
+    const month = getDoualaMonthKey();
+    const result = await adminDb.runTransaction(async (transaction) => {
+      const userSnap = await transaction.get(userRef);
+      if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
+      const userData = userSnap.data();
+      const stats = normalizeMonthlyStatsForMonth(userData.monthlyStats || {}, month);
+      const premium = isPremiumAccount(userData);
+      const existingThisMonth = userData.vitalForecastCreatedMonth === month && Object.keys(userData.vitalNeeds || {}).length > 0;
+      if (!premium && !existingThisMonth) {
+        if ((Number(stats.vitalForecasts) || 0) >= PLAN_LIMITS.FREE.vitalForecasts) throw new Error('Tu as déjà utilisé ta prévision vitale gratuite ce mois-ci. Passe à Premium pour en créer une autre.');
+        stats.vitalForecasts = (Number(stats.vitalForecasts) || 0) + 1;
+      }
+      stats.lastResetMonth = month;
+      const snapshot = { id: `vital_${Date.now()}`, name, totalBudget, needs, month, createdAt: new Date().toISOString() };
+      const history = Array.isArray(userData.vitalForecastHistory) ? userData.vitalForecastHistory : [];
+      transaction.update(userRef, { vitalNeeds: needs, vitalBudgetName: name, vitalTotalBudget: totalBudget, vitalForecastCreatedMonth: month, vitalForecastHistory: [...history, snapshot].slice(-50), monthlyStats: stats });
+      return { totalBudget, snapshot };
+    });
+    return NextResponse.json({ success: true, ...result });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible d’enregistrer cette prévision.', /atteint|introuvable/i.test(error.message || '') ? 403 : 400);
+  }
+}
+
+async function handleDeleteVitalForecast(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const userRef = adminDb.collection('users').doc(uid);
+    await userRef.update({ vitalNeeds: {}, vitalBudgetName: null, vitalTotalBudget: 0, vitalForecastUpdatedAt: FieldValue.serverTimestamp() });
+    return NextResponse.json({ success: true });
+  } catch (error) { return errorResponse(error.message || 'Impossible de supprimer cette prévision.', 400); }
+}
+
+async function handleSaveDurationForecast(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const capital = Math.round(Number(body.capital));
+    const expense = Math.round(Number(body.expense));
+    const frequency = String(body.frequency || 'daily');
+    const daysPerPeriod = { daily: 1, weekly: 7, monthly: 30.4375 }[frequency];
+    if (!Number.isSafeInteger(capital) || capital <= 0 || capital > 10_000_000_000 || !Number.isSafeInteger(expense) || expense <= 0 || !daysPerPeriod) return errorResponse('Vérifie le capital, la dépense et sa fréquence.', 400);
+    const dailyRate = expense / daysPerPeriod;
+    const canCoverOnePeriod = capital >= expense;
+    const estimatedDays = canCoverOnePeriod ? Math.max(1, Math.floor((capital / expense) * daysPerPeriod)) : 0;
+    const createdAt = new Date();
+    const end = new Date(createdAt);
+    end.setDate(end.getDate() + estimatedDays);
+    const forecast = {
+      id: `duration_${createdAt.getTime()}`,
+      name: String(body.name || `Estimation du ${createdAt.toLocaleDateString('fr-FR')}`).trim().slice(0, 100),
+      capital, frequency, expense, averageDaily: dailyRate, estimatedDays, canCoverPeriod: canCoverOnePeriod,
+      dailyExpense: frequency === 'daily' ? expense : 0,
+      weeklyExpense: frequency === 'weekly' ? expense : 0,
+      monthlyExpense: frequency === 'monthly' ? expense : 0,
+      estimatedEndDate: canCoverOnePeriod ? end.toISOString().slice(0, 10) : null, createdAt: createdAt.toISOString(),
+    };
+    const userRef = adminDb.collection('users').doc(uid);
+    await adminDb.runTransaction(async (transaction) => {
+      const userSnap = await transaction.get(userRef);
+      if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
+      const userData = userSnap.data();
+      const month = getDoualaMonthKey();
+      const stats = normalizeMonthlyStatsForMonth(userData.monthlyStats || {}, month);
+      if (!isPremiumAccount(userData)) {
+        if ((Number(stats.durationForecasts) || 0) >= PLAN_LIMITS.FREE.durationForecasts) throw new Error('Tu as déjà utilisé ton estimation gratuite de durée du capital ce mois-ci. Passe à Premium pour en enregistrer une autre.');
+        stats.durationForecasts = (Number(stats.durationForecasts) || 0) + 1;
+      }
+      stats.lastResetMonth = month;
+      const forecasts = Array.isArray(userData.durationForecasts) ? userData.durationForecasts : [];
+      transaction.update(userRef, { durationForecasts: [...forecasts, forecast].slice(-50), monthlyStats: stats });
+    });
+    return NextResponse.json({ success: true, forecast });
+  } catch (error) { return errorResponse(error.message || 'Impossible d’enregistrer cette estimation.', /atteint|introuvable/i.test(error.message || '') ? 403 : 400); }
+}
+
+async function handleDeleteDurationForecast(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const id = String(body.id || '').trim().slice(0, 100);
+    if (!id) return errorResponse('Estimation introuvable.', 400);
+    const userRef = adminDb.collection('users').doc(uid);
+    await adminDb.runTransaction(async (transaction) => {
+      const snap = await transaction.get(userRef);
+      if (!snap.exists) throw new Error('Profil utilisateur introuvable.');
+      const forecasts = Array.isArray(snap.data().durationForecasts) ? snap.data().durationForecasts : [];
+      transaction.update(userRef, { durationForecasts: forecasts.filter((item) => item.id !== id) });
+    });
+    return NextResponse.json({ success: true });
+  } catch (error) { return errorResponse(error.message || 'Impossible de supprimer cette estimation.', 400); }
 }
 
 /* ═══════════════════ ROUTES DÉPENSES (CASCADE + QUOTA) ═══════════════════ */
@@ -558,12 +855,103 @@ async function handleDeleteExpense(request) {
 
 /* ═══════════════════ ROUTES OBJECTIFS / AUTOMATISATIONS ═══════════════════ */
 
+
+async function handleUpdateGoal(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const goalId = String(body.goalId || '').trim().slice(0, 150);
+    if (!goalId) return errorResponse('Objectif introuvable.', 400);
+    const userRef = adminDb.collection('users').doc(uid);
+    const goalsRef = userRef.collection('goals');
+    const goalRef = goalsRef.doc(goalId);
+    const reservationsRef = userRef.collection('goal_quota_reservations');
+    const result = await adminDb.runTransaction(async (transaction) => {
+      const [userSnap, goalSnap, goalsSnap, reservationsSnap] = await Promise.all([
+        transaction.get(userRef), transaction.get(goalRef), transaction.get(goalsRef), transaction.get(reservationsRef),
+      ]);
+      if (!userSnap.exists || !goalSnap.exists) throw new Error('Objectif introuvable.');
+      const userData = userSnap.data();
+      const current = goalSnap.data();
+      const premium = isPremiumAccount(userData);
+      const patch = { updatedAt: FieldValue.serverTimestamp() };
+      if (body.name !== undefined) {
+        const value = String(body.name || '').trim().slice(0, 100);
+        if (!value) throw new Error('Le nom ne peut pas être vide.');
+        patch.name = value;
+      }
+      if (body.categoryId !== undefined) patch.categoryId = String(body.categoryId || 'savings').trim().slice(0, 80);
+      if (body.targetAmount !== undefined && current.type === 'goal') {
+        const value = Math.round(Number(body.targetAmount));
+        if (!Number.isSafeInteger(value) || value <= 0 || value > 1_000_000_000) throw new Error('Montant cible invalide.');
+        patch.targetAmount = value;
+      }
+      if (body.frequencyDays !== undefined) patch.frequencyDays = Math.max(1, Math.min(365, Math.floor(Number(body.frequencyDays) || 7)));
+      if (body.penaltyAmount !== undefined) patch.penaltyAmount = Math.max(0, Math.round(Number(body.penaltyAmount) || 0));
+      if (body.pinned !== undefined) patch.pinned = body.pinned === true;
+      const nextStart = String(body.startDate ?? current.startDate ?? '');
+      const nextDeadline = String(body.deadline ?? current.deadline ?? '');
+      const datesChanged = body.startDate !== undefined || body.deadline !== undefined;
+      if (datesChanged && current.type === 'goal') {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(nextStart) || !/^\d{4}-\d{2}-\d{2}$/.test(nextDeadline) || nextDeadline <= nextStart) throw new Error('Vérifie les dates de ton objectif.');
+        if (!premium && new Date(`${nextDeadline}T12:00:00`) > addMonthsSafe(nextStart, 2)) throw new Error('Avec le compte gratuit, un objectif peut durer jusqu’à deux mois.');
+        if (!premium) {
+          const wanted = new Set(monthKeysBetween(nextStart, nextDeadline));
+          const occupiedByOther = reservationsSnap.docs.some((document) => wanted.has(document.id) && document.data()?.goalId !== goalId);
+          const legacyOverlap = goalsSnap.docs.some((document) => {
+            if (document.id === goalId) return false;
+            const item = document.data();
+            if (item.type !== 'goal' || item.closed || item.withdrawnAt || !item.startDate || !item.deadline) return false;
+            return monthKeysBetween(String(item.startDate), String(item.deadline)).some((month) => wanted.has(month));
+          });
+          if (occupiedByOther || legacyOverlap) throw new Error('Cette période chevauche déjà un autre objectif.');
+          for (const reservation of reservationsSnap.docs) {
+            if (reservation.data()?.goalId === goalId && !wanted.has(reservation.id)) transaction.delete(reservation.ref);
+          }
+          for (const month of wanted) {
+            const reservation = reservationsSnap.docs.find((document) => document.id === month);
+            if (!reservation) transaction.create(reservationsRef.doc(month), { goalId, month, createdAt: FieldValue.serverTimestamp() });
+          }
+        }
+        patch.startDate = nextStart;
+        patch.deadline = nextDeadline;
+      }
+      transaction.update(goalRef, patch);
+      return { id: goalId };
+    });
+    return NextResponse.json({ success: true, ...result });
+  } catch (error) { return errorResponse(error.message || 'Impossible de modifier cet objectif.', 400); }
+}
+
+async function handleDeleteGoal(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const goalId = String(body.goalId || '').trim();
+    if (!goalId) return errorResponse('Objectif introuvable.', 400);
+    const userRef = adminDb.collection('users').doc(uid);
+    const goalRef = userRef.collection('goals').doc(goalId);
+    const depositsRef = goalRef.collection('deposits');
+    await adminDb.runTransaction(async (transaction) => {
+      const [goalSnap, depositsSnap] = await Promise.all([transaction.get(goalRef), transaction.get(depositsRef)]);
+      if (!goalSnap.exists) throw new Error('Cette épargne n’existe plus.');
+      const totalDeposited = depositsSnap.docs.reduce((sum, item) => sum + (Number(item.data().amount) || 0), 0);
+      if (totalDeposited > 0) throw new Error('Cette épargne contient déjà de l’argent. Retire d’abord les fonds depuis sa fiche avant de la supprimer.');
+      depositsSnap.docs.forEach((item) => transaction.delete(item.ref));
+      transaction.delete(goalRef);
+      // Les réservations mensuelles sont conservées : supprimer une épargne ne rend pas le quota gratuit.
+    });
+    return NextResponse.json({ success: true });
+  } catch (error) { return errorResponse(error.message || 'Impossible de supprimer cette épargne.', 400); }
+}
+
 async function handleFundGoal(request) {
   try {
     const decoded = await authenticate(request);
     const body = await request.json();
-    const { goalId, amount } = body;
-    if (!goalId || !amount || amount <= 0) return errorResponse('Montant invalide.');
+    const goalId = String(body.goalId || '').trim();
+    const amount = Math.round(Number(body.amount));
+    if (!goalId || !Number.isSafeInteger(amount) || amount <= 0 || amount > 1_000_000_000) return errorResponse('Montant invalide.', 400);
 
     const userRef = adminDb.collection('users').doc(decoded.uid);
     const goalRef = adminDb.collection('users').doc(decoded.uid).collection('goals').doc(goalId);
@@ -571,9 +959,12 @@ async function handleFundGoal(request) {
     await adminDb.runTransaction(async (t) => {
       const userDoc = await t.get(userRef);
       const goalDoc = await t.get(goalRef);
-      if (userDoc.data().balance < amount) throw new Error('Solde insuffisant.');
+      if (!userDoc.exists) throw new Error('Profil utilisateur introuvable.');
+      if (!goalDoc.exists) throw new Error('Cette épargne n’existe plus.');
+      const currentBalance = Math.max(0, Number(userDoc.data().balance) || 0);
+      if (currentBalance < amount) throw new Error('Solde Pata insuffisant.');
 
-      t.update(userRef, { balance: userDoc.data().balance - amount });
+      t.update(userRef, { balance: currentBalance - amount });
       t.set(goalRef.collection('deposits').doc(), {
         amount, date: new Date().toISOString().slice(0, 10), source: 'wallet', createdAt: FieldValue.serverTimestamp(),
       });
@@ -1624,6 +2015,15 @@ const ROUTES = {
   'notifications/scheduler': { GET: handleNotificationScheduler, POST: handleNotificationScheduler },
   'currency/rates':        { GET: handleCurrencyRates },
   'usage/reserve':         { POST: handleReserveQuota },
+  'forecasts/vital/save': { POST: handleSaveVitalForecast },
+  'forecasts/vital/delete': { POST: handleDeleteVitalForecast },
+  'forecasts/duration/save': { POST: handleSaveDurationForecast },
+  'forecasts/duration/delete': { POST: handleDeleteDurationForecast },
+  'incomes/add': { POST: handleCreateIncome },
+  'budgets/upsert': { POST: handleUpsertBudget },
+  'goals/create': { POST: handleCreateGoal },
+  'goals/update': { POST: handleUpdateGoal },
+  'goals/delete': { POST: handleDeleteGoal },
   'expenses/add':          { POST: handleAddExpense },
   'expenses/update':       { POST: handleUpdateExpense },
   'expenses/delete':       { POST: handleDeleteExpense },

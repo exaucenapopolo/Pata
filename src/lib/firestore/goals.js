@@ -1,9 +1,8 @@
 import {
-  collection, addDoc, updateDoc, deleteDoc, doc,
-  onSnapshot, query, orderBy, serverTimestamp, getDocs,
+  collection, doc, onSnapshot, query, orderBy,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase/client';
-import { reserveCreationQuota } from '@/lib/usageLimits';
+import { auth } from '@/lib/firebase/client';
 
 const col = (uid) => collection(db, 'users', uid, 'goals');
 const depositsCol = (uid, gid) => collection(db, 'users', uid, 'goals', gid, 'deposits');
@@ -23,57 +22,49 @@ export function subscribeDeposits(uid, goalId, cb) {
 }
 
 export async function createGoal(uid, data) {
-  await reserveCreationQuota(uid, 'goals');
-  const base = {
-    name: String(data.name || '').trim(),
-    type: data.type || 'goal',
-    categoryId: data.categoryId || 'savings',
-    debtBalance: 0,
-    pinned: false, // 🟢 NOUVEAU : État d'épinglage par défaut
-    createdAt: serverTimestamp(),
-  };
-
-  if (data.type === 'piggybank') {
-    return addDoc(col(uid), base);
-  }
-
-  return addDoc(col(uid), {
-    ...base,
-    targetAmount: Number(data.targetAmount),
-    startDate: data.startDate,
-    deadline: data.deadline,
-    frequencyDays: Number(data.frequencyDays),
-    penaltyAmount: Number(data.penaltyAmount || 0),
+  const user = auth.currentUser;
+  if (!user || user.uid !== uid) throw new Error('Session expirée. Reconnecte-toi puis réessaie.');
+  const token = await user.getIdToken();
+  const response = await fetch('/api/goals/create', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(data),
   });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de créer cette épargne.');
+  return { id: result.id };
+}
+
+async function postGoalUpdate(uid, payload) {
+  const user = auth.currentUser;
+  if (!user || user.uid !== uid) throw new Error('Session expirée. Reconnecte-toi puis réessaie.');
+  const token = await user.getIdToken();
+  const response = await fetch('/api/goals/update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de modifier cet objectif.');
+  return result;
 }
 
 export async function updateGoal(uid, id, patch) {
-  await updateDoc(doc(db, 'users', uid, 'goals', id), patch);
+  return postGoalUpdate(uid, { goalId: id, ...patch });
 }
 
 export async function toggleGoalPin(uid, id, currentStatus) {
-  await updateDoc(doc(db, 'users', uid, 'goals', id), {
-    pinned: !currentStatus,
-  });
+  return postGoalUpdate(uid, { goalId: id, pinned: !currentStatus });
 }
 
 export async function deleteGoal(uid, id) {
-  const deps = await getDocs(depositsCol(uid, id));
-  await Promise.all(deps.docs.map((d) => deleteDoc(d.ref)));
-  await deleteDoc(doc(db, 'users', uid, 'goals', id));
-}
-
-export async function addDeposit(uid, goalId, { amount, date, incomeSourceId, incomeSourceName }) {
-  return addDoc(depositsCol(uid, goalId), {
-    amount: Number(amount),
-    date: date || new Date().toISOString().slice(0, 10),
-    source: 'wallet',
-    incomeSourceId: incomeSourceId || null,
-    incomeSourceName: incomeSourceName || null,
-    createdAt: serverTimestamp(),
+  const user = auth.currentUser;
+  if (!user || user.uid !== uid) throw new Error('Session expirée. Reconnecte-toi puis réessaie.');
+  const token = await user.getIdToken();
+  const response = await fetch('/api/goals/delete', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ goalId: id }),
   });
-}
-
-export async function deleteDeposit(uid, goalId, depositId) {
-  await deleteDoc(doc(db, 'users', uid, 'goals', goalId, 'deposits', depositId));
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de supprimer cette épargne.');
 }

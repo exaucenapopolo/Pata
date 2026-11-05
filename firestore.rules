@@ -1,0 +1,127 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+    function owner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    match /users/{userId} {
+      allow read: if owner(userId);
+      allow create: if owner(userId)
+        && request.resource.data.keys().hasOnly([
+          'email', 'displayName', 'currency', 'currencyRates',
+          'currencyRateUpdatedAt', 'penaltyDefault', 'createdAt'
+        ]);
+      allow update: if owner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'displayName', 'currency', 'currencyRates', 'currencyRateUpdatedAt',
+          'penaltyDefault', 'theme', 'budgetRules', 'updatedAt'
+        ]);
+      allow delete: if false;
+
+      match /incomes/{incomeId} {
+        allow read: if owner(userId);
+        allow create: if false;
+        allow update: if owner(userId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'amount', 'source', 'categoryId', 'date', 'month', 'note'
+          ])
+          && request.resource.data.amount is number
+          && request.resource.data.amount > 0;
+        allow delete: if owner(userId);
+      }
+
+      match /expenses/{expenseId} {
+        allow read: if owner(userId);
+        allow write: if false;
+      }
+
+      match /budgets/{budgetId} {
+        allow read: if owner(userId);
+        allow create, update: if false;
+        allow delete: if owner(userId);
+      }
+
+      match /goals/{goalId} {
+        allow read: if owner(userId);
+        allow create, update, delete: if false;
+
+        match /deposits/{depositId} {
+          allow read: if owner(userId);
+          allow write: if false;
+        }
+      }
+
+      match /goal_quota_reservations/{reservationId} {
+        allow read, write: if false;
+      }
+      match /usage_reservations/{reservationId} {
+        allow read, write: if false;
+      }
+      match /ai_actions/{actionId} {
+        allow read, write: if false;
+      }
+
+      match /categories/{categoryId} {
+        allow read: if owner(userId);
+        allow create: if owner(userId)
+          && request.resource.data.keys().hasOnly([
+            'name', 'type', 'color', 'icon', 'isCustom', 'createdAt'
+          ])
+          && request.resource.data.name is string
+          && request.resource.data.name.size() > 0
+          && request.resource.data.type in ['expense', 'goal'];
+        allow update: if owner(userId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'name', 'type', 'color', 'icon', 'updatedAt'
+          ]);
+        allow delete: if owner(userId);
+      }
+
+      match /automations/{automationId} {
+        allow read: if owner(userId);
+        allow create: if owner(userId)
+          && request.resource.data.keys().hasOnly([
+            'amount', 'categoryId', 'note', 'frequency', 'nextRun', 'anchorDay',
+            'endDate', 'active', 'runCount', 'incomeSourceId', 'incomeSourceName', 'createdAt'
+          ])
+          && request.resource.data.amount is number
+          && request.resource.data.amount > 0
+          && request.resource.data.frequency in ['daily', 'weekly', 'monthly'];
+        allow update: if false;
+        allow delete: if owner(userId);
+      }
+
+      match /ai_chats/{chatId} {
+        allow read: if owner(userId);
+        allow create: if owner(userId)
+          && request.resource.data.keys().hasOnly(['title', 'messages', 'createdAt', 'updatedAt'])
+          && request.resource.data.title is string;
+        allow update: if owner(userId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'messages', 'updatedAt']);
+        allow delete: if owner(userId);
+      }
+
+      match /weekly_reports/{reportId} {
+        allow read: if owner(userId);
+        allow write: if false;
+      }
+
+      match /{document=**} {
+        allow read, write: if false;
+      }
+    }
+
+    match /deposits/{depositId} {
+      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+      allow write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

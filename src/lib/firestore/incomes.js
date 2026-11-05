@@ -1,9 +1,8 @@
 import {
-  collection, addDoc, updateDoc, deleteDoc, doc,
-  onSnapshot, query, orderBy, serverTimestamp, getDocs, where,
+  collection, updateDoc, deleteDoc, doc,
+  onSnapshot, query, orderBy,
 } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase/client';
-import { reserveCreationQuota } from '@/lib/usageLimits';
 
 const col = (uid) => collection(db, 'users', uid, 'incomes');
 
@@ -15,24 +14,17 @@ export function subscribeIncomes(uid, cb) {
 }
 
 export async function createIncome(uid, data) {
-  await reserveCreationQuota(uid, 'incomes');
-  const incomeRef = await addDoc(col(uid), {
-    amount: Number(data.amount),
-    source: data.source || 'Salaire',
-    categoryId: data.categoryId || 'salary',
-    month: data.month,
-    note: data.note || '',
-    date: data.date || new Date().toISOString().slice(0, 10),
-    createdAt: serverTimestamp(),
+  const user = auth.currentUser;
+  if (!user || user.uid !== uid) throw new Error('Session expirée. Reconnecte-toi puis réessaie.');
+  const token = await user.getIdToken();
+  const response = await fetch('/api/incomes/add', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(data),
   });
-  try {
-    const currentUser = auth.currentUser;
-    if (currentUser?.uid === uid) {
-      const token = await currentUser.getIdToken();
-      await fetch('/api/analytics/income-created', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ incomeId: incomeRef.id }) });
-    }
-  } catch (error) { console.warn('Statistique du revenu non synchronisée :', error?.message); }
-  return incomeRef;
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.success) throw new Error(result.error || 'Impossible d’enregistrer ce revenu.');
+  return { id: result.id };
 }
 
 export async function updateIncome(uid, id, patch) {

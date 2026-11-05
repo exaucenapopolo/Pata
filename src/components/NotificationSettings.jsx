@@ -8,7 +8,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
 import { Button } from '@/components/ui/Button';
 
-async function getDeviceMessagingToken(vapidKey) {
+export async function getDeviceMessagingToken(vapidKey) {
   const config = {
     apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || '',
     authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || '',
@@ -19,8 +19,27 @@ async function getDeviceMessagingToken(vapidKey) {
   };
   const params = new URLSearchParams(config);
   const workerUrl = `/firebase-messaging-sw.js?${params.toString()}`;
-  const registration = await navigator.serviceWorker.getRegistration('/firebase-messaging/')
-    || await navigator.serviceWorker.register(workerUrl, { scope: '/firebase-messaging/' });
+  let registration = await navigator.serviceWorker.getRegistration('/firebase-messaging/');
+  if (!registration) {
+    registration = await navigator.serviceWorker.register(workerUrl, { scope: '/firebase-messaging/', updateViaCache: 'none' });
+  } else {
+    await registration.update().catch(() => {});
+  }
+  if (!registration.active) {
+    const worker = registration.installing || registration.waiting;
+    if (worker) {
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('La préparation des notifications a pris trop de temps. Réessaie.')), 12000);
+        const finish = () => {
+          if (worker.state === 'activated') { clearTimeout(timeout); resolve(); }
+          if (worker.state === 'redundant') { clearTimeout(timeout); reject(new Error('Impossible de préparer les notifications sur cet appareil.')); }
+        };
+        worker.addEventListener('statechange', finish);
+        finish();
+      });
+    }
+  }
+  if (!registration.active) throw new Error('Le service de notifications ne démarre pas sur cet appareil. Recharge la page puis réessaie.');
   const messaging = getMessaging(app);
   return getToken(messaging, { vapidKey, serviceWorkerRegistration: registration });
 }
@@ -69,9 +88,15 @@ export function NotificationSettings() {
         const messaging = getMessaging(app);
         unsubscribe = onMessage(messaging, (payload) => {
           if (!active) return;
-          const title = payload.notification?.title || 'Pata';
-          const options = { body: payload.notification?.body || 'Ouvre Pata pour consulter ton suivi.', icon: '/android-chrome-192x192.png', tag: payload.data?.tag || 'pata-foreground' };
-          try { new Notification(title, options); } catch { /* certains navigateurs affichent uniquement en arrière-plan */ }
+          const title = payload.data?.title || payload.notification?.title || 'Pata';
+          const options = { body: payload.data?.body || payload.notification?.body || 'Ouvre Pata pour consulter ton suivi.', icon: '/android-chrome-192x192.png', badge: '/android-chrome-192x192.png', tag: payload.data?.tag || 'pata-foreground', data: { url: payload.data?.url || '/dashboard' } };
+          void (async () => {
+            try {
+              const registration = await navigator.serviceWorker.getRegistration('/firebase-messaging/');
+              if (registration?.active) await registration.showNotification(title, options);
+              else if (Notification.permission === 'granted') new Notification(title, options);
+            } catch (notificationError) { console.warn('[PATA PUSH FOREGROUND]', notificationError?.message || notificationError); }
+          })();
         });
       } catch (error) { console.warn('Écoute des notifications indisponible :', error?.message); }
     };
@@ -131,7 +156,7 @@ export function NotificationSettings() {
       });
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.error || 'Le test n’a pas pu être envoyé.');
-      setMessage('Test envoyé. Vérifie que la notification apparaît sur ton appareil.');
+      setMessage(`Test transmis au service de notifications (référence ${String(result.messageId || '').slice(-8)}). L’affichage dépend encore des autorisations et réglages de cet appareil.`);
     } catch (error) {
       setMessage(error.message || 'Le test a échoué.');
     } finally { setTesting(false); }

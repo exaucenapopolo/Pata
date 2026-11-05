@@ -2,7 +2,6 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
 import confetti from 'canvas-confetti';
 import {
   Plus, Target, Trash2, AlertTriangle, Banknote, Pencil, Lightbulb,
@@ -18,8 +17,8 @@ import { CategoryManager } from '@/components/ui/CategoryManager';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
+import { useProfile } from '@/hooks/useProfile';
 import { useGoals, useDeposits } from '@/hooks/useGoals';
-import { useIncomes } from '@/hooks/useIncomes';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { createGoal, updateGoal, deleteGoal, toggleGoalPin } from '@/lib/firestore/goals';
 import { computeGoalPlan, resolveFrequencyDays, MIN_PENALTY } from '@/lib/goalCalc';
@@ -28,7 +27,6 @@ import { formatCurrency, formatDate, resolveCategory } from '@/lib/utils';
 import { playSuccess } from '@/lib/sound';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
-const todayMonth = () => new Date().toISOString().slice(0, 7);
 
 const FREQUENCY_PRESETS = [
   { v: '1', label: 'Chaque jour' }, { v: '3', label: 'Tous les 3 j' },
@@ -155,11 +153,6 @@ function GoalDetail({ goal, onClose, onAskWithdraw }) {
   const advices = buildGoalAdvices(plan, profile?.balance || 0, goal.name);
   const isPiggybank = goal.type === 'piggybank';
 
-  const { incomes } = useIncomes();
-  const currentMonthIncomes = useMemo(() => incomes.filter((i) => i.month === todayMonth()), [incomes]);
-  const [selectedIncomeId, setSelectedIncomeId] = useState(currentMonthIncomes[0]?.id || '');
-  const router = useRouter();
-
   const [amount, setAmount] = useState('');
   const [repayAmount, setRepayAmount] = useState('');
   const [saving, setSaving] = useState(false);
@@ -184,12 +177,11 @@ function GoalDetail({ goal, onClose, onAskWithdraw }) {
 
   const onFundFromWallet = async (e) => {
     e.preventDefault(); setError(''); setSaving(true);
-    const selectedIncome = currentMonthIncomes.find(i => i.id === selectedIncomeId);
     try {
       const token = await user.getIdToken();
-      const res = await fetch('/api/wallet/fund-goal', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ goalId: goal.id, amount: Number(amount), incomeSourceId: selectedIncomeId, incomeSourceName: selectedIncome?.source || null }) });
+      const res = await fetch('/api/wallet/fund-goal', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ goalId: goal.id, amount: Number(amount) }) });
       const data = await res.json();
-      if (!data.success) throw new Error(data.error);
+      if (!data.success) throw new Error(data.error || 'Impossible de verser cette somme.');
       
       // 🎵 Son de succès
       playSuccess();
@@ -255,23 +247,20 @@ function GoalDetail({ goal, onClose, onAskWithdraw }) {
           <div className="rounded-xl border border-slate-200 p-3.5">
             <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400"><Lightbulb size={12} /> Assistant</div>
             <div className="space-y-2">{advices.map((a, i) => { const Icon = ADVICE_ICONS[a.type] || Info; return (<div key={i} className="flex items-start gap-2"><Icon size={14} className={`mt-0.5 shrink-0 ${adviceIconColor(a.type)}`} /><p className="text-sm leading-relaxed text-slate-700">{a.message}</p></div>); })}</div>
+            <Button type="button" variant="outline" size="sm" className="mt-3 w-full" onClick={() => { const prompt = `Analyse mon épargne « ${goal.name} ». Type : ${isPiggybank ? 'tirelire libre' : 'objectif daté'}. Total déjà épargné : ${plan.totalDeposited} FCFA. Solde de mon portefeuille : ${balance} FCFA. ${isPiggybank ? '' : `Cible : ${goal.targetAmount} FCFA. Début : ${goal.startDate}. Échéance : ${goal.deadline}. Reste : ${plan.remaining} FCFA.`} Donne-moi un conseil réaliste et explique les prochaines étapes. Ne modifie rien sans me demander.`; window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt } })); }}>Demander une analyse à Mč</Button>
           </div>
         )}
 
         {(!plan.isReached || isPiggybank) && !showLoan && (
           <form onSubmit={onFundFromWallet} className="rounded-xl border border-slate-200 p-3.5">
             <div className="mb-3 flex items-center justify-between rounded-lg bg-brand-50 px-3 py-2"><span className="text-xs text-slate-600">Solde disponible</span><span className="text-sm font-semibold text-brand-700">{formatCurrency(balance)}</span></div>
-            <div className="space-y-3 mb-3">
-              <Input label="Montant à verser" type="number" min="1" required value={amount} onChange={(e) => setAmount(e.target.value)} />
-              {currentMonthIncomes.length > 0 ? (
-                <div><label className="mb-1 block text-sm font-medium text-slate-700">Depuis quel revenu ?</label><select value={selectedIncomeId} onChange={(e) => setSelectedIncomeId(e.target.value)} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm">{currentMonthIncomes.map((inc) => (<option key={inc.id} value={inc.id}>{inc.source} ({formatCurrency(inc.amount)})</option>))}</select></div>
-              ) : (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-center"><p className="text-xs text-amber-700 mb-2">Aucun revenu ce mois-ci.</p><Button type="button" size="sm" onClick={() => router.push('/income')} className="w-full bg-amber-600 hover:bg-amber-700">Créer un revenu</Button></div>
-              )}
+            <div className="mb-3 space-y-2">
+              <Input label="Montant à verser depuis ton portefeuille Pata" type="number" min="1" max={balance} required value={amount} onChange={(e) => setAmount(e.target.value)} />
+              <p className="text-xs text-slate-500">Le versement est prélevé sur ton solde Pata disponible. Il n’est pas lié à une source de revenu.</p>
             </div>
-            {currentMonthIncomes.length > 0 && (<div className="flex justify-end"><Button type="submit" disabled={saving || balance === 0}><Banknote size={14} /> Verser</Button></div>)}
+            <div className="flex justify-end"><Button type="submit" disabled={saving || balance <= 0 || !amount || Number(amount) > Number(balance)}><Banknote size={14} /> {saving ? 'Versement…' : 'Verser'}</Button></div>
             {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
-            {!isPiggybank && currentMonthIncomes.length > 0 && (<div className="mt-3 text-center"><button type="button" onClick={() => setShowLoan(true)} className="text-xs font-semibold text-brand-600 hover:underline">Solde insuffisant ? Micro-prêt (5%)</button></div>)}
+            {!isPiggybank && (<div className="mt-3 text-center"><button type="button" onClick={() => setShowLoan(true)} className="text-xs font-semibold text-brand-600 hover:underline">Besoin d’un coup de pouce ? Consulter le micro-prêt</button></div>)}
           </form>
         )}
 
@@ -305,10 +294,13 @@ function GoalDetail({ goal, onClose, onAskWithdraw }) {
 
 function GoalFormModal({ open, onClose, goal }) {
   const { user } = useAuth();
+  const { profile } = useProfile();
+  const premiumUntil = profile?.premiumUntil?.toDate ? profile.premiumUntil.toDate() : new Date(profile?.premiumUntil || 0);
+  const premiumActive = Number.isFinite(premiumUntil.getTime()) && premiumUntil > new Date();
   const editing = !!goal;
   const initial = editing
     ? { name: goal.name || '', type: goal.type || 'goal', targetAmount: String(goal.targetAmount || ''), categoryId: goal.categoryId || 'savings', startDate: goal.startDate || todayIso(), deadline: goal.deadline || todayIso(), frequencyDays: String(goal.frequencyDays || 7), penaltyAmount: String(Math.max(MIN_PENALTY, goal.penaltyAmount || MIN_PENALTY)) }
-    : { name: '', type: 'goal', targetAmount: '', categoryId: 'savings', startDate: todayIso(), deadline: new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10), frequencyDays: '7', penaltyAmount: String(MIN_PENALTY) };
+    : { name: '', type: 'goal', targetAmount: '', categoryId: 'savings', startDate: todayIso(), deadline: new Date(new Date().setMonth(new Date().getMonth() + 2)).toISOString().slice(0, 10), frequencyDays: '7', penaltyAmount: String(MIN_PENALTY) };
 
   const [type, setType] = useState(initial.type);
   const [name, setName] = useState(initial.name);
@@ -323,6 +315,12 @@ function GoalFormModal({ open, onClose, goal }) {
   const [error, setError] = useState('');
 
   const start = new Date(startDate); const end = new Date(deadline);
+  const freeMaxDate = new Date(start);
+  const startDay = freeMaxDate.getDate();
+  freeMaxDate.setDate(1);
+  freeMaxDate.setMonth(freeMaxDate.getMonth() + 2);
+  freeMaxDate.setDate(Math.min(startDay, new Date(freeMaxDate.getFullYear(), freeMaxDate.getMonth() + 1, 0).getDate()));
+  const deadlineMax = `${freeMaxDate.getFullYear()}-${String(freeMaxDate.getMonth() + 1).padStart(2, '0')}-${String(freeMaxDate.getDate()).padStart(2, '0')}`;
   const durationDays = Math.max(1, Math.ceil((end - start) / 86400000));
   const frequencyDays = resolveFrequencyDays(frequencyPreset, frequencyCustom);
   const totalPayments = Math.max(1, Math.ceil(durationDays / frequencyDays));
@@ -343,7 +341,7 @@ function GoalFormModal({ open, onClose, goal }) {
       if (editing) await updateGoal(user.uid, goal.id, payload);
       else await createGoal(user.uid, payload);
       onClose();
-    } catch { setError('Erreur.'); } finally { setSaving(false); }
+    } catch (err) { setError(err.message || 'Impossible de créer cette épargne.'); } finally { setSaving(false); }
   };
 
   return (
@@ -364,8 +362,8 @@ function GoalFormModal({ open, onClose, goal }) {
             <Input label="Montant cible (FCFA)" type="number" min="0" required value={targetAmount} onChange={(e) => setTargetAmount(e.target.value)} />
             <div className="rounded-xl border border-slate-200 p-3 bg-slate-50/50">
               <p className="mb-2 text-sm font-medium text-slate-700 flex items-center gap-2"><CalendarDays size={16} className="text-brand-600" /> Période</p>
-              <div className="grid grid-cols-2 gap-3"><Input label="Date de début" type="date" required value={startDate} onChange={(e) => setStartDate(e.target.value)} /><Input label="Date de fin" type="date" required value={deadline} onChange={(e) => setDeadline(e.target.value)} /></div>
-              <p className="mt-2 text-xs text-slate-500">Durée : <strong className="text-slate-700">{durationDays} jours</strong>.</p>
+              <div className="grid grid-cols-2 gap-3"><Input label="Date de début" type="date" required value={startDate} onChange={(e) => setStartDate(e.target.value)} /><Input label="Date de fin" type="date" min={startDate} max={!premiumActive ? deadlineMax : undefined} required value={deadline} onChange={(e) => setDeadline(e.target.value)} /></div>
+              <p className="mt-2 text-xs text-slate-500">Durée : <strong className="text-slate-700">{durationDays} jours</strong>. {!premiumActive && <span>Le compte gratuit permet un objectif d’une durée maximale de deux mois.</span>}</p>
             </div>
             <div>
               <p className="mb-2 text-sm font-medium text-slate-700">Fréquence</p>
@@ -442,6 +440,7 @@ function GoalCard({ goal, onOpen, onEdit, onAskWithdraw, onTogglePin, onDelete }
 
 export default function GoalsPage() {
   const { user } = useAuth();
+  const { profile } = useProfile();
   const { goals } = useGoals();
   const [open, setOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState(null);
@@ -461,7 +460,12 @@ export default function GoalsPage() {
     });
   }, [goals]);
 
-  const openCreate = () => { setEditingGoal(null); setOpen(true); };
+  const currentMonthKey = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Douala', year: 'numeric', month: '2-digit' }).format(new Date());
+  const goalExpiry = profile?.premiumUntil?.toDate ? profile.premiumUntil.toDate() : new Date(profile?.premiumUntil || 0);
+  const premiumActive = Number.isFinite(goalExpiry.getTime()) && goalExpiry > new Date();
+  const usedGoalQuota = profile?.monthlyStats?.lastResetMonth === currentMonthKey ? Number(profile?.monthlyStats?.goals) || 0 : 0;
+  const goalQuotaReached = !premiumActive && usedGoalQuota >= 1;
+  const openCreate = () => { if (goalQuotaReached) return; setEditingGoal(null); setOpen(true); };
   const openEdit = (goal) => { setEditingGoal(goal); setOpen(true); };
   const closeForm = () => { setOpen(false); setEditingGoal(null); };
   const askWithdraw = (goal, type) => { setConfirmGoal(goal); setConfirmType(type); };
@@ -482,18 +486,26 @@ export default function GoalsPage() {
   };
 
   const handleDeleteGoal = async () => {
-    if (deleteGoalId) { await deleteGoal(user.uid, deleteGoalId); setDeleteGoalId(null); }
+    if (!deleteGoalId) return;
+    try { await deleteGoal(user.uid, deleteGoalId); setDeleteGoalId(null); }
+    catch (error) { window.alert(error.message || 'Impossible de supprimer cette épargne.'); }
   };
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div><h1 className="text-2xl font-bold text-slate-900">Épargne & Objectifs</h1><p className="text-sm text-slate-500">Gère tes objectifs datés ou ta tirelire libre.</p></div>
-        <Button onClick={openCreate}><Plus size={16} /> Créer une épargne</Button>
+        <Button onClick={openCreate} disabled={goalQuotaReached} className={goalQuotaReached ? 'opacity-50 grayscale' : ''}><Plus size={16} /> {goalQuotaReached ? 'Limite atteinte' : 'Créer une épargne'}</Button>
       </div>
+      {!premiumActive && (
+        <div className={`rounded-xl border p-3 ${goalQuotaReached ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-white'}`}>
+          <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-sm font-semibold text-slate-800">Création d’épargne ce mois-ci</p><p className="text-xs text-slate-500">{usedGoalQuota} sur 1 autorisée avec le compte gratuit. Un objectif gratuit peut durer jusqu’à deux mois.</p></div><span className="text-sm font-bold text-slate-700">{Math.min(usedGoalQuota, 1)}/1</span></div>
+          {goalQuotaReached && <div className="mt-3 flex flex-wrap items-center justify-between gap-2"><p className="text-xs text-amber-800">Tu as utilisé ta création gratuite de ce mois.</p><Button size="sm" onClick={() => window.location.assign('/premium')}>Passer à Premium</Button></div>}
+        </div>
+      )}
 
       {goals.length === 0 ? (
-        <EmptyState icon={Target} title="Aucune épargne" description="Crée un objectif ou une tirelire pour commencer." action={<Button onClick={openCreate}><Plus size={16} /> Créer</Button>} />
+        <EmptyState icon={Target} title="Aucune épargne" description="Crée un objectif ou une tirelire pour commencer." action={<Button onClick={openCreate} disabled={goalQuotaReached}><Plus size={16} /> {goalQuotaReached ? "Limite atteinte" : "Créer"}</Button>} />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
           {sortedGoals.map((g) => (<GoalCard key={g.id} goal={g} onOpen={() => setSelected(g)} onEdit={() => openEdit(g)} onAskWithdraw={askWithdraw} onTogglePin={handleTogglePin} onDelete={() => setDeleteGoalId(g.id)} />))}
@@ -504,7 +516,7 @@ export default function GoalsPage() {
       {selected && (<GoalDetail goal={selected} onClose={() => setSelected(null)} onAskWithdraw={(g, type) => { setSelected(null); askWithdraw(g, type); }} />)}
       {confirmGoal && confirmType && (<ConfirmWithdrawModal goal={confirmGoal} actionType={confirmType} onClose={() => { setConfirmGoal(null); setConfirmType(null); }} onConfirm={handleConfirmAction} busy={confirmBusy} />)}
 
-      <ConfirmDialog open={!!deleteGoalId} onClose={() => setDeleteGoalId(null)} onConfirm={handleDeleteGoal} title="Supprimer cet objectif ?" message="L'argent épargné sera perdu (pas remboursé). Pour récupérer ton argent, utilise plutôt « Annuler l'objectif » qui te rend 90% du montant." confirmWord="SUPPRIMER" confirmLabel="Supprimer définitivement" variant="danger" />
+      <ConfirmDialog open={!!deleteGoalId} onClose={() => setDeleteGoalId(null)} onConfirm={handleDeleteGoal} title="Supprimer cet objectif ?" message="Une épargne qui contient encore de l’argent ne peut pas être supprimée directement. Retire d’abord les fonds depuis sa fiche. La suppression ne rend pas une création gratuite." confirmWord="SUPPRIMER" confirmLabel="Supprimer définitivement" variant="danger" />
     </div>
   );
 }

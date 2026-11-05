@@ -16,9 +16,9 @@ if (firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.messagin
   firebase.initializeApp(firebaseConfig);
   const messaging = firebase.messaging();
   messaging.onBackgroundMessage((payload) => {
-    const title = payload.notification?.title || 'Pata';
+    const title = payload.data?.title || payload.notification?.title || 'Pata';
     const options = {
-      body: payload.notification?.body || 'Ouvre Pata pour consulter ton suivi financier.',
+      body: payload.data?.body || payload.notification?.body || 'Ouvre Pata pour consulter ton suivi financier.',
       icon: '/android-chrome-192x192.png',
       badge: '/android-chrome-192x192.png',
       data: payload.data || { url: '/dashboard' },

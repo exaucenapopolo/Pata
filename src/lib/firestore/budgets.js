@@ -1,9 +1,9 @@
 import {
-  collection, addDoc, updateDoc, deleteDoc, doc,
-  onSnapshot, query, where, serverTimestamp, getDocs, limit, orderBy,
+  collection, updateDoc, deleteDoc, doc,
+  onSnapshot, query, where, limit, orderBy,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase/client';
-import { reserveCreationQuota } from '@/lib/usageLimits';
+import { auth } from '@/lib/firebase/client';
 
 const col = (uid) => collection(db, 'users', uid, 'budgets');
 
@@ -20,29 +20,17 @@ export function subscribeBudgets(uid, month, cb, incomeSourceId = null) {
 }
 
 export async function upsertBudget(uid, { categoryId, amount, month, incomeSourceId = 'all' }) {
-  const q = query(
-    col(uid), 
-    where('month', '==', month), 
-    where('categoryId', '==', categoryId),
-    where('incomeSourceId', '==', incomeSourceId)
-  );
-  const snap = await getDocs(q);
-  
-  if (!snap.empty) {
-    const ref = doc(db, 'users', uid, 'budgets', snap.docs[0].id);
-    await updateDoc(ref, { amount: Number(amount), updatedAt: serverTimestamp() });
-    return snap.docs[0].id;
-  }
-  
-  await reserveCreationQuota(uid, 'budgets');
-  const created = await addDoc(col(uid), {
-    categoryId,
-    amount: Number(amount),
-    month,
-    incomeSourceId,
-    createdAt: serverTimestamp(),
+  const user = auth.currentUser;
+  if (!user || user.uid !== uid) throw new Error('Session expirée. Reconnecte-toi puis réessaie.');
+  const token = await user.getIdToken();
+  const response = await fetch('/api/budgets/upsert', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ categoryId, amount: Number(amount), month, incomeSourceId }),
   });
-  return created.id;
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.success) throw new Error(result.error || 'Impossible d’enregistrer ce budget.');
+  return result.id;
 }
 
 export async function deleteBudget(uid, id) {

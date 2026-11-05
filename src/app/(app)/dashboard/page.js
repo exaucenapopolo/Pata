@@ -109,6 +109,7 @@ export default function DashboardPage() {
       previousExpenses: prevExpenses,
       totalIncome: periodIncomeTotal,
       previousIncome: prevTotalIncome,
+      previousIncomeSpend,
       goals,
       customCategories,
       userName,

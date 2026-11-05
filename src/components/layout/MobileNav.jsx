@@ -13,11 +13,11 @@ import { useAuth } from '@/hooks/useAuth';
 const MAIN_NAV = [
   { href: '/dashboard', label: 'Accueil',    icon: LayoutDashboard },
   { href: '/expenses',  label: 'Dépenses',   icon: Wallet },
-  { href: '/wallet',    label: 'Solde',      icon: Banknote },
   { href: '/goals',     label: 'Objectifs',  icon: Target },
 ];
 
 const MORE_NAV = [
+  { href: '/wallet',    label: 'Portefeuille', icon: Banknote },
   { href: '/income',    label: 'Revenus',    icon: TrendingUp },
   { href: '/budgets',   label: 'Budgets',    icon: PiggyBank },
   { href: '/reports',   label: 'Rapports',   icon: BarChart3 },
@@ -110,7 +110,7 @@ export function MobileNav() {
           )}
         >
           <Menu size={20} strokeWidth={showMore ? 2.5 : 2} />
-          Plus
+          Menu
         </button>
       </nav>
     </>

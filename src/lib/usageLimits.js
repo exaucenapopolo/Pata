@@ -5,7 +5,7 @@ import { db } from '@/lib/firebase/client';
 export const FREE_LIMITS = {
   EXPENSES: 60,
   INCOMES: 2,
-  GOALS: 2,
+  GOALS: 1,
   BUDGETS: 2,
   VITALFORECASTS: 1,
   DURATIONFORECASTS: 1,

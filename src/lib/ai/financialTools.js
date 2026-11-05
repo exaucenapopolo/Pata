@@ -8,7 +8,7 @@ const EXPENSE_CATEGORIES = [
 const INCOME_CATEGORIES = ['salary', 'business', 'gift', 'other_income'];
 const FREQUENCIES = ['daily', 'weekly', 'monthly'];
 const FREE_EXPENSE_LIMIT = 60;
-const FREE_CREATE_LIMITS = { incomes: 2, budgets: 2, goals: 2, vitalForecasts: 1, durationForecasts: 1 };
+const FREE_CREATE_LIMITS = { incomes: 2, budgets: 2, goals: 1, vitalForecasts: 1, durationForecasts: 1 };
 
 function incrementFreeQuota(userData, type, count = 1) {
   if (isPremium(userData)) return null;
@@ -463,17 +463,27 @@ export async function runAutomationForUser(uid, now = new Date()) {
       }
       const anchorDay = Number(auto.anchorDay) || dueDate.getUTCDate();
       const nextInfo = advancePastMissedRuns(dueDate, auto.frequency, now, endDate, anchorDay);
-      const [incomesSnap, expensesSnap] = await Promise.all([
+      const userRef = userRefFor(uid);
+      const [userSnap, incomesSnap, expensesSnap] = await Promise.all([
+        transaction.get(userRef),
         transaction.get(subcol(uid, 'incomes')),
         transaction.get(subcol(uid, 'expenses')),
       ]);
+      if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
+      const userData = userSnap.data();
+      const currentMonth = monthKey(now);
+      let monthlyStats = { ...(userData.monthlyStats || {}) };
+      if (monthlyStats.lastResetMonth !== currentMonth) {
+        monthlyStats = { ...monthlyStats, expenses: 0, incomes: 0, budgets: 0, goals: 0, vitalForecasts: 0, durationForecasts: 0, lastResetMonth: currentMonth };
+      }
+      const freeQuotaReached = !isPremium(userData) && (Number(monthlyStats.expenses) || 0) >= FREE_EXPENSE_LIMIT;
       const incomes = incomesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       const expenses = expensesSnap.docs.map((doc) => doc.data());
       const balances = buildIncomeBalances(incomes, expenses);
       const amount = Math.round(Number(auto.amount));
       let allocations = [];
       const sourceId = auto.incomeSourceId || 'all';
-      if (sourceId === 'all') {
+      if (!freeQuotaReached && sourceId === 'all') {
         let remaining = amount;
         const available = balances.reduce((sum, item) => sum + item.remaining, 0);
         if (available >= amount) {
@@ -485,13 +495,15 @@ export async function runAutomationForUser(uid, now = new Date()) {
             remaining -= allocated;
           }
         }
-      } else {
+      } else if (!freeQuotaReached) {
         const income = balances.find((item) => item.id === sourceId);
         if (income && income.remaining >= amount) allocations = [{ income, amount }];
       }
 
       let status = 'SKIPPED';
-      let message = `Fonds insuffisants sur la source « ${auto.incomeSourceName || (sourceId === 'all' ? 'Tous les revenus' : sourceId)} ».`;
+      let message = freeQuotaReached
+        ? `Dépense non enregistrée : la limite mensuelle de ${FREE_EXPENSE_LIMIT} dépenses du compte gratuit est atteinte. Passe à Premium pour continuer.`
+        : `Fonds insuffisants sur la source « ${auto.incomeSourceName || (sourceId === 'all' ? 'Tous les revenus' : sourceId)} ».`;
       if (allocations.length) {
         const expenseDate = new Intl.DateTimeFormat('en-CA', {
           timeZone: 'Africa/Douala', year: 'numeric', month: '2-digit', day: '2-digit',
@@ -552,6 +564,12 @@ export async function runAutomationForUser(uid, now = new Date()) {
           plannedExpenses.forEach((item) => transaction.create(item.ref, item.data));
           status = 'EXECUTED';
           message = `Dépense automatique enregistrée : ${amount.toLocaleString('fr-FR')} FCFA.`;
+          if (!isPremium(userData)) monthlyStats.expenses = (Number(monthlyStats.expenses) || 0) + 1;
+          transaction.set(userRef, {
+            lifetimeExpenseAmount: FieldValue.increment(amount),
+            lifetimeExpenseCount: FieldValue.increment(1),
+            ...(!isPremium(userData) ? { monthlyStats } : {}),
+          }, { merge: true });
         }
         }
       }
@@ -969,19 +987,59 @@ async function addGoal(uid, args) {
   const name = cleanText(args.name, 100);
   if (!name) throw new Error('Le nom de l’objectif est obligatoire.');
   const targetAmount = asPositiveMoney(args.targetAmount, 'Objectif');
+  const startDate = args.startDate || todayDouala();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(startDate))) throw new Error('Date de début invalide. Utilise AAAA-MM-JJ.');
   if (args.deadline && !/^\d{4}-\d{2}-\d{2}$/.test(String(args.deadline))) throw new Error('Date d’échéance invalide. Utilise AAAA-MM-JJ.');
   const deadline = args.deadline || null;
+  if (deadline && deadline <= startDate) throw new Error('La date d’échéance doit être après le début.');
   const categoryId = ['savings', 'transport', 'food', 'housing', 'health', 'other'].includes(args.categoryId) ? args.categoryId : 'savings';
   const userRef = userRefFor(uid);
-  const ref = subcol(uid, 'goals').doc();
+  const goalsRef = subcol(uid, 'goals');
+  const reservationsRef = subcol(uid, 'goal_quota_reservations');
+  const ref = goalsRef.doc();
   await adminDb.runTransaction(async (transaction) => {
-    const userSnap = await transaction.get(userRef);
+    const [userSnap, goalsSnap, reservationsSnap] = await Promise.all([transaction.get(userRef), transaction.get(goalsRef), transaction.get(reservationsRef)]);
     if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
-    const stats = incrementFreeQuota(userSnap.data(), 'goals', 1);
+    const userData = userSnap.data();
+    const premium = isPremium(userData);
+    const stats = incrementFreeQuota(userData, 'goals', 1);
+    let effectiveDeadline = deadline;
+    if (!premium && !effectiveDeadline) {
+      const defaultEnd = new Date(`${startDate}T12:00:00`);
+      const day = defaultEnd.getDate();
+      defaultEnd.setDate(1);
+      defaultEnd.setMonth(defaultEnd.getMonth() + 2);
+      defaultEnd.setDate(Math.min(day, new Date(defaultEnd.getFullYear(), defaultEnd.getMonth() + 1, 0).getDate()));
+      effectiveDeadline = `${defaultEnd.getFullYear()}-${String(defaultEnd.getMonth() + 1).padStart(2, '0')}-${String(defaultEnd.getDate()).padStart(2, '0')}`;
+    }
+    if (!premium && effectiveDeadline) {
+      const start = new Date(`${startDate}T12:00:00`);
+      const maxDeadline = new Date(start);
+      const day = maxDeadline.getDate();
+      maxDeadline.setDate(1);
+      maxDeadline.setMonth(maxDeadline.getMonth() + 2);
+      maxDeadline.setDate(Math.min(day, new Date(maxDeadline.getFullYear(), maxDeadline.getMonth() + 1, 0).getDate()));
+      if (new Date(`${effectiveDeadline}T12:00:00`) > maxDeadline) throw new Error('Avec le compte gratuit, un objectif peut durer jusqu’à deux mois. Passe à Premium pour une durée plus longue.');
+      const monthKeys = (first, last) => {
+        const cursor = new Date(`${first.slice(0, 7)}-01T12:00:00`);
+        const end = new Date(`${last.slice(0, 7)}-01T12:00:00`);
+        const keys = [];
+        while (cursor <= end && keys.length < 36) { keys.push(`${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`); cursor.setMonth(cursor.getMonth() + 1); }
+        return keys;
+      };
+      const occupied = new Set(monthKeys(startDate, effectiveDeadline));
+      const reserved = reservationsSnap.docs.some((document) => occupied.has(document.id));
+      const legacyOverlap = goalsSnap.docs.some((doc) => {
+        const item = doc.data();
+        if (item.type !== 'goal' || item.closed || item.withdrawnAt || !/^\d{4}-\d{2}-\d{2}$/.test(String(item.startDate || '')) || !/^\d{4}-\d{2}-\d{2}$/.test(String(item.deadline || ''))) return false;
+        return monthKeys(item.startDate, item.deadline).some((month) => occupied.has(month));
+      });
+      if (reserved || legacyOverlap) throw new Error('Un autre objectif couvre déjà une partie de cette période. Termine-le ou passe à Premium pour planifier plusieurs objectifs.');
+      for (const month of occupied) transaction.create(reservationsRef.doc(month), { goalId: ref.id, month, createdAt: FieldValue.serverTimestamp() });
+    }
     transaction.create(ref, {
       name, type: 'goal', categoryId, targetAmount,
-      startDate: todayDouala(), deadline,
-      frequencyDays: 7, penaltyAmount: 700,
+      startDate, deadline: effectiveDeadline, frequencyDays: 7, penaltyAmount: 700,
       debtBalance: 0, pinned: false, createdAt: FieldValue.serverTimestamp(),
     });
     if (stats) transaction.update(userRef, { monthlyStats: stats });

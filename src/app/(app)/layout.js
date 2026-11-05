@@ -6,6 +6,8 @@ import { MobileNav } from '@/components/layout/MobileNav';
 import { Footer } from '@/components/layout/Footer';
 import { PremiumReminder } from '@/components/PremiumReminder'; // 🟢 Nouveau
 import { AssistantButton } from '@/components/ai/AssistantButton';
+import { SmartBackButton } from '@/components/layout/SmartBackButton';
+import { NotificationNudge } from '@/components/NotificationNudge';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 
 export default function AppLayout({ children }) {
@@ -25,7 +27,8 @@ export default function AppLayout({ children }) {
       <div className="flex flex-1 flex-col">
         <Header />
         <PremiumReminder />  {/* 🟢 Bandeau d'alerte */}
-        <main className="flex-1 px-4 py-6 pb-24 sm:px-6 md:pb-6">{children}</main>
+        <NotificationNudge />
+        <main className="flex-1 px-4 py-6 pb-24 sm:px-6 md:pb-6"><SmartBackButton />{children}</main>
         <Footer />
       </div>
       <MobileNav />
