@@ -17,7 +17,6 @@ import { CategoryManager } from '@/components/ui/CategoryManager';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
-import { useProfile } from '@/hooks/useProfile';
 import { useGoals, useDeposits } from '@/hooks/useGoals';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { createGoal, updateGoal, deleteGoal, toggleGoalPin } from '@/lib/firestore/goals';
