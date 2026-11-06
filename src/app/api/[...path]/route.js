@@ -297,13 +297,31 @@ async function handleSubscriptionWebhook(request) {
 async function handleNotificationsInbox(request) {
   try {
     const { uid } = await authenticate(request);
-    const snapshot = await adminDb.collection('users').doc(uid).collection('notifications')
-      .orderBy('createdAt', 'desc').limit(40).get();
-    const notifications = snapshot.docs
-      .filter((doc) => !doc.data()?.readAt && doc.data()?.read !== true)
-      .slice(0, 20)
-      .map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) }));
-    return NextResponse.json({ success: true, notifications, unreadCount: notifications.length });
+    const url = new URL(request.url);
+    const limit = Math.max(10, Math.min(100, Number(url.searchParams.get('limit')) || 50));
+    const cursor = String(url.searchParams.get('cursor') || '').trim().slice(0, 150);
+    const notificationsRef = adminDb.collection('users').doc(uid).collection('notifications');
+    let query = notificationsRef.orderBy('createdAt', 'desc');
+    if (cursor) {
+      if (cursor.includes('/')) return errorResponse('Repère de notification invalide.', 400);
+      const cursorDoc = await notificationsRef.doc(cursor).get();
+      if (!cursorDoc.exists) return errorResponse('L’historique a changé. Actualise les notifications.', 409);
+      query = query.startAfter(cursorDoc);
+    }
+    const snapshot = await query.limit(limit + 1).get();
+    const hasMore = snapshot.docs.length > limit;
+    const docs = snapshot.docs.slice(0, limit);
+    const notifications = docs.map((document) => {
+      const data = serializeAdminValue(document.data()) || {};
+      const isRead = data.read === true || Boolean(data.readAt);
+      return { id: document.id, ...data, read: isRead, isRead };
+    });
+    const unreadCount = notifications.filter((item) => !item.isRead).length;
+    const readCount = notifications.length - unreadCount;
+    return NextResponse.json({
+      success: true, notifications, unreadCount, readCount, hasMore,
+      nextCursor: hasMore && docs.length ? docs[docs.length - 1].id : null,
+    });
   } catch (error) {
     return errorResponse(error.message || 'Impossible de charger les notifications.', 401);
   }
@@ -1644,50 +1662,121 @@ async function aggregateTotal(query, field = 'amount') {
 
 
 async function getGoalCashDepositSummary(goalRef) {
+  const depositsRef = goalRef.collection('deposits');
   try {
-    const result = await goalRef.collection('deposits')
-      .where('source', '==', 'wallet')
-      .aggregate({ total: AggregateField.sum('amount'), count: AggregateField.count() })
-      .get();
-    return { total: Math.max(0, Number(result.data().total) || 0), count: Math.max(0, Number(result.data().count) || 0) };
-  } catch (error) {
-    console.warn('[ADMIN SAVINGS AGGREGATE]', goalRef.path, error.message);
-    return { total: 0, count: 0, unavailable: true };
+    const [allSnapshot, loanSnapshot] = await Promise.all([
+      depositsRef.aggregate({
+        total: AggregateField.sum('amount'),
+        count: AggregateField.count(),
+      }).get(),
+      depositsRef.where('source', '==', 'loan').aggregate({
+        total: AggregateField.sum('amount'),
+        count: AggregateField.count(),
+      }).get(),
+    ]);
+    const all = allSnapshot.data() || {};
+    const loans = loanSnapshot.data() || {};
+    const total = Math.max(0, Number(all.total) || 0);
+    const count = Math.max(0, Number(all.count) || 0);
+    const borrowedTotal = Math.min(total, Math.max(0, Number(loans.total) || 0));
+    const borrowedCount = Math.min(count, Math.max(0, Number(loans.count) || 0));
+    return {
+      total, count, borrowedTotal, borrowedCount,
+      cashTotal: Math.max(0, total - borrowedTotal),
+      cashCount: Math.max(0, count - borrowedCount),
+      unavailable: false,
+    };
+  } catch (aggregateError) {
+    // Repli sur les documents : inclut les anciens dépôts sans champ « source ».
+    try {
+      const snapshot = await depositsRef.get();
+      let total = 0;
+      let borrowedTotal = 0;
+      let borrowedCount = 0;
+      let cashCount = 0;
+      snapshot.docs.forEach((document) => {
+        const item = document.data() || {};
+        const value = Number(item.amount);
+        const amount = Number.isFinite(value) && value > 0 ? value : 0;
+        total += amount;
+        if (item.source === 'loan') {
+          borrowedTotal += amount;
+          borrowedCount += 1;
+        } else {
+          cashCount += 1;
+        }
+      });
+      return {
+        total, count: snapshot.size, borrowedTotal, borrowedCount,
+        cashTotal: Math.max(0, total - borrowedTotal), cashCount,
+        unavailable: false,
+      };
+    } catch (readError) {
+      console.error('[ADMIN SAVINGS READ]', goalRef.path, aggregateError.message, readError.message);
+      return {
+        total: null, count: null, borrowedTotal: null, borrowedCount: null,
+        cashTotal: null, cashCount: null, unavailable: true,
+      };
+    }
   }
 }
 
 async function calculateAdminSavingsOverview() {
   try {
     const snapshot = await adminDb.collectionGroup('goals').get();
-    const goals = snapshot.docs.map((doc) => ({ ref: doc.ref, data: doc.data() }));
+    const goals = snapshot.docs.map((document) => ({ ref: document.ref, data: document.data() }));
     const activeGoals = goals.filter(({ data }) => !data.closed && !data.withdrawnAt);
     const categoryBreakdown = new Map();
     const typeBreakdown = new Map();
     let totalProtectedSavings = 0;
+    let cashSavings = 0;
+    let borrowedSavings = 0;
     let activeDepositCount = 0;
+    let unavailable = false;
 
     for (let offset = 0; offset < activeGoals.length; offset += 10) {
-      const batch = activeGoals.slice(offset, offset + 10);
-      const amounts = await Promise.all(batch.map(({ ref }) => getGoalCashDepositSummary(ref)));
-      batch.forEach(({ data }, index) => {
-        const amount = amounts[index].total;
-        totalProtectedSavings += amount;
-        activeDepositCount += amounts[index].count;
+      const group = activeGoals.slice(offset, offset + 10);
+      const amounts = await Promise.all(group.map(({ ref }) => getGoalCashDepositSummary(ref)));
+      group.forEach(({ data }, index) => {
+        const amount = amounts[index];
+        if (amount.unavailable) {
+          unavailable = true;
+          return;
+        }
+        totalProtectedSavings += amount.total;
+        cashSavings += amount.cashTotal;
+        borrowedSavings += amount.borrowedTotal;
+        activeDepositCount += amount.count;
         const category = String(data.categoryId || 'other');
         const type = String(data.type || 'goal');
-        categoryBreakdown.set(category, (categoryBreakdown.get(category) || 0) + amount);
-        typeBreakdown.set(type, (typeBreakdown.get(type) || 0) + amount);
+        categoryBreakdown.set(category, (categoryBreakdown.get(category) || 0) + amount.total);
+        typeBreakdown.set(type, (typeBreakdown.get(type) || 0) + amount.total);
       });
     }
+
     return {
-      totalGoals: goals.length, activeGoals: activeGoals.length, closedGoals: goals.length - activeGoals.length,
-      totalProtectedSavings, activeDepositCount,
-      byCategory: [...categoryBreakdown.entries()].map(([categoryId, amount]) => ({ categoryId, amount })).sort((a, b) => b.amount - a.amount),
-      byType: [...typeBreakdown.entries()].map(([type, amount]) => ({ type, amount })).sort((a, b) => b.amount - a.amount),
+      totalGoals: goals.length,
+      activeGoals: activeGoals.length,
+      closedGoals: goals.length - activeGoals.length,
+      totalProtectedSavings: unavailable ? null : totalProtectedSavings,
+      cashSavings: unavailable ? null : cashSavings,
+      borrowedSavings: unavailable ? null : borrowedSavings,
+      activeDepositCount: unavailable ? null : activeDepositCount,
+      byCategory: unavailable ? [] : [...categoryBreakdown.entries()]
+        .map(([categoryId, amount]) => ({ categoryId, amount }))
+        .sort((a, b) => b.amount - a.amount),
+      byType: unavailable ? [] : [...typeBreakdown.entries()]
+        .map(([type, amount]) => ({ type, amount }))
+        .sort((a, b) => b.amount - a.amount),
+      unavailable,
     };
   } catch (error) {
     console.error('[ADMIN SAVINGS OVERVIEW]', error.message);
-    return { totalGoals: 0, activeGoals: 0, closedGoals: 0, totalProtectedSavings: 0, activeDepositCount: 0, byCategory: [], byType: [], unavailable: true };
+    return {
+      totalGoals: 0, activeGoals: 0, closedGoals: 0,
+      totalProtectedSavings: null, cashSavings: null, borrowedSavings: null,
+      activeDepositCount: null, byCategory: [], byType: [], unavailable: true,
+    };
   }
 }
 
@@ -1748,7 +1837,7 @@ async function handleAdminOverview(request) {
         leastExpenses: leastExpenses.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })),
         incomes: topIncomes.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })),
       },
-      note: 'Le montant protégé correspond aux versements du portefeuille vers les objectifs encore actifs. Les emprunts et les objectifs déjà retirés ne sont pas inclus.',
+      note: 'Le montant protégé correspond à tous les versements présents dans les objectifs encore actifs. La part issue du portefeuille et la part empruntée sont détaillées séparément. Les objectifs déjà retirés sont exclus.',
     });
   } catch (error) {
     return errorResponse(error.message || 'Accès administrateur refusé.', 401);
@@ -1774,26 +1863,33 @@ async function handleAdminSavings(request) {
     const [snapshot, summary] = await Promise.all([query.limit(limit + 1).get(), calculateAdminSavingsOverview()]);
     const hasMore = snapshot.docs.length > limit;
     const docs = snapshot.docs.slice(0, limit);
-    const userIds = [...new Set(docs.map((doc) => doc.ref.parent.parent?.id).filter(Boolean))];
+    const userIds = [...new Set(docs.map((document) => document.ref.parent.parent?.id).filter(Boolean))];
     const userSnaps = await Promise.all(userIds.map((uid) => adminDb.collection('users').doc(uid).get()));
-    const userMap = new Map(userSnaps.filter((doc) => doc.exists).map((doc) => [doc.id, doc.data()]));
+    const userMap = new Map(userSnaps.filter((document) => document.exists).map((document) => [document.id, document.data()]));
     const goals = [];
     for (let offset = 0; offset < docs.length; offset += 10) {
       const group = docs.slice(offset, offset + 10);
-      const amounts = await Promise.all(group.map((doc) => getGoalCashDepositSummary(doc.ref)));
-      group.forEach((doc, index) => {
-        const data = doc.data();
-        const uid = doc.ref.parent.parent?.id || '';
+      const amounts = await Promise.all(group.map((document) => getGoalCashDepositSummary(document.ref)));
+      group.forEach((document, index) => {
+        const data = document.data();
+        const uid = document.ref.parent.parent?.id || '';
         const user = userMap.get(uid) || {};
         const active = !data.closed && !data.withdrawnAt;
-        const depositedAmount = active ? amounts[index].total : 0;
+        const amount = amounts[index];
+        const available = !amount.unavailable;
+        const depositedAmount = active ? (available ? amount.total : null) : 0;
         const targetAmount = Math.max(0, Number(data.targetAmount) || 0);
         goals.push({
-          id: doc.id, userId: uid, userName: user.displayName || 'Utilisateur', email: user.email || '',
+          id: document.id, userId: uid, userName: user.displayName || 'Utilisateur', email: user.email || '',
           name: data.name || (data.type === 'piggybank' ? 'Tirelire' : 'Objectif'),
           type: data.type || 'goal', categoryId: data.categoryId || 'other',
-          targetAmount, depositedAmount, debtBalance: Math.max(0, Number(data.debtBalance) || 0),
-          progress: targetAmount > 0 ? Math.min(100, Math.round((depositedAmount / targetAmount) * 100)) : null,
+          targetAmount, depositedAmount,
+          cashDeposited: active ? (available ? amount.cashTotal : null) : 0,
+          borrowedAmount: active ? (available ? amount.borrowedTotal : null) : 0,
+          depositCount: active ? (available ? amount.count : null) : 0,
+          depositsSummaryAvailable: !active || available,
+          debtBalance: Math.max(0, Number(data.debtBalance) || 0),
+          progress: targetAmount > 0 && depositedAmount != null ? Math.min(100, Math.round((depositedAmount / targetAmount) * 100)) : null,
           createdAt: serializeAdminValue(data.createdAt || null), deadline: data.deadline || null,
           withdrawalPending: Boolean(data.withdrawalPending), active, closed: !active,
         });
@@ -1842,38 +1938,53 @@ async function handleAdminUserDetail(request) {
       userRef.collection('ai_chats').orderBy('updatedAt', 'desc').limit(12).get().catch(() => ({ docs: [] })),
       userRef.collection('expenses').orderBy('date', 'desc').limit(10).get().catch(() => ({ docs: [] })),
       userRef.collection('incomes').orderBy('date', 'desc').limit(10).get().catch(() => ({ docs: [] })),
-      userRef.collection('goals').orderBy('createdAt', 'desc').limit(20).get().catch(() => ({ docs: [] })),
+      userRef.collection('goals').orderBy('createdAt', 'desc').get().catch(() => ({ docs: [] })),
       userRef.collection('notifications').orderBy('createdAt', 'desc').limit(5).get().catch(() => ({ docs: [] })),
     ]);
     if (!userDoc.exists) return errorResponse('Compte introuvable.', 404);
-    const chats = chatsSnap.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) }));
+    const chats = chatsSnap.docs.map((document) => ({ id: document.id, ...serializeAdminValue(document.data()) }));
     const goals = [];
     for (let offset = 0; offset < goalsSnap.docs.length; offset += 10) {
       const group = goalsSnap.docs.slice(offset, offset + 10);
-      const amounts = await Promise.all(group.map((doc) => getGoalCashDepositSummary(doc.ref)));
-      group.forEach((doc, index) => {
-        const data = doc.data();
-        const depositedAmount = amounts[index].total;
+      const amounts = await Promise.all(group.map((document) => getGoalCashDepositSummary(document.ref)));
+      group.forEach((document, index) => {
+        const data = document.data();
+        const amount = amounts[index];
+        const available = !amount.unavailable;
+        const depositedAmount = available ? amount.total : null;
         const targetAmount = Math.max(0, Number(data.targetAmount) || 0);
         goals.push({
-          id: doc.id, ...serializeAdminValue(data), depositedAmount,
-          progress: targetAmount > 0 ? Math.min(100, Math.round((depositedAmount / targetAmount) * 100)) : null,
+          id: document.id, ...serializeAdminValue(data),
+          depositedAmount,
+          cashDeposited: available ? amount.cashTotal : null,
+          borrowedAmount: available ? amount.borrowedTotal : null,
+          depositCount: available ? amount.count : null,
+          depositsSummaryAvailable: available,
+          progress: available && targetAmount > 0 ? Math.min(100, Math.round((depositedAmount / targetAmount) * 100)) : null,
           active: !data.closed && !data.withdrawnAt,
         });
       });
     }
+    const activeGoals = goals.filter((goal) => goal.active);
+    const savingsSummaryAvailable = activeGoals.every((goal) => goal.depositsSummaryAvailable !== false);
+    const sumActive = (field) => savingsSummaryAvailable
+      ? activeGoals.reduce((sum, goal) => sum + (Number(goal[field]) || 0), 0)
+      : null;
     const safeUser = { ...userDoc.data() };
     delete safeUser.pushTokens; delete safeUser.monthlyStats; delete safeUser.dailyStats;
-    const recentExpenses = expensesSnap.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) }));
-    const recentIncomes = incomesSnap.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) }));
+    const recentExpenses = expensesSnap.docs.map((document) => ({ id: document.id, ...serializeAdminValue(document.data()) }));
+    const recentIncomes = incomesSnap.docs.map((document) => ({ id: document.id, ...serializeAdminValue(document.data()) }));
     return NextResponse.json({
       success: true,
       user: { id: uid, ...serializeAdminValue(safeUser) }, chats, goals,
-      totalSavingsInGoals: goals.filter((goal) => goal.active).reduce((sum, goal) => sum + goal.depositedAmount, 0),
+      savingsSummaryAvailable,
+      totalSavingsInGoals: sumActive('depositedAmount'),
+      cashSavingsInGoals: sumActive('cashDeposited'),
+      borrowedSavingsInGoals: sumActive('borrowedAmount'),
       recentExpenseVolume: recentExpenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
       recentIncomeVolume: recentIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
       expenses: recentExpenses, incomes: recentIncomes,
-      notifications: notificationsSnap.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })),
+      notifications: notificationsSnap.docs.map((document) => ({ id: document.id, ...serializeAdminValue(document.data()) })),
     });
   } catch (error) {
     return errorResponse(error.message || 'Impossible de charger ce compte.', 401);
@@ -2250,7 +2361,7 @@ async function handleAdminBroadcast(request) {
       const group = recipientDocs.slice(offset, offset + 400);
       group.forEach((userDoc) => {
         const notificationRef = userDoc.ref.collection('notifications').doc(notificationId);
-        batch.set(notificationRef, { title, body: message, target: path, source: 'admin', readAt: null, createdAt: FieldValue.serverTimestamp() });
+        batch.set(notificationRef, { title, body: message, target: path, source: 'admin', read: false, readAt: null, createdAt: FieldValue.serverTimestamp() });
       });
       await batch.commit();
       inAppDelivered += group.length;
