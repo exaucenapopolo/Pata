@@ -3,9 +3,9 @@ export const DEFAULT_CURRENCY = 'XAF';
 export const DEFAULT_LOCALE = 'fr-CM';
 
 const IMAGES = {
-  savings: 'https://raw.githubusercontent.com/exaucenapopolo/Pata/refs/heads/main/illustrations/%C3%A9pargne.jpg',
+  savings: 'https://raw.githubusercontent.com/exaucenapopolo/Pata/refs/heads/main/illustrations/epargne.jpg',
   transport: 'https://raw.githubusercontent.com/exaucenapopolo/Pata/refs/heads/main/illustrations/transport.jpg',
-  health: 'https://raw.githubusercontent.com/exaucenapopolo/Pata/refs/heads/main/illustrations/sant%C3%A9.jpg',
+  health: 'https://raw.githubusercontent.com/exaucenapopolo/Pata/refs/heads/main/illustrations/sante.jpg',
   food: 'https://raw.githubusercontent.com/exaucenapopolo/Pata/refs/heads/main/illustrations/nourriture.jpg',
   leisure: 'https://raw.githubusercontent.com/exaucenapopolo/Pata/refs/heads/main/illustrations/loisirs.jpg',
   housing: 'https://raw.githubusercontent.com/exaucenapopolo/Pata/refs/heads/main/illustrations/logement.jpg',
