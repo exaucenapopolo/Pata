@@ -1,5 +1,5 @@
 // public/sw.js
-const CACHE_NAME = 'pata-cache-v1';
+const CACHE_NAME = 'pata-cache-v2';
 const urlsToCache = [
   '/',
   '/dashboard',
@@ -14,7 +14,11 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(clients.claim());
+  event.waitUntil((async () => {
+    const cacheNames = await caches.keys();
+    await Promise.all(cacheNames.filter((name) => name.startsWith('pata-cache-') && name !== CACHE_NAME).map((name) => caches.delete(name)));
+    await clients.claim();
+  })());
 });
 
 // 🟢 Gestionnaire fetch sécurisé
