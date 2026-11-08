@@ -1,7 +1,7 @@
 /* eslint-disable react/no-unescaped-entities */
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   TrendingUp, TrendingDown, Wallet, Target, PiggyBank, ChevronRight,
@@ -26,12 +26,59 @@ const todayIso = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
+const DASHBOARD_FEATURES = [
+  {
+    eyebrow: 'Planifier',
+    title: 'Des budgets réutilisables',
+    description: 'Prépare tes enveloppes, enregistre plusieurs modèles et réutilise-les selon tes besoins.',
+    href: '/budgets',
+    action: 'Voir mes budgets',
+    icon: PiggyBank,
+    tone: 'bg-emerald-50 text-emerald-700',
+  },
+  {
+    eyebrow: 'Épargner à ton rythme',
+    title: 'Objectifs ou caisse libre',
+    description: 'Épargne pour toi ou un proche, avec une cible, des règles facultatives ou sans échéance.',
+    href: '/goals',
+    action: 'Organiser mon épargne',
+    icon: Target,
+    tone: 'bg-blue-50 text-blue-700',
+  },
+  {
+    eyebrow: 'Être accompagné',
+    title: 'Mč, ton assistante financière',
+    description: 'Pose tes questions, comprends tes chiffres et demande des actions adaptées à ta situation.',
+    href: '/reports',
+    action: 'Explorer mes analyses',
+    icon: Lightbulb,
+    tone: 'bg-violet-50 text-violet-700',
+  },
+  {
+    eyebrow: 'Garder une trace',
+    title: 'Des opérations détaillées',
+    description: 'Consulte chaque dépense et chaque revenu avec les informations utiles que tu choisis d’ajouter.',
+    href: '/expenses',
+    action: 'Voir mes opérations',
+    icon: Landmark,
+    tone: 'bg-amber-50 text-amber-800',
+  },
+];
+
 const ADVICE_ICONS = { success: CheckCircle2, danger: AlertTriangle, warning: AlertTriangle, tip: Lightbulb, info: Info };
 
 export default function DashboardPage() {
   const [customStart, setCustomStart] = useState(getFirstOfMonth());
   const [customEnd, setCustomEnd] = useState(todayIso());
   const [showCustomPeriod, setShowCustomPeriod] = useState(false);
+  const [activeFeature, setActiveFeature] = useState(0);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setActiveFeature((current) => (current + 1) % DASHBOARD_FEATURES.length);
+    }, 3000);
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   const startDate = showCustomPeriod ? customStart : getFirstOfMonth();
   const endDate = showCustomPeriod ? customEnd : getLastOfMonth();
@@ -127,7 +174,7 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <section className="relative overflow-hidden rounded-[28px] bg-gradient-to-br from-[#075b43] via-[#08674b] to-[#0c8060] p-5 text-white shadow-lg shadow-emerald-950/10 sm:p-7">
+      <section className="pata-dashboard-hero relative overflow-hidden rounded-[28px] bg-gradient-to-br from-[#075b43] via-[#08674b] to-[#0c8060] p-5 text-white shadow-lg shadow-emerald-950/10 sm:p-7">
         <div className="pointer-events-none absolute -right-12 -top-16 h-56 w-56 rounded-full border-[28px] border-white/5" />
         <div className="pointer-events-none absolute -bottom-20 right-24 h-40 w-40 rounded-full border-[20px] border-white/5" />
         <div className="relative flex flex-wrap items-start justify-between gap-4">
@@ -146,6 +193,31 @@ export default function DashboardPage() {
           <Link href="/income?new=1" className="group flex min-h-[112px] flex-col justify-between rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md active:scale-[0.98]"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><ArrowDownLeft size={19}/></span><span><strong className="block text-xs text-slate-900">Ajouter un revenu</strong><span className="mt-0.5 block text-[10px] text-slate-500">Enregistrer une entrée</span></span></Link>
           <Link href="/budgets" className="group flex min-h-[112px] flex-col justify-between rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md active:scale-[0.98]"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><PiggyBank size={19}/></span><span><strong className="block text-xs text-slate-900">Gérer mes budgets</strong><span className="mt-0.5 block text-[10px] text-slate-500">Prévoir mes dépenses</span></span></Link>
           <Link href="/goals" className="group flex min-h-[112px] flex-col justify-between rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-md active:scale-[0.98]"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-50 text-violet-700"><Plus size={19}/></span><span><strong className="block text-xs text-slate-900">Créer un objectif</strong><span className="mt-0.5 block text-[10px] text-slate-500">Préparer mon épargne</span></span></Link>
+        </div>
+      </section>
+      <section className="pata-feature-carousel overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" aria-roledescription="carrousel de fonctionnalités" aria-label="Fonctionnalités principales de Pata">
+        {DASHBOARD_FEATURES.map((feature, index) => {
+          const Icon = feature.icon;
+          const active = index === activeFeature;
+          return active ? (
+            <div key={feature.title} className="flex min-h-[104px] items-center gap-3 p-3 sm:min-h-[116px] sm:p-4" aria-live="polite">
+              <span className={'flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ' + feature.tone}><Icon size={21}/></span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-slate-400">{feature.eyebrow}</p>
+                <h2 className="mt-0.5 text-sm font-bold text-slate-900 sm:text-base">{feature.title}</h2>
+                <p className="mt-0.5 line-clamp-2 text-[10px] leading-4 text-slate-500 sm:text-xs sm:leading-5">{feature.description}</p>
+              </div>
+              <Link href={feature.href} className="hidden shrink-0 items-center rounded-lg border border-slate-200 px-2.5 py-2 text-[10px] font-semibold text-brand-800 transition hover:bg-brand-50 sm:inline-flex">{feature.action}</Link>
+            </div>
+          ) : null;
+        })}
+        <div className="flex items-center justify-between border-t border-slate-100 px-3 py-2">
+          <span className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">À découvrir dans Pata</span>
+          <div className="flex items-center gap-1.5" role="group" aria-label="Choisir une fonctionnalité">
+            {DASHBOARD_FEATURES.map((feature, index) => (
+              <button key={feature.title} type="button" onClick={() => setActiveFeature(index)} aria-label={'Afficher : ' + feature.title} aria-pressed={index === activeFeature} className={'h-1.5 rounded-full transition-all ' + (index === activeFeature ? 'w-5 bg-brand-700' : 'w-1.5 bg-slate-300 hover:bg-slate-400')}/>
+            ))}
+          </div>
         </div>
       </section>
       <div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="text-base font-bold text-slate-900">Vue d’ensemble</h2><p className="text-xs text-slate-500">Activité et comparaisons financières.</p></div></div>
