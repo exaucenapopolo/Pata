@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Bell, BellOff, Loader2 } from 'lucide-react';
-import { getMessaging, getToken, isSupported, onMessage } from 'firebase/messaging';
+import { getMessaging, getToken, isSupported } from 'firebase/messaging';
 import app from '@/lib/firebase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
@@ -78,31 +78,6 @@ export function NotificationSettings() {
     syncCurrentDevice();
     return () => { active = false; };
   }, [user, profile?.notificationsEnabled, profile?.pushTokens]);
-
-  useEffect(() => {
-    let unsubscribe = null;
-    let active = true;
-    const listen = async () => {
-      try {
-        if (!user || typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted' || !(await isSupported())) return;
-        const messaging = getMessaging(app);
-        unsubscribe = onMessage(messaging, (payload) => {
-          if (!active) return;
-          const title = payload.data?.title || payload.notification?.title || 'Pata';
-          const options = { body: payload.data?.body || payload.notification?.body || 'Ouvre Pata pour consulter ton suivi.', icon: '/android-chrome-192x192.png', badge: '/android-chrome-192x192.png', tag: payload.data?.tag || 'pata-foreground', data: { url: payload.data?.url || '/dashboard' } };
-          void (async () => {
-            try {
-              const registration = await navigator.serviceWorker.getRegistration('/firebase-messaging/');
-              if (registration?.active) await registration.showNotification(title, options);
-              else if (Notification.permission === 'granted') new Notification(title, options);
-            } catch (notificationError) { console.warn('[PATA PUSH FOREGROUND]', notificationError?.message || notificationError); }
-          })();
-        });
-      } catch (error) { console.warn('Écoute des notifications indisponible :', error?.message); }
-    };
-    listen();
-    return () => { active = false; if (unsubscribe) unsubscribe(); };
-  }, [user]);
 
   const subscribe = async () => {
     setMessage('');
