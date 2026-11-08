@@ -410,7 +410,16 @@ async function handlePinSet(request) {
     const ref = adminDb.collection('users').doc(uid).collection('private_security').doc('pin');
     const snap = await ref.get();
     const current = snap.exists ? snap.data() : {};
-    if (current.hash && !checkPinHash(currentPin, current)) return errorResponse('Le code actuel est incorrect. Utilise la réinitialisation par e-mail si tu l’as oublié.', 401);
+    if (current.hash) {
+      const now = Date.now();
+      if (Number(current.lockedUntil || 0) > now) return errorResponse('Trop de tentatives. Réessaie dans quelques minutes ou réinitialise ton code par e-mail.', 429);
+      if (!checkPinHash(currentPin, current)) {
+        const attempts = (Number(current.failedAttempts) || 0) + 1;
+        const lockedUntil = attempts >= 5 ? now + 5 * 60 * 1000 : null;
+        await ref.set({ failedAttempts: attempts >= 5 ? 0 : attempts, lockedUntil, lastFailedAt: FieldValue.serverTimestamp() }, { merge: true });
+        return errorResponse(lockedUntil ? 'Trop de tentatives. Le code est bloqué pendant 5 minutes.' : 'Le code actuel est incorrect. Utilise la réinitialisation par e-mail si tu l’as oublié.', 401);
+      }
+    }
     const credential = makePinHash(pin);
     await ref.set({ ...credential, failedAttempts: 0, lockedUntil: null, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     await adminDb.collection('users').doc(uid).set({ pinEnabled: true }, { merge: true });
