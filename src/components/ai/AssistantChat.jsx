@@ -414,15 +414,16 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
 
   return (
     <div 
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-0 md:p-6"
+      className="fixed inset-0 z-[90] flex items-stretch justify-center bg-slate-950/35 px-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] sm:items-center sm:px-3 sm:py-3 md:px-6 md:py-6"
       onClick={onClose}
     >
       <div 
-        className="relative flex h-full w-full flex-col overflow-hidden bg-white shadow-2xl md:h-[85vh] md:max-w-5xl md:flex-row md:rounded-2xl"
+        className="relative flex h-full max-h-full w-full min-w-0 flex-col overflow-hidden bg-white shadow-2xl sm:max-h-[calc(100dvh-1.5rem)] sm:rounded-3xl md:h-[90dvh] md:max-w-6xl md:flex-row"
         onClick={(e) => e.stopPropagation()}
       >
         
-        <div className={`absolute inset-y-0 left-0 z-30 w-72 shrink-0 transform bg-slate-50 transition-transform duration-300 ${showSidebar ? 'translate-x-0' : '-translate-x-full'} md:relative md:flex md:translate-x-0 border-r border-slate-200 flex flex-col`}>
+        {showSidebar && <button type="button" aria-label="Fermer les discussions" onClick={() => setShowSidebar(false)} className="absolute inset-0 z-20 bg-slate-950/25 md:hidden" />}
+        <div className={`absolute inset-y-0 left-0 z-30 w-[min(82vw,320px)] shrink-0 transform bg-slate-50 transition-transform duration-300 ${showSidebar ? 'translate-x-0' : '-translate-x-full'} md:relative md:flex md:w-72 md:translate-x-0 border-r border-slate-200 flex flex-col`}>
           <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 px-4">
             <span className="font-bold text-slate-800">Discussions</span>
             <button onClick={() => setShowSidebar(false)} className="md:hidden p-1 rounded hover:bg-slate-200"><X size={18} /></button>
@@ -457,7 +458,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
         </div>
 
         <div className="flex h-full flex-1 flex-col overflow-hidden bg-white">
-          <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-100 px-4 bg-slate-50/50">
+          <div className="flex min-h-16 shrink-0 items-center justify-between border-b border-slate-100 bg-white/95 px-3 pt-1 sm:px-4">
             <div className="flex items-center gap-3">
               <button onClick={() => setShowSidebar(true)} className="md:hidden p-1.5 rounded-lg hover:bg-slate-200">
                 <Menu size={18} className="text-slate-500" />
@@ -472,7 +473,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
             </button>
           </div>
 
-          <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 pb-5 sm:p-4 sm:pb-6 space-y-4">
             {messages.length === 0 && (
                <div className="space-y-4 mt-4 max-w-2xl mx-auto">
                  <div className="text-center">
@@ -595,7 +596,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
             )}
           </div>
 
-          <div className="shrink-0 border-t border-slate-100 p-4 bg-white relative">
+          <div className="relative shrink-0 border-t border-slate-200 bg-white px-3 pt-3 pb-[max(env(safe-area-inset-bottom),12px)] sm:px-4 sm:pt-4">
             {showMentions && (
               <div className="absolute bottom-full left-4 mb-2 w-72 rounded-xl border border-slate-200 bg-white shadow-xl overflow-hidden z-20">
                 <div className="p-2 space-y-1">
@@ -632,7 +633,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
                 value={input} 
                 onChange={handleInputChange} 
                 placeholder="Pose ta question (tape @ pour les options)..." 
-                className="flex-1 resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-brand-500 focus:bg-white min-h-[44px] max-h-[150px]" 
+                className="min-h-[48px] max-h-[160px] flex-1 resize-none rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-base outline-none transition focus:border-brand-500 focus:bg-white sm:text-sm" 
                 disabled={loading}
                 rows={1}
               />
