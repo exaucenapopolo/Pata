@@ -3051,6 +3051,406 @@ async function handleUpdateProject(request) {
   } catch (error) { return errorResponse(error.message || 'Impossible de modifier le projet.', 400); }
 }
 
+/* ═══════════════════ COTISATIONS / TONTINES ═══════════════════ */
+
+function cotisationToday() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Douala', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+}
+
+function cotisationAddDays(dateKey, days) {
+  const date = new Date(String(dateKey) + 'T12:00:00Z');
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function cotisationAddMonths(dateKey, months) {
+  const source = new Date(String(dateKey) + 'T12:00:00Z');
+  const day = source.getUTCDate();
+  const first = new Date(Date.UTC(source.getUTCFullYear(), source.getUTCMonth() + months, 1));
+  const lastDay = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+  first.setUTCDate(Math.min(day, lastDay));
+  return first.toISOString().slice(0, 10);
+}
+
+function getCotisationCycleMeta(group, today = cotisationToday()) {
+  const startDate = String(group.startDate || today);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) throw new Error('La date de début de cette cotisation est invalide.');
+  const start = new Date(startDate + 'T12:00:00Z');
+  const current = new Date(today + 'T12:00:00Z');
+  if (Number.isNaN(start.getTime()) || Number.isNaN(current.getTime())) throw new Error('Période de cotisation invalide.');
+  const frequency = ['daily', 'weekly', 'monthly'].includes(group.frequency) ? group.frequency : 'monthly';
+  if (current < start) {
+    const next = frequency === 'daily' ? cotisationAddDays(startDate, 1)
+      : frequency === 'weekly' ? cotisationAddDays(startDate, 7)
+      : cotisationAddMonths(startDate, 1);
+    return { cycleIndex: 0, cycleKey: 'cycle-0001', startDate, dueAt: next, notStarted: true };
+  }
+  let index = 0;
+  if (frequency === 'daily' || frequency === 'weekly') {
+    const days = Math.floor((Date.UTC(current.getUTCFullYear(), current.getUTCMonth(), current.getUTCDate()) - Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate())) / 86400000);
+    index = Math.floor(days / (frequency === 'daily' ? 1 : 7));
+  } else {
+    index = (current.getUTCFullYear() - start.getUTCFullYear()) * 12 + current.getUTCMonth() - start.getUTCMonth();
+    if (current.getUTCDate() < start.getUTCDate()) index -= 1;
+    index = Math.max(0, index);
+  }
+  const periodStart = frequency === 'daily' ? cotisationAddDays(startDate, index)
+    : frequency === 'weekly' ? cotisationAddDays(startDate, index * 7)
+    : cotisationAddMonths(startDate, index);
+  const dueAt = frequency === 'daily' ? cotisationAddDays(periodStart, 1)
+    : frequency === 'weekly' ? cotisationAddDays(periodStart, 7)
+    : cotisationAddMonths(periodStart, 1);
+  return { cycleIndex: index, cycleKey: 'cycle-' + String(index + 1).padStart(4, '0'), startDate: periodStart, dueAt, notStarted: false };
+}
+
+function cotisationMoney(value) {
+  return Math.max(0, Math.round(Number(value) || 0));
+}
+
+async function confirmCotisationPayment(transId) {
+  const paymentRef = adminDb.collection('cotisationPayments').doc(String(transId));
+  return adminDb.runTransaction(async (transaction) => {
+    const paymentSnap = await transaction.get(paymentRef);
+    if (!paymentSnap.exists) return { confirmed: false, missing: true };
+    const payment = paymentSnap.data();
+    if (payment.status === 'CONFIRMED') return { confirmed: true, duplicate: true };
+    if (payment.status !== 'PENDING') return { confirmed: false, status: payment.status };
+    const groupRef = adminDb.collection('cotisationGroups').doc(payment.groupId);
+    const cycleRef = groupRef.collection('cycles').doc(payment.cycleKey);
+    const contributionRef = cycleRef.collection('contributions').doc(payment.userId);
+    const [groupSnap, cycleSnap, contributionSnap] = await Promise.all([
+      transaction.get(groupRef), transaction.get(cycleRef), transaction.get(contributionRef),
+    ]);
+    if (!groupSnap.exists) throw new Error('Groupe de cotisation introuvable.');
+    const group = groupSnap.data();
+    const amount = cotisationMoney(payment.amount);
+    const nextMemberTotal = cotisationMoney(contributionSnap.data()?.amount) + amount;
+    const nextTotal = cotisationMoney(cycleSnap.data()?.totalCollected) + amount;
+    const targetAmount = cotisationMoney(cycleSnap.data()?.targetAmount) || cotisationMoney(group.contributionAmount) * cotisationMoney(group.memberCount);
+    if (nextMemberTotal > cotisationMoney(group.contributionAmount)) throw new Error('Le paiement dépasse la contribution attendue pour ce membre.');
+    transaction.set(contributionRef, {
+      userId: payment.userId, displayName: payment.displayName || 'Membre',
+      amount: nextMemberTotal, updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    transaction.set(cycleRef, {
+      cycleKey: payment.cycleKey, cycleIndex: payment.cycleIndex,
+      startDate: payment.cycleStartDate, dueAt: payment.dueAt,
+      targetAmount, totalCollected: nextTotal,
+      status: nextTotal >= targetAmount ? 'READY' : 'OPEN',
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    transaction.update(groupRef, { membershipLockedCycle: payment.cycleKey, updatedAt: FieldValue.serverTimestamp() });
+    transaction.update(paymentRef, { status: 'CONFIRMED', confirmedAt: FieldValue.serverTimestamp() });
+    return { confirmed: true, amount, totalCollected: nextTotal, targetAmount };
+  });
+}
+
+async function cotisationSendWithdrawalEmail(data, status) {
+  if (!data || !data.email) return;
+  const details = {
+    received: ['Demande de retrait reçue par Pata', 'Ta demande a bien été reçue.', 'Nous avons reçu ta demande de retrait de ' + cotisationMoney(data.amount).toLocaleString('fr-FR') + ' FCFA concernant ' + (data.goalName || 'ta cotisation') + '. Elle sera vérifiée par l’administration avant l’envoi.'],
+    paid: ['Ton retrait Pata a été envoyé', 'Ton retrait a été envoyé.', 'Le retrait de ' + cotisationMoney(data.amount).toLocaleString('fr-FR') + ' FCFA concernant ' + (data.goalName || 'ta cotisation') + ' a été confirmé par le prestataire.'],
+    rejected: ['Mise à jour de ta demande de retrait Pata', 'Ta demande de retrait n’a pas été approuvée.', 'La demande concernant ' + (data.goalName || 'ton épargne') + ' a été refusée après vérification. Tu peux consulter le statut dans ton espace Pata ou contacter l’assistance.'],
+    failed: ['Ton retrait Pata n’a pas abouti', 'Le prestataire n’a pas pu effectuer le retrait.', 'Le retrait de ' + cotisationMoney(data.amount).toLocaleString('fr-FR') + ' FCFA concernant ' + (data.goalName || 'ta cotisation') + ' n’a pas été confirmé. Consulte ton espace Pata avant toute nouvelle demande.'],
+  }[status];
+  if (!details) return;
+  await sendPataEmail({
+    to: data.email, subject: details[0],
+    html: customAdminEmail({
+      name: data.displayName || 'Utilisateur', headline: details[1], body: details[2],
+      ctaUrl: data.withdrawalType === 'cotisation' ? '/cotisations' : '/goals',
+      ctaLabel: 'Consulter ma demande',
+    }),
+    idempotencyKey: 'pata-withdrawal-' + (data.requestId || data.id || 'request') + '-' + status,
+  }).catch((error) => console.warn('[PATA WITHDRAWAL EMAIL]', error.message || error));
+}
+
+async function restoreCotisationCycle(data, status) {
+  if (!data || data.withdrawalType !== 'cotisation' || !data.groupId || !data.cycleKey) return;
+  const cycleRef = adminDb.collection('cotisationGroups').doc(data.groupId).collection('cycles').doc(data.cycleKey);
+  const cycleSnap = await cycleRef.get().catch(() => null);
+  if (!cycleSnap || !cycleSnap.exists) return;
+  const cycle = cycleSnap.data();
+  const stillFunded = cotisationMoney(cycle.totalCollected) >= cotisationMoney(cycle.targetAmount);
+  await cycleRef.set({
+    status: status === 'PAID' ? 'PAID' : (stillFunded ? 'READY' : 'OPEN'),
+    withdrawalRequestId: status === 'PAID' ? (data.requestId || null) : null,
+    paidAt: status === 'PAID' ? FieldValue.serverTimestamp() : null,
+    updatedAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+}
+
+async function handleCotisationsList(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const membershipsSnap = await adminDb.collection('users').doc(uid).collection('cotisationMemberships').limit(100).get();
+    const memberships = membershipsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    const groups = await Promise.all(memberships.map(async (membership) => {
+      const groupRef = adminDb.collection('cotisationGroups').doc(membership.groupId || membership.id);
+      const groupSnap = await groupRef.get();
+      if (!groupSnap.exists) return null;
+      const group = groupSnap.data();
+      const membersSnap = await groupRef.collection('members').where('active', '==', true).orderBy('turnOrder', 'asc').limit(50).get();
+      const members = membersSnap.docs.map((doc) => ({ uid: doc.id, ...doc.data() }));
+      const meta = getCotisationCycleMeta(group);
+      const cycleRef = groupRef.collection('cycles').doc(meta.cycleKey);
+      const [cycleSnap, contributionsSnap, paymentsSnap] = await Promise.all([
+        cycleRef.get(),
+        cycleRef.collection('contributions').limit(50).get(),
+        cycleRef.collection('payments').orderBy('createdAt', 'desc').limit(200).get(),
+      ]);
+      const contributions = new Map(contributionsSnap.docs.map((doc) => [doc.id, doc.data()]));
+      const paymentCounts = new Map();
+      paymentsSnap.docs.forEach((doc) => {
+        const item = doc.data();
+        paymentCounts.set(item.userId, (paymentCounts.get(item.userId) || 0) + 1);
+      });
+      const turnMember = members.length ? members[meta.cycleIndex % members.length] : null;
+      const contributionAmount = cotisationMoney(group.contributionAmount);
+      const targetAmount = cotisationMoney(cycleSnap.data()?.targetAmount) || contributionAmount * members.length;
+      const totalCollected = cotisationMoney(cycleSnap.data()?.totalCollected);
+      const memberRows = members.map((member) => {
+        const paid = cotisationMoney(contributions.get(member.uid)?.amount);
+        return { ...member, paid, remaining: Math.max(0, contributionAmount - paid), installments: paymentCounts.get(member.uid) || 0 };
+      });
+      const myPaid = cotisationMoney(contributions.get(uid)?.amount);
+      const cycleStatus = cycleSnap.data()?.status || (totalCollected >= targetAmount && targetAmount > 0 ? 'READY' : 'OPEN');
+      return {
+        id: groupRef.id, name: group.name, ownerId: group.ownerId, isOwner: group.ownerId === uid,
+        contributionAmount, frequency: group.frequency, startDate: group.startDate, status: group.status || 'active',
+        inviteToken: group.ownerId === uid ? group.inviteToken : null,
+        members: memberRows, memberCount: members.length, maxMembers: cotisationMoney(group.maxMembers) || 50,
+        currentCycle: {
+          ...meta, targetAmount, totalCollected, remainingTotal: Math.max(0, targetAmount - totalCollected),
+          status: cycleStatus, beneficiaryUid: turnMember?.uid || null,
+          beneficiaryName: turnMember?.displayName || 'Membre', isMyTurn: turnMember?.uid === uid,
+          myPaid, myRemaining: Math.max(0, contributionAmount - myPaid),
+          canWithdraw: turnMember?.uid === uid && targetAmount > 0 && totalCollected >= targetAmount && ['READY', 'OPEN'].includes(cycleStatus),
+        },
+      };
+    }));
+    return NextResponse.json({ success: true, groups: groups.filter(Boolean) });
+  } catch (error) { return errorResponse(error.message || 'Impossible de charger les cotisations.', 500); }
+}
+
+async function handleCotisationCreate(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const name = String(body.name || '').trim().slice(0, 90);
+    const amount = Math.round(Number(body.contributionAmount));
+    const frequency = ['daily', 'weekly', 'monthly'].includes(body.frequency) ? body.frequency : '';
+    const startDate = String(body.startDate || cotisationToday());
+    if (!name) return errorResponse('Donne un nom au groupe.', 400);
+    if (!Number.isSafeInteger(amount) || amount < 100 || amount > 5000000 || amount % 100 !== 0) return errorResponse('La cotisation par membre doit être au moins de 100 FCFA et un multiple de 100.', 400);
+    if (!frequency) return errorResponse('Choisis une fréquence de cotisation.', 400);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || startDate < cotisationToday()) return errorResponse('Choisis une date de début à partir d’aujourd’hui.', 400);
+    const userRef = adminDb.collection('users').doc(uid);
+    const groupRef = adminDb.collection('cotisationGroups').doc();
+    const inviteToken = randomBytes(24).toString('hex');
+    const memberRef = groupRef.collection('members').doc(uid);
+    const membershipRef = userRef.collection('cotisationMemberships').doc(groupRef.id);
+    await adminDb.runTransaction(async (transaction) => {
+      const userSnap = await transaction.get(userRef);
+      if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
+      const userData = userSnap.data();
+      transaction.create(groupRef, {
+        name, contributionAmount: amount, frequency, startDate,
+        ownerId: uid, inviteToken, memberCount: 1, maxMembers: 50,
+        status: 'active', membershipLockedCycle: null,
+        createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+      });
+      transaction.create(memberRef, {
+        uid, displayName: String(userData.displayName || 'Organisateur').slice(0, 100),
+        email: String(userData.email || '').slice(0, 180), isOwner: true, turnOrder: 0,
+        joinedAt: FieldValue.serverTimestamp(), active: true,
+      });
+      transaction.create(membershipRef, { groupId: groupRef.id, name, joinedAt: FieldValue.serverTimestamp() });
+    });
+    const origin = request.headers.get('origin') || getBaseUrl(request);
+    return NextResponse.json({ success: true, groupId: groupRef.id, inviteUrl: origin + '/cotisations?invite=' + inviteToken });
+  } catch (error) { return errorResponse(error.message || 'Impossible de créer le groupe.', 400); }
+}
+
+async function handleCotisationJoin(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const token = String(body.inviteToken || '').trim().slice(0, 100);
+    if (!token) return errorResponse('Lien d’invitation invalide.', 400);
+    const found = await adminDb.collection('cotisationGroups').where('inviteToken', '==', token).limit(1).get();
+    if (found.empty) return errorResponse('Ce lien ne correspond à aucun groupe actif.', 404);
+    const groupRef = found.docs[0].ref;
+    const group = found.docs[0].data();
+    if (group.status !== 'active') return errorResponse('Ce groupe n’accepte plus de membres.', 409);
+    const meta = getCotisationCycleMeta(group);
+    const cycleRef = groupRef.collection('cycles').doc(meta.cycleKey);
+    const memberRef = groupRef.collection('members').doc(uid);
+    const userRef = adminDb.collection('users').doc(uid);
+    const membershipRef = userRef.collection('cotisationMemberships').doc(groupRef.id);
+    await adminDb.runTransaction(async (transaction) => {
+      const [freshGroup, existingMember, cycleSnap, userSnap] = await Promise.all([
+        transaction.get(groupRef), transaction.get(memberRef), transaction.get(cycleRef), transaction.get(userRef),
+      ]);
+      if (!freshGroup.exists || !userSnap.exists) throw new Error('Groupe ou profil utilisateur introuvable.');
+      if (existingMember.exists) return;
+      const data = freshGroup.data();
+      if (cotisationMoney(data.memberCount) >= cotisationMoney(data.maxMembers || 50)) throw new Error('Ce groupe a atteint sa capacité maximale de 50 membres.');
+      if (data.membershipLockedCycle === meta.cycleKey || cotisationMoney(cycleSnap.data()?.totalCollected) > 0) {
+        throw new Error('Les cotisations de cette période ont déjà commencé. Rejoins le groupe au prochain cycle.');
+      }
+      const user = userSnap.data();
+      transaction.create(memberRef, {
+        uid, displayName: String(user.displayName || 'Membre').slice(0, 100),
+        email: String(user.email || '').slice(0, 180), isOwner: false,
+        turnOrder: cotisationMoney(data.memberCount), joinedAt: FieldValue.serverTimestamp(), active: true,
+      });
+      transaction.create(membershipRef, { groupId: groupRef.id, name: data.name, joinedAt: FieldValue.serverTimestamp() });
+      transaction.update(groupRef, { memberCount: cotisationMoney(data.memberCount) + 1, updatedAt: FieldValue.serverTimestamp() });
+    });
+    return NextResponse.json({ success: true, groupId: groupRef.id, message: 'Tu as rejoint le groupe de cotisation.' });
+  } catch (error) { return errorResponse(error.message || 'Impossible de rejoindre ce groupe.', 400); }
+}
+
+async function handleCotisationPay(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const groupId = String(body.groupId || '').trim().slice(0, 150);
+    const amount = Math.round(Number(body.amount));
+    const phoneRaw = String(body.phone || '').replace(/[^0-9+]/g, '');
+    let phone = phoneRaw.replace(/^\+/, '');
+    if (phone.startsWith('237') && phone.length === 12) phone = phone.slice(3);
+    const medium = body.network === 'orange' ? 'orange money' : body.network === 'mtn' ? 'mobile money' : '';
+    if (!groupId || groupId.includes('/')) return errorResponse('Groupe invalide.', 400);
+    if (!Number.isSafeInteger(amount) || amount < 100 || amount % 100 !== 0) return errorResponse('Chaque versement doit être d’au moins 100 FCFA et par multiples de 100.', 400);
+    if (!/^6[0-9]{8}$/.test(phone) || !medium) return errorResponse('Vérifie le numéro MTN ou Orange Money.', 400);
+    const groupRef = adminDb.collection('cotisationGroups').doc(groupId);
+    const [groupSnap, memberSnap, userSnap] = await Promise.all([
+      groupRef.get(), groupRef.collection('members').doc(uid).get(), adminDb.collection('users').doc(uid).get(),
+    ]);
+    if (!groupSnap.exists || !memberSnap.exists || !userSnap.exists) return errorResponse('Tu ne fais pas partie de ce groupe.', 403);
+    const group = groupSnap.data();
+    if (group.status !== 'active') return errorResponse('Ce groupe n’accepte plus de versements.', 409);
+    const meta = getCotisationCycleMeta(group);
+    if (meta.notStarted) return errorResponse('Les cotisations commencent le ' + meta.startDate + '.', 409);
+    const cycleRef = groupRef.collection('cycles').doc(meta.cycleKey);
+    const [cycleSnap, contributionSnap, membersSnap] = await Promise.all([
+      cycleRef.get(), cycleRef.collection('contributions').doc(uid).get(),
+      groupRef.collection('members').where('active', '==', true).get(),
+    ]);
+    const currentStatus = cycleSnap.data()?.status || 'OPEN';
+    if (currentStatus !== 'OPEN') return errorResponse('Cette période est entièrement financée ou en cours de retrait.', 409);
+    const contributionAmount = cotisationMoney(group.contributionAmount);
+    const paid = cotisationMoney(contributionSnap.data()?.amount);
+    const due = Math.max(0, contributionAmount - paid);
+    if (amount > due) return errorResponse('Il reste ' + due.toLocaleString('fr-FR') + ' FCFA à verser pour ta part de ce cycle.', 400);
+    if (!membersSnap.size) return errorResponse('Ce groupe ne compte aucun membre actif.', 409);
+    const fee = Math.round(amount * 0.05);
+    const grossAmount = amount + fee;
+    const apiUser = process.env.FAPSHI_API_USER;
+    const apiKey = process.env.FAPSHI_SECRET_KEY;
+    if (!apiUser || !apiKey) return errorResponse('Le paiement Fapshi n’est pas configuré.', 503);
+    const userData = userSnap.data();
+    const baseUrl = getBaseUrl(request);
+    const payload = {
+      amount: grossAmount, currency: 'XAF',
+      description: 'Cotisation Pata — ' + String(group.name || 'Groupe').slice(0, 60),
+      redirect_url: (request.headers.get('origin') || baseUrl) + '/cotisations',
+      webhook_url: baseUrl + '/api/fapshi/webhook',
+      phone, email: userData.email || '', name: userData.displayName || 'Membre',
+    };
+    const response = await fetch('https://live.fapshi.com/initiate-pay', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', apiuser: apiUser, apikey: apiKey },
+      body: JSON.stringify(payload), signal: AbortSignal.timeout(20000),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) return errorResponse(data.message || 'Le paiement a été refusé par Fapshi.', 502);
+    const checkoutUrl = data.data?.url || data.link || data.url;
+    const transId = data.transId || data.data?.transId;
+    if (!checkoutUrl || !transId) return errorResponse('Fapshi n’a pas fourni de lien de paiement vérifiable.', 502);
+    await adminDb.collection('cotisationPayments').doc(transId).set({
+      transId, userId: uid, groupId, groupName: group.name || 'Cotisation',
+      cycleKey: meta.cycleKey, cycleIndex: meta.cycleIndex, cycleStartDate: meta.startDate, dueAt: meta.dueAt,
+      displayName: userData.displayName || 'Membre', amount, fee, grossAmount, phone, medium,
+      status: 'PENDING', checkoutUrl, createdAt: FieldValue.serverTimestamp(),
+    });
+    return NextResponse.json({ success: true, checkoutUrl, transId, amount, fee, grossAmount });
+  } catch (error) { return errorResponse(error.message || 'Impossible de démarrer le paiement.', 502); }
+}
+
+async function handleCotisationWithdrawalRequest(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const groupId = String(body.groupId || '').trim().slice(0, 150);
+    const phoneRaw = String(body.phone || '').replace(/[^0-9+]/g, '');
+    let phone = phoneRaw.replace(/^\+/, '');
+    if (phone.startsWith('237') && phone.length === 12) phone = phone.slice(3);
+    const medium = body.network === 'orange' ? 'orange money' : body.network === 'mtn' ? 'mobile money' : '';
+    if (!groupId || groupId.includes('/')) return errorResponse('Groupe invalide.', 400);
+    if (!/^6[0-9]{8}$/.test(phone) || !medium) return errorResponse('Vérifie ton numéro MTN ou Orange Money.', 400);
+    const groupRef = adminDb.collection('cotisationGroups').doc(groupId);
+    const membersQuery = groupRef.collection('members').where('active', '==', true);
+    const requestRef = adminDb.collection('withdrawalRequests').doc();
+    const result = await adminDb.runTransaction(async (transaction) => {
+      const groupSnap = await transaction.get(groupRef);
+      if (!groupSnap.exists) throw new Error('Groupe introuvable.');
+      const group = groupSnap.data();
+      const meta = getCotisationCycleMeta(group);
+      if (meta.notStarted) throw new Error('La période de cotisation n’a pas encore commencé.');
+      const cycleRef = groupRef.collection('cycles').doc(meta.cycleKey);
+      const userRef = adminDb.collection('users').doc(uid);
+      const [membersSnap, cycleSnap, userSnap, memberSnap] = await Promise.all([
+        transaction.get(membersQuery), transaction.get(cycleRef), transaction.get(userRef),
+        transaction.get(groupRef.collection('members').doc(uid)),
+      ]);
+      if (!memberSnap.exists || !userSnap.exists) throw new Error('Tu ne fais pas partie de ce groupe.');
+      const members = membersSnap.docs.map((doc) => ({ uid: doc.id, ...doc.data() })).sort((a, b) => Number(a.turnOrder) - Number(b.turnOrder));
+      const beneficiary = members.length ? members[meta.cycleIndex % members.length] : null;
+      if (!beneficiary || beneficiary.uid !== uid) throw new Error('Ce n’est pas encore ton tour de recevoir la cotisation.');
+      const cycle = cycleSnap.data() || {};
+      const target = cotisationMoney(cycle.targetAmount) || cotisationMoney(group.contributionAmount) * members.length;
+      const collected = cotisationMoney(cycle.totalCollected);
+      if (collected < target) throw new Error('Tous les membres doivent avoir terminé leur cotisation avant le retrait.');
+      if (!['READY', 'OPEN'].includes(cycle.status || 'OPEN')) throw new Error('Une demande de retrait est déjà en cours ou ce cycle est terminé.');
+      const user = userSnap.data();
+      if (collected < 100 || collected > 500000) throw new Error('Le montant doit être compris entre 100 et 500 000 FCFA pour un retrait Fapshi.');
+      transaction.create(requestRef, {
+        withdrawalType: 'cotisation', userId: uid, email: user.email || '',
+        displayName: user.displayName || beneficiary.displayName || 'Membre', phone, medium,
+        groupId, cycleKey: meta.cycleKey, goalName: 'Cotisation · ' + (group.name || 'Groupe'),
+        grossAmount: collected, debtDeduction: 0, cancellationPenalty: 0, platformFee: 0,
+        amount: collected, currency: 'XAF', status: 'PENDING_REVIEW', createdAt: FieldValue.serverTimestamp(),
+      });
+      transaction.set(cycleRef, {
+        cycleKey: meta.cycleKey, cycleIndex: meta.cycleIndex, startDate: meta.startDate, dueAt: meta.dueAt,
+        targetAmount: target, totalCollected: collected, status: 'PENDING_REVIEW',
+        withdrawalRequestId: requestRef.id, updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      return { amount: collected, requestId: requestRef.id, user: { email: user.email || '', displayName: user.displayName || beneficiary.displayName || 'Membre' }, groupName: group.name || 'Groupe' };
+    });
+    const mailData = { ...result.user, amount: result.amount, goalName: 'Cotisation · ' + result.groupName, requestId: result.requestId, withdrawalType: 'cotisation' };
+    await cotisationSendWithdrawalEmail(mailData, 'received');
+    await adminDb.collection('users').doc(uid).collection('notifications').doc('withdrawal-' + result.requestId).set({
+      title: 'Demande de retrait reçue',
+      body: 'Ta demande de retrait de ' + result.amount.toLocaleString('fr-FR') + ' FCFA a été reçue et attend la validation de l’administration.',
+      target: '/cotisations', createdAt: FieldValue.serverTimestamp(),
+    });
+    return NextResponse.json({ success: true, amount: result.amount, requestId: result.requestId, message: 'Ta demande de retrait a été reçue et sera vérifiée avant l’envoi.' });
+  } catch (error) { return errorResponse(error.message || 'Impossible de demander ce retrait.', 400); }
+}
+
+async function handleUserWithdrawalHistory(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const snapshot = await adminDb.collection('withdrawalRequests').where('userId', '==', uid).limit(100).get();
+    const withdrawals = snapshot.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) }))
+      .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    return NextResponse.json({ success: true, withdrawals });
+  } catch (error) { return errorResponse(error.message || 'Impossible de charger l’historique des retraits.', 401); }
+}
+
 /* ═══════════════════ ROUTEUR PRINCIPAL ═══════════════════ */
 
 const ROUTES = {
@@ -3103,6 +3503,12 @@ const ROUTES = {
   'forecasts/duration/delete': { POST: handleDeleteDurationForecast },
   'incomes/add': { POST: handleCreateIncome },
   'projects/create': { POST: handleCreateProject },
+  'cotisations/create': { POST: handleCotisationCreate },
+  'cotisations/join': { POST: handleCotisationJoin },
+  'cotisations/pay': { POST: handleCotisationPay },
+  'cotisations/withdraw': { POST: handleCotisationWithdrawalRequest },
+  'cotisations/list': { GET: handleCotisationsList },
+  'withdrawals/list': { GET: handleUserWithdrawalHistory },
   'projects/update': { POST: handleUpdateProject },
   'budgets/upsert': { POST: handleUpsertBudget },
   'budgets/templates': { GET: handleBudgetTemplates, POST: handleBudgetTemplates, DELETE: handleBudgetTemplates },
