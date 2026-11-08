@@ -2735,13 +2735,32 @@ async function handleAdminApproveWithdrawal(request) {
       await requestRef.update({ status: 'RECONCILIATION_REQUIRED', providerMessage: 'Le prestataire a répondu sans identifiant de paiement. Vérification manuelle requise.' });
       return errorResponse('Le prestataire a répondu de manière inattendue. Vérifie le paiement dans ton espace Fapshi avant toute nouvelle action.', 502);
     }
-    await requestRef.update({ status: 'PROCESSING', fapshiTransId: result.transId, providerMessage: result.message || 'Demande transmise au prestataire.', providerDateInitiated: result.dateInitiated || null, submittedAt: FieldValue.serverTimestamp() });
-    await cotisationSendWithdrawalEmail({ ...requestData, requestId: requestRef.id }, 'approved');
-    return NextResponse.json({ success: true, status: 'PROCESSING', transId: result.transId });
+    const finalStatus = await adminDb.runTransaction(async (transaction) => {
+      const freshRequest = await transaction.get(requestRef);
+      if (!freshRequest.exists) throw new Error('La demande de retrait est introuvable.');
+      const status = freshRequest.data().status;
+      if (status === 'PAID' || status === 'FAILED' || status === 'REJECTED') return status;
+      transaction.update(requestRef, {
+        status: 'PROCESSING', fapshiTransId: result.transId,
+        providerMessage: result.message || 'Demande transmise au prestataire.',
+        providerDateInitiated: result.dateInitiated || null,
+        submittedAt: FieldValue.serverTimestamp(),
+      });
+      return 'PROCESSING';
+    });
+    if (finalStatus === 'PROCESSING') await cotisationSendWithdrawalEmail({ ...requestData, requestId: requestRef.id }, 'approved');
+    return NextResponse.json({ success: true, status: finalStatus, transId: result.transId });
   } catch (error) {
     if (requestRef && requestData) {
-      // En cas de timeout réseau, ne pas relancer automatiquement : Fapshi peut avoir reçu le paiement.
-      await requestRef.update({ status: 'RECONCILIATION_REQUIRED', providerMessage: 'Réponse incertaine. Vérification manuelle requise avant tout nouvel essai.' }).catch(() => {});
+      // En cas de timeout réseau, ne pas écraser un webhook qui aurait déjà confirmé le paiement.
+      await adminDb.runTransaction(async (transaction) => {
+        const freshRequest = await transaction.get(requestRef);
+        if (!freshRequest.exists || ['PAID', 'FAILED', 'REJECTED'].includes(freshRequest.data().status)) return;
+        transaction.update(requestRef, {
+          status: 'RECONCILIATION_REQUIRED',
+          providerMessage: 'Réponse incertaine. Vérification manuelle requise avant tout nouvel essai.',
+        });
+      }).catch(() => {});
     }
     return errorResponse(error.message || 'Impossible de transmettre le retrait.', 502);
   }
