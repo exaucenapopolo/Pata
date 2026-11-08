@@ -3861,14 +3861,14 @@ async function handleCotisationPay(request) {
     if (!groupSnap.exists || !memberSnap.exists || !userSnap.exists) return errorResponse('Tu ne fais pas partie de ce groupe.', 403);
     const group = groupSnap.data();
     if (group.status !== 'active') return errorResponse('Ce groupe n’accepte plus de versements.', 409);
+    if (!group.startedAt) return errorResponse('Le chef du groupe doit d’abord lancer la cotisation après l’adhésion de tous les participants prévus.', 409);
     const meta = getCotisationCycleMeta(group);
     if (meta.notStarted) return errorResponse('Les cotisations commencent le ' + meta.startDate + '.', 409);
     const cycleRef = groupRef.collection('cycles').doc(meta.cycleKey);
     const contributionRef = cycleRef.collection('contributions').doc(uid);
     const membersSnap = await groupRef.collection('members').where('active', '==', true).get();
-    if (membersSnap.size < 2) return errorResponse('Invite au moins un autre membre avant de commencer les versements.', 409);
-    const fee = Math.round(amount * 0.05);
-    const grossAmount = amount + fee;
+    const expectedMembers = cotisationMoney(group.expectedMembers || group.maxMembers || 0);
+    if (membersSnap.size < 2 || membersSnap.size !== expectedMembers) return errorResponse('Le groupe doit être complet et lancé avant les versements.', 409);
     const apiUser = process.env.FAPSHI_API_USER;
     const apiKey = process.env.FAPSHI_SECRET_KEY;
     if (!apiUser || !apiKey) return errorResponse('Le paiement Fapshi n’est pas configuré.', 503);
@@ -3883,25 +3883,36 @@ async function handleCotisationPay(request) {
       if (!freshGroup.exists || !freshMember.exists || !freshUser.exists) throw new Error('Groupe ou profil utilisateur introuvable.');
       const fresh = freshGroup.data();
       if (fresh.status !== 'active') throw new Error('Ce groupe n’accepte plus de versements.');
+      if (!fresh.startedAt) throw new Error('Le chef du groupe doit d’abord lancer la cotisation.');
+      const freshMeta = getCotisationCycleMeta(fresh);
+      if (freshMeta.notStarted) throw new Error('Les cotisations commencent le ' + freshMeta.startDate + '.');
       const cycleStatus = cycleSnap.data()?.status || 'OPEN';
       if (cycleStatus !== 'OPEN') throw new Error('Cette période est déjà entièrement financée ou en cours de retrait.');
       const member = freshMember.data();
       if (member.pendingPaymentId) throw new Error('Un paiement est déjà en attente pour cette période. Termine-le ou vérifie son statut avant d’en ouvrir un autre.');
       const contributionAmount = cotisationMoney(fresh.contributionAmount);
-      const paid = cotisationMoney(contributionSnap.data()?.amount);
+      const contribution = contributionSnap.data() || {};
+      const paid = cotisationMoney(contribution.amount);
       const due = Math.max(0, contributionAmount - paid);
       if (amount > due) throw new Error('Il reste ' + due.toLocaleString('fr-FR') + ' FCFA à verser pour ta part de ce cycle.');
+      const penaltyAmount = due > 0 && !cotisationMoney(contribution.penaltyPaid) && cotisationIsLate(fresh, freshMeta)
+        ? cotisationLateFee(fresh) : 0;
+      const fee = Math.round((amount + penaltyAmount) * 0.05);
+      const grossAmount = amount + penaltyAmount + fee;
+      if (cotisationMoney(cycleSnap.data()?.targetAmount || cycleSnap.data()?.baseTargetAmount) + penaltyAmount > 500000) {
+        throw new Error('Cette majoration ferait dépasser la limite actuelle de retrait Fapshi de 500 000 FCFA.');
+      }
       transaction.update(memberRef, {
-        pendingPaymentId: reservationId, pendingPaymentAmount: amount,
+        pendingPaymentId: reservationId, pendingPaymentAmount: amount + penaltyAmount,
         pendingPaymentAt: FieldValue.serverTimestamp(), pendingPaymentTransId: null,
       });
-      return { group: fresh, user: freshUser.data(), due };
+      return { group: fresh, user: freshUser.data(), due, penaltyAmount, fee, grossAmount, meta: freshMeta };
     });
 
     const baseUrl = getBaseUrl(request);
     const userData = reservation.user;
     const payload = {
-      amount: grossAmount, currency: 'XAF',
+      amount: reservation.grossAmount, currency: 'XAF',
       description: 'Cotisation Pata — ' + String(reservation.group.name || 'Groupe').slice(0, 60),
       redirect_url: (request.headers.get('origin') || baseUrl) + '/cotisations',
       webhook_url: baseUrl + '/api/fapshi/webhook',
@@ -3925,8 +3936,9 @@ async function handleCotisationPay(request) {
       }
       await adminDb.collection('cotisationPayments').doc(transId).create({
         transId, reservationId, userId: uid, groupId, groupName: reservation.group.name || 'Cotisation',
-        cycleKey: meta.cycleKey, cycleIndex: meta.cycleIndex, cycleStartDate: meta.startDate, dueAt: meta.dueAt,
-        displayName: userData.displayName || 'Membre', amount, fee, grossAmount, phone, medium,
+        cycleKey: reservation.meta.cycleKey, cycleIndex: reservation.meta.cycleIndex, cycleStartDate: reservation.meta.startDate, dueAt: reservation.meta.dueAt,
+        displayName: userData.displayName || 'Membre', amount, penaltyAmount: reservation.penaltyAmount,
+        fee: reservation.fee, grossAmount: reservation.grossAmount, phone, medium,
         status: 'PENDING', checkoutUrl, createdAt: FieldValue.serverTimestamp(),
       });
       // Ne rattache le lien que si la réservation existe toujours : le webhook peut avoir confirmé très vite.
@@ -3936,7 +3948,10 @@ async function handleCotisationPay(request) {
           transaction.update(memberRef, { pendingPaymentTransId: transId });
         }
       });
-      return NextResponse.json({ success: true, checkoutUrl, transId, amount, fee, grossAmount });
+      return NextResponse.json({
+        success: true, checkoutUrl, transId, amount, penaltyAmount: reservation.penaltyAmount,
+        fee: reservation.fee, grossAmount: reservation.grossAmount,
+      });
     } catch (error) {
       await releaseCotisationReservation(groupId, uid, reservationId, error.message || 'Erreur au démarrage du paiement').catch(() => {});
       throw error;
