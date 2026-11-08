@@ -1,8 +1,8 @@
 /* eslint-disable react/no-unescaped-entities */
 'use client';
 
-import { useMemo, useState } from 'react';
-import { Plus, Trash2, Wallet, Pencil, Landmark, Calendar, Repeat } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Plus, Trash2, Wallet, Pencil, Landmark, Calendar, Repeat, Clock3, MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -17,10 +17,16 @@ import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { createExpense, updateExpense, deleteExpense } from '@/lib/firestore/expenses';
 import { createAutomation } from '@/lib/firestore/automations';
 import { formatCurrency, formatDate, resolveCategory, getFirstOfMonth, getLastOfMonth, getLocalMonth } from '@/lib/utils';
+import { OptionalTransactionFields } from '@/components/transactions/OptionalTransactionFields';
 
 const todayIso = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const currentTime = () => {
+  const d = new Date();
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 };
 
 const emptyForm = () => ({
@@ -28,7 +34,14 @@ const emptyForm = () => ({
   amount: '',
   categoryId: 'food',
   date: todayIso(),
+  time: currentTime(),
   note: '',
+  locationLabel: '',
+  latitude: null,
+  longitude: null,
+  locationAccuracy: null,
+  paymentMethod: '',
+  details: '',
   incomeSourceId: 'all',
   incomeSourceName: 'Tous les revenus',
 });
@@ -49,10 +62,22 @@ export default function ExpensesPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [deleteId, setDeleteId] = useState(null);
+  const [selectedExpense, setSelectedExpense] = useState(null);
   const [recurringExpense, setRecurringExpense] = useState(null);
   const [recurringFrequency, setRecurringFrequency] = useState('daily');
   const [recurringSaving, setRecurringSaving] = useState(false);
   const [recurringError, setRecurringError] = useState('');
+
+  useEffect(() => {
+    const openFromShortcut = () => { setForm(emptyForm()); setError(''); setOpen(true); };
+    window.addEventListener('pata:expense-new', openFromShortcut);
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('new') === '1') {
+      openFromShortcut();
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+    return () => window.removeEventListener('pata:expense-new', openFromShortcut);
+  }, []);
 
   const startDate = showCustomPeriod ? customStart : getFirstOfMonth();
   const endDate = showCustomPeriod ? customEnd : getLastOfMonth();
@@ -109,7 +134,14 @@ export default function ExpensesPage() {
       amount: String(exp.amount),
       categoryId: exp.categoryId,
       date: exp.date,
+      time: exp.time || '',
       note: exp.note || '',
+      locationLabel: exp.locationLabel || '',
+      latitude: exp.latitude ?? null,
+      longitude: exp.longitude ?? null,
+      locationAccuracy: exp.locationAccuracy ?? null,
+      paymentMethod: exp.paymentMethod || '',
+      details: exp.details || '',
       incomeSourceId: exp.incomeSourceId || 'all',
       incomeSourceName: exp.incomeSourceName || 'Tous les revenus',
     });
@@ -132,6 +164,13 @@ export default function ExpensesPage() {
         note: form.note,
         incomeSourceId: form.incomeSourceId,
         incomeSourceName: form.incomeSourceName,
+        time: form.time,
+        locationLabel: form.locationLabel,
+        latitude: form.latitude,
+        longitude: form.longitude,
+        locationAccuracy: form.locationAccuracy,
+        paymentMethod: form.paymentMethod,
+        details: form.details,
       };
 
       if (form.id) {
@@ -277,42 +316,22 @@ export default function ExpensesPage() {
                 {items.map((e) => {
                   const cat = resolveCategory(e.categoryId, 'expense', customCategories);
                   return (
-                    <li key={e.id} className="flex items-center justify-between px-4 py-3">
-                      <div className="flex items-center gap-3">
+                    <li key={e.id} className="flex items-center gap-2 px-3 py-2.5 sm:px-4">
+                      <button type="button" onClick={() => setSelectedExpense(e)} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-1 py-1 text-left transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-200">
                         <CategoryImage categoryId={e.categoryId} image={cat?.image} size="md" />
-                        <div>
-                          <p className="text-sm font-semibold text-slate-800">{cat?.label || 'Autre'}</p>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            {e.note && <p className="text-xs text-slate-500">{e.note}</p>}
-                            {e.incomeSourceId && e.incomeSourceId !== 'all' && (
-                              <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
-                                <Landmark size={10} /> {e.incomeSourceName}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold text-slate-800">
-                          {formatCurrency(e.amount)}
+                        <span className="min-w-0 flex-1">
+                          <strong className="block truncate text-sm text-slate-800">{cat?.label || 'Autre'}</strong>
+                          <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-500">
+                            {e.note && <span className="max-w-[160px] truncate">{e.note}</span>}
+                            {e.time && <span className="inline-flex items-center gap-1"><Clock3 size={11}/>{e.time}</span>}
+                            {e.locationLabel && <span className="inline-flex max-w-[150px] items-center gap-1 truncate"><MapPin size={11}/>{e.locationLabel}</span>}
+                          </span>
+                          {e.incomeSourceId && e.incomeSourceId !== 'all' && <span className="mt-1 block truncate text-[10px] text-slate-400">Payé depuis : {e.incomeSourceName}</span>}
                         </span>
-                        <button type="button" onClick={() => { setRecurringExpense(e); setRecurringFrequency('daily'); setRecurringError(''); }} className="rounded-lg p-1.5 text-slate-400 hover:bg-brand-50 hover:text-brand-700" aria-label="Rendre cette dépense récurrente" title="Rendre récurrente">
-                          <Repeat size={15} />
-                        </button>
-                        <button
-                          onClick={() => openEdit(e)}
-                          className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                          aria-label="Modifier"
-                        >
-                          <Pencil size={15} />
-                        </button>
-                        <button
-                          onClick={() => setDeleteId(e.id)}
-                          className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                          aria-label="Supprimer"
-                        >
-                          <Trash2 size={15} />
-                        </button>
+                        <span className="shrink-0 text-right"><strong className="block text-sm font-bold text-slate-900">{formatCurrency(e.amount)}</strong><span className="text-[10px] font-medium text-brand-700">Voir le détail</span></span>
+                      </button>
+                      <div className="flex shrink-0 items-center gap-0.5">
+                        <button type="button" onClick={() => openEdit(e)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Modifier la dépense" title="Modifier"><Pencil size={15}/></button>
                       </div>
                     </li>
                   );
@@ -389,11 +408,43 @@ export default function ExpensesPage() {
             />
           </div>
 
+          <OptionalTransactionFields value={form} onChange={(next) => setForm(next)} kind="expense" />
           {error && <p className="text-sm text-red-600 bg-red-50 p-2 rounded-lg">{error}</p>}
           <Button type="submit" className="w-full" disabled={saving}>
             {saving ? 'Enregistrement…' : form.id ? 'Mettre à jour' : 'Ajouter'}
           </Button>
         </form>
+      </Modal>
+
+      <Modal open={!!selectedExpense} onClose={() => setSelectedExpense(null)} title="Détail de la dépense">
+        {selectedExpense && (() => {
+          const category = resolveCategory(selectedExpense.categoryId, 'expense', customCategories);
+          const paymentLabels = { cash: 'Espèces', mtn_momo: 'MTN Mobile Money', orange_money: 'Orange Money', bank_transfer: 'Virement bancaire', card: 'Carte bancaire', other: 'Autre moyen' };
+          return (
+            <div className="space-y-4">
+              <div className="rounded-2xl bg-brand-50 p-4 text-center">
+                <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-2xl bg-white"><CategoryImage categoryId={selectedExpense.categoryId} image={category?.image} size="md" /></div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-brand-800">{category?.label || 'Dépense'}</p>
+                <p className="mt-1 text-2xl font-bold tracking-tight text-slate-900">{formatCurrency(selectedExpense.amount)}</p>
+              </div>
+              <div className="divide-y divide-slate-100 rounded-xl border border-slate-200 px-3">
+                <div className="flex justify-between gap-4 py-3 text-sm"><span className="text-slate-500">Date</span><strong className="text-right text-slate-800">{formatDate(selectedExpense.date)}</strong></div>
+                <div className="flex justify-between gap-4 py-3 text-sm"><span className="text-slate-500">Heure</span><strong className="text-right text-slate-800">{selectedExpense.time || 'Non renseignée'}</strong></div>
+                <div className="flex justify-between gap-4 py-3 text-sm"><span className="text-slate-500">Lieu</span><strong className="max-w-[60%] text-right text-slate-800">{selectedExpense.locationLabel || 'Non renseigné'}</strong></div>
+                <div className="flex justify-between gap-4 py-3 text-sm"><span className="text-slate-500">Paiement</span><strong className="text-right text-slate-800">{paymentLabels[selectedExpense.paymentMethod] || 'Non précisé'}</strong></div>
+                <div className="flex justify-between gap-4 py-3 text-sm"><span className="text-slate-500">Commerce / bénéficiaire</span><strong className="max-w-[60%] text-right text-slate-800">{selectedExpense.details || 'Non renseigné'}</strong></div>
+                <div className="flex justify-between gap-4 py-3 text-sm"><span className="text-slate-500">Financé depuis</span><strong className="max-w-[60%] text-right text-slate-800">{selectedExpense.incomeSourceName || 'Tous les revenus'}</strong></div>
+                <div className="py-3 text-sm"><p className="text-slate-500">Note</p><p className="mt-1 whitespace-pre-wrap text-slate-800">{selectedExpense.note || 'Aucune note'}</p></div>
+              </div>
+              {selectedExpense.latitude != null && selectedExpense.longitude != null && <a href={'https://www.google.com/maps?q=' + selectedExpense.latitude + ',' + selectedExpense.longitude} target="_blank" rel="noreferrer" className="block rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-brand-800 hover:bg-brand-50">Voir la position sur la carte</a>}
+              <div className="grid grid-cols-2 gap-2">
+                <Button type="button" variant="outline" onClick={() => { setSelectedExpense(null); openEdit(selectedExpense); }}><Pencil size={14}/> Modifier</Button>
+                <Button type="button" variant="outline" onClick={() => { setDeleteId(selectedExpense.id); setSelectedExpense(null); }} className="border-red-200 text-red-700 hover:bg-red-50"><Trash2 size={14}/> Supprimer</Button>
+              </div>
+              <Button type="button" className="w-full" onClick={() => { setRecurringExpense(selectedExpense); setRecurringFrequency('daily'); setRecurringError(''); setSelectedExpense(null); }}><Repeat size={14}/> Rendre récurrente</Button>
+            </div>
+          );
+        })()}
       </Modal>
 
       <Modal open={!!recurringExpense} onClose={() => setRecurringExpense(null)} title="Programmer cette dépense">
