@@ -28,7 +28,7 @@ export default function AppLayout({ children }) {
         <PremiumReminder />  {/* 🟢 Bandeau d'alerte */}
         <NotificationNudge />
         <NotificationInbox />
-        <main className="mx-auto w-full max-w-[1500px] flex-1 px-3 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-4 sm:px-5 sm:pt-6 lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:px-8 lg:pb-8"><SmartBackButton />{children}</main>
+        <main className="mx-auto w-full max-w-[1500px] flex-1 px-2.5 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-3 sm:px-5 sm:pt-6 lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:px-8 lg:pb-8"><SmartBackButton />{children}</main>
         <div className="hidden shrink-0 lg:block"><Footer /></div>
       </div>
       <MobileNav />
