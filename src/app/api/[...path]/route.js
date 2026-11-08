@@ -4106,18 +4106,35 @@ async function handleCotisationStart(request) {
       return emailSent;
     }));
     const beneficiary = result.members[0];
+    let beneficiaryTurnEmailSent = false;
     if (beneficiary?.email && String(beneficiary.email).includes('@')) {
-      await sendPataEmail({
-        to: beneficiary.email,
-        subject: 'Tu es le premier bénéficiaire de « ' + String(result.group.name || '') + ' »',
-        html: cotisationTurnEmail({
-          name: beneficiary.displayName, groupName: result.group.name,
-          frequency: frequencyLabel, position: 1,
-          contributionAmount: result.group.contributionAmount,
-          totalAmount: result.baseTarget, dueLabel, isMyTurn: true,
-        }),
-        idempotencyKey: 'pata-cotisation-turn-' + groupId + '-' + result.meta.cycleKey + '-' + beneficiary.uid,
-      }).catch((emailError) => console.warn('[COTISATION TURN EMAIL]', emailError.message || emailError));
+      try {
+        await sendPataEmail({
+          to: beneficiary.email,
+          subject: 'Tu es le premier bénéficiaire de « ' + String(result.group.name || '') + ' »',
+          html: cotisationTurnEmail({
+            name: beneficiary.displayName, groupName: result.group.name,
+            frequency: frequencyLabel, position: 1,
+            contributionAmount: result.group.contributionAmount,
+            totalAmount: result.baseTarget, dueLabel, isMyTurn: true,
+          }),
+          idempotencyKey: 'pata-cotisation-turn-' + groupId + '-' + result.meta.cycleKey + '-' + beneficiary.uid,
+        });
+        beneficiaryTurnEmailSent = true;
+      } catch (emailError) {
+        console.warn('[COTISATION TURN EMAIL]', emailError.message || emailError);
+      }
+    }
+    await adminDb.collection('users').doc(beneficiary.uid).collection('notifications').doc('cotisation-turn-' + groupId + '-' + result.meta.cycleKey).set({
+      title: 'C’est ton tour de recevoir la cotisation',
+      body: 'Le groupe ' + result.group.name + ' t’a désigné comme premier bénéficiaire. Tu dois aussi verser ta propre contribution.',
+      target: '/cotisations', source: 'cotisation', read: false, readAt: null,
+      createdAt: FieldValue.serverTimestamp(),
+    }, { merge: true }).catch((notificationError) => console.warn('[COTISATION TURN IN-APP]', notificationError.message || notificationError));
+    if (beneficiaryTurnEmailSent) {
+      await groupRef.collection('turnNotifications').doc(result.meta.cycleKey).set({
+        status: 'SENT', beneficiaryUid: beneficiary.uid, sentAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
     }
     return NextResponse.json({ success: true, notified: emailResults.filter(Boolean).length, message: 'La cotisation est lancée. Les positions sont verrouillées et les membres peuvent commencer à verser.' });
   } catch (error) { return errorResponse(error.message || 'Impossible de lancer le groupe.', 400); }
