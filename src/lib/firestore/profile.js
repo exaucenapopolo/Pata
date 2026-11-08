@@ -6,17 +6,17 @@ const ref = (uid) => doc(db, 'users', uid);
 export async function ensureUserProfile(user) {
   if (!user) return null;
   const snap = await getDoc(ref(user.uid));
-  if (snap.exists()) return { id: user.uid, ...snap.data() };
+  if (snap.exists()) return { id: user.uid, ...snap.data(), created: false };
   const data = {
     email: user.email,
-    displayName: user.displayName || user.email?.split('@')[0] || 'Utilisateur',
+    displayName: user.email?.split('@')[0] || 'Utilisateur',
     currency: 'XAF',
     currencyRates: { XAF: 1, EUR: 1 / 655.957, USD: 1 / 600 },
     currencyRateUpdatedAt: new Date().toISOString(),
     createdAt: serverTimestamp(),
   };
   await setDoc(ref(user.uid), data);
-  return { id: user.uid, ...data };
+  return { id: user.uid, ...data, created: true };
 }
 
 export async function getUserProfile(uid) {
