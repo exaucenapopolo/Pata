@@ -62,8 +62,8 @@ export async function getBudgetTemplates() {
   return Array.isArray(result.templates) ? result.templates : [];
 }
 
-export async function saveBudgetTemplate(name, items) {
-  const result = await requestBudgetTemplates('POST', { name, items });
+export async function saveBudgetTemplate(name, items, templateId = null) {
+  const result = await requestBudgetTemplates('POST', { name, items, ...(templateId ? { templateId } : {}) });
   return result.id;
 }
 
