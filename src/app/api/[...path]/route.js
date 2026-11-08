@@ -3775,7 +3775,7 @@ async function handleCotisationsList(request) {
         inviteToken: group.ownerId === uid ? group.inviteToken : null,
         members: memberRows, memberCount: members.length, maxMembers: expectedMembers,
         orderDefined: hasAssignedOrder,
-        canStart: group.ownerId === uid && !group.startedAt && members.length >= 2 && members.length === expectedMembers
+        canStart: group.ownerId === uid && !group.startedAt && !meta.notStarted && members.length >= 2 && members.length === expectedMembers
           && members.every((member) => Number.isInteger(Number(member.turnOrder)) && Number(member.turnOrder) >= 1)
           && new Set(members.map((member) => Number(member.turnOrder))).size === members.length
           && members.map((member) => Number(member.turnOrder)).sort((a, b) => a - b).every((position, index) => position === index + 1),
