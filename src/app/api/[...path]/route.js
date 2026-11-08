@@ -2941,9 +2941,25 @@ async function handleAdminBroadcast(request) {
           if (['messaging/registration-token-not-registered', 'messaging/invalid-registration-token'].includes(code)) invalidTokens.push(token);
         });
       }
-      for (const token of invalidTokens) {
-        const owners = tokenOwners.get(token) || [];
-        await Promise.all(owners.map((ref) => ref.set({ pushTokens: FieldValue.arrayRemove(token) }, { merge: true })));
+      if (invalidTokens.length) {
+        const invalidSet = new Set(invalidTokens);
+        const ownerRefs = new Map();
+        for (const token of invalidTokens) {
+          for (const ref of tokenOwners.get(token) || []) ownerRefs.set(ref.path, ref);
+        }
+        for (const ref of ownerRefs.values()) {
+          await adminDb.runTransaction(async (transaction) => {
+            const snapshot = await transaction.get(ref);
+            if (!snapshot.exists) return;
+            const currentTokens = Array.isArray(snapshot.data()?.pushTokens) ? snapshot.data().pushTokens : [];
+            const remainingTokens = currentTokens.filter((token) => !invalidSet.has(token));
+            transaction.set(ref, {
+              pushTokens: remainingTokens,
+              notificationsEnabled: remainingTokens.length > 0,
+              notificationsUpdatedAt: FieldValue.serverTimestamp(),
+            }, { merge: true });
+          });
+        }
       }
     } catch (error) {
       pushError = error.message || 'Erreur du service de notifications push.';
