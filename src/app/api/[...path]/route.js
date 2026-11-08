@@ -359,7 +359,6 @@ async function handleNotificationSubscription(request, remove = false) {
       await userRef.set({ notificationsEnabled: remaining.length > 0 }, { merge: true });
     } else {
       await userRef.set({ pushTokens: FieldValue.arrayUnion(token), notificationsEnabled: true, notificationsUpdatedAt: FieldValue.serverTimestamp() }, { merge: true });
-      await adminMessaging.subscribeToTopic([token], 'pata_all_users');
     }
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -541,7 +540,7 @@ async function handleWelcomeEmail(request) {
     const recipient = String(profile.email || decoded.email || '').trim();
     if (!recipient) return errorResponse('Aucune adresse e-mail associée à ce compte.', 400);
     if (profile.welcomeEmailSentAt) return NextResponse.json({ success: true, alreadySent: true });
-    const name = String(profile.displayName || recipient.split('@')[0] || 'Utilisateur').slice(0, 80);
+    const name = String(profile.displayName || recipient.split('@')[0] || 'Utilisateur').replace(/[\\r\\n\\u0000-\\u001f]/g, ' ').slice(0, 80);
     const sent = await sendPataEmail({
       to: recipient,
       subject: `Bienvenue sur Pata, ${name} !`,
