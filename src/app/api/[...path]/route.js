@@ -3830,7 +3830,7 @@ async function handleCotisationCreate(request) {
         email: String(userData.email || ''),
       };
     });
-    const appUrl = (process.env.NEXT_PUBLIC_APP_URL || request.headers.get('origin') || 'https://www.pata-yam.site').replace(/\/$/, '');
+    const appUrl = (process.env.NEXT_PUBLIC_APP_URL || request.headers.get('origin') || getBaseUrl(request)).replace(/\/$/, '');
     const inviteUrl = appUrl + '/invitation/cotisation/' + inviteToken;
     const dueLabel = frequency === 'monthly' ? 'Le ' + dueDay + ' de chaque mois' : frequency === 'weekly' ? 'Tous les 7 jours à partir du ' + startDate : 'Chaque jour à partir du ' + startDate;
     const penaltyLabel = cotisationPenaltyLabel({ contributionAmount: amount, lateFeeType, lateFeeValue });
@@ -4135,7 +4135,7 @@ async function handleCotisationsScheduler(request) {
     const today = cotisationToday();
     const groupsSnap = await adminDb.collection('cotisationGroups').where('status', '==', 'active').limit(500).get();
     const totals = { groupsChecked: groupsSnap.size, turnEmails: 0, dueReminders: 0, overdueReminders: 0, pushSent: 0, failed: 0 };
-    const appUrl = (process.env.NEXT_PUBLIC_APP_URL || 'https://www.pata-yam.site').replace(/\/$/, '');
+    const appUrl = (process.env.NEXT_PUBLIC_APP_URL || request.headers.get('origin') || getBaseUrl(request)).replace(/\/$/, '');
 
     const claimMessage = async (ref) => {
       return adminDb.runTransaction(async (transaction) => {
