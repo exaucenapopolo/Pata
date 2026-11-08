@@ -11,7 +11,7 @@ import { ensureUserProfile } from '@/lib/firestore/profile';
 const slides = [
   { eyebrow: 'UNE VUE PLUS CLAIRE', title: 'Sache où va ton argent.', text: 'Enregistre tes dépenses et tes revenus au même endroit. Pata transforme tes saisies en une vision simple de ton mois.', mark: '01', art: 'flow' },
   { eyebrow: 'MČ · TON ASSISTANTE', title: 'Comprends tes chiffres, pas seulement tes tableaux.', text: 'Pose tes questions à Mč. Elle peut analyser tes dépenses, t’aider à préparer un budget et t’expliquer les tendances de tes finances.', mark: '02', art: 'ai' },
-  { eyebrow: 'BUDGETS, ÉPARGNE & PREMIUM', title: 'Donne une direction à chaque franc.', text: 'Définis des limites, crée des objectifs d’épargne et suis tes versements. Tu peux commencer gratuitement ; Premium ouvre davantage de possibilités quand tu souhaites aller plus loin.', mark: '03', art: 'savings' },
+  { eyebrow: 'BUDGETS, ÉPARGNE & PREMIUM', title: 'Donne une direction à chaque franc.', text: 'Définis des limites, crée des objectifs d’épargne et suis tes versements. Tu peux commencer gratuitement. Premium coûte 2 500 FCFA pour 30 jours et ouvre davantage de possibilités quand tu souhaites aller plus loin.', mark: '03', art: 'savings' },
 ];
 
 async function sendWelcomeOnce(user, created) {
