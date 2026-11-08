@@ -83,7 +83,7 @@ export function buildUserContext(userData) {
   const averageMonthlyExpense = monthlyTrend.reduce((sum, item) => sum + item.expense, 0) / monthlyTrend.length;
 
   const expensesByCategory = {};
-  currentExpenses.forEach((item) => {
+  currentExpenses.filter((item) => getExpenseType(item) === 'consumption').forEach((item) => {
     const categoryLabel = expenseCategoryLabel(item.categoryId);
     expensesByCategory[categoryLabel] = (expensesByCategory[categoryLabel] || 0) + (Number(item.amount) || 0);
   });
@@ -107,7 +107,7 @@ export function buildUserContext(userData) {
   const budgetLines = currentBudgets.map((budget) => {
     const categoryLabel = expenseCategoryLabel(budget.categoryId);
     const linkedSpent = currentExpenses
-      .filter((expense) => expense.categoryId === budget.categoryId &&
+      .filter((expense) => getExpenseType(expense) === 'consumption' && expense.categoryId === budget.categoryId &&
         (!budget.incomeSourceId || budget.incomeSourceId === 'all' || expense.incomeSourceId === budget.incomeSourceId))
       .reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0);
     return `- ${categoryLabel}: budget ${money(budget.amount)} FCFA, consommé ${money(linkedSpent)} FCFA, disponible ${money(Math.max(0, Number(budget.amount || 0) - linkedSpent))} FCFA, source ${budget.incomeSourceId || 'all'}`;
@@ -161,10 +161,10 @@ Attention: ce solde est calculé après toutes les sorties, mais la consommation
 === COMPARAISON MENSUELLE ===
 Mois courant ${currentMonth}: revenus reçus pendant ce mois ${money(currentIncomeTotal)} FCFA; toutes les sorties pendant ce mois ${money(currentExpenseTotal)} FCFA.
 Répartition des sorties : consommation ${money(currentTypeTotals.consumption)} FCFA ; projets ${money(currentTypeTotals.project)} FCFA ; épargne ${money(currentTypeTotals.savings)} FCFA ; investissements ${money(currentTypeTotals.investment)} FCFA.
-Dépenses du mois financées par des revenus reçus avant ce mois: ${money(previousIncomeSpend)} FCFA. Partie du dépassement apparent expliquée par ces revenus antérieurs: ${money(previousMonthFundsExplainingGap)} FCFA.
-RÈGLE D'INTERPRÉTATION: ne dis jamais que l'utilisateur a dépensé plus que ses moyens, qu'il est en déficit ou que son solde est négatif en comparant uniquement les revenus reçus ce mois-ci aux dépenses du mois. Il peut utiliser des revenus enregistrés les mois précédents. Présente séparément les revenus reçus pendant la période, les dépenses de la période et la part financée par les revenus antérieurs. Le solde global cumulé et les soldes par source restent les références pour juger des ressources réellement disponibles.
-Mois précédent ${previousMonth}: revenus ${money(previousIncomeTotal)} FCFA; dépenses ${money(previousExpenseTotal)} FCFA; différence ${money(previousIncomeTotal - previousExpenseTotal)} FCFA.
-Moyenne mensuelle des 3 derniers mois complets (${completedMonths.join(', ')}): revenus ${money(averageMonthlyIncome)} FCFA; dépenses ${money(averageMonthlyExpense)} FCFA; solde moyen estimé ${money(averageMonthlyIncome - averageMonthlyExpense)} FCFA. Il s’agit d’une moyenne descriptive, pas d’une garantie de revenu futur.
+Sorties du mois financées par des revenus reçus avant ce mois: ${money(previousIncomeSpend)} FCFA. Partie des sorties financée par ces revenus antérieurs: ${money(previousMonthFundsExplainingGap)} FCFA.
+RÈGLE D'INTERPRÉTATION: ne dis jamais que l'utilisateur a dépensé plus que ses moyens, qu'il est en déficit ou que son solde est négatif en comparant uniquement les revenus reçus ce mois-ci aux sorties du mois. Il peut utiliser des revenus enregistrés les mois précédents. Présente séparément les revenus reçus pendant la période, les dépenses de la période et la part financée par les revenus antérieurs. Le solde global cumulé et les soldes par source restent les références pour juger des ressources réellement disponibles.
+Mois précédent ${previousMonth}: revenus ${money(previousIncomeTotal)} FCFA; sorties ${money(previousExpenseTotal)} FCFA; différence ${money(previousIncomeTotal - previousExpenseTotal)} FCFA.
+Moyenne mensuelle des 3 derniers mois complets (${completedMonths.join(', ')}): revenus ${money(averageMonthlyIncome)} FCFA; sorties totales ${money(averageMonthlyExpense)} FCFA; solde moyen estimé ${money(averageMonthlyIncome - averageMonthlyExpense)} FCFA. Il s’agit d’une moyenne descriptive, pas d’une garantie de revenu futur.
 
 === REVENUS ET SOLDES PAR SOURCE ===
 Chaque dépense doit être associée à l'ID exact de sa source si l'utilisateur désigne une source. Le nom ne doit jamais être utilisé comme note pour remplacer l'association.
@@ -173,7 +173,7 @@ ${incomeLines || 'Aucun revenu enregistré.'}
 === CATÉGORIES PERSONNALISÉES ===
 ${categories.filter((item) => item.type === 'expense').map((item) => `- ID EXACT: ${item.id} | Nom: ${item.name}`).join('\n') || 'Aucune catégorie personnalisée.'}
 
-=== DÉPENSES PAR CATÉGORIE — MOIS COURANT ===
+=== DÉPENSES COURANTES PAR CATÉGORIE — MOIS COURANT ===
 ${categoryLines || 'Aucune dépense enregistrée ce mois.'}
 
 === DÉPENSES RÉCENTES ===
