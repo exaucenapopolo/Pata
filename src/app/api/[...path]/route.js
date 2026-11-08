@@ -1430,7 +1430,37 @@ async function handleAutomationsScheduler(request) {
           userResult.completed += automationResult.completed;
           try {
             const weeklyReport = await generateWeeklyReportForUser(userDoc.id);
-            if (weeklyReport.generated) userResult.weeklyReportsGenerated += 1;
+            if (weeklyReport.generated) {
+              userResult.weeklyReportsGenerated += 1;
+              const profileData = userDoc.data() || {};
+              const pushTokens = profileData.notificationsEnabled && Array.isArray(profileData.pushTokens)
+                ? [...new Set(profileData.pushTokens.filter((token) => typeof token === 'string' && token.length > 20))]
+                : [];
+              if (profileData.notificationsEnabled) {
+                const notificationId = `weekly-${weeklyReport.weekStart}`;
+                const title = 'Ton bilan hebdomadaire est disponible';
+                const body = 'Ton résumé de la semaine est prêt. Consulte tes revenus, tes dépenses et les tendances de ton budget dans Pata.';
+                await userDoc.ref.collection('notifications').doc(notificationId).set({
+                  title, body, target: '/reports', source: 'weekly_report',
+                  weekStart: weeklyReport.weekStart, weekEnd: weeklyReport.weekEnd,
+                  read: false, readAt: null, createdAt: FieldValue.serverTimestamp(),
+                }, { merge: true });
+                for (const token of pushTokens) {
+                  try {
+                    await adminMessaging.send({
+                      token,
+                      data: { title, body, url: '/reports', tag: notificationId },
+                      webpush: { headers: { TTL: '604800' } },
+                    });
+                  } catch (pushError) {
+                    console.warn('[WEEKLY REPORT PUSH]', userDoc.id, pushError.code || pushError.message);
+                    if (['messaging/registration-token-not-registered', 'messaging/invalid-registration-token'].includes(pushError.code)) {
+                      await userDoc.ref.update({ pushTokens: FieldValue.arrayRemove(token) }).catch(() => {});
+                    }
+                  }
+                }
+              }
+            }
           } catch (reportError) {
             console.error(`[CRON] Rapport hebdomadaire non généré pour ${userDoc.id}:`, reportError.message);
           }
