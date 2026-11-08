@@ -492,11 +492,14 @@ async function handleNotificationScheduler(request) {
           }
         }
         if (invalidTokens.length) await userDoc.ref.update({ pushTokens: FieldValue.arrayRemove(...invalidTokens) });
-        if (delivered > 0) {
-          await userDoc.ref.update({ notificationsDailyDate: today, lastNotificationAt: FieldValue.serverTimestamp() });
-          await userDoc.ref.collection('notifications').doc(today).set({ title, body, target, date: today, delivered, createdAt: FieldValue.serverTimestamp() });
-          sent += 1;
-        } else failed += 1;
+        await userDoc.ref.update({ notificationsDailyDate: today, lastNotificationAt: FieldValue.serverTimestamp() });
+        await userDoc.ref.collection('notifications').doc(today).set({
+          title, body, target, date: today, delivered,
+          source: 'daily_reminder', read: false, readAt: null,
+          createdAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+        if (delivered > 0) sent += 1;
+        else failed += 1;
       } catch (userError) {
         failed += 1;
         console.error(`[PUSH] Échec utilisateur ${userDoc.id}:`, userError.message);
