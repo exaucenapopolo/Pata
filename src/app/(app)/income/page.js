@@ -1,11 +1,10 @@
 /* eslint-disable react/no-unescaped-entities */
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Plus, Trash2, TrendingUp, CheckCircle2, Landmark, Save, RotateCcw, Percent,
-  PiggyBank, Target, Pencil, AlertTriangle, Calculator, CalendarDays, ArrowRight,
-  Check, X
+  PiggyBank, Target, Pencil, AlertTriangle, Calculator, ArrowRight, Clock3, MapPin
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -21,13 +20,14 @@ import { useExpenses } from '@/hooks/useExpenses';
 import { useProfile } from '@/hooks/useProfile';
 import { useBudgetRules } from '@/hooks/useBudgetRules';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
-import { createIncome, deleteIncome } from '@/lib/firestore/incomes';
+import { createIncome, updateIncome, deleteIncome } from '@/lib/firestore/incomes';
 import { upsertBudget } from '@/lib/firestore/budgets';
 import { computeBudgetBreakdown } from '@/lib/budgetRules';
 import { INCOME_CATEGORIES, EXPENSE_CATEGORIES } from '@/lib/constants';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { saveVitalForecast, deleteVitalForecast, saveDurationForecast as saveDurationForecastRecord, deleteDurationForecast } from '@/lib/firestore/forecasts';
 import { useBudgets } from '@/hooks/useBudgets';
+import { OptionalTransactionFields } from '@/components/transactions/OptionalTransactionFields';
 
 // 🟢 DATES LOCALES (Pas de décalage UTC)
 const todayMonth = () => {
@@ -38,6 +38,12 @@ const todayIso = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
+
+const currentTime = () => {
+  const d = new Date();
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+};
+const emptyIncomeForm = () => ({ id: null, amount: '', source: 'Salaire', categoryId: 'salary', note: '', date: todayIso(), time: currentTime(), locationLabel: '', latitude: null, longitude: null, locationAccuracy: null, paymentMethod: '', details: '' });
 
 const FREQUENCIES = [
   { id: 'daily', label: 'Par jour', multiplier: 30 },
@@ -55,7 +61,8 @@ export default function IncomePage() {
 
   const [month, setMonth] = useState(todayMonth());
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ amount: '', source: 'Salaire', categoryId: 'salary', note: '', date: todayIso() });
+  const [form, setForm] = useState(emptyIncomeForm());
+  const [selectedIncome, setSelectedIncome] = useState(null);
   const [saving, setSaving] = useState(false);
   const [savingRules, setSavingRules] = useState(false);
   const [savingApplied, setSavingApplied] = useState(false);
@@ -79,6 +86,17 @@ export default function IncomePage() {
   const [durationFrequency, setDurationFrequency] = useState('daily');
   const [durationError, setDurationError] = useState('');
   const [savingDuration, setSavingDuration] = useState(false);
+
+  useEffect(() => {
+    const openFromShortcut = () => { setForm(emptyIncomeForm()); setError(''); setOpen(true); };
+    window.addEventListener('pata:income-new', openFromShortcut);
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('new') === '1') {
+      openFromShortcut();
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+    return () => window.removeEventListener('pata:income-new', openFromShortcut);
+  }, []);
 
   const incomesWithBalance = useMemo(() => {
     return incomes.map((inc) => {
@@ -302,15 +320,50 @@ export default function IncomePage() {
     } finally { setSavingApplied(false); }
   };
 
+  const openNewIncome = () => {
+    setForm(emptyIncomeForm());
+    setError('');
+    setOpen(true);
+  };
+
+  const openEditIncome = (income) => {
+    setForm({
+      id: income.id,
+      amount: String(income.amount || ''),
+      source: income.source || 'Revenu',
+      categoryId: income.categoryId || 'other_income',
+      note: income.note || '',
+      date: income.date || todayIso(),
+      time: income.time || '',
+      locationLabel: income.locationLabel || '',
+      latitude: income.latitude ?? null,
+      longitude: income.longitude ?? null,
+      locationAccuracy: income.locationAccuracy ?? null,
+      paymentMethod: income.paymentMethod || '',
+      details: income.details || '',
+    });
+    setError('');
+    setSelectedIncome(null);
+    setOpen(true);
+  };
+
   const onSubmit = async (e) => {
     e.preventDefault(); setError('');
     const amount = Number(form.amount);
     if (!amount || amount <= 0) return setError('Montant invalide.');
+    if (!form.source.trim()) return setError('Indique le nom ou la source de ce revenu.');
     setSaving(true);
     try {
-      await createIncome(user.uid, { amount, source: form.source, categoryId: form.categoryId, note: form.note, date: form.date, month: form.date.slice(0, 7) });
+      const payload = {
+        amount, source: form.source, categoryId: form.categoryId, note: form.note,
+        date: form.date, month: form.date.slice(0, 7), time: form.time,
+        locationLabel: form.locationLabel, latitude: form.latitude, longitude: form.longitude,
+        locationAccuracy: form.locationAccuracy, paymentMethod: form.paymentMethod, details: form.details,
+      };
+      if (form.id) await updateIncome(user.uid, form.id, payload);
+      else await createIncome(user.uid, payload);
       setOpen(false);
-      setForm({ amount: '', source: 'Salaire', categoryId: 'salary', note: '', date: todayIso() });
+      setForm(emptyIncomeForm());
     } catch (err) { setError(err.message || 'Impossible d’enregistrer ce revenu.'); } finally { setSaving(false); }
   };
 
@@ -511,44 +564,33 @@ export default function IncomePage() {
       <Card>
         <div className="mb-3 flex items-center justify-between">
           <CardTitle>Toutes mes sources de revenus</CardTitle>
-          <Button size="sm" onClick={() => setOpen(true)} disabled={incomeQuotaReached} className={incomeQuotaReached ? "opacity-50 grayscale" : ""}><Plus size={14} /> {incomeQuotaReached ? "Limite atteinte" : "Ajouter"}</Button>
+          <Button size="sm" onClick={openNewIncome} disabled={incomeQuotaReached} className={incomeQuotaReached ? "opacity-50 grayscale" : ""}><Plus size={14} /> {incomeQuotaReached ? "Limite atteinte" : "Ajouter"}</Button>
         </div>
         {incomesWithBalance.length === 0 ? (
           <EmptyState icon={TrendingUp} title="Aucun revenu enregistré" description="Ajoute ton salaire ou une source de revenu." />
         ) : (
           <ul className="space-y-3">
             {incomesWithBalance.map((inc) => (
-              <li key={inc.id} className={`rounded-xl border p-3 ${inc.isExhausted ? 'border-slate-100 bg-slate-50/50 opacity-60' : 'border-slate-200 bg-white'}`}>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-50 text-brand-600"><Landmark size={16} /></div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-semibold text-slate-800">{inc.source}</p>
-                        {inc.isExhausted && (<span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">Épuisé</span>)}
-                      </div>
-                      <p className="text-xs text-slate-500">{formatDate(inc.date)} — {INCOME_CATEGORIES.find(c => c.id === inc.categoryId)?.label || 'Revenu'}</p>
-                      <p className="mt-0.5 text-[11px] text-slate-400">
-                        {inc.isExhausted && inc.exhaustedDate
-                          ? `Épuisé le ${formatDate(inc.exhaustedDate)}${inc.durationDays !== null ? ` · utilisé en ${formatDuration(inc.durationDays)}` : ''}`
-                          : `En cours depuis ${formatDate(inc.createdDate || inc.date)}${inc.durationDays !== null ? ` · ${formatDuration(inc.durationDays)} écoulé(s)` : ''}`}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="text-right">
-                      <p className="text-sm font-bold text-slate-800">{formatCurrency(inc.amount)}</p>
-                      <p className="text-[10px] text-slate-500">Total</p>
-                    </div>
-                    <button onClick={() => setDeleteId(inc.id)} className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"><Trash2 size={15} /></button>
-                  </div>
+              <li key={inc.id} className={`rounded-2xl border p-3 transition ${inc.isExhausted ? 'border-slate-100 bg-slate-50/50' : 'border-slate-200 bg-white'}`}>
+                <button type="button" onClick={() => setSelectedIncome(inc)} className="flex w-full items-center justify-between gap-3 rounded-xl text-left focus:outline-none focus:ring-2 focus:ring-brand-200">
+                  <span className="flex min-w-0 items-center gap-3">
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700"><Landmark size={18}/></span>
+                    <span className="min-w-0">
+                      <span className="flex flex-wrap items-center gap-2"><strong className="truncate text-sm text-slate-900">{inc.source}</strong>{inc.isExhausted && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">Épuisé</span>}</span>
+                      <span className="mt-0.5 block text-xs text-slate-500">{formatDate(inc.date)} · {INCOME_CATEGORIES.find(c => c.id === inc.categoryId)?.label || 'Revenu'}</span>
+                      <span className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-slate-400">{inc.time && <span className="inline-flex items-center gap-1"><Clock3 size={10}/>{inc.time}</span>}{inc.locationLabel && <span className="inline-flex max-w-[150px] items-center gap-1 truncate"><MapPin size={10}/>{inc.locationLabel}</span>}</span>
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-right"><strong className="block text-sm font-bold text-slate-900">{formatCurrency(inc.amount)}</strong><span className="text-[10px] font-medium text-brand-700">Voir le détail</span></span>
+                </button>
+                <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2">
+                  <span className="text-[11px] text-slate-500">{inc.isExhausted && inc.exhaustedDate ? `Épuisé le ${formatDate(inc.exhaustedDate)}` : `Disponible : ${formatCurrency(inc.remaining)}`}</span>
+                  <span className="flex items-center gap-1">
+                    <button type="button" onClick={() => openEditIncome(inc)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Modifier ce revenu"><Pencil size={14}/></button>
+                    <button type="button" onClick={() => setDeleteId(inc.id)} className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600" aria-label="Supprimer ce revenu"><Trash2 size={14}/></button>
+                  </span>
                 </div>
-                {!inc.isExhausted && (
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between text-xs"><span className="text-slate-500">Dépensé</span><span className="text-red-500">- {formatCurrency(inc.spent)}</span></div>
-                    <div className="flex justify-between items-center border-t border-slate-100 pt-1.5"><span className="text-xs font-semibold text-slate-700">Solde restant</span><span className="text-base font-bold text-brand-600">{formatCurrency(inc.remaining)}</span></div>
-                  </div>
-                )}
+                {!inc.isExhausted && <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-brand-500" style={{width: `${inc.amount > 0 ? Math.min(100, (inc.spent / inc.amount) * 100) : 0}%`}}/></div>}
               </li>
             ))}
           </ul>
@@ -601,7 +643,36 @@ export default function IncomePage() {
         </Card>
       )}
 
-      <Modal open={open} onClose={() => setOpen(false)} title="Nouveau revenu">
+      <Modal open={!!selectedIncome} onClose={() => setSelectedIncome(null)} title="Détail du revenu">
+        {selectedIncome && (() => {
+          const methodLabels = { cash: 'Espèces', mtn_momo: 'MTN Mobile Money', orange_money: 'Orange Money', bank_transfer: 'Virement bancaire', card: 'Carte bancaire', other: 'Autre moyen' };
+          return (
+            <div className="space-y-4">
+              <div className="rounded-2xl bg-brand-50 p-4 text-center">
+                <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-brand-700"><TrendingUp size={22}/></span>
+                <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-brand-800">{INCOME_CATEGORIES.find((category) => category.id === selectedIncome.categoryId)?.label || 'Revenu'}</p>
+                <p className="mt-1 text-2xl font-bold tracking-tight text-slate-900">{formatCurrency(selectedIncome.amount)}</p>
+                <p className="mt-1 text-xs text-slate-600">{selectedIncome.source}</p>
+              </div>
+              <div className="divide-y divide-slate-100 rounded-xl border border-slate-200 px-3">
+                <div className="flex justify-between gap-4 py-3 text-sm"><span className="text-slate-500">Date</span><strong className="text-right text-slate-800">{formatDate(selectedIncome.date)}</strong></div>
+                <div className="flex justify-between gap-4 py-3 text-sm"><span className="text-slate-500">Heure</span><strong className="text-right text-slate-800">{selectedIncome.time || 'Non renseignée'}</strong></div>
+                <div className="flex justify-between gap-4 py-3 text-sm"><span className="text-slate-500">Lieu</span><strong className="max-w-[60%] text-right text-slate-800">{selectedIncome.locationLabel || 'Non renseigné'}</strong></div>
+                <div className="flex justify-between gap-4 py-3 text-sm"><span className="text-slate-500">Moyen de réception</span><strong className="text-right text-slate-800">{methodLabels[selectedIncome.paymentMethod] || 'Non précisé'}</strong></div>
+                <div className="flex justify-between gap-4 py-3 text-sm"><span className="text-slate-500">Client / mission</span><strong className="max-w-[60%] text-right text-slate-800">{selectedIncome.details || 'Non renseigné'}</strong></div>
+                <div className="py-3 text-sm"><p className="text-slate-500">Note</p><p className="mt-1 whitespace-pre-wrap text-slate-800">{selectedIncome.note || 'Aucune note'}</p></div>
+              </div>
+              {selectedIncome.latitude != null && selectedIncome.longitude != null && <a href={'https://www.google.com/maps?q=' + selectedIncome.latitude + ',' + selectedIncome.longitude} target="_blank" rel="noreferrer" className="block rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-brand-800 hover:bg-brand-50">Voir la position sur la carte</a>}
+              <div className="grid grid-cols-2 gap-2">
+                <Button type="button" variant="outline" onClick={() => openEditIncome(selectedIncome)}><Pencil size={14}/> Modifier</Button>
+                <Button type="button" variant="outline" className="border-red-200 text-red-700 hover:bg-red-50" onClick={() => { setDeleteId(selectedIncome.id); setSelectedIncome(null); }}><Trash2 size={14}/> Supprimer</Button>
+              </div>
+            </div>
+          );
+        })()}
+      </Modal>
+
+      <Modal open={open} onClose={() => setOpen(false)} title={form.id ? "Modifier le revenu" : "Nouveau revenu"}>
         <form onSubmit={onSubmit} className="space-y-3">
           <Input label="Montant (FCFA)" type="number" min="0" step="1" required value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
           <div>
@@ -612,9 +683,10 @@ export default function IncomePage() {
           </div>
           <Input label="Nom / Source" required value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} />
           <Input label="Date" type="date" required value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
-          <Input label="Note" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
+          <Input label="Note (facultatif)" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
+          <OptionalTransactionFields value={form} onChange={(next) => setForm(next)} kind="income" />
           {error && <p className="text-sm text-red-600">{error}</p>}
-          <Button type="submit" className="w-full" disabled={saving}>{saving ? 'Enregistrement…' : 'Ajouter'}</Button>
+          <Button type="submit" className="w-full" disabled={saving}>{saving ? 'Enregistrement…' : form.id ? 'Enregistrer les modifications' : 'Ajouter le revenu'}</Button>
         </form>
       </Modal>
 
