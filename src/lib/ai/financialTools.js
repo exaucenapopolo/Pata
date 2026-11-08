@@ -143,6 +143,11 @@ function buildIncomeBalances(incomes, expenses) {
 export async function createExpenseForUser(uid, input, { countQuota = true, sourceOverride = null, idempotencyKey = null } = {}) {
   const amount = asPositiveMoney(input.amount, 'Dépense');
   const categoryId = await assertExpenseCategory(uid, input.categoryId || input.category || 'other');
+  const expenseType = cleanText(input.expenseType || 'consumption', 30);
+  if (!['consumption', 'project', 'savings', 'investment'].includes(expenseType)) throw new Error('Choisis une nature de sortie valide.');
+  const projectId = cleanText(input.projectId, 150);
+  if (expenseType === 'project' && !projectId) throw new Error('Sélectionne le projet concerné.');
+  if (expenseType !== 'project' && projectId) throw new Error('Associe un projet uniquement à une sortie de type projet.');
   const note = cleanText(input.note, 250);
   const optionalMetadata = readOptionalTransactionMetadata(input);
   if (input.date && !/^\d{4}-\d{2}-\d{2}$/.test(String(input.date))) {
@@ -168,6 +173,13 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
     if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
 
     const userData = userSnap.data();
+    let projectName = '';
+    if (expenseType === 'project') {
+      if (!isPremium(userData)) throw new Error('La gestion des projets est réservée à Pata Premium.');
+      const projectSnap = await transaction.get(subcol(uid, 'projects').doc(projectId));
+      if (!projectSnap.exists || projectSnap.data()?.status === 'archived') throw new Error('Ce projet est introuvable ou archivé.');
+      projectName = cleanText(projectSnap.data()?.name, 100);
+    }
     let nextStats = userData.monthlyStats || {};
     if (nextStats.lastResetMonth !== currentMonth) {
       nextStats = {
@@ -186,16 +198,18 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
       incomes, input.incomeSourceId, input.incomeSourceName,
     );
 
+    const eligibleBalances = balances.filter((income) => !income.projectId || income.projectId === projectId);
+
     let allocations;
     if (selectedSource.id === 'all') {
-      const available = balances.reduce((sum, item) => sum + item.remaining, 0);
+      const available = eligibleBalances.reduce((sum, item) => sum + item.remaining, 0);
       if (amount > available) {
         throw new Error(`Fonds insuffisants : ${available.toLocaleString('fr-FR')} FCFA disponibles au total, contre ${amount.toLocaleString('fr-FR')} FCFA demandés.`);
       }
       let remaining = amount;
       allocations = [];
       // The smallest available balances are consumed first, as intended by Pata.
-      for (const income of [...balances].sort((a, b) => a.remaining - b.remaining)) {
+      for (const income of [...eligibleBalances].sort((a, b) => a.remaining - b.remaining)) {
         if (remaining <= 0) break;
         if (income.remaining <= 0) continue;
         const allocated = Math.min(income.remaining, remaining);
@@ -205,6 +219,7 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
     } else {
       const income = balances.find((item) => item.id === selectedSource.id);
       if (!income) throw new Error('Cette source de revenu n’existe plus. Vérifie-la avant de réessayer.');
+      if (income.projectId && income.projectId !== projectId) throw new Error('Ce revenu est réservé à un autre projet.');
       if (amount > income.remaining) {
         throw new Error(`Fonds insuffisants sur « ${income.source} » : ${income.remaining.toLocaleString('fr-FR')} FCFA disponibles.`);
       }
@@ -269,6 +284,9 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
         date,
         incomeSourceId: income.id,
         incomeSourceName: income.source || 'Revenu sans nom',
+        expenseType,
+        projectId: expenseType === 'project' ? projectId : null,
+        projectName: expenseType === 'project' ? projectName : null,
         ...optionalMetadata,
         createdAt: FieldValue.serverTimestamp(),
         ...(input.automationId ? { automationId: input.automationId } : {}),
@@ -285,7 +303,7 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
       ...(countQuota && !isPremium(userData) ? { monthlyStats: nextStats } : {}),
     }, { merge: true });
 
-    const result = { success: true, amount, date, categoryId, allocations: created, recordsCreated: created.length };
+    const result = { success: true, amount, date, categoryId, expenseType, projectId: expenseType === 'project' ? projectId : null, projectName: projectName || null, allocations: created, recordsCreated: created.length };
     if (idempotencyRef) transaction.create(idempotencyRef, { result, createdAt: FieldValue.serverTimestamp() });
     return result;
   });
@@ -304,12 +322,14 @@ export async function updateExpenseForUser(uid, expenseId, input) {
   const expenseRef = subcol(uid, 'expenses').doc(id);
   const incomesRef = subcol(uid, 'incomes');
   const expensesRef = subcol(uid, 'expenses');
+  const userRef = userRefFor(uid);
 
   return adminDb.runTransaction(async (transaction) => {
-    const [expenseSnap, incomesSnap, expensesSnap] = await Promise.all([
+    const [expenseSnap, incomesSnap, expensesSnap, userSnap] = await Promise.all([
       transaction.get(expenseRef),
       transaction.get(incomesRef),
       transaction.get(expensesRef),
+      transaction.get(userRef),
     ]);
     if (!expenseSnap.exists) throw new Error('Dépense introuvable.');
 
@@ -320,6 +340,18 @@ export async function updateExpenseForUser(uid, expenseId, input) {
       : validatedRequestedCategory;
     const note = input.note === undefined ? cleanText(previousData.note, 250) : cleanText(input.note, 250);
     const date = input.date || previousData.date || todayDouala();
+    const expenseType = cleanText(input.expenseType === undefined ? previousData.expenseType || 'consumption' : input.expenseType, 30);
+    if (!['consumption', 'project', 'savings', 'investment'].includes(expenseType)) throw new Error('Choisis une nature de sortie valide.');
+    const projectId = cleanText(input.projectId === undefined ? previousData.projectId : input.projectId, 150);
+    if (expenseType === 'project' && !projectId) throw new Error('Sélectionne le projet concerné.');
+    if (expenseType !== 'project' && projectId) throw new Error('Associe un projet uniquement à une sortie de type projet.');
+    let projectName = '';
+    if (expenseType === 'project') {
+      if (!userSnap.exists || !isPremium(userSnap.data())) throw new Error('La gestion des projets est réservée à Pata Premium.');
+      const projectSnap = await transaction.get(subcol(uid, 'projects').doc(projectId));
+      if (!projectSnap.exists || projectSnap.data()?.status === 'archived') throw new Error('Ce projet est introuvable ou archivé.');
+      projectName = cleanText(projectSnap.data()?.name, 100);
+    }
     const optionalMetadata = readOptionalTransactionMetadata(input, previousData);
     const budgetSnap = await transaction.get(subcol(uid, 'budgets').where('month', '==', String(date).slice(0, 7)));
     const requestedSourceId = input.incomeSourceId === undefined
@@ -334,15 +366,16 @@ export async function updateExpenseForUser(uid, expenseId, input) {
       .map((doc) => ({ id: doc.id, ...doc.data() }));
     const balances = buildIncomeBalances(incomes, expenses);
     const selectedSource = resolveSource(incomes, requestedSourceId, requestedSourceName);
+    const eligibleBalances = balances.filter((income) => !income.projectId || income.projectId === projectId);
     let allocations = [];
 
     if (selectedSource.id === 'all') {
-      const available = balances.reduce((sum, item) => sum + item.remaining, 0);
+      const available = eligibleBalances.reduce((sum, item) => sum + item.remaining, 0);
       if (amount > available) {
         throw new Error(`Fonds insuffisants : ${available.toLocaleString('fr-FR')} FCFA disponibles au total, contre ${amount.toLocaleString('fr-FR')} FCFA demandés.`);
       }
       let remaining = amount;
-      for (const income of [...balances].sort((a, b) => a.remaining - b.remaining)) {
+      for (const income of [...eligibleBalances].sort((a, b) => a.remaining - b.remaining)) {
         if (remaining <= 0) break;
         if (income.remaining <= 0) continue;
         const allocated = Math.min(income.remaining, remaining);
@@ -352,6 +385,7 @@ export async function updateExpenseForUser(uid, expenseId, input) {
     } else {
       const income = balances.find((item) => item.id === selectedSource.id);
       if (!income) throw new Error('Cette source de revenu n’existe plus. Vérifie-la avant de réessayer.');
+      if (income.projectId && income.projectId !== projectId) throw new Error('Ce revenu est réservé à un autre projet.');
       if (amount > income.remaining) {
         throw new Error(`Fonds insuffisants sur « ${income.source} » : ${income.remaining.toLocaleString('fr-FR')} FCFA disponibles.`);
       }
@@ -390,6 +424,9 @@ export async function updateExpenseForUser(uid, expenseId, input) {
       date,
       incomeSourceId: first.income.id,
       incomeSourceName: first.income.source || 'Revenu sans nom',
+      expenseType,
+      projectId: expenseType === 'project' ? projectId : null,
+      projectName: expenseType === 'project' ? projectName : null,
       ...optionalMetadata,
       updatedAt: FieldValue.serverTimestamp(),
     });
@@ -404,6 +441,9 @@ export async function updateExpenseForUser(uid, expenseId, input) {
         date,
         incomeSourceId: income.id,
         incomeSourceName: income.source || 'Revenu sans nom',
+        expenseType,
+        projectId: expenseType === 'project' ? projectId : null,
+        projectName: expenseType === 'project' ? projectName : null,
         ...optionalMetadata,
         createdAt: previousData.createdAt || FieldValue.serverTimestamp(),
         splitFromExpenseId: id,
@@ -417,6 +457,9 @@ export async function updateExpenseForUser(uid, expenseId, input) {
       amount,
       date,
       categoryId,
+      expenseType,
+      projectId: expenseType === 'project' ? projectId : null,
+      projectName: projectName || null,
       allocations: [
         { incomeSourceId: first.income.id, incomeSourceName: first.income.source, amount: first.amount },
         ...extraRecords,
@@ -747,6 +790,8 @@ export const AI_TOOLS = [
           amount: { type: 'integer', description: 'Montant entier en FCFA.' },
           categoryId: { type: 'string', description: 'Identifiant de catégorie standard ou catégorie personnalisée connue dans le profil.' },
           note: { type: 'string' },
+          expenseType: { type: 'string', enum: ['consumption', 'project', 'savings', 'investment'], description: 'Nature de la sortie. Par défaut : consommation.' },
+          projectId: { type: 'string', description: 'ID exact du projet Premium si la sortie est liée à un projet.' },
           date: { type: 'string', description: 'Date YYYY-MM-DD uniquement si elle a été indiquée; sinon omettre.' },
           incomeSourceId: { type: 'string', description: 'ID exact de la source dans les données, ou all si toutes les sources.' },
           incomeSourceName: { type: 'string', description: 'Nom exact de la source, utilisé uniquement pour retrouver/confirmer son ID.' },
@@ -766,6 +811,8 @@ export const AI_TOOLS = [
         properties: {
           expenseId: { type: 'string' }, amount: { type: 'integer' },
           categoryId: { type: 'string', description: 'Identifiant de catégorie standard ou personnalisée.' },
+          expenseType: { type: 'string', enum: ['consumption', 'project', 'savings', 'investment'] },
+          projectId: { type: 'string', description: 'ID exact du projet Premium si la sortie est liée à un projet.' },
           note: { type: 'string' }, date: { type: 'string' },
           incomeSourceId: { type: 'string' }, incomeSourceName: { type: 'string' },
           confirmBudgetOverrun: { type: 'boolean', description: 'Mettre true uniquement après que l’utilisateur a explicitement accepté l’avertissement de dépassement.' },
@@ -797,6 +844,7 @@ export const AI_TOOLS = [
           amount: { type: 'integer' }, source: { type: 'string' },
           categoryId: { type: 'string', enum: INCOME_CATEGORIES },
           note: { type: 'string' }, date: { type: 'string' },
+          projectId: { type: 'string', description: 'ID exact du projet auquel ce revenu est réservé, si demandé.' },
         },
         required: ['amount', 'source', 'categoryId'],
       },
@@ -948,17 +996,26 @@ async function addIncome(uid, args) {
   const date = /^\d{4}-\d{2}-\d{2}$/.test(String(args.date || '')) ? args.date : todayDouala();
   const userRef = userRefFor(uid);
   const ref = subcol(uid, 'incomes').doc();
+  const projectId = cleanText(args.projectId, 150);
   await adminDb.runTransaction(async (transaction) => {
     const userSnap = await transaction.get(userRef);
     if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
+    let projectName = '';
+    if (projectId) {
+      if (!isPremium(userSnap.data())) throw new Error('L’association d’un revenu à un projet est réservée à Pata Premium.');
+      const projectSnap = await transaction.get(subcol(uid, 'projects').doc(projectId));
+      if (!projectSnap.exists || projectSnap.data()?.status === 'archived') throw new Error('Le projet choisi est introuvable ou archivé.');
+      projectName = cleanText(projectSnap.data()?.name, 100);
+    }
     const stats = incrementFreeQuota(userSnap.data(), 'incomes', 1);
     transaction.create(ref, {
       amount, source, categoryId, note: cleanText(args.note, 250), date,
+      ...(projectId ? { projectId, projectName } : {}),
       month: date.slice(0, 7), createdAt: FieldValue.serverTimestamp(),
     });
     transaction.set(userRef, { lifetimeIncomeAmount: FieldValue.increment(amount), lifetimeIncomeCount: FieldValue.increment(1), ...(stats ? { monthlyStats: stats } : {}) }, { merge: true });
   });
-  return { message: `Revenu « ${source} » enregistré.`, amount, source, incomeId: ref.id, date };
+  return { message: `Revenu « ${source} » enregistré.`, amount, source, incomeId: ref.id, date, ...(projectId ? { projectId } : {}) };
 }
 
 async function applyBudgetPlan(uid, args) {
