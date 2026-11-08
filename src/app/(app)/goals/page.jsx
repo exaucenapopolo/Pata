@@ -15,6 +15,7 @@ import { Modal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { CategoryManager } from '@/components/ui/CategoryManager';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { WithdrawalHistory } from '@/components/WithdrawalHistory';
 import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
 import { useGoals, useDeposits } from '@/hooks/useGoals';
@@ -687,6 +688,8 @@ export default function GoalsPage() {
           {goalQuotaReached && <div className="mt-3 flex flex-wrap items-center justify-between gap-2"><p className="text-xs text-amber-800">Tu as utilisé ta création gratuite de ce mois.</p><Button size="sm" onClick={() => window.location.assign('/premium')}>Passer à Premium</Button></div>}
         </div>
       )}
+
+      <WithdrawalHistory type="savings" />
 
       {goals.length === 0 ? (
         <EmptyState icon={Target} title="Aucune épargne" description="Crée un objectif ou une tirelire pour commencer." action={<Button onClick={openCreate} disabled={goalQuotaReached}><Plus size={16} /> {goalQuotaReached ? "Limite atteinte" : "Créer"}</Button>} />
