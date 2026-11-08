@@ -2055,7 +2055,11 @@ async function handleProfileActivity(request) {
   try {
     const decoded = await authenticate(request);
     const userRef = adminDb.collection('users').doc(decoded.uid);
-    await userRef.set({ lastSeenAt: FieldValue.serverTimestamp(), email: decoded.email || null }, { merge: true });
+    const profileSnap = await userRef.get();
+    // Do not create a skeletal profile here: the registration flow initializes
+    // the profile and triggers the one-time welcome email.
+    if (!profileSnap.exists) return NextResponse.json({ success: true, profilePending: true });
+    await userRef.set({ lastSeenAt: FieldValue.serverTimestamp(), email: decoded.email || profileSnap.data()?.email || null }, { merge: true });
     return NextResponse.json({ success: true });
   } catch (error) { return errorResponse(error.message || 'Impossible de mettre à jour le profil.', 401); }
 }
