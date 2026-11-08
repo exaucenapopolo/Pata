@@ -117,7 +117,8 @@ async function handleFapshiWebhook(request) {
       headers: { apiuser: API_USER, apikey: SECRET_KEY },
     });
     const verifyData = await verifyRes.json();
-    if ((verifyData.status || '').toUpperCase() === 'SUCCESSFUL') {
+    const providerStatus = String(verifyData.status || '').toUpperCase();
+    if (providerStatus === 'SUCCESSFUL') {
       if (depDoc.exists) {
         await adminDb.runTransaction(async (transaction) => {
           const fresh = await transaction.get(depositRef);
@@ -131,6 +132,8 @@ async function handleFapshiWebhook(request) {
       } else if (cotisationDoc.exists) {
         await confirmCotisationPayment(transId);
       }
+    } else if (cotisationDoc.exists && ['FAILED', 'EXPIRED', 'CANCELLED', 'CANCELED'].includes(providerStatus)) {
+      await releaseCotisationPayment(transId, providerStatus);
     }
     return NextResponse.json({ received: true });
   } catch (error) {
@@ -174,6 +177,11 @@ async function handleFapshiStatus(request) {
         await confirmCotisationPayment(transId);
       }
       return NextResponse.json({ success: true, status: 'CONFIRMED' });
+    }
+    const providerStatus = String(data.status || '').toUpperCase();
+    if (cotDoc.exists && ['FAILED', 'EXPIRED', 'CANCELLED', 'CANCELED'].includes(providerStatus)) {
+      await releaseCotisationPayment(transId, providerStatus);
+      return NextResponse.json({ success: true, status: 'FAILED' });
     }
     return NextResponse.json({ success: true, status: 'PENDING' });
   } catch (error) { return errorResponse(error.message || 'Impossible de vérifier le paiement.', 500); }
@@ -3189,12 +3197,16 @@ async function confirmCotisationPayment(transId) {
     const [groupSnap, cycleSnap, contributionSnap, memberSnap] = await Promise.all([
       transaction.get(groupRef), transaction.get(cycleRef), transaction.get(contributionRef), transaction.get(memberRef),
     ]);
-    if (!groupSnap.exists) throw new Error('Groupe de cotisation introuvable.');
+    if (!groupSnap.exists || !memberSnap.exists) throw new Error('Groupe ou membre de cotisation introuvable.');
     const group = groupSnap.data();
+    if (payment.reservationId && memberSnap.data()?.pendingPaymentId !== payment.reservationId) {
+      throw new Error('Cette confirmation ne correspond plus au versement en attente.');
+    }
     const amount = cotisationMoney(payment.amount);
     const nextMemberTotal = cotisationMoney(contributionSnap.data()?.amount) + amount;
     const nextTotal = cotisationMoney(cycleSnap.data()?.totalCollected) + amount;
     const targetAmount = cotisationMoney(cycleSnap.data()?.targetAmount) || cotisationMoney(group.contributionAmount) * cotisationMoney(group.memberCount);
+    if (cycleSnap.data()?.status && cycleSnap.data().status !== 'OPEN') throw new Error('Cette période de cotisation n’accepte plus de versement.');
     if (nextMemberTotal > cotisationMoney(group.contributionAmount)) throw new Error('Le paiement dépasse la contribution attendue pour ce membre.');
     transaction.set(contributionRef, {
       userId: payment.userId, displayName: payment.displayName || 'Membre',
@@ -3206,7 +3218,7 @@ async function confirmCotisationPayment(transId) {
       fee: cotisationMoney(payment.fee), grossAmount: cotisationMoney(payment.grossAmount),
       status: 'CONFIRMED', createdAt: FieldValue.serverTimestamp(), confirmedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
-    if (memberSnap.exists) transaction.update(memberRef, { pendingPaymentId: null, pendingPaymentAmount: 0, pendingPaymentAt: null });
+    transaction.update(memberRef, { pendingPaymentId: null, pendingPaymentAmount: 0, pendingPaymentAt: null, pendingPaymentTransId: null });
     transaction.set(cycleRef, {
       cycleKey: payment.cycleKey, cycleIndex: payment.cycleIndex,
       startDate: payment.cycleStartDate, dueAt: payment.dueAt,
@@ -3220,12 +3232,44 @@ async function confirmCotisationPayment(transId) {
   });
 }
 
+async function releaseCotisationReservation(groupId, userId, reservationId, reason = 'FAILED') {
+  if (!groupId || !userId || !reservationId) return;
+  const groupRef = adminDb.collection('cotisationGroups').doc(groupId);
+  const memberRef = groupRef.collection('members').doc(userId);
+  await adminDb.runTransaction(async (transaction) => {
+    const memberSnap = await transaction.get(memberRef);
+    if (!memberSnap.exists || memberSnap.data()?.pendingPaymentId !== reservationId) return;
+    transaction.update(memberRef, {
+      pendingPaymentId: null, pendingPaymentAmount: 0, pendingPaymentAt: null,
+      pendingPaymentTransId: null, lastPaymentFailure: reason,
+    });
+  });
+}
+
+async function releaseCotisationPayment(transId, reason = 'FAILED') {
+  const paymentRef = adminDb.collection('cotisationPayments').doc(String(transId));
+  await adminDb.runTransaction(async (transaction) => {
+    const paymentSnap = await transaction.get(paymentRef);
+    if (!paymentSnap.exists || paymentSnap.data()?.status !== 'PENDING') return;
+    const payment = paymentSnap.data();
+    const memberRef = adminDb.collection('cotisationGroups').doc(payment.groupId).collection('members').doc(payment.userId);
+    const memberSnap = await transaction.get(memberRef);
+    if (memberSnap.exists && memberSnap.data()?.pendingPaymentId === payment.reservationId) {
+      transaction.update(memberRef, {
+        pendingPaymentId: null, pendingPaymentAmount: 0, pendingPaymentAt: null,
+        pendingPaymentTransId: null, lastPaymentFailure: reason,
+      });
+    }
+    transaction.update(paymentRef, { status: 'FAILED', failureReason: String(reason).slice(0, 200), failedAt: FieldValue.serverTimestamp() });
+  });
+}
+
 async function cotisationSendWithdrawalEmail(data, status) {
   if (!data || !data.email) return;
   const details = {
     received: ['Demande de retrait reçue par Pata', 'Ta demande a bien été reçue.', 'Nous avons reçu ta demande de retrait de ' + cotisationMoney(data.amount).toLocaleString('fr-FR') + ' FCFA concernant ' + (data.goalName || 'ta cotisation') + '. Elle sera vérifiée par l’administration avant l’envoi.'],
     approved: ['Ta demande de retrait Pata a été approuvée', 'Ta demande a été approuvée.', 'L’administration a approuvé ta demande de retrait de ' + cotisationMoney(data.amount).toLocaleString('fr-FR') + ' FCFA concernant ' + (data.goalName || 'ton épargne') + '. Le paiement a été transmis à Fapshi ; nous te confirmerons dès que le prestataire aura terminé le transfert.'],
-    paid: ['Ton retrait Pata a été envoyé', 'Ton retrait a été envoyé.', 'Le retrait de ' + cotisationMoney(data.amount).toLocaleString('fr-FR') + ' FCFA concernant ' + (data.goalName || 'ta cotisation') + ' a été confirmé par le prestataire.']
+    paid: ['Ton retrait Pata a été envoyé', 'Ton retrait a été envoyé.', 'Le retrait de ' + cotisationMoney(data.amount).toLocaleString('fr-FR') + ' FCFA concernant ' + (data.goalName || 'ta cotisation') + ' a été confirmé par le prestataire.'],
     rejected: ['Mise à jour de ta demande de retrait Pata', 'Ta demande de retrait n’a pas été approuvée.', 'La demande concernant ' + (data.goalName || 'ton épargne') + ' a été refusée après vérification. Tu peux consulter le statut dans ton espace Pata ou contacter l’assistance.'],
     failed: ['Ton retrait Pata n’a pas abouti', 'Le prestataire n’a pas pu effectuer le retrait.', 'Le retrait de ' + cotisationMoney(data.amount).toLocaleString('fr-FR') + ' FCFA concernant ' + (data.goalName || 'ta cotisation') + ' n’a pas été confirmé. Consulte ton espace Pata avant toute nouvelle demande.'],
   }[status];
@@ -3402,8 +3446,10 @@ async function handleCotisationPay(request) {
     if (!Number.isSafeInteger(amount) || amount < 100 || amount % 100 !== 0) return errorResponse('Chaque versement doit être d’au moins 100 FCFA et par multiples de 100.', 400);
     if (!/^6[0-9]{8}$/.test(phone) || !medium) return errorResponse('Vérifie le numéro MTN ou Orange Money.', 400);
     const groupRef = adminDb.collection('cotisationGroups').doc(groupId);
+    const memberRef = groupRef.collection('members').doc(uid);
+    const cycleMeta = null;
     const [groupSnap, memberSnap, userSnap] = await Promise.all([
-      groupRef.get(), groupRef.collection('members').doc(uid).get(), adminDb.collection('users').doc(uid).get(),
+      groupRef.get(), memberRef.get(), adminDb.collection('users').doc(uid).get(),
     ]);
     if (!groupSnap.exists || !memberSnap.exists || !userSnap.exists) return errorResponse('Tu ne fais pas partie de ce groupe.', 403);
     const group = groupSnap.data();
@@ -3411,48 +3457,77 @@ async function handleCotisationPay(request) {
     const meta = getCotisationCycleMeta(group);
     if (meta.notStarted) return errorResponse('Les cotisations commencent le ' + meta.startDate + '.', 409);
     const cycleRef = groupRef.collection('cycles').doc(meta.cycleKey);
-    const [cycleSnap, contributionSnap, membersSnap] = await Promise.all([
-      cycleRef.get(), cycleRef.collection('contributions').doc(uid).get(),
-      groupRef.collection('members').where('active', '==', true).get(),
-    ]);
+    const contributionRef = cycleRef.collection('contributions').doc(uid);
+    const membersSnap = await groupRef.collection('members').where('active', '==', true).get();
     if (membersSnap.size < 2) return errorResponse('Invite au moins un autre membre avant de commencer les versements.', 409);
-    const currentStatus = cycleSnap.data()?.status || 'OPEN';
-    if (currentStatus !== 'OPEN') return errorResponse('Cette période est entièrement financée ou en cours de retrait.', 409);
-    const contributionAmount = cotisationMoney(group.contributionAmount);
-    const paid = cotisationMoney(contributionSnap.data()?.amount);
-    const due = Math.max(0, contributionAmount - paid);
-    if (amount > due) return errorResponse('Il reste ' + due.toLocaleString('fr-FR') + ' FCFA à verser pour ta part de ce cycle.', 400);
-    if (!membersSnap.size) return errorResponse('Ce groupe ne compte aucun membre actif.', 409);
     const fee = Math.round(amount * 0.05);
     const grossAmount = amount + fee;
     const apiUser = process.env.FAPSHI_API_USER;
     const apiKey = process.env.FAPSHI_SECRET_KEY;
     if (!apiUser || !apiKey) return errorResponse('Le paiement Fapshi n’est pas configuré.', 503);
-    const userData = userSnap.data();
+
+    // Réservation atomique : un seul lien Fapshi non terminé par membre et par cycle.
+    const reservationId = randomBytes(18).toString('hex');
+    const reservation = await adminDb.runTransaction(async (transaction) => {
+      const [freshGroup, freshMember, cycleSnap, contributionSnap, freshUser] = await Promise.all([
+        transaction.get(groupRef), transaction.get(memberRef), transaction.get(cycleRef),
+        transaction.get(contributionRef), transaction.get(adminDb.collection('users').doc(uid)),
+      ]);
+      if (!freshGroup.exists || !freshMember.exists || !freshUser.exists) throw new Error('Groupe ou profil utilisateur introuvable.');
+      const fresh = freshGroup.data();
+      if (fresh.status !== 'active') throw new Error('Ce groupe n’accepte plus de versements.');
+      const cycleStatus = cycleSnap.data()?.status || 'OPEN';
+      if (cycleStatus !== 'OPEN') throw new Error('Cette période est déjà entièrement financée ou en cours de retrait.');
+      const member = freshMember.data();
+      if (member.pendingPaymentId) throw new Error('Un paiement est déjà en attente pour cette période. Termine-le ou vérifie son statut avant d’en ouvrir un autre.');
+      const contributionAmount = cotisationMoney(fresh.contributionAmount);
+      const paid = cotisationMoney(contributionSnap.data()?.amount);
+      const due = Math.max(0, contributionAmount - paid);
+      if (amount > due) throw new Error('Il reste ' + due.toLocaleString('fr-FR') + ' FCFA à verser pour ta part de ce cycle.');
+      transaction.update(memberRef, {
+        pendingPaymentId: reservationId, pendingPaymentAmount: amount,
+        pendingPaymentAt: FieldValue.serverTimestamp(), pendingPaymentTransId: null,
+      });
+      return { group: fresh, user: freshUser.data(), due };
+    });
+
     const baseUrl = getBaseUrl(request);
+    const userData = reservation.user;
     const payload = {
       amount: grossAmount, currency: 'XAF',
-      description: 'Cotisation Pata — ' + String(group.name || 'Groupe').slice(0, 60),
+      description: 'Cotisation Pata — ' + String(reservation.group.name || 'Groupe').slice(0, 60),
       redirect_url: (request.headers.get('origin') || baseUrl) + '/cotisations',
       webhook_url: baseUrl + '/api/fapshi/webhook',
       phone, email: userData.email || '', name: userData.displayName || 'Membre',
     };
-    const response = await fetch('https://live.fapshi.com/initiate-pay', {
-      method: 'POST', headers: { 'Content-Type': 'application/json', apiuser: apiUser, apikey: apiKey },
-      body: JSON.stringify(payload), signal: AbortSignal.timeout(20000),
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) return errorResponse(data.message || 'Le paiement a été refusé par Fapshi.', 502);
-    const checkoutUrl = data.data?.url || data.link || data.url;
-    const transId = data.transId || data.data?.transId;
-    if (!checkoutUrl || !transId) return errorResponse('Fapshi n’a pas fourni de lien de paiement vérifiable.', 502);
-    await adminDb.collection('cotisationPayments').doc(transId).set({
-      transId, userId: uid, groupId, groupName: group.name || 'Cotisation',
-      cycleKey: meta.cycleKey, cycleIndex: meta.cycleIndex, cycleStartDate: meta.startDate, dueAt: meta.dueAt,
-      displayName: userData.displayName || 'Membre', amount, fee, grossAmount, phone, medium,
-      status: 'PENDING', checkoutUrl, createdAt: FieldValue.serverTimestamp(),
-    });
-    return NextResponse.json({ success: true, checkoutUrl, transId, amount, fee, grossAmount });
+    try {
+      const response = await fetch('https://live.fapshi.com/initiate-pay', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', apiuser: apiUser, apikey: apiKey },
+        body: JSON.stringify(payload), signal: AbortSignal.timeout(20000),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        await releaseCotisationReservation(groupId, uid, reservationId, data.message || 'Paiement refusé');
+        return errorResponse(data.message || 'Le paiement a été refusé par Fapshi.', 502);
+      }
+      const checkoutUrl = data.data?.url || data.link || data.url;
+      const transId = data.transId || data.data?.transId;
+      if (!checkoutUrl || !transId) {
+        await releaseCotisationReservation(groupId, uid, reservationId, 'Lien de paiement absent');
+        return errorResponse('Fapshi n’a pas fourni de lien de paiement vérifiable.', 502);
+      }
+      await adminDb.collection('cotisationPayments').doc(transId).create({
+        transId, reservationId, userId: uid, groupId, groupName: reservation.group.name || 'Cotisation',
+        cycleKey: meta.cycleKey, cycleIndex: meta.cycleIndex, cycleStartDate: meta.startDate, dueAt: meta.dueAt,
+        displayName: userData.displayName || 'Membre', amount, fee, grossAmount, phone, medium,
+        status: 'PENDING', checkoutUrl, createdAt: FieldValue.serverTimestamp(),
+      });
+      await memberRef.update({ pendingPaymentTransId: transId });
+      return NextResponse.json({ success: true, checkoutUrl, transId, amount, fee, grossAmount });
+    } catch (error) {
+      await releaseCotisationReservation(groupId, uid, reservationId, error.message || 'Erreur au démarrage du paiement').catch(() => {});
+      throw error;
+    }
   } catch (error) { return errorResponse(error.message || 'Impossible de démarrer le paiement.', 502); }
 }
 
