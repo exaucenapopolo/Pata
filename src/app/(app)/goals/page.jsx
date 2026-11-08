@@ -608,6 +608,7 @@ function GoalCard({ goal, onOpen, onEdit, onAskWithdraw, onTogglePin, onDelete }
       )}
 
       <div className="mt-auto space-y-2">
+        <Button type="button" variant="outline" className="w-full" onClick={(event) => { event.stopPropagation(); const prompt = `Analyse mon épargne « ${goal.name} » dans Pata. Type : ${isPiggybank ? 'caisse / tirelire' : 'objectif daté'}. Montant épargné : ${plan.totalDeposited} FCFA. ${isPiggybank ? (goal.targetAmount ? `Cible : ${goal.targetAmount} FCFA.` : 'Aucune cible définie.') : `Cible : ${goal.targetAmount} FCFA. Échéance : ${goal.deadline || 'non précisée'}. Reste : ${plan.remaining} FCFA.`} Frais de retard actuels : ${plan.penalty || 0} FCFA. Donne-moi un bilan court et des conseils concrets sans modifier mes données.`; window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt } })); }}><MessageCircle size={15}/> Analyser avec Mč</Button>
         <Button variant="outline" className="w-full" onClick={(event) => { event.stopPropagation(); onOpen(); }}><TrendingUp size={16} /> {isPiggybank ? 'Ouvrir la caisse' : 'Voir détails et verser'}</Button>
         {isPiggybank ? (
           <Button className="w-full bg-slate-900 text-white hover:bg-slate-800" onClick={(event) => { event.stopPropagation(); onAskWithdraw(goal, 'cancel'); }}><Unlock size={16} /> Casser la tirelire</Button>
