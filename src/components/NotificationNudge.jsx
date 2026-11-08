@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Bell, X, Loader2 } from 'lucide-react';
+import { isSupported } from 'firebase/messaging';
 import { useAuth } from '@/hooks/useAuth';
 import { getDeviceMessagingToken } from '@/components/NotificationSettings';
 
@@ -15,8 +16,35 @@ export function NotificationNudge() {
 
   useEffect(() => {
     if (!user || typeof window === 'undefined' || !('Notification' in window) || !('serviceWorker' in navigator)) return;
+    const vapidKey = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY;
+    if (!vapidKey) return;
+
+    // Sur chaque appareil déjà autorisé, récupère le jeton FCM courant.
+    // Firebase peut renouveler un jeton après une mise à jour ou une réinstallation.
+    // La synchronisation silencieuse évite de conserver uniquement un ancien jeton côté serveur.
+    if (Notification.permission === 'granted') {
+      let active = true;
+      const synchronizeCurrentDevice = async () => {
+        try {
+          if (!(await isSupported())) return;
+          const token = await getDeviceMessagingToken(vapidKey);
+          if (!active || !token) return;
+          const idToken = await user.getIdToken();
+          const response = await fetch('/api/notifications/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+            body: JSON.stringify({ token }),
+          });
+          if (!response.ok) throw new Error('Synchronisation du jeton FCM impossible.');
+        } catch (error) {
+          console.warn('[PATA PUSH TOKEN SYNC]', error?.message || error);
+        }
+      };
+      synchronizeCurrentDevice();
+      return () => { active = false; };
+    }
+
     if (Notification.permission !== 'default') return;
-    if (!process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY) return;
     try {
       const key = `pata-notification-nudge:${user.uid}`;
       const lastDismissed = Number(localStorage.getItem(key) || 0);
