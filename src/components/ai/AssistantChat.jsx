@@ -78,6 +78,20 @@ function MessageContent({ text }) {
     const trimmed = current.trim();
     if (!trimmed) { index += 1; continue; }
 
+    const summaryMatch = trimmed.match(/^\\*\\*En bref(?:\\s*[—–-])?\\*\\*\\s*(.*)$/i);
+    if (summaryMatch) {
+      blocks.push(
+        <div key={`summary-${blocks.length}`} className="my-2 rounded-xl border border-brand-100 bg-brand-50/70 px-3 py-3">
+          <div className="mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-brand-800">
+            <Sparkles size={12}/> En bref
+          </div>
+          <p className="text-[13px] font-medium leading-6 text-slate-800">{renderInline(summaryMatch[1], `summary-${blocks.length}`)}</p>
+        </div>
+      );
+      index += 1;
+      continue;
+    }
+
     if (trimmed.includes('|') && index + 1 < lines.length && isTableDivider(lines[index + 1])) {
       const headers = splitTableRow(current);
       index += 2;
