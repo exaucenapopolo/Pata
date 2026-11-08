@@ -531,6 +531,15 @@ async function handleCurrencyRates(request) {
 }
 
 
+function getDoualaDateKey(date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Douala',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
+
 function getDoualaMonthKey(date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Douala', year: 'numeric', month: '2-digit' }).formatToParts(date);
   return `${parts.find((part) => part.type === 'year')?.value}-${parts.find((part) => part.type === 'month')?.value}`;
@@ -1269,7 +1278,7 @@ async function handleFundGoal(request) {
 
       t.update(userRef, { balance: currentBalance - amount });
       t.set(goalRef.collection('deposits').doc(), {
-        amount, date: new Date().toISOString().slice(0, 10), source: 'wallet', createdAt: FieldValue.serverTimestamp(),
+        amount, date: getDoualaDateKey(), source: 'wallet', createdAt: FieldValue.serverTimestamp(),
       });
     });
     return NextResponse.json({ success: true });
@@ -1292,7 +1301,7 @@ async function handleGoalBorrow(request) {
       if (!goalDoc.exists) throw new Error('Objectif introuvable.');
       const currentDebt = goalDoc.data().debtBalance || 0;
       t.set(goalRef.collection('deposits').doc(), {
-        amount, date: new Date().toISOString().slice(0, 10), source: 'loan', createdAt: FieldValue.serverTimestamp(),
+        amount, date: getDoualaDateKey(), source: 'loan', createdAt: FieldValue.serverTimestamp(),
       });
       t.update(goalRef, { debtBalance: currentDebt + totalDebtToAdd });
     });
