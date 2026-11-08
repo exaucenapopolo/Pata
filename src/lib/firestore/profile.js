@@ -13,7 +13,6 @@ export async function ensureUserProfile(user) {
     currency: 'XAF',
     currencyRates: { XAF: 1, EUR: 1 / 655.957, USD: 1 / 600 },
     currencyRateUpdatedAt: new Date().toISOString(),
-    penaltyDefault: 500,
     createdAt: serverTimestamp(),
   };
   await setDoc(ref(user.uid), data);
