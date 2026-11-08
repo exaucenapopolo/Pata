@@ -127,7 +127,7 @@ export default function HomePage() {
       <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/90 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
           <Link href="/" className="flex items-center gap-2.5"><img src="/android-chrome-192x192.png" alt="Pata" className="h-9 w-9 rounded-lg"/><span className="text-lg font-extrabold tracking-tight text-slate-900">Pata</span></Link>
-          <div className="flex items-center gap-2"><a href="#connexion-mobile" className="hidden rounded-xl px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 sm:inline-flex">Connexion</a><PWAInstallButton/></div>
+          <div className="flex items-center gap-2"><a href="#connexion-mobile" className="hidden rounded-xl px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 sm:inline-flex lg:hidden">Connexion</a><a href="#connexion" className="hidden rounded-xl px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 lg:inline-flex">Connexion</a><PWAInstallButton/></div>
         </div>
       </header>
 
