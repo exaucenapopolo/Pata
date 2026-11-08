@@ -26,16 +26,20 @@ export function OptionalTransactionFields({ value, onChange, kind = 'expense' })
   const [locationMessage, setLocationMessage] = useState('');
   const watchRef = useRef(null);
   const timeoutRef = useRef(null);
+  const finishedRef = useRef(false);
   const isIncome = kind === 'income';
   const update = (patch) => onChange({ ...value, ...patch });
 
   useEffect(() => () => {
+    finishedRef.current = true;
     clearLocationWatch(watchRef.current, timeoutRef.current);
     watchRef.current = null;
     timeoutRef.current = null;
   }, []);
 
   const finishLocation = (position, message) => {
+    if (finishedRef.current) return;
+    finishedRef.current = true;
     const coords = position && position.coords;
     if (!coords || !Number.isFinite(coords.latitude) || !Number.isFinite(coords.longitude)) return;
     clearLocationWatch(watchRef.current, timeoutRef.current);
@@ -69,6 +73,7 @@ export function OptionalTransactionFields({ value, onChange, kind = 'expense' })
     clearLocationWatch(watchRef.current, timeoutRef.current);
     watchRef.current = null;
     timeoutRef.current = null;
+    finishedRef.current = false;
     setLocating(true);
     setLocationMessage('Recherche de ta position GPS… Garde la fenêtre ouverte quelques instants.');
 
@@ -95,6 +100,7 @@ export function OptionalTransactionFields({ value, onChange, kind = 'expense' })
         },
         (error) => {
           if (error.code === 1) {
+            finishedRef.current = true;
             permissionDenied = true;
             clearLocationWatch(watchRef.current, timeoutRef.current);
             watchRef.current = null;
@@ -121,7 +127,8 @@ export function OptionalTransactionFields({ value, onChange, kind = 'expense' })
           finishLocation(bestPosition, bestAccuracy > 2500
             ? 'Position GPS enregistrée avec la meilleure précision disponible. Pour une position plus précise, active le GPS haute précision et réessaie à l’extérieur.'
             : 'Position GPS détectée et enregistrée.');
-        } else if (!permissionDenied) {
+        } else if (!permissionDenied && !finishedRef.current) {
+          finishedRef.current = true;
           clearLocationWatch(watchRef.current, timeoutRef.current);
           watchRef.current = null;
           timeoutRef.current = null;
@@ -139,6 +146,7 @@ export function OptionalTransactionFields({ value, onChange, kind = 'expense' })
   };
 
   const clearLocation = () => {
+    finishedRef.current = true;
     clearLocationWatch(watchRef.current, timeoutRef.current);
     watchRef.current = null;
     timeoutRef.current = null;
