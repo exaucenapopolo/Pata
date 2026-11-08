@@ -605,13 +605,13 @@ function GoalCard({ goal, onOpen, onEdit, onAskWithdraw, onTogglePin, onDelete }
       )}
 
       <div className="mt-auto space-y-2">
-        <Button variant="outline" className="w-full" onClick={onOpen}><TrendingUp size={16} /> {isPiggybank ? 'Ouvrir la caisse' : 'Voir détails et verser'}</Button>
+        <Button variant="outline" className="w-full" onClick={(event) => { event.stopPropagation(); onOpen(); }}><TrendingUp size={16} /> {isPiggybank ? 'Ouvrir la caisse' : 'Voir détails et verser'}</Button>
         {isPiggybank ? (
-          <Button className="w-full bg-slate-900 text-white hover:bg-slate-800" onClick={() => onAskWithdraw(goal, 'cancel')}><Unlock size={16} /> Casser la tirelire</Button>
+          <Button className="w-full bg-slate-900 text-white hover:bg-slate-800" onClick={(event) => { event.stopPropagation(); onAskWithdraw(goal, 'cancel'); }}><Unlock size={16} /> Casser la tirelire</Button>
         ) : plan.isReached ? (
-          <Button className="w-full bg-brand-600 hover:bg-brand-700 text-white" onClick={() => onAskWithdraw(goal, 'withdraw')}><ArrowDownToLine size={16} /> Retirer</Button>
+          <Button className="w-full bg-brand-600 hover:bg-brand-700 text-white" onClick={(event) => { event.stopPropagation(); onAskWithdraw(goal, 'withdraw'); }}><ArrowDownToLine size={16} /> Retirer</Button>
         ) : (
-          <Button variant="outline" className="w-full text-red-600 border-red-200 hover:bg-red-50" onClick={() => onAskWithdraw(goal, 'cancel')}><ShieldAlert size={16} /> Annuler l'objectif</Button>
+          <Button variant="outline" className="w-full text-red-600 border-red-200 hover:bg-red-50" onClick={(event) => { event.stopPropagation(); onAskWithdraw(goal, 'cancel'); }}><ShieldAlert size={16} /> Annuler l'objectif</Button>
         )}
       </div>
     </Card>
