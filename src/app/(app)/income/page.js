@@ -28,6 +28,7 @@ import { formatCurrency, formatDate } from '@/lib/utils';
 import { saveVitalForecast, deleteVitalForecast, saveDurationForecast as saveDurationForecastRecord, deleteDurationForecast } from '@/lib/firestore/forecasts';
 import { useBudgets } from '@/hooks/useBudgets';
 import { OptionalTransactionFields } from '@/components/transactions/OptionalTransactionFields';
+import { AssistantShortcut } from '@/components/ai/AssistantShortcut';
 
 // 🟢 DATES LOCALES (Pas de décalage UTC)
 const todayMonth = () => {
@@ -412,7 +413,10 @@ export default function IncomePage() {
             {activeIncomes.length} source(s) active(s) — Disponible : <span className="font-semibold text-brand-600">{formatCurrency(totalAvailable)}</span>
           </p>
         </div>
-        <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm" />
+        <div className="flex flex-wrap items-center gap-2">
+          <AssistantShortcut label="Analyser mes revenus" prompt="Analyse mes sources de revenus dans Pata. Aide-moi à comprendre leur régularité, leur répartition et les risques de dépendance à une seule source. Propose des pistes adaptées sans modifier mes opérations." />
+          <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm" />
+        </div>
       </div>
       {!premiumActive && (
         <div className={`rounded-xl border p-3 ${incomeQuotaReached ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-white'}`}>
