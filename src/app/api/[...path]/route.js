@@ -353,7 +353,6 @@ async function handleNotificationSubscription(request, remove = false) {
     const userRef = adminDb.collection('users').doc(uid);
     if (remove) {
       await userRef.set({ pushTokens: FieldValue.arrayRemove(token), notificationsUpdatedAt: FieldValue.serverTimestamp() }, { merge: true });
-      try { await adminMessaging.unsubscribeFromTopic([token], 'pata_all_users'); } catch (topicError) { console.warn('[PUSH] Retrait du groupe impossible:', topicError.code || topicError.message); }
       const fresh = await userRef.get();
       const remaining = Array.isArray(fresh.data()?.pushTokens) ? fresh.data().pushTokens : [];
       await userRef.set({ notificationsEnabled: remaining.length > 0 }, { merge: true });
@@ -570,7 +569,6 @@ async function handleNotificationTest(request) {
     const savedTokens = Array.isArray(userSnap.data()?.pushTokens) ? userSnap.data().pushTokens : [];
     if (!savedTokens.includes(token)) {
       await userRef.set({ pushTokens: FieldValue.arrayUnion(token), notificationsEnabled: true, notificationsUpdatedAt: FieldValue.serverTimestamp() }, { merge: true });
-      await adminMessaging.subscribeToTopic([token], 'pata_all_users');
     }
     const tag = `pata-test-${Date.now()}`;
     const appUrl = 'https://www.pata-yam.site';
@@ -2819,48 +2817,6 @@ async function handleAdminNotificationRecipients(request) {
   }
 }
 
-async function handleAdminNotificationSync(request) {
-  try {
-    await requireAdmin(request);
-    const url = new URL(request.url);
-    const cursor = String(url.searchParams.get('cursor') || '').slice(0, 150);
-    const requestedLimit = Number(url.searchParams.get('limit')) || 300;
-    const limit = Math.min(400, Math.max(50, Math.floor(requestedLimit)));
-    let query = adminDb.collection('users')
-      .where('notificationsEnabled', '==', true)
-      .orderBy(FieldPath.documentId())
-      .limit(limit);
-    if (cursor) {
-      if (cursor.includes('/')) return errorResponse('Repère de pagination invalide.', 400);
-      const cursorDoc = await adminDb.collection('users').doc(cursor).get();
-      if (!cursorDoc.exists) return errorResponse('La page a changé. Relance la synchronisation depuis le début.', 409);
-      query = query.startAfter(cursorDoc);
-    }
-    const snapshot = await query.get();
-    const tokens = [...new Set(snapshot.docs.flatMap((doc) => {
-      const values = doc.data()?.pushTokens;
-      return Array.isArray(values) ? values.filter((token) => typeof token === 'string' && token.length > 20) : [];
-    }))];
-    let subscribed = 0;
-    for (let index = 0; index < tokens.length; index += 500) {
-      const chunk = tokens.slice(index, index + 500);
-      const result = await adminMessaging.subscribeToTopic(chunk, 'pata_all_users');
-      subscribed += Number(result.successCount) || 0;
-    }
-    const lastDoc = snapshot.docs[snapshot.docs.length - 1];
-    return NextResponse.json({
-      success: true,
-      usersScanned: snapshot.size,
-      devicesFound: tokens.length,
-      devicesSubscribed: subscribed,
-      nextCursor: snapshot.size === limit ? (lastDoc?.id || null) : null,
-      hasMore: snapshot.size === limit,
-      message: `${snapshot.size} comptes vérifiés et ${subscribed} appareils ajoutés au groupe de notifications.`,
-    });
-  } catch (error) { return errorResponse(error.message || 'Synchronisation des appareils impossible.', 401); }
-}
-
-
 async function handleAdminEmailSend(request) {
   try {
     const admin = await requireAdmin(request);
@@ -3041,7 +2997,6 @@ const ROUTES = {
   'security/pin/verify': { POST: handlePinVerify },
   'security/pin/reset/request': { POST: handlePinResetRequest },
   'security/pin/reset/confirm': { POST: handlePinResetConfirm },
-  'admin/notifications/sync': { POST: handleAdminNotificationSync },
   'profile/activity': { POST: handleProfileActivity },
   'analytics/income-created': { POST: handleIncomeAnalyticsEvent },
   'automations/run':       { POST: handleAutomationsRun },
