@@ -758,7 +758,7 @@ async function handleBudgetTemplates(request) {
       const templateId = String(body.templateId || '').trim().slice(0, 150);
       const month = String(body.month || '');
       const incomeSourceId = String(body.incomeSourceId || 'all').trim().slice(0, 150);
-      if (!templateId || templateId.includes('/') || !/^\\d{4}-\\d{2}$/.test(month)) {
+      if (!templateId || templateId.includes('/') || !/^\d{4}-\d{2}$/.test(month)) {
         return errorResponse('Modèle ou période invalide.', 400);
       }
       const templateRef = templatesRef.doc(templateId);
