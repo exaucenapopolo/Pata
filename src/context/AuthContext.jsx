@@ -93,7 +93,13 @@ export function AuthProvider({ children }) {
     }
   };
 
-  const logout = () => signOut(auth);
+  const logout = async () => {
+    try {
+      const uid = auth.currentUser?.uid;
+      if (uid && typeof window !== 'undefined') window.sessionStorage.removeItem('pata-pin-unlocked:' + uid);
+    } catch { /* sessionStorage peut être indisponible */ }
+    return signOut(auth);
+  };
 
   return (
     <AuthContext.Provider
