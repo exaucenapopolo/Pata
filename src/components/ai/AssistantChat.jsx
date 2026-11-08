@@ -78,7 +78,7 @@ function MessageContent({ text }) {
     const trimmed = current.trim();
     if (!trimmed) { index += 1; continue; }
 
-    const summaryMatch = trimmed.match(/^\\*\\*En bref(?:\\s*[—–-])?\\*\\*\\s*(.*)$/i);
+    const summaryMatch = trimmed.match(/^\*\*En bref(?:\s*[—–-])?\*\*\s*(.*)$/i);
     if (summaryMatch) {
       blocks.push(
         <div key={`summary-${blocks.length}`} className="my-2 rounded-xl border border-brand-100 bg-brand-50/70 px-3 py-3">
@@ -162,6 +162,7 @@ function MessageContent({ text }) {
 }
 
 function toDoualaDateKey(value) {
+  if (value == null) return null;
   const date = value?.toDate ? value.toDate() : (value instanceof Date ? value : new Date(value || 0));
   if (!Number.isFinite(date.getTime())) return null;
   return new Intl.DateTimeFormat('en-CA', {
@@ -179,6 +180,7 @@ function getRelativeDateKey(dateKey, offset) {
 }
 
 function formatConversationTime(value) {
+  if (value == null) return '';
   const date = value?.toDate ? value.toDate() : (value instanceof Date ? value : new Date(value || 0));
   if (!Number.isFinite(date.getTime())) return '';
   return new Intl.DateTimeFormat('fr-FR', {
