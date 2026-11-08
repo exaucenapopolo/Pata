@@ -9,7 +9,10 @@ import { chatWithGroqVision } from '@/lib/ai/groqVision';
 import { generateImageWithPollinations } from '@/lib/ai/pollinationsImage';
 import { buildUserContext } from '@/lib/ai/buildUserContext';
 import { computeGoalPlan, GOAL_LATE_PENALTY_RATE, GOAL_PENALTY_EFFECTIVE_DATE } from '@/lib/goalCalc';
-import { sendPataEmail, welcomeEmail, savingsCreatedEmail, customAdminEmail, pinResetEmail } from '@/lib/email/resend';
+import {
+  sendPataEmail, welcomeEmail, savingsCreatedEmail, customAdminEmail, pinResetEmail,
+  cotisationCreatedEmail, cotisationJoinedEmail, cotisationStartedEmail, cotisationTurnEmail, cotisationDueEmail,
+} from '@/lib/email/resend';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -3199,7 +3202,7 @@ function getCotisationCycleMeta(group, today = cotisationToday()) {
   if (current < start) {
     const next = frequency === 'daily' ? cotisationAddDays(startDate, 1)
       : frequency === 'weekly' ? cotisationAddDays(startDate, 7)
-      : cotisationAddMonths(startDate, 1);
+      : cotisationMonthlyDueDate(startDate, group.dueDay);
     return { cycleIndex: 0, cycleKey: 'cycle-0001', startDate, dueAt: next, notStarted: true };
   }
   let index = 0;
@@ -3221,12 +3224,51 @@ function getCotisationCycleMeta(group, today = cotisationToday()) {
     : cotisationAddMonths(startDate, index);
   const dueAt = frequency === 'daily' ? cotisationAddDays(periodStart, 1)
     : frequency === 'weekly' ? cotisationAddDays(periodStart, 7)
-    : cotisationAddMonths(startDate, index + 1);
+    : cotisationMonthlyDueDate(periodStart, group.dueDay);
   return { cycleIndex: index, cycleKey: 'cycle-' + String(index + 1).padStart(4, '0'), startDate: periodStart, dueAt, notStarted: false };
 }
 
 function cotisationMoney(value) {
   return Math.max(0, Math.round(Number(value) || 0));
+}
+
+function cotisationMonthlyDueDate(periodStart, dueDay = 30) {
+  const start = new Date(String(periodStart) + 'T12:00:00Z');
+  const desiredDay = Math.max(1, Math.min(31, Math.floor(Number(dueDay) || start.getUTCDate())));
+  let year = start.getUTCFullYear();
+  let month = start.getUTCMonth();
+  if (desiredDay < start.getUTCDate()) {
+    month += 1;
+    if (month > 11) { year += 1; month = 0; }
+  }
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(year, month, Math.min(desiredDay, lastDay), 12)).toISOString().slice(0, 10);
+}
+
+function cotisationLateFee(group) {
+  const value = cotisationMoney(group.lateFeeValue);
+  if (!value || group.lateFeeType === 'none') return 0;
+  if (group.lateFeeType === 'fixed') return value;
+  if (group.lateFeeType === 'percent') {
+    return Math.round(cotisationMoney(group.contributionAmount) * Math.min(100, value) / 100);
+  }
+  return 0;
+}
+
+function cotisationPenaltyLabel(group) {
+  const fee = cotisationLateFee(group);
+  if (!fee) return 'Aucune majoration';
+  if (group.lateFeeType === 'fixed') return fee.toLocaleString('fr-FR') + ' FCFA par retard';
+  return Math.min(100, cotisationMoney(group.lateFeeValue)) + ' % de la contribution par retard (' + fee.toLocaleString('fr-FR') + ' FCFA)';
+}
+
+function cotisationIsLate(group, meta, today = cotisationToday()) {
+  const graceEnd = cotisationAddDays(meta.dueAt, cotisationMoney(group.graceDays));
+  return today > graceEnd;
+}
+
+function cotisationFrequencyLabel(frequency) {
+  return ({ daily: 'Chaque jour', weekly: 'Chaque semaine', monthly: 'Chaque mois' })[frequency] || 'Chaque mois';
 }
 
 async function confirmCotisationPayment(transId) {
