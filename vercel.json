@@ -7,10 +7,6 @@
     {
       "path": "/api/notifications/scheduler",
       "schedule": "30 19 * * *"
-    },
-    {
-      "path": "/api/cotisations/scheduler",
-      "schedule": "15 5 * * *"
     }
   ]
 }
