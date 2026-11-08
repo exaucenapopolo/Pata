@@ -33,6 +33,7 @@ const DASHBOARD_FEATURES = [
     description: 'Prépare tes enveloppes, enregistre plusieurs modèles et réutilise-les selon tes besoins.',
     href: '/budgets',
     action: 'Voir mes budgets',
+    mobileAction: 'Budgets',
     icon: PiggyBank,
     tone: 'bg-emerald-50 text-emerald-700',
   },
@@ -42,6 +43,7 @@ const DASHBOARD_FEATURES = [
     description: 'Épargne pour toi ou un proche, avec une cible, des règles facultatives ou sans échéance.',
     href: '/goals',
     action: 'Organiser mon épargne',
+    mobileAction: 'Épargne',
     icon: Target,
     tone: 'bg-blue-50 text-blue-700',
   },
@@ -51,6 +53,7 @@ const DASHBOARD_FEATURES = [
     description: 'Pose tes questions, comprends tes chiffres et demande des actions adaptées à ta situation.',
     href: '/reports',
     action: 'Explorer mes analyses',
+    mobileAction: 'Analyser',
     icon: Lightbulb,
     tone: 'bg-violet-50 text-violet-700',
   },
@@ -60,6 +63,7 @@ const DASHBOARD_FEATURES = [
     description: 'Consulte chaque dépense et chaque revenu avec les informations utiles que tu choisis d’ajouter.',
     href: '/expenses',
     action: 'Voir mes opérations',
+    mobileAction: 'Opérations',
     icon: Landmark,
     tone: 'bg-amber-50 text-amber-800',
   },
@@ -207,7 +211,7 @@ export default function DashboardPage() {
                 <h2 className="mt-0.5 text-sm font-bold text-slate-900 sm:text-base">{feature.title}</h2>
                 <p className="mt-0.5 line-clamp-2 text-[10px] leading-4 text-slate-500 sm:text-xs sm:leading-5">{feature.description}</p>
               </div>
-              <Link href={feature.href} className="hidden shrink-0 items-center rounded-lg border border-slate-200 px-2.5 py-2 text-[10px] font-semibold text-brand-800 transition hover:bg-brand-50 sm:inline-flex">{feature.action}</Link>
+              <Link href={feature.href} className="inline-flex shrink-0 items-center rounded-lg border border-slate-200 px-2 py-1.5 text-[9px] font-semibold text-brand-800 transition hover:bg-brand-50 sm:px-2.5 sm:py-2 sm:text-[10px]"><span className="sm:hidden">{feature.mobileAction}</span><span className="hidden sm:inline">{feature.action}</span><ChevronRight size={12} className="ml-0.5"/></Link>
             </div>
           ) : null;
         })}
