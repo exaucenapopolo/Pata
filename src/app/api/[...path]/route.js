@@ -3084,8 +3084,9 @@ async function buildAdminEmailHighlights(uid) {
       progress: target > 0 && deposited !== null ? Math.min(100, Math.round(deposited / target * 100)) : null,
     };
   }));
-  const activeSavings = savings.filter((goal) => goal.active);
   const completedSavings = savings.filter((goal) => goal.deposited !== null && goal.target > 0 && goal.deposited >= goal.target);
+  const completedSavingsIds = new Set(completedSavings.map((goal) => goal.name));
+  const activeSavings = savings.filter((goal) => goal.active && !completedSavingsIds.has(goal.name));
 
   const cotisations = await Promise.all(membershipsSnap.docs.map(async (membershipDoc) => {
     const membership = membershipDoc.data() || {};
@@ -3140,7 +3141,7 @@ async function buildAdminEmailHighlights(uid) {
     lines.push('Projets en cours : ' + activeProjects.slice(0, 5).map((item) => item.name).join(', ') + '.');
   }
   if (completedSavings.length) {
-    lines.push('Objectifs d’épargne clôturés : ' + completedSavings.slice(0, 5).map((item) => item.name + (item.deposited === null ? '' : ' (' + item.deposited.toLocaleString('fr-FR') + ' FCFA')).join(', ') + '.');
+    lines.push('Objectifs d’épargne atteints : ' + completedSavings.slice(0, 5).map((item) => item.name + (item.deposited === null ? '' : ' (' + item.deposited.toLocaleString('fr-FR') + ' FCFA')).join(', ') + '.');
   }
   if (activeSavings.length) {
     lines.push('Épargnes en cours : ' + activeSavings.slice(0, 5).map((item) => item.name + (item.progress === null ? '' : ' (' + item.progress + ' % de progression)')).join(', ') + '.');
