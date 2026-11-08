@@ -97,7 +97,17 @@ export default function AdminPage() {
   const logout = async () => { try { await api('admin/logout', 'POST', {}); } catch { /* session déjà expirée */ } setUnlocked(false); setOverview(null); setUsers([]); setWithdrawals([]); setUserDetail(null); };
   const approve = async (item) => { if (!window.confirm(`Valider le retrait de ${money(item.amount)} vers ${item.phone} ? Le paiement sera transmis à Fapshi.`)) return; setBusy(true); setError(''); try { await api('admin/withdrawal/approve', 'POST', { requestId: item.id }); await loadDashboard(); } catch (err) { setError(err.message); setBusy(false); } };
   const reject = async (item) => { const reason = window.prompt('Motif du refus (facultatif) :', 'Demande non validée après vérification.'); if (reason === null) return; setBusy(true); setError(''); try { await api('admin/withdrawal/reject', 'POST', { requestId: item.id, reason }); await loadDashboard(); } catch (err) { setError(err.message); setBusy(false); } };
-  const broadcast = async (event) => { event.preventDefault(); setBusy(true); setBroadcastResult(''); setError(''); try { const result = await api('admin/notifications/broadcast', 'POST', { title: broadcastTitle, message: broadcastMessage, path: broadcastPath, recipientMode, recipientIds: recipientMode === 'selected' ? selectedRecipientIds : [] }); setBroadcastResult(result.message || 'Notification enregistrée.'); setBroadcastMessage(''); } catch (err) { setError(err.message); } finally { setBusy(false); } };
+  const broadcast = async (event) => {
+    event.preventDefault(); setBusy(true); setBroadcastResult(''); setError('');
+    try {
+      const result = await api('admin/notifications/broadcast', 'POST', { title: broadcastTitle, message: broadcastMessage, path: broadcastPath, recipientMode, recipientIds: recipientMode === 'selected' ? selectedRecipientIds : [] });
+      const codes = (result.pushFailureDetails || []).map((item) => item.code);
+      const diagnostic = codes.length ? ' Codes retournés : ' + [...new Set(codes)].join(', ') + '.' : '';
+      setBroadcastResult((result.message || 'Notification enregistrée.') + diagnostic);
+      setBroadcastMessage('');
+    } catch (err) { setError(err.message); }
+    finally { setBusy(false); }
+  };
   const syncNotificationDevices = async () => { setBusy(true); setError(''); setSyncResult(''); try { const cursor = syncCursor ? `&cursor=${encodeURIComponent(syncCursor)}` : ''; const result = await api(`admin/notifications/sync?limit=300${cursor}`, 'POST', {}); setSyncCursor(result.nextCursor || null); setSyncResult(`${result.message}${result.hasMore ? ' Lance le prochain lot pour continuer.' : ' Tous les comptes activés ont été parcourus.'}`); } catch (err) { setError(err.message); } finally { setBusy(false); } };
 
   useEffect(() => {
@@ -206,7 +216,6 @@ export default function AdminPage() {
         <p className="mt-3 text-[11px] leading-5 text-slate-400">La notification reste dans la boîte jusqu’à ce que l’utilisateur la marque comme lue. Le push dépend des autorisations et de l’appareil.</p>
       </form>
       <aside className="space-y-4"><div className="rounded-2xl border border-slate-200 bg-white p-4"><SectionTitle title="Notifications activées" detail="Compteur global des comptes inscrits."/><p className="text-3xl font-bold">{recipientSummary?recipientSummary.optedInUsers:'—'}</p><p className="mt-1 text-xs text-slate-500">sur {recipientSummary?recipientSummary.totalUsers:'—'} comptes Pata.</p><button type="button" onClick={()=>loadRecipients(false)} disabled={busy} className="mt-3 text-xs font-semibold underline">Actualiser les appareils inscrits</button></div>
-        <div className="rounded-2xl border border-slate-200 bg-white p-4"><SectionTitle title="Appareils déjà inscrits" detail="Synchronisation des anciens appareils activés avant cette version."/><p className="mb-3 text-xs leading-5 text-slate-600">Le traitement reste limité à des lots de 300 profils pour maîtriser les lectures Firestore.</p>{syncResult&&<p className="mb-3 rounded-lg bg-emerald-50 p-3 text-xs leading-5 text-emerald-800">{syncResult}</p>}<button type="button" onClick={syncNotificationDevices} disabled={busy} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 text-xs font-semibold text-slate-800 disabled:opacity-50">{busy?<Loader2 className="animate-spin" size={15}/>:<RefreshCw size={15}/>} {syncCursor?'Synchroniser le lot suivant':'Synchroniser les anciens appareils'}</button>{syncCursor&&<button type="button" onClick={()=>{setSyncCursor(null);setSyncResult('');}} className="mt-2 w-full text-xs text-slate-500 underline">Recommencer depuis le début</button>}</div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4"><SectionTitle title="Conseils d’envoi"/><div className="space-y-3 text-xs leading-5 text-slate-600"><p>Choisis un titre court et un message précis.</p><p>Un utilisateur peut désactiver les notifications depuis ses paramètres.</p></div></div>
       </aside>
     </section>}
