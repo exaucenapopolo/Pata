@@ -9,6 +9,7 @@ import { chatWithGroqVision } from '@/lib/ai/groqVision';
 import { generateImageWithPollinations } from '@/lib/ai/pollinationsImage';
 import { buildUserContext } from '@/lib/ai/buildUserContext';
 import { computeGoalPlan, GOAL_LATE_PENALTY_RATE, GOAL_PENALTY_EFFECTIVE_DATE } from '@/lib/goalCalc';
+import { sendPataEmail, welcomeEmail, savingsCreatedEmail, customAdminEmail } from '@/lib/email/resend';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -366,6 +367,37 @@ async function handleNotificationSubscription(request, remove = false) {
   }
 }
 
+
+async function handleWelcomeEmail(request) {
+  try {
+    const decoded = await authenticate(request);
+    const uid = decoded.uid;
+    const userRef = adminDb.collection('users').doc(uid);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) return errorResponse('Profil utilisateur introuvable.', 404);
+    const profile = userSnap.data() || {};
+    const recipient = String(profile.email || decoded.email || '').trim();
+    if (!recipient) return errorResponse('Aucune adresse e-mail associée à ce compte.', 400);
+    if (profile.welcomeEmailSentAt) return NextResponse.json({ success: true, alreadySent: true });
+    const name = String(profile.displayName || recipient.split('@')[0] || 'Utilisateur').slice(0, 80);
+    const sent = await sendPataEmail({
+      to: recipient,
+      subject: `Bienvenue sur Pata, ${name} !`,
+      html: welcomeEmail({ name }),
+      idempotencyKey: `pata-welcome-${uid}`,
+    });
+    await userRef.set({
+      welcomeEmailSentAt: FieldValue.serverTimestamp(),
+      welcomeEmailId: sent.id || null,
+      welcomeEmailStatus: 'sent',
+    }, { merge: true });
+    return NextResponse.json({ success: true, emailId: sent.id || null });
+  } catch (error) {
+    console.error('[PATA WELCOME EMAIL]', error.message || error);
+    return errorResponse(error.message || 'Le message de bienvenue n’a pas pu être envoyé.', 502);
+  }
+}
+
 async function handleNotificationTest(request) {
   try {
     const { uid } = await authenticate(request);
@@ -380,6 +412,7 @@ async function handleNotificationTest(request) {
       await adminMessaging.subscribeToTopic([token], 'pata_all_users');
     }
     const tag = `pata-test-${Date.now()}`;
+    const appUrl = 'https://www.pata-yam.site';
     const messageId = await adminMessaging.send({
       token,
       data: {
@@ -388,7 +421,10 @@ async function handleNotificationTest(request) {
         url: '/settings',
         tag,
       },
-      webpush: { headers: { TTL: '60' } },
+      webpush: {
+        headers: { TTL: '300', Urgency: 'high' },
+        fcmOptions: { link: new URL('/settings', appUrl).toString() },
+      },
     });
     console.info('[PATA PUSH TEST ACCEPTED]', { uid, messageId, tokenSuffix: token.slice(-8) });
     return NextResponse.json({ success: true, messageId });
@@ -875,7 +911,8 @@ function readGoalOptionalDetails(body = {}) {
 
 async function handleCreateGoal(request) {
   try {
-    const { uid } = await authenticate(request);
+    const decoded = await authenticate(request);
+    const uid = decoded.uid;
     const body = await request.json();
     const name = String(body.name || '').trim().slice(0, 100);
     const type = body.type === 'piggybank' ? 'piggybank' : 'goal';
@@ -942,6 +979,26 @@ async function handleCreateGoal(request) {
       transaction.update(userRef, { monthlyStats: stats });
       return { id: goalRef.id, current: stats.goals, limit: PLAN_LIMITS.FREE.goals };
     });
+    if (decoded.email) {
+      try {
+        const displayName = String(decoded.email).split('@')[0] || 'Utilisateur';
+        await sendPataEmail({
+          to: decoded.email,
+          subject: 'Bravo pour ta nouvelle épargne sur Pata',
+          html: savingsCreatedEmail({
+            name: displayName,
+            goalName: name,
+            type,
+            targetAmount: type === 'goal' ? targetAmount : optionalTarget,
+            deadline: type === 'goal' ? deadline : '',
+            frequencyDays: type === 'goal' ? Math.max(1, Math.floor(Number(body.frequencyDays) || 7)) : null,
+          }),
+          idempotencyKey: `pata-savings-created-${uid}-${result.id}`,
+        });
+      } catch (emailError) {
+        console.error('[PATA SAVINGS EMAIL]', emailError.message || emailError);
+      }
+    }
     return NextResponse.json({ success: true, ...result });
   } catch (error) {
     return errorResponse(error.message || 'Impossible de créer cette épargne.', /atteint|deux mois|occupe|introuvable|vérifie/i.test(error.message || '') ? 403 : 500);
@@ -2642,6 +2699,49 @@ async function handleAdminNotificationSync(request) {
   } catch (error) { return errorResponse(error.message || 'Synchronisation des appareils impossible.', 401); }
 }
 
+
+async function handleAdminEmailSend(request) {
+  try {
+    const admin = await requireAdmin(request);
+    const body = await request.json();
+    const recipientUid = String(body.recipientUid || '').trim();
+    const subject = String(body.subject || '').trim().slice(0, 140);
+    const message = String(body.message || '').trim().slice(0, 5000);
+    const ctaPath = String(body.ctaPath || '/dashboard');
+    const ctaLabel = String(body.ctaLabel || 'Ouvrir Pata').trim().slice(0, 50);
+    if (!recipientUid || recipientUid.includes('/') || !subject || !message) {
+      return errorResponse('Le destinataire, l’objet et le message sont obligatoires.', 400);
+    }
+    if (!ctaPath.startsWith('/') || ctaPath.startsWith('//')) return errorResponse('Lien interne invalide.', 400);
+    const recipientSnap = await adminDb.collection('users').doc(recipientUid).get();
+    if (!recipientSnap.exists) return errorResponse('Compte destinataire introuvable.', 404);
+    const recipient = recipientSnap.data() || {};
+    const email = String(recipient.email || '').trim();
+    if (!email || !email.includes('@')) return errorResponse('Cet utilisateur ne possède pas d’adresse e-mail valide.', 400);
+    const name = String(recipient.displayName || email.split('@')[0] || 'Utilisateur').slice(0, 100);
+    const sent = await sendPataEmail({
+      to: email,
+      subject,
+      html: customAdminEmail({ name, headline: subject, body: message, ctaUrl: ctaPath, ctaLabel }),
+      idempotencyKey: `pata-admin-${admin.uid}-${recipientUid}-${Date.now()}`,
+    });
+    await adminDb.collection('adminEmailLogs').add({
+      adminUid: admin.uid,
+      recipientUid,
+      recipientEmail: email,
+      subject,
+      message,
+      resendEmailId: sent.id || null,
+      status: 'accepted',
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    return NextResponse.json({ success: true, emailId: sent.id || null, recipientEmail: email });
+  } catch (error) {
+    console.error('[PATA ADMIN EMAIL]', error.message || error);
+    return errorResponse(error.message || 'Le message e-mail n’a pas pu être envoyé.', 502);
+  }
+}
+
 async function handleAdminBroadcast(request) {
   try {
     await requireAdmin(request);
@@ -2682,37 +2782,47 @@ async function handleAdminBroadcast(request) {
       inAppDelivered += group.length;
     }
 
-    const optedTokens = [...new Set(recipientDocs.flatMap((doc) => {
-      const data = doc.data() || {};
-      if (!data.notificationsEnabled) return [];
-      return Array.isArray(data.pushTokens) ? data.pushTokens.filter((token) => typeof token === 'string' && token.length > 20) : [];
-    }))];
+    const tokenOwners = new Map();
+    for (const userDoc of recipientDocs) {
+      const data = userDoc.data() || {};
+      if (!data.notificationsEnabled) continue;
+      const tokens = Array.isArray(data.pushTokens) ? data.pushTokens.filter((token) => typeof token === 'string' && token.length > 20) : [];
+      for (const token of tokens) {
+        if (!tokenOwners.has(token)) tokenOwners.set(token, []);
+        tokenOwners.get(token).push(userDoc.ref);
+      }
+    }
+    const optedTokens = [...tokenOwners.keys()];
     let pushSent = 0;
     let pushFailed = 0;
-    let pushMode = recipientMode === 'all' ? 'topic' : 'selected-devices';
+    let pushMode = optedTokens.length ? 'direct-device-multicast' : 'in-app-only';
     let pushError = '';
+    const failureDetails = [];
+    const invalidTokens = [];
     try {
-      if (recipientMode === 'all') {
-        await adminMessaging.send({
-          topic: 'pata_all_users',
+      for (let offset = 0; offset < optedTokens.length; offset += 500) {
+        const chunk = optedTokens.slice(offset, offset + 500);
+        const result = await adminMessaging.sendEachForMulticast({
+          tokens: chunk,
           data: { title, body: message, url: path, tag },
-          webpush: { headers: { TTL: '86400' } },
+          webpush: {
+            headers: { TTL: '86400', Urgency: 'high' },
+            fcmOptions: { link: new URL(path, 'https://www.pata-yam.site').toString() },
+          },
         });
-        // Topic send returns a message ID, not per-device delivery receipts.
-        pushSent = 0;
-      } else if (optedTokens.length) {
-        for (let offset = 0; offset < optedTokens.length; offset += 500) {
-          const chunk = optedTokens.slice(offset, offset + 500);
-          const result = await adminMessaging.sendEachForMulticast({
-            tokens: chunk,
-            data: { title, body: message, url: path, tag },
-            webpush: { headers: { TTL: '86400' } },
-          });
-          pushSent += result.successCount;
-          pushFailed += result.failureCount;
-        }
-      } else {
-        pushMode = 'in-app-only';
+        pushSent += result.successCount;
+        pushFailed += result.failureCount;
+        result.responses.forEach((response, index) => {
+          if (response.success) return;
+          const token = chunk[index];
+          const code = response.error?.code || 'messaging/unknown-error';
+          failureDetails.push({ tokenSuffix: token.slice(-8), code });
+          if (['messaging/registration-token-not-registered', 'messaging/invalid-registration-token'].includes(code)) invalidTokens.push(token);
+        });
+      }
+      for (const token of invalidTokens) {
+        const owners = tokenOwners.get(token) || [];
+        await Promise.all(owners.map((ref) => ref.set({ pushTokens: FieldValue.arrayRemove(token) }, { merge: true })));
       }
     } catch (error) {
       pushError = error.message || 'Erreur du service de notifications push.';
@@ -2720,12 +2830,15 @@ async function handleAdminBroadcast(request) {
     }
     return NextResponse.json({
       success: true, notificationId, recipientMode, inAppDelivered,
-      optedInDevices: optedTokens.length, pushSent, pushFailed, pushMode, pushError: pushError || null,
+      optedInDevices: optedTokens.length, pushSent, pushFailed, pushMode,
+      invalidTokensRemoved: invalidTokens.length,
+      pushError: pushError || null,
+      pushFailureDetails: failureDetails.slice(0, 25),
       message: pushError
-        ? `Notification enregistrée dans Pata pour ${inAppDelivered} compte(s), mais l’envoi push a échoué : ${pushError}`
-        : recipientMode === 'all'
-          ? `Notification enregistrée dans Pata pour ${inAppDelivered} compte(s) ; diffusion push soumise au groupe des appareils inscrits (${optedTokens.length} jeton(s) actuellement enregistrés).`
-          : `Notification enregistrée dans Pata pour ${inAppDelivered} compte(s) ; ${pushSent} appareil(s) ont accepté le message push et ${pushFailed} ont échoué.`,
+        ? `Notification enregistrée dans Pata pour ${inAppDelivered} compte(s), mais le service push a signalé une erreur : ${pushError}`
+        : optedTokens.length
+          ? `Notification enregistrée dans Pata pour ${inAppDelivered} compte(s). Envoi accepté par ${pushSent} appareil(s) sur ${optedTokens.length} ; ${pushFailed} échec(s), ${invalidTokens.length} jeton(s) invalide(s) nettoyé(s).`
+          : `Notification enregistrée dans Pata pour ${inAppDelivered} compte(s). Aucun appareil n’a activé les notifications push.`,
     });
   } catch (error) {
     console.error('[ADMIN BROADCAST]', error.code || error.message);
@@ -2760,6 +2873,8 @@ const ROUTES = {
   'admin/withdrawal/approve': { POST: handleAdminApproveWithdrawal },
   'admin/withdrawal/reject': { POST: handleAdminRejectWithdrawal },
   'admin/notifications/broadcast': { POST: handleAdminBroadcast },
+  'admin/email/send': { POST: handleAdminEmailSend },
+  'email/welcome': { POST: handleWelcomeEmail },
   'admin/notifications/sync': { POST: handleAdminNotificationSync },
   'profile/activity': { POST: handleProfileActivity },
   'analytics/income-created': { POST: handleIncomeAnalyticsEvent },
