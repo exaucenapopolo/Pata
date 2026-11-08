@@ -1843,7 +1843,7 @@ async function handleAIChat(request) {
     if (quota.reserved) reservedQuota = quota.date;
 
     const userRef = adminDb.collection('users').doc(uid);
-    const [userDoc, incomesSnap, expensesSnap, goalsSnap, budgetsSnap, automationsSnap, memorySnap, categoriesSnap, projectsSnap] = await Promise.all([
+    const [userDoc, incomesSnap, expensesSnap, goalsSnap, budgetsSnap, automationsSnap, memorySnap, categoriesSnap, projectsSnap, cotisationMembershipsSnap] = await Promise.all([
       userRef.get(),
       userRef.collection('incomes').orderBy('date', 'desc').limit(100).get(),
       userRef.collection('expenses').orderBy('date', 'desc').limit(200).get(),
@@ -1853,12 +1853,92 @@ async function handleAIChat(request) {
       userRef.collection('ai_memory').doc('profile').get(),
       userRef.collection('categories').limit(50).get(),
       userRef.collection('projects').orderBy('createdAt', 'desc').limit(50).get(),
+      userRef.collection('cotisationMemberships').limit(50).get(),
     ]);
 
     const goalsWithDeposits = await Promise.all(goalsSnap.docs.map(async (goalDoc) => {
       const depositsSnap = await goalDoc.ref.collection('deposits').get();
       return { id: goalDoc.id, ...goalDoc.data(), deposits: depositsSnap.docs.map((depositDoc) => depositDoc.data()) };
     }));
+
+    const cotisations = await Promise.all(cotisationMembershipsSnap.docs.map(async (membershipDoc) => {
+      const membership = membershipDoc.data() || {};
+      const groupRef = adminDb.collection('cotisationGroups').doc(String(membership.groupId || membershipDoc.id));
+      const groupSnap = await groupRef.get();
+      if (!groupSnap.exists) return null;
+      const group = groupSnap.data() || {};
+      const membersSnap = await groupRef.collection('members').orderBy('turnOrder', 'asc').limit(50).get();
+      const members = membersSnap.docs
+        .map((memberDoc) => ({ uid: memberDoc.id, ...memberDoc.data() }))
+        .filter((member) => member.active !== false)
+        .sort((a, b) => Number(a.turnOrder) - Number(b.turnOrder));
+      const meta = getCotisationCycleMeta(group);
+      const cycleRef = groupRef.collection('cycles').doc(meta.cycleKey);
+      const [cycleSnap, contributionsSnap] = await Promise.all([
+        cycleRef.get(),
+        cycleRef.collection('contributions').limit(50).get(),
+      ]);
+      const contributionMap = new Map(contributionsSnap.docs.map((doc) => [doc.id, doc.data()]));
+      const turnMember = members.length ? members[meta.cycleIndex % members.length] : null;
+      const myMember = members.find((member) => member.uid === uid);
+      const mine = contributionMap.get(uid) || {};
+      const myPaid = cotisationMoney(mine.amount);
+      const myPenaltyPaid = cotisationMoney(mine.penaltyPaid);
+      const memberContributions = members.map((member) => {
+        const value = contributionMap.get(member.uid) || {};
+        const principal = cotisationMoney(value.amount);
+        const penalty = cotisationMoney(value.penaltyPaid);
+        return {
+          position: Number(member.turnOrder) || null,
+          displayName: String(member.displayName || 'Membre'),
+          isOwner: member.uid === group.ownerId,
+          isMe: member.uid === uid,
+          principalPaid: principal,
+          penaltyPaid: penalty,
+          totalPaid: principal + penalty,
+          remainingPrincipal: Math.max(0, cotisationMoney(group.contributionAmount) - principal),
+        };
+      });
+      const expectedMembers = cotisationMoney(group.expectedMembers || Math.max(2, group.memberCount || members.length));
+      const baseTarget = cotisationMoney(cycleSnap.data()?.baseTargetAmount) || cotisationMoney(group.contributionAmount) * expectedMembers;
+      const totalCollected = cotisationMoney(cycleSnap.data()?.totalCollected);
+      const targetAmount = cotisationMoney(cycleSnap.data()?.targetAmount) || baseTarget;
+      const status = !group.startedAt ? 'NOT_STARTED' : cycleSnap.data()?.status || (totalCollected >= targetAmount && targetAmount > 0 ? 'READY' : 'OPEN');
+      const reminderAfter = cotisationAddDays(meta.dueAt, cotisationMoney(group.graceDays));
+      const currentUserPenaltyDue = cotisationIsLate(group, meta) && myPaid < cotisationMoney(group.contributionAmount) && !myPenaltyPaid
+        ? cotisationLateFee(group) : 0;
+      return {
+        id: groupRef.id,
+        name: group.name || membership.name || 'Cotisation',
+        role: group.ownerId === uid ? 'Chef du groupe' : 'Membre',
+        status: group.status || 'active',
+        started: Boolean(group.startedAt),
+        frequency: cotisationFrequencyLabel(group.frequency),
+        contributionAmount: cotisationMoney(group.contributionAmount),
+        expectedMembers,
+        memberCount: members.length,
+        dueDay: group.dueDay || null,
+        dueAt: meta.dueAt,
+        graceDays: cotisationMoney(group.graceDays),
+        graceEndDate: reminderAfter,
+        lateFeeLabel: cotisationPenaltyLabel(group),
+        lateFeeDue: currentUserPenaltyDue,
+        myPosition: Number(myMember?.turnOrder) || null,
+        myPrincipalPaid: myPaid,
+        myPenaltyPaid,
+        myRemaining: Math.max(0, cotisationMoney(group.contributionAmount) - myPaid),
+        currentBeneficiary: turnMember?.displayName || 'Non défini',
+        beneficiaryPosition: Number(turnMember?.turnOrder) || null,
+        myTurnToReceive: turnMember?.uid === uid,
+        basePot: baseTarget,
+        totalCollected,
+        totalTargetWithLateFees: targetAmount,
+        remainingToCollect: Math.max(0, targetAmount - totalCollected),
+        cycleStatus: status,
+        members: memberContributions,
+      };
+    }));
+    const cotisationData = cotisations.filter(Boolean);
 
     const userData = {
       profile: userDoc.exists ? userDoc.data() : {},
@@ -1867,6 +1947,7 @@ async function handleAIChat(request) {
       goals: goalsWithDeposits,
       budgets: budgetsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
       projects: projectsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+      cotisations: cotisationData,
       automations: automationsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
       memories: Array.isArray(memorySnap.data()?.facts) ? memorySnap.data().facts : [],
       categories: categoriesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
@@ -1882,6 +1963,7 @@ Pata est une application de gestion financière personnelle créée et détenue 
 
 CONNAISSANCE ET ACCOMPAGNEMENT DE L’APPLICATION
 Tu connais les rubriques disponibles : Tableau de bord, Portefeuille, Dépenses, Revenus (dont les Prévisions vitales), Budgets, Objectifs, Cotisations, Rapports, Premium et Paramètres. Les projets sont une fonction Premium accessible depuis Dépenses.
+COTISATIONS : tu peux consulter les groupes auxquels l’utilisateur appartient, son rôle (chef ou membre), les positions définies par le chef, le nombre de participants attendu/inscrits, le bénéficiaire du tour courant, l’échéance, le délai de grâce, la règle de majoration, les contributions confirmées, les montants restant à verser et le statut du cycle. Le principal et les majorations sont indiqués séparément. Les frais de paiement Fapshi sont de 5 % à chaque versement ; Pata ajoute 0 % au retrait. Ne considère jamais un lien de paiement initié comme une contribution confirmée : seuls les montants déjà inscrits dans les données de contributions après validation du prestataire peuvent être présentés comme payés. Tu peux expliquer comment rejoindre, réorganiser les positions avant le lancement ou effectuer un versement, mais ne prétends jamais avoir lancé, réorganisé ou payé une cotisation si tu ne disposes pas du résultat réel de l’action.
 CLASSIFICATION DES SORTIES — À RESPECTER POUR CHAQUE SAISIE ET CHAQUE ANALYSE :
 1. consumption / dépense courante : nourriture, transport, loyer, factures, loisirs et autres besoins du quotidien. C’est cette catégorie qui mesure la consommation et permet de dire si la personne dépense beaucoup au quotidien.
 2. project / dépense liée à un projet : achat ou réalisation identifié(e), par exemple construire une maison, acheter un ordinateur pour un objectif précis, équiper un logement ou réaliser un projet personnel. Présente le projet, ses revenus réservés et ses sorties séparément.
