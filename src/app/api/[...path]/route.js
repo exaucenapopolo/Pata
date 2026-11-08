@@ -3062,7 +3062,7 @@ async function buildAdminEmailHighlights(uid) {
     };
   }));
   const activeSavings = savings.filter((goal) => goal.active);
-  const completedSavings = savings.filter((goal) => !goal.active && goal.deposited !== null && goal.deposited > 0);
+  const completedSavings = savings.filter((goal) => goal.deposited !== null && goal.target > 0 && goal.deposited >= goal.target);
 
   const cotisations = await Promise.all(membershipsSnap.docs.map(async (membershipDoc) => {
     const membership = membershipDoc.data() || {};
@@ -3323,7 +3323,7 @@ async function handleUpdateProject(request) {
     if (body.name !== undefined) patch.name = String(body.name || '').trim().slice(0, 100);
     if (body.description !== undefined) patch.description = String(body.description || '').trim().slice(0, 500);
     if (body.status !== undefined) {
-      if (!['active', 'archived'].includes(body.status)) return errorResponse('Statut de projet invalide.', 400);
+      if (!['active', 'completed', 'archived'].includes(body.status)) return errorResponse('Statut de projet invalide.', 400);
       patch.status = body.status;
     }
     if (body.targetAmount !== undefined) {
