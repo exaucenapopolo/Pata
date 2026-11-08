@@ -7,24 +7,26 @@ export function Button({
   className, disabled, type = 'button', ...rest
 }) {
   const variants = {
-    primary: 'bg-brand-600 text-white hover:bg-brand-700 disabled:bg-brand-300',
-    secondary: 'bg-slate-100 text-slate-800 hover:bg-slate-200 disabled:opacity-50',
-    ghost: 'bg-transparent text-slate-700 hover:bg-slate-100',
-    danger: 'bg-red-600 text-white hover:bg-red-700 disabled:bg-red-300',
-    outline: 'border border-slate-300 text-slate-700 hover:bg-slate-50',
+    primary: 'bg-[#075b43] text-white shadow-sm hover:bg-[#064b38] hover:shadow-md focus-visible:ring-2 focus-visible:ring-[#0b8060] focus-visible:ring-offset-2 disabled:bg-[#b5c9c1] disabled:shadow-none',
+    secondary: 'border border-slate-200 bg-white text-slate-700 shadow-sm hover:border-slate-300 hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2 disabled:opacity-50',
+    ghost: 'bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2 disabled:opacity-50',
+    danger: 'bg-[#a63835] text-white shadow-sm hover:bg-[#8f2d2b] focus-visible:ring-2 focus-visible:ring-red-300 focus-visible:ring-offset-2 disabled:opacity-50',
+    outline: 'border border-slate-300 bg-white text-slate-700 hover:border-slate-400 hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-slate-300 focus-visible:ring-offset-2 disabled:opacity-50',
   };
   const sizes = {
-    sm: 'h-8 px-3 text-sm',
-    md: 'h-10 px-4 text-sm',
-    lg: 'h-12 px-6 text-base',
+    sm: 'min-h-9 px-3 text-xs',
+    md: 'min-h-10 px-4 text-sm',
+    lg: 'min-h-12 px-6 text-sm sm:text-base',
   };
   return (
     <button
       type={type}
       disabled={disabled}
       className={cn(
-        'inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors disabled:cursor-not-allowed',
-        variants[variant], sizes[size], className
+        'inline-flex items-center justify-center gap-2 rounded-xl font-semibold tracking-[-0.01em] transition-all duration-150 active:scale-[0.98] focus-visible:outline-none disabled:cursor-not-allowed disabled:active:scale-100',
+        variants[variant] || variants.primary,
+        sizes[size] || sizes.md,
+        className
       )}
       {...rest}
     >
