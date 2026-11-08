@@ -3293,18 +3293,30 @@ async function confirmCotisationPayment(transId) {
       throw new Error('Cette confirmation ne correspond plus au versement en attente.');
     }
     const amount = cotisationMoney(payment.amount);
-    const nextMemberTotal = cotisationMoney(contributionSnap.data()?.amount) + amount;
-    const nextTotal = cotisationMoney(cycleSnap.data()?.totalCollected) + amount;
-    const targetAmount = cotisationMoney(cycleSnap.data()?.targetAmount) || cotisationMoney(group.contributionAmount) * cotisationMoney(group.memberCount);
+    const penaltyAmount = cotisationMoney(payment.penaltyAmount);
+    const previousContribution = contributionSnap.data() || {};
+    const nextMemberTotal = cotisationMoney(previousContribution.amount) + amount;
+    const nextPenaltyTotal = cotisationMoney(previousContribution.penaltyPaid) + penaltyAmount;
+    const nextTotal = cotisationMoney(cycleSnap.data()?.totalCollected) + amount + penaltyAmount;
+    const expectedMembers = cotisationMoney(group.expectedMembers || group.maxMembers || group.memberCount);
+    const baseTarget = cotisationMoney(cycleSnap.data()?.baseTargetAmount) || cotisationMoney(group.contributionAmount) * expectedMembers;
+    const currentTarget = cotisationMoney(cycleSnap.data()?.targetAmount) || baseTarget;
+    const targetAmount = currentTarget + penaltyAmount;
     if (cycleSnap.data()?.status && cycleSnap.data().status !== 'OPEN') throw new Error('Cette période de cotisation n’accepte plus de versement.');
     if (nextMemberTotal > cotisationMoney(group.contributionAmount)) throw new Error('Le paiement dépasse la contribution attendue pour ce membre.');
+    if (penaltyAmount > 0 && cotisationMoney(previousContribution.penaltyPaid) > 0) throw new Error('La majoration de retard a déjà été réglée pour cette période.');
     transaction.set(contributionRef, {
-      userId: payment.userId, displayName: payment.displayName || 'Membre',
-      amount: nextMemberTotal, updatedAt: FieldValue.serverTimestamp(),
+      userId: payment.userId,
+      displayName: payment.displayName || 'Membre',
+      amount: nextMemberTotal,
+      penaltyPaid: nextPenaltyTotal,
+      totalPaid: nextMemberTotal + nextPenaltyTotal,
+      updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
     transaction.set(paymentHistoryRef, {
       transId: String(transId), userId: payment.userId,
-      displayName: payment.displayName || 'Membre', amount,
+      displayName: payment.displayName || 'Membre',
+      amount, penaltyAmount, totalContribution: amount + penaltyAmount,
       fee: cotisationMoney(payment.fee), grossAmount: cotisationMoney(payment.grossAmount),
       status: 'CONFIRMED', createdAt: FieldValue.serverTimestamp(), confirmedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
@@ -3312,6 +3324,7 @@ async function confirmCotisationPayment(transId) {
     transaction.set(cycleRef, {
       cycleKey: payment.cycleKey, cycleIndex: payment.cycleIndex,
       startDate: payment.cycleStartDate, dueAt: payment.dueAt,
+      baseTargetAmount: baseTarget,
       targetAmount, totalCollected: nextTotal,
       status: nextTotal >= targetAmount ? 'READY' : 'OPEN',
       updatedAt: FieldValue.serverTimestamp(),
