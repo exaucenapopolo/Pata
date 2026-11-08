@@ -204,6 +204,7 @@ export default function CotisationsPage() {
     setNotice('');
     try {
       if (!group.orderDefined) throw new Error('Confirme d’abord les positions de tous les membres.');
+      if (orderDrafts[group.id]) throw new Error('Tu as modifié l’ordre. Enregistre les nouvelles positions avant de lancer la cotisation.');
       const result = await api('cotisations/start', 'POST', { groupId: group.id });
       setNotice(result.message || 'La cotisation est lancée.');
       setOrderDrafts((value) => ({ ...value, [group.id]: undefined }));
@@ -363,7 +364,7 @@ export default function CotisationsPage() {
 
                 <div className="space-y-3">
                   {!group.startedAt && group.isOwner && group.memberCount === group.expectedMembers && !group.canStart && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3"><h4 className="text-sm font-bold text-amber-900">Attribue les positions avant le lancement</h4><p className="mt-1 text-xs leading-5 text-amber-800">Le groupe est complet. Déplace les membres dans l’ordre souhaité, puis appuie sur « Confirmer l’ordre choisi ». Le chef ne reçoit pas automatiquement le premier tour.</p></div>}
-                  {!group.startedAt && group.canStart && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><h4 className="text-sm font-bold text-emerald-900">Le groupe est complet</h4><p className="mt-1 text-xs leading-5 text-emerald-800">Tu as réuni les {group.expectedMembers} participants. Vérifie les positions puis lance la cotisation.</p><Button className="mt-3 w-full" onClick={() => startGroup(group)} disabled={busy === 'start-' + group.id}><PlayCircle size={15}/>{busy === 'start-' + group.id ? 'Lancement…' : 'Lancer la cotisation'}</Button></div>}
+                  {!group.startedAt && group.canStart && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><h4 className="text-sm font-bold text-emerald-900">Le groupe est complet</h4><p className="mt-1 text-xs leading-5 text-emerald-800">Tu as réuni les {group.expectedMembers} participants. Vérifie les positions puis lance la cotisation.</p><Button className="mt-3 w-full" onClick={() => startGroup(group)} disabled={busy === 'start-' + group.id || Boolean(orderDrafts[group.id])}><PlayCircle size={15}/>{busy === 'start-' + group.id ? 'Lancement…' : 'Lancer la cotisation'}</Button></div>}
                   {cycle.pendingPayment && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
                     <h4 className="text-sm font-bold text-amber-900">Un paiement est en attente</h4>
                     <p className="mt-1 text-xs leading-5 text-amber-800">Un versement de {currency(cycle.pendingPayment.amount)} + {currency(cycle.pendingPayment.fee)} de frais a été initié. Termine le paiement déjà ouvert ; un second versement ne peut pas être lancé tant que celui-ci n’est pas confirmé ou refusé.</p>
