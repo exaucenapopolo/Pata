@@ -3077,6 +3077,7 @@ async function buildAdminEmailHighlights(uid) {
     const deposited = summary.unavailable ? null : Number(summary.cashTotal ?? summary.total ?? 0);
     const target = Math.max(0, Number(data.targetAmount) || 0);
     return {
+      id: goalDoc.id,
       name: String(data.name || 'Objectif sans nom'),
       active: !data.closed && !data.withdrawnAt,
       deposited,
@@ -3085,8 +3086,8 @@ async function buildAdminEmailHighlights(uid) {
     };
   }));
   const completedSavings = savings.filter((goal) => goal.deposited !== null && goal.target > 0 && goal.deposited >= goal.target);
-  const completedSavingsIds = new Set(completedSavings.map((goal) => goal.name));
-  const activeSavings = savings.filter((goal) => goal.active && !completedSavingsIds.has(goal.name));
+  const completedSavingsIds = new Set(completedSavings.map((goal) => goal.id));
+  const activeSavings = savings.filter((goal) => goal.active && !completedSavingsIds.has(goal.id));
 
   const cotisations = await Promise.all(membershipsSnap.docs.map(async (membershipDoc) => {
     const membership = membershipDoc.data() || {};
