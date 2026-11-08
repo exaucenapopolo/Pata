@@ -5,7 +5,7 @@ const validDate = (value) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.t
 
 export function buildUserContext(userData) {
   const {
-    profile = {}, incomes = [], expenses = [], goals = [], budgets = [],
+    profile = {}, incomes = [], expenses = [], goals = [], budgets = [], projects = [],
     automations = [], memories = [], categories = [], now: providedNow,
   } = userData || {};
 
@@ -27,8 +27,17 @@ export function buildUserContext(userData) {
 
   const totalIncome = incomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
   const totalExpense = expenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const getExpenseType = (item) => ['consumption', 'project', 'savings', 'investment'].includes(item.expenseType) ? item.expenseType : 'consumption';
+  const typeTotals = expenses.reduce((totals, item) => {
+    totals[getExpenseType(item)] += Number(item.amount) || 0;
+    return totals;
+  }, { consumption: 0, project: 0, savings: 0, investment: 0 });
   const currentIncomes = incomes.filter((item) => validDate(item.date) && item.date.slice(0, 7) === currentMonth);
   const currentExpenses = expenses.filter((item) => validDate(item.date) && item.date.slice(0, 7) === currentMonth);
+  const currentTypeTotals = currentExpenses.reduce((totals, item) => {
+    totals[getExpenseType(item)] += Number(item.amount) || 0;
+    return totals;
+  }, { consumption: 0, project: 0, savings: 0, investment: 0 });
   const previousIncomes = incomes.filter((item) => validDate(item.date) && item.date.slice(0, 7) === previousMonth);
   const previousExpenses = expenses.filter((item) => validDate(item.date) && item.date.slice(0, 7) === previousMonth);
 
@@ -90,7 +99,8 @@ export function buildUserContext(userData) {
     .map((item) => {
       const categoryLabel = expenseCategoryLabel(item.categoryId);
       const source = sourceBalances.find((income) => income.id === item.incomeSourceId);
-      return `- ID EXACT: ${item.id} | ${item.date || 'Date inconnue'} | ${categoryLabel} | ${money(item.amount)} FCFA | ${item.note || 'Sans note'} | Source: ${source?.name || item.incomeSourceName || 'Non associée'}`;
+      const typeLabel = ({ consumption: 'Dépense courante', project: 'Projet', savings: 'Épargne', investment: 'Investissement' })[getExpenseType(item)];
+      return `- ID EXACT: ${item.id} | ${item.date || 'Date inconnue'} | ${typeLabel} | ${categoryLabel} | ${money(item.amount)} FCFA | ${item.note || 'Sans note'} | Projet: ${item.projectName || 'Aucun'} | Source: ${source?.name || item.incomeSourceName || 'Non associée'}`;
     }).join('\n');
 
   const currentBudgets = budgets.filter((item) => item.month === currentMonth);
@@ -115,6 +125,13 @@ export function buildUserContext(userData) {
     `- ID: ${item.id} | ${money(item.amount)} FCFA | ${expenseCategoryLabel(item.categoryId)} | fréquence: ${item.frequency} | prochaine: ${item.nextRun || 'non définie'} | état: ${item.active === false ? 'en pause' : 'active'} | source: ${item.incomeSourceName || item.incomeSourceId || 'Tous les revenus'}`
   ).join('\n');
 
+  const projectLines = projects.map((project) => {
+    const linkedExpenses = expenses.filter((item) => item.projectId === project.id);
+    const linkedIncomes = incomes.filter((item) => item.projectId === project.id);
+    const spent = linkedExpenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+    const allocatedIncome = linkedIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+    return `- ID EXACT: ${project.id} | ${project.name || 'Projet'} | Statut: ${project.status || 'active'} | Budget indicatif: ${money(project.targetAmount)} FCFA | Revenus réservés: ${money(allocatedIncome)} FCFA | Sorties liées: ${money(spent)} FCFA | Écart: ${money(allocatedIncome - spent)} FCFA`;
+  }).join('\n');
   const memoryLines = memories.map((item) => `- [${item.kind || 'contexte'}] ${item.fact}`).join('\n');
   const vitalNeeds = profile?.vitalNeeds || {};
   const vitalLines = Object.entries(vitalNeeds).map(([key, value]) => {
@@ -133,12 +150,17 @@ Date locale de référence: ${now.toLocaleString('fr-CM', { timeZone: 'Africa/Do
 
 === BILAN GLOBAL CUMULÉ DES DONNÉES ENREGISTRÉES ===
 Revenus enregistrés: ${money(totalIncome)} FCFA
-Dépenses enregistrées: ${money(totalExpense)} FCFA
+Sorties d’argent enregistrées (toutes natures): ${money(totalExpense)} FCFA
+Dépenses courantes / consommation: ${money(typeTotals.consumption)} FCFA
+Sorties de projets: ${money(typeTotals.project)} FCFA
+Épargne enregistrée comme sortie: ${money(typeTotals.savings)} FCFA
+Investissements enregistrés comme sortie: ${money(typeTotals.investment)} FCFA
 Solde calculé: ${money(globalBalance)} FCFA
-Attention: ce solde est un calcul des revenus moins les dépenses récupérés dans Pata, pas une lecture d'un compte bancaire externe. Les données récupérées sont plafonnées à 100 revenus et 200 dépenses récentes pour maîtriser les lectures Firestore.
+Attention: ce solde est calculé après toutes les sorties, mais la consommation, les projets, l’épargne et les investissements doivent rester distingués. Les données récupérées sont plafonnées à 100 revenus et 200 dépenses récentes pour maîtriser les lectures Firestore.
 
 === COMPARAISON MENSUELLE ===
-Mois courant ${currentMonth}: revenus reçus pendant ce mois ${money(currentIncomeTotal)} FCFA; dépenses enregistrées pendant ce mois ${money(currentExpenseTotal)} FCFA.
+Mois courant ${currentMonth}: revenus reçus pendant ce mois ${money(currentIncomeTotal)} FCFA; toutes les sorties pendant ce mois ${money(currentExpenseTotal)} FCFA.
+Répartition des sorties : consommation ${money(currentTypeTotals.consumption)} FCFA ; projets ${money(currentTypeTotals.project)} FCFA ; épargne ${money(currentTypeTotals.savings)} FCFA ; investissements ${money(currentTypeTotals.investment)} FCFA.
 Dépenses du mois financées par des revenus reçus avant ce mois: ${money(previousIncomeSpend)} FCFA. Partie du dépassement apparent expliquée par ces revenus antérieurs: ${money(previousMonthFundsExplainingGap)} FCFA.
 RÈGLE D'INTERPRÉTATION: ne dis jamais que l'utilisateur a dépensé plus que ses moyens, qu'il est en déficit ou que son solde est négatif en comparant uniquement les revenus reçus ce mois-ci aux dépenses du mois. Il peut utiliser des revenus enregistrés les mois précédents. Présente séparément les revenus reçus pendant la période, les dépenses de la période et la part financée par les revenus antérieurs. Le solde global cumulé et les soldes par source restent les références pour juger des ressources réellement disponibles.
 Mois précédent ${previousMonth}: revenus ${money(previousIncomeTotal)} FCFA; dépenses ${money(previousExpenseTotal)} FCFA; différence ${money(previousIncomeTotal - previousExpenseTotal)} FCFA.
@@ -156,6 +178,11 @@ ${categoryLines || 'Aucune dépense enregistrée ce mois.'}
 
 === DÉPENSES RÉCENTES ===
 ${recentExpenses || 'Aucune dépense enregistrée.'}
+
+=== PROJETS PREMIUM ===
+${projectLines || 'Aucun projet enregistré.'}
+
+RÈGLE DE CLASSIFICATION : une dépense courante (nourriture, transport, loyer, loisirs) est de la consommation. Une sortie liée à un projet finance un achat ou une réalisation identifiable (construction, équipement, téléphone, ordinateur). Une sortie de type épargne ou investissement est une affectation d’argent, pas une consommation. Toutes réduisent le solde disponible, mais seule la consommation sert à juger si l’utilisateur dépense trop au quotidien. Présente ces quatre montants séparément et ne qualifie jamais automatiquement un projet, une épargne ou un investissement de perte.
 
 === BUDGETS DU MOIS ===
 ${budgetLines || 'Aucun budget défini pour ce mois.'}
