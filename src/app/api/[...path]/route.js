@@ -727,102 +727,186 @@ async function handleUpsertBudget(request) {
 async function handleBudgetTemplates(request) {
   try {
     const { uid } = await authenticate(request);
-    const templatesRef = adminDb.collection('users').doc(uid).collection('budget_templates');
+    const userRef = adminDb.collection('users').doc(uid);
+    const templatesRef = userRef.collection('budget_templates');
+
     if (request.method === 'GET') {
-      const snapshot = await templatesRef.orderBy('createdAt', 'desc').limit(50).get();
-      return NextResponse.json({ success: true, templates: snapshot.docs.map((document) => ({ id: document.id, ...serializeAdminValue(document.data()) })) });
+      const snapshot = await templatesRef.orderBy('createdAt', 'desc').limit(100).get();
+      return NextResponse.json({
+        success: true,
+        templates: snapshot.docs.map((document) => ({ id: document.id, ...serializeAdminValue(document.data()) })),
+      });
     }
+
     const body = await request.json();
+
     if (request.method === 'DELETE') {
       const templateId = String(body.templateId || '').trim().slice(0, 150);
       if (!templateId || templateId.includes('/')) return errorResponse('Modèle introuvable.', 400);
-      const reference = templatesRef.doc(templateId);
-      const snapshot = await reference.get();
-      if (!snapshot.exists) return errorResponse('Ce modèle n’existe plus.', 404);
-      await reference.delete();
+      const templateRef = templatesRef.doc(templateId);
+      await adminDb.runTransaction(async (transaction) => {
+        const templateSnapshot = await transaction.get(templateRef);
+        if (!templateSnapshot.exists) throw new Error('Ce modèle n’existe plus.');
+        transaction.delete(templateRef);
+      });
+      // La suppression ne recrédite pas le quota : supprimer puis recréer ne doit
+      // pas permettre de dépasser la limite gratuite.
       return NextResponse.json({ success: true });
     }
+
     if (body.action === 'apply') {
       const templateId = String(body.templateId || '').trim().slice(0, 150);
       const month = String(body.month || '');
       const incomeSourceId = String(body.incomeSourceId || 'all').trim().slice(0, 150);
-      if (!templateId || templateId.includes('/') || !/^\d{4}-\d{2}$/.test(month)) return errorResponse('Modèle ou période invalide.', 400);
-      const userRef = adminDb.collection('users').doc(uid);
+      if (!templateId || templateId.includes('/') || !/^\\d{4}-\\d{2}$/.test(month)) {
+        return errorResponse('Modèle ou période invalide.', 400);
+      }
       const templateRef = templatesRef.doc(templateId);
       const budgetsRef = userRef.collection('budgets');
+
       const result = await adminDb.runTransaction(async (transaction) => {
         const [userSnapshot, templateSnapshot, budgetsSnapshot] = await Promise.all([
-          transaction.get(userRef), transaction.get(templateRef),
+          transaction.get(userRef),
+          transaction.get(templateRef),
           transaction.get(budgetsRef.where('month', '==', month)),
         ]);
         if (!userSnapshot.exists) throw new Error('Profil utilisateur introuvable.');
         if (!templateSnapshot.exists) throw new Error('Ce modèle n’existe plus.');
-        const items = Array.isArray(templateSnapshot.data()?.items) ? templateSnapshot.data().items.slice(0, 40) : [];
-        if (!items.length) throw new Error('Ce modèle ne contient aucune enveloppe valide.');
+
+        const sourceItems = Array.isArray(templateSnapshot.data()?.items) ? templateSnapshot.data().items.slice(0, 100) : [];
+        if (!sourceItems.length) throw new Error('Ce modèle ne contient aucune catégorie.');
+
         const existingByCategory = new Map();
         budgetsSnapshot.docs.forEach((document) => {
           const data = document.data() || {};
           const key = `${String(data.categoryId || '')}::${String(data.incomeSourceId || 'all')}`;
           if (!existingByCategory.has(key)) existingByCategory.set(key, document);
         });
+
         const seen = new Set();
         const prepared = [];
-        items.forEach((item) => {
+        sourceItems.forEach((item) => {
           const categoryId = String(item?.categoryId || '').trim().slice(0, 100);
           const amount = Math.round(Number(item?.amount));
-          if (!categoryId || !Number.isSafeInteger(amount) || amount <= 0 || amount > 1_000_000_000) return;
+          // Zéro est une valeur intentionnelle du modèle : elle signifie qu’aucune
+          // enveloppe ne doit être affectée à cette catégorie pour cette période.
+          if (!categoryId || !Number.isSafeInteger(amount) || amount < 0 || amount > 1_000_000_000) return;
           const key = `${categoryId}::${incomeSourceId}`;
           if (seen.has(key)) return;
           seen.add(key);
           prepared.push({ categoryId, amount, existing: existingByCategory.get(key) || null });
         });
-        if (!prepared.length) throw new Error('Ce modèle ne contient aucune enveloppe valide.');
-        const createCount = prepared.filter((item) => !item.existing).length;
+        if (!prepared.length) throw new Error('Ce modèle ne contient aucune catégorie valide.');
+
+        const createCount = prepared.filter((item) => item.amount > 0 && !item.existing).length;
         const userData = userSnapshot.data() || {};
         const currentMonth = getDoualaMonthKey();
         const stats = normalizeMonthlyStatsForMonth(userData.monthlyStats || {}, currentMonth);
         if (!isPremiumAccount(userData) && (Number(stats.budgets) || 0) + createCount > PLAN_LIMITS.FREE.budgets) {
           throw new Error(`Ce modèle nécessite ${createCount} nouvelle(s) enveloppe(s), mais ton compte gratuit ne dispose plus d’assez de créations ce mois-ci. Aucun budget n’a été modifié. Passe à Premium pour appliquer le modèle complet.`);
         }
-        let updatedCount = 0;
+
         let createdCount = 0;
+        let updatedCount = 0;
+        let deletedCount = 0;
         prepared.forEach((item) => {
+          if (item.amount === 0) {
+            if (item.existing) {
+              transaction.delete(item.existing.ref);
+              deletedCount += 1;
+            }
+            return;
+          }
+          const data = { amount: item.amount, updatedAt: FieldValue.serverTimestamp() };
           if (item.existing) {
-            transaction.update(item.existing.ref, { amount: item.amount, updatedAt: FieldValue.serverTimestamp() });
+            transaction.update(item.existing.ref, data);
             updatedCount += 1;
           } else {
-            transaction.create(budgetsRef.doc(), { categoryId: item.categoryId, amount: item.amount, month, incomeSourceId, createdAt: FieldValue.serverTimestamp() });
+            transaction.create(budgetsRef.doc(), {
+              categoryId: item.categoryId,
+              amount: item.amount,
+              month,
+              incomeSourceId,
+              createdAt: FieldValue.serverTimestamp(),
+            });
             createdCount += 1;
           }
         });
+
         if (createdCount > 0) {
           stats.budgets = (Number(stats.budgets) || 0) + createdCount;
           stats.lastResetMonth = currentMonth;
           transaction.update(userRef, { monthlyStats: stats });
         }
-        return { createdCount, updatedCount, totalApplied: prepared.length };
+        return { createdCount, updatedCount, deletedCount, totalCategories: prepared.length };
       });
       return NextResponse.json({ success: true, ...result });
     }
+
     const name = String(body.name || '').trim().slice(0, 70);
     const itemsInput = Array.isArray(body.items) ? body.items : [];
     const byCategory = new Map();
-    itemsInput.slice(0, 40).forEach((item) => {
+    itemsInput.slice(0, 100).forEach((item) => {
       const categoryId = String(item?.categoryId || '').trim().slice(0, 100);
       const amount = Math.round(Number(item?.amount));
-      if (categoryId && Number.isSafeInteger(amount) && amount > 0 && amount <= 1_000_000_000) byCategory.set(categoryId, { categoryId, amount });
+      if (categoryId && Number.isSafeInteger(amount) && amount >= 0 && amount <= 1_000_000_000) {
+        byCategory.set(categoryId, { categoryId, amount });
+      }
     });
     const items = [...byCategory.values()];
     if (!name) return errorResponse('Donne un nom à ce modèle de budget.', 400);
-    if (!items.length) return errorResponse('Ajoute au moins une catégorie avec un montant avant d’enregistrer ce modèle.', 400);
+    if (!items.length) return errorResponse('Ajoute au moins une catégorie au modèle. Les montants à zéro sont autorisés.', 400);
+
+    const templateId = String(body.templateId || '').trim().slice(0, 150);
+    if (templateId) {
+      if (templateId.includes('/')) return errorResponse('Modèle introuvable.', 400);
+      const templateRef = templatesRef.doc(templateId);
+      await adminDb.runTransaction(async (transaction) => {
+        const [userSnapshot, templateSnapshot] = await Promise.all([
+          transaction.get(userRef),
+          transaction.get(templateRef),
+        ]);
+        if (!userSnapshot.exists) throw new Error('Profil utilisateur introuvable.');
+        if (!templateSnapshot.exists) throw new Error('Ce modèle n’existe plus.');
+        transaction.update(templateRef, {
+          name,
+          items,
+          categoryCount: items.length,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      });
+      return NextResponse.json({ success: true, id: templateId, updated: true });
+    }
+
     const templateRef = templatesRef.doc();
-    await templateRef.create({ name, items, categoryCount: items.length, createdAt: FieldValue.serverTimestamp() });
-    return NextResponse.json({ success: true, id: templateRef.id });
+    const result = await adminDb.runTransaction(async (transaction) => {
+      const userSnapshot = await transaction.get(userRef);
+      if (!userSnapshot.exists) throw new Error('Profil utilisateur introuvable.');
+      const userData = userSnapshot.data() || {};
+      const currentMonth = getDoualaMonthKey();
+      const stats = normalizeMonthlyStatsForMonth(userData.monthlyStats || {}, currentMonth);
+      const current = Number(stats.budgets) || 0;
+      if (!isPremiumAccount(userData) && current >= PLAN_LIMITS.FREE.budgets) {
+        throw new Error(`Tu as atteint les ${PLAN_LIMITS.FREE.budgets} créations de budgets et de modèles autorisées ce mois-ci avec le compte gratuit. Passe à Premium pour enregistrer un autre modèle.`);
+      }
+      stats.budgets = current + 1;
+      stats.lastResetMonth = currentMonth;
+      transaction.create(templateRef, {
+        name,
+        items,
+        categoryCount: items.length,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      transaction.update(userRef, { monthlyStats: stats });
+      return { id: templateRef.id, current: stats.budgets, limit: PLAN_LIMITS.FREE.budgets };
+    });
+    return NextResponse.json({ success: true, ...result });
   } catch (error) {
-    return errorResponse(error.message || 'Impossible de charger ou enregistrer les modèles de budget.', 400);
+    const message = error.message || 'Impossible de gérer les modèles de budget.';
+    const denied = /atteint|créations|introuvable|n’existe plus|valide|catégorie|modèle/i.test(message);
+    return errorResponse(message, denied ? 403 : 500);
   }
 }
-
 async function handleCreateGoal(request) {
   try {
     const { uid } = await authenticate(request);
