@@ -3,16 +3,15 @@
 import { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, Check, ChevronLeft, ChevronRight, Lock, Mail, BrainCircuit } from 'lucide-react';
+import { BrainCircuit } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { Button } from '@/components/ui/Button';
 import { PWAInstallButton } from '@/components/PWAInstallButton';
 import { ensureUserProfile } from '@/lib/firestore/profile';
 
 const slides = [
   { eyebrow: 'UNE VUE PLUS CLAIRE', title: 'Sache où va ton argent.', text: 'Enregistre tes dépenses et tes revenus au même endroit. Pata transforme tes saisies en une vision simple de ton mois.', mark: '01', art: 'flow' },
   { eyebrow: 'MČ · TON ASSISTANTE', title: 'Comprends tes chiffres, pas seulement tes tableaux.', text: 'Pose tes questions à Mč. Elle peut analyser tes dépenses, t’aider à préparer un budget et t’expliquer les tendances de tes finances.', mark: '02', art: 'ai' },
-  { eyebrow: 'BUDGETS & ÉPARGNE', title: 'Donne une direction à chaque franc.', text: 'Fixe tes limites, crée des objectifs d’épargne et suis tes versements pour avancer avec une méthode adaptée à tes moyens.', mark: '03', art: 'savings' },
+  { eyebrow: 'BUDGETS, ÉPARGNE & PREMIUM', title: 'Donne une direction à chaque franc.', text: 'Définis des limites, crée des objectifs d’épargne et suis tes versements. Tu peux commencer gratuitement ; Premium ouvre davantage de possibilités quand tu souhaites aller plus loin.', mark: '03', art: 'savings' },
 ];
 
 async function sendWelcomeOnce(user, created) {
@@ -96,24 +95,23 @@ export default function HomePage() {
   const renderAuthCard = (formId) => (
     <section id={formId} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_20px_60px_-40px_rgba(15,23,42,.25)] sm:p-7">
       <div className="flex items-center gap-2">
-        <span className="grid h-9 w-9 place-items-center rounded-xl bg-[#edf5f0] text-[#0b5c46]"><Lock size={17}/></span>
         <div><p className="text-sm font-bold text-slate-900">{mode === 'register' ? 'Créer mon espace' : 'Retrouver mon espace'}</p><p className="text-xs text-slate-500">{mode === 'register' ? 'Deux informations pour commencer.' : 'Connecte-toi à ton compte Pata.'}</p></div>
       </div>
       <form onSubmit={submit} className="mt-5 space-y-3">
         <label className="block text-xs font-semibold text-slate-600">Adresse e-mail
-          <span className="mt-1.5 flex h-12 items-center gap-2 rounded-xl border border-slate-200 px-3 focus-within:border-[#0b5c46]"><Mail size={16} className="text-slate-400"/><input type="email" autoComplete="email" required value={email} onChange={e=>setEmail(e.target.value)} placeholder="nom@exemple.com" className="h-full min-w-0 flex-1 bg-transparent text-sm font-normal outline-none"/></span>
+          <span className="mt-1.5 flex h-12 items-center gap-2 rounded-xl border border-slate-200 px-3 focus-within:border-[#0b5c46]"><input type="email" autoComplete="email" required value={email} onChange={e=>setEmail(e.target.value)} placeholder="nom@exemple.com" className="h-full min-w-0 flex-1 bg-transparent text-sm font-normal outline-none"/></span>
         </label>
         <label className="block text-xs font-semibold text-slate-600">Mot de passe
-          <span className="mt-1.5 flex h-12 items-center gap-2 rounded-xl border border-slate-200 px-3 focus-within:border-[#0b5c46]"><Lock size={16} className="text-slate-400"/><input type={showPassword?'text':'password'} autoComplete={mode==='register'?'new-password':'current-password'} required value={password} onChange={e=>setPassword(e.target.value)} placeholder={mode==='register'?'Au moins 6 caractères':'Ton mot de passe'} className="h-full min-w-0 flex-1 bg-transparent text-sm font-normal outline-none"/><button type="button" onClick={()=>setShowPassword(v=>!v)} aria-label={showPassword?'Masquer':'Afficher'} className="text-slate-400"><Eye size={16}/></button></span>
+          <span className="mt-1.5 flex h-12 items-center gap-2 rounded-xl border border-slate-200 px-3 focus-within:border-[#0b5c46]"><input type={showPassword?'text':'password'} autoComplete={mode==='register'?'new-password':'current-password'} required value={password} onChange={e=>setPassword(e.target.value)} placeholder={mode==='register'?'Au moins 6 caractères':'Ton mot de passe'} className="h-full min-w-0 flex-1 bg-transparent text-sm font-normal outline-none"/><button type="button" onClick={()=>setShowPassword(v=>!v)} className="text-xs font-semibold text-slate-500">{showPassword?'Masquer':'Afficher'}</button></span>
         </label>
         {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-xs leading-5 text-red-700">{error}</p>}
         <button type="submit" disabled={busy || googleBusy || !email.trim() || !password} className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#0b5c46] px-4 text-sm font-bold text-white transition hover:bg-[#084b39] disabled:opacity-50">
-          {busy ? 'Un instant…' : mode === 'register' ? 'Créer mon compte' : 'Se connecter'} <ArrowRight size={16}/>
+          {busy ? 'Un instant…' : mode === 'register' ? 'Créer mon compte' : 'Se connecter'}
         </button>
       </form>
       <div className="my-4 flex items-center gap-3"><span className="h-px flex-1 bg-slate-100"/><span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">ou</span><span className="h-px flex-1 bg-slate-100"/></div>
       <button type="button" onClick={google} disabled={busy || googleBusy} className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
-        {googleBusy ? 'Connexion…' : <><svg viewBox="0 0 48 48" className="h-4 w-4" aria-hidden="true"><path fill="#4285F4" d="M43.6 20.5H42V20H24v8h11.3A12 12 0 1 1 32 15.1l5.7-5.7A20 20 0 1 0 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg> Continuer avec Google</>}
+        {googleBusy ? 'Connexion…' : 'Continuer avec Google'}
       </button>
       <p className="mt-5 text-center text-xs text-slate-500">{mode === 'register' ? 'Tu as déjà un compte ?' : 'Tu découvres Pata ?'}{' '}<button type="button" onClick={()=>{setMode(mode==='register'?'login':'register');setError('');}} className="font-bold text-[#0b5c46] hover:underline">{mode==='register'?'Se connecter':'Créer un compte'}</button></p>
       {mode === 'register' && <p className="mt-3 text-center text-[10px] leading-5 text-slate-400">En créant ton compte, tu acceptes les <Link href="/conditions" className="underline">conditions d’utilisation</Link> et la <Link href="/confidentialite" className="underline">politique de confidentialité</Link>.</p>}
@@ -136,7 +134,7 @@ export default function HomePage() {
           <p className="text-xs font-bold uppercase tracking-[.2em] text-[#0b5c46]">Tes finances, avec une méthode claire</p>
           <h1 className="mt-4 max-w-2xl text-5xl font-bold leading-[1.1] tracking-tight text-slate-950 xl:text-6xl">Ton argent mérite mieux qu’une mémoire approximative.</h1>
           <p className="mt-5 max-w-xl text-base leading-7 text-slate-600">Pata rassemble tes dépenses, tes revenus, tes budgets et tes objectifs d’épargne. Tu vois ce qui entre, ce qui sort et ce que tu construis — dans un seul espace.</p>
-          <div className="mt-7 flex flex-wrap gap-3 text-xs font-semibold text-slate-600"><span className="rounded-full border border-slate-200 bg-white px-3 py-2"><Check size={13} className="mr-1 inline text-[#0b5c46]"/> Suivi précis</span><span className="rounded-full border border-slate-200 bg-white px-3 py-2"><Check size={13} className="mr-1 inline text-[#0b5c46]"/> Budgets concrets</span><span className="rounded-full border border-slate-200 bg-white px-3 py-2"><Check size={13} className="mr-1 inline text-[#0b5c46]"/> Épargne suivie</span></div>
+          <div className="mt-7 flex flex-wrap gap-3 text-xs font-semibold text-slate-600"><span className="rounded-full border border-slate-200 bg-white px-3 py-2">Suivi précis</span><span className="rounded-full border border-slate-200 bg-white px-3 py-2">Budgets concrets</span><span className="rounded-full border border-slate-200 bg-white px-3 py-2">Épargne suivie</span></div>
           <div className="mt-10 rounded-3xl border border-[#e1eae4] bg-white p-6 shadow-sm">
             <div className="flex items-center justify-between"><div><p className="text-xs font-semibold text-slate-500">UNE VUE D’ENSEMBLE</p><p className="mt-1 text-lg font-bold">Tes mouvements, enfin réunis.</p></div><span className="text-xs font-bold text-[#0b5c46]">PATA</span></div>
             <svg viewBox="0 0 600 170" className="mt-5 w-full" role="img" aria-label="Illustration de suivi des revenus, dépenses et épargne">
@@ -168,7 +166,7 @@ export default function HomePage() {
               </article>)}
             </div>
           </div>
-          <div className="mt-4 flex items-center justify-between"><div className="flex gap-1.5">{slides.map((s,i)=><button key={s.mark} aria-label={`Présentation ${i+1}`} onClick={()=>moveSlide(i)} className={`h-1.5 rounded-full transition-all ${slide===i?'w-7 bg-[#0b5c46]':'w-2 bg-slate-300'}`}/>)}</div><div className="flex gap-2"><button type="button" onClick={previousSlide} disabled={slide===0} aria-label="Précédent" className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-600 disabled:opacity-30"><ChevronLeft size={17}/></button><button type="button" onClick={nextSlide} disabled={slide===2} aria-label="Suivant" className="grid h-9 w-9 place-items-center rounded-full bg-[#0b5c46] text-white disabled:opacity-30"><ChevronRight size={17}/></button></div></div>
+          <div className="mt-4 flex items-center justify-between"><div className="flex gap-1.5">{slides.map((s,i)=><button key={s.mark} aria-label={`Présentation ${i+1}`} onClick={()=>moveSlide(i)} className={`h-1.5 rounded-full transition-all ${slide===i?'w-7 bg-[#0b5c46]':'w-2 bg-slate-300'}`}/>)}</div><div className="flex gap-2"><button type="button" onClick={previousSlide} disabled={slide===0} className="h-9 rounded-full border border-slate-200 px-3 text-xs font-semibold text-slate-600 disabled:opacity-30">Précédent</button><button type="button" onClick={nextSlide} disabled={slide===2} className="h-9 rounded-full bg-[#0b5c46] px-3 text-xs font-semibold text-white disabled:opacity-30">Suivant</button></div></div>
           <a href="#connexion-mobile" className="mt-5 flex h-11 items-center justify-center rounded-xl border border-[#0b5c46]/20 text-sm font-bold text-[#0b5c46]">Créer mon compte ou me connecter</a>
         </div>
       </section>
@@ -178,7 +176,7 @@ export default function HomePage() {
       <section className="mx-auto hidden max-w-7xl grid-cols-3 gap-5 px-6 py-14 lg:grid">
         <article className="rounded-2xl border border-slate-200 bg-white p-6"><p className="text-xs font-bold text-[#0b5c46]">MČ · ASSISTANCE INTELLIGENTE</p><h2 className="mt-3 text-xl font-bold">Une aide qui part de tes données.</h2><p className="mt-2 text-sm leading-6 text-slate-600">Mč peut expliquer tes mouvements, analyser une dépense, comparer tes habitudes et t’aider à bâtir un budget réaliste. Les actions restent sous ton contrôle.</p></article>
         <article className="rounded-2xl border border-slate-200 bg-white p-6"><p className="text-xs font-bold text-[#0b5c46]">SUIVI FINANCIER</p><h2 className="mt-3 text-xl font-bold">Pas seulement un carnet de dépenses.</h2><p className="mt-2 text-sm leading-6 text-slate-600">Relie tes revenus, tes dépenses et tes budgets. Les rapports montrent les écarts et les tendances, sans devoir tout recalculer manuellement.</p></article>
-        <article className="rounded-2xl border border-slate-200 bg-white p-6"><p className="text-xs font-bold text-[#0b5c46]">ÉPARGNE & PREMIUM</p><h2 className="mt-3 text-xl font-bold">Construis un objectif à ton rythme.</h2><p className="mt-2 text-sm leading-6 text-slate-600">Crée une épargne, organise tes versements et observe ta progression. Le compte gratuit permet de commencer ; Premium ouvre davantage de capacités et de limites.</p><Link href="/premium" className="mt-3 inline-flex text-sm font-semibold text-[#0b5c46]">Découvrir Premium <ArrowRight size={15} className="ml-1"/></Link></article>
+        <article className="rounded-2xl border border-slate-200 bg-white p-6"><p className="text-xs font-bold text-[#0b5c46]">ÉPARGNE & PREMIUM</p><h2 className="mt-3 text-xl font-bold">Construis un objectif à ton rythme.</h2><p className="mt-2 text-sm leading-6 text-slate-600">Crée une épargne, organise tes versements et observe ta progression. Le compte gratuit permet de commencer. Premium coûte 2 500 FCFA pour 30 jours et ouvre davantage de possibilités.</p><Link href="/premium" className="mt-3 inline-flex text-sm font-semibold text-[#0b5c46]">Découvrir Premium</Link></article>
       </section>
       <footer className="border-t border-slate-200 px-4 py-6 text-center text-xs text-slate-500"><p>© {new Date().getFullYear()} Pata · Tes finances, mieux organisées.</p><div className="mt-2 flex flex-wrap justify-center gap-4"><Link href="/conditions" className="hover:underline">Conditions</Link><Link href="/confidentialite" className="hover:underline">Confidentialité</Link><Link href="/support" className="hover:underline">Assistance : +1 (242) 454-2961</Link></div></footer>
       <style jsx>{`
