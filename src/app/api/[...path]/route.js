@@ -1514,10 +1514,16 @@ async function handleAIChat(request) {
     const incomingMessages = Array.isArray(body.messages) ? body.messages : [];
     if (!incomingMessages.length) return errorResponse('Messages requis.', 400);
 
-    const history = incomingMessages.slice(-24).map((message) => ({
-      role: message.role === 'assistant' ? 'assistant' : 'user',
-      content: String(message.content || '').slice(0, 1800),
-    })).filter((message) => message.content.trim());
+    const history = incomingMessages.slice(-24).map((message) => {
+      const content = String(message.content || '');
+      // Le bouton des documents juridiques transmet le texte complet à résumer.
+      // Les messages normaux conservent leur limite courte pour maîtriser le contexte.
+      const contentLimit = content.includes('CONTENU DU DOCUMENT :') ? 20000 : 1800;
+      return {
+        role: message.role === 'assistant' ? 'assistant' : 'user',
+        content: content.slice(0, contentLimit),
+      };
+    }).filter((message) => message.content.trim());
     if (!history.length || history[history.length - 1].role !== 'user') {
       return errorResponse('Le dernier message utilisateur est manquant.', 400);
     }
