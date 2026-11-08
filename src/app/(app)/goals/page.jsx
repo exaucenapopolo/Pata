@@ -20,7 +20,7 @@ import { useProfile } from '@/hooks/useProfile';
 import { useGoals, useDeposits } from '@/hooks/useGoals';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { createGoal, updateGoal, deleteGoal, toggleGoalPin } from '@/lib/firestore/goals';
-import { computeGoalPlan, resolveFrequencyDays, MIN_PENALTY } from '@/lib/goalCalc';
+import { computeGoalPlan, resolveFrequencyDays, GOAL_LATE_PENALTY_RATE } from '@/lib/goalCalc';
 import { adviceIconColor } from '@/lib/advisor';
 import { formatCurrency, formatDate, resolveCategory } from '@/lib/utils';
 import { playSuccess } from '@/lib/sound';
@@ -71,8 +71,12 @@ function buildGoalAdvices(plan, balance, goalName) {
     advices.push({ type: 'success', message: `Ton objectif « ${goalName} » est atteint. Tu peux retirer ton argent à tout moment.` });
     return advices;
   }
-  if (plan.isLate && plan.totalDebt === 0) {
-    advices.push({ type: 'danger', message: `${plan.missedPayments} paiement${plan.missedPayments > 1 ? 's' : ''} manqué${plan.missedPayments > 1 ? 's' : ''}. Amende : ${formatCurrency(plan.penalty)}. Verse ${formatCurrency(plan.shortfall)} pour la stopper ou demande un micro-prêt.` });
+  if (plan.isLate) {
+    const missedLabel = `${plan.missedPayments} échéance${plan.missedPayments > 1 ? 's' : ''} manquée${plan.missedPayments > 1 ? 's' : ''}`;
+    advices.push({
+      type: 'danger',
+      message: `${missedLabel} : des frais de retard de ${formatCurrency(plan.penalty)} sont dus. Ils représentent 15 % du montant cible par échéance manquée et seront déduits au retrait ou à la clôture.`,
+    });
   } else if (plan.totalDeposited >= plan.expectedAmount) {
     advices.push({ type: 'success', message: `Tu es à jour : ${formatCurrency(plan.totalDeposited)} versés. Continue comme ça.` });
   } else {
@@ -93,15 +97,17 @@ function ConfirmWithdrawModal({ goal, actionType, onClose, onConfirm, busy }) {
   const plan = computeGoalPlan(goal, deposits);
   const isPiggybank = goal.type === 'piggybank';
   const isCancel = actionType === 'cancel';
+  const latePenalty = isPiggybank ? 0 : Number(plan.penalty) || 0;
   const cancelPenalty = isCancel && !isPiggybank ? Math.round(plan.totalDeposited * 0.10) : 0;
-  const netRefund = Math.max(0, plan.totalDeposited - plan.totalDebt - cancelPenalty);
+  const netRefund = Math.max(0, plan.totalDeposited - plan.totalDebt - latePenalty - cancelPenalty);
 
   const waNumber = '14236752034';
   const waMessage = encodeURIComponent(
     `Bonjour l'équipe Pata,\n\nJe souhaite ${isCancel ? 'annuler' : 'clôturer'} mon ${isPiggybank ? 'épargne libre' : 'objectif'} "${goal.name}".\n\n` +
     `- Total épargné : ${formatCurrency(plan.totalDeposited)}\n` +
     (plan.totalDebt > 0 ? `- Dettes : ${formatCurrency(plan.totalDebt)}\n` : '') +
-    (cancelPenalty > 0 ? `- Pénalité (10%) : ${formatCurrency(cancelPenalty)}\n` : '') +
+    (latePenalty > 0 ? `- Pénalités de retard (15%) : ${formatCurrency(latePenalty)}\n` : '') +
+    (cancelPenalty > 0 ? `- Frais d’annulation (10%) : ${formatCurrency(cancelPenalty)}\n` : '') +
     `- Net à recevoir : ${formatCurrency(netRefund)}\n\nMerci.`
   );
 
@@ -112,14 +118,15 @@ function ConfirmWithdrawModal({ goal, actionType, onClose, onConfirm, busy }) {
           <Info className="mt-0.5 shrink-0 text-slate-500" size={18} />
           <p className="text-sm text-slate-700">
             {isPiggybank ? "Ta demande sera vérifiée avant l’envoi de l’argent sur ton numéro Mobile Money."
-              : isCancel ? "Attention : l’annulation entraîne une pénalité de 10 %. Le montant net sera vérifié avant l’envoi."
-              : "Ta demande sera vérifiée avant l’envoi du montant disponible sur ton numéro Mobile Money."}
+              : isCancel ? "L’annulation entraîne des frais de clôture de 10 %, auxquels s’ajoutent les éventuels frais de retard déjà dus. Le net sera vérifié avant l’envoi."
+              : "Les frais de retard déjà dus seront déduits du solde à retirer. Le net sera vérifié avant l’envoi."}
           </p>
         </div>
         <div className="space-y-2 rounded-xl border border-slate-200 p-3">
           <div className="flex justify-between text-sm"><span className="text-slate-500">Total épargné</span><span className="font-medium text-slate-800">{formatCurrency(plan.totalDeposited)}</span></div>
           {plan.totalDebt > 0 && (<div className="flex justify-between text-sm text-red-600"><span>Dettes</span><span className="font-medium">- {formatCurrency(plan.totalDebt)}</span></div>)}
-          {cancelPenalty > 0 && (<div className="flex justify-between text-sm text-red-600"><span>Pénalité (10%)</span><span className="font-medium">- {formatCurrency(cancelPenalty)}</span></div>)}
+          {latePenalty > 0 && (<div className="flex justify-between text-sm text-red-600"><span>Frais de retard (15%)</span><span className="font-medium">- {formatCurrency(latePenalty)}</span></div>)}
+          {cancelPenalty > 0 && (<div className="flex justify-between text-sm text-red-600"><span>Frais d’annulation (10%)</span><span className="font-medium">- {formatCurrency(cancelPenalty)}</span></div>)}
           <div className="mt-2 flex justify-between border-t border-slate-200 pt-2 text-base font-bold">
             <span className="text-slate-800">Net à recevoir</span><span className="text-brand-600">{formatCurrency(netRefund)}</span>
           </div>
@@ -339,8 +346,8 @@ function GoalFormModal({ open, onClose, goal }) {
     startDate: goal.startDate || todayIso(),
     deadline: goal.deadline || todayIso(),
     frequencyDays: String(goal.frequencyDays || 7),
-    penaltyAmount: String(Math.max(MIN_PENALTY, goal.penaltyAmount || MIN_PENALTY)),
-    penaltyEnabled: goal.penaltyEnabled === undefined ? Number(goal.penaltyAmount) > 0 : goal.penaltyEnabled === true,
+    penaltyAmount: '',
+    penaltyEnabled: true,
     purposeType: goal.purposeType || 'personal',
     beneficiaryName: goal.beneficiaryName || '',
     beneficiaryRelation: goal.beneficiaryRelation || '',
@@ -356,8 +363,8 @@ function GoalFormModal({ open, onClose, goal }) {
     startDate: todayIso(),
     deadline: new Date(new Date().setMonth(new Date().getMonth() + 2)).toISOString().slice(0, 10),
     frequencyDays: '7',
-    penaltyAmount: String(MIN_PENALTY),
-    penaltyEnabled: false,
+    penaltyAmount: '',
+    penaltyEnabled: true,
     purposeType: 'personal',
     beneficiaryName: '',
     beneficiaryRelation: '',
@@ -375,8 +382,6 @@ function GoalFormModal({ open, onClose, goal }) {
   const [deadline, setDeadline] = useState(initial.deadline);
   const [frequencyPreset, setFrequencyPreset] = useState(initial.frequencyDays);
   const [frequencyCustom, setFrequencyCustom] = useState('');
-  const [penaltyAmount, setPenaltyAmount] = useState(initial.penaltyAmount);
-  const [penaltyEnabled, setPenaltyEnabled] = useState(initial.penaltyEnabled);
   const [purposeType, setPurposeType] = useState(initial.purposeType);
   const [beneficiaryName, setBeneficiaryName] = useState(initial.beneficiaryName);
   const [beneficiaryRelation, setBeneficiaryRelation] = useState(initial.beneficiaryRelation);
@@ -431,8 +436,6 @@ function GoalFormModal({ open, onClose, goal }) {
         startDate,
         deadline,
         frequencyDays,
-        penaltyEnabled,
-        penaltyAmount: penaltyEnabled ? Math.max(MIN_PENALTY, Number(penaltyAmount) || MIN_PENALTY) : 0,
       };
     } else {
       payload.targetAmount = piggyTargetEnabled && Number(targetAmount) > 0 ? Math.round(Number(targetAmount)) : null;
@@ -531,11 +534,11 @@ function GoalFormModal({ open, onClose, goal }) {
               {frequencyPreset === 'custom' && <div className="mt-2"><Input label="Tous les X jours" type="number" min="1" value={frequencyCustom} onChange={(event) => setFrequencyCustom(event.target.value)}/></div>}
             </div>
             <div className="rounded-xl border border-brand-100 bg-brand-50/60 p-3 text-sm"><span className="font-medium text-brand-800">Aperçu : </span><strong className="text-slate-800">{totalPayments} versements de {formatCurrency(amountPerPayment)}</strong></div>
-            <label className="flex min-h-11 items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2">
-              <input type="checkbox" checked={penaltyEnabled} onChange={(event) => setPenaltyEnabled(event.target.checked)} className="h-4 w-4 rounded border-slate-300 text-brand-700 focus:ring-brand-500"/>
-              <span><strong className="block text-xs font-semibold text-slate-800">Activer une pénalité en cas de retard</strong><span className="text-[10px] text-slate-500">Facultatif. Désactivée par défaut pour les nouvelles épargnes.</span></span>
-            </label>
-            {penaltyEnabled && <Input label={`Amende par retard (min. ${formatCurrency(MIN_PENALTY)})`} type="number" min={MIN_PENALTY} value={penaltyAmount} onChange={(event) => setPenaltyAmount(event.target.value)}/>}
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+              <p className="text-xs font-semibold text-amber-900">Pénalité obligatoire en cas de retard</p>
+              <p className="mt-1 text-xs leading-5 text-amber-800">Chaque échéance manquée entraîne des frais de 15 % du montant cible total de cette épargne, et non 15 % du versement attendu. Ces frais ne peuvent pas être désactivés.</p>
+              {Number(targetAmount) > 0 && <p className="mt-1 text-xs font-semibold text-amber-900">Montant par échéance manquée : {formatCurrency(Math.round(Number(targetAmount) * GOAL_LATE_PENALTY_RATE))}</p>}
+            </div>
           </>
         )}
 
