@@ -297,9 +297,42 @@ function GoalFormModal({ open, onClose, goal }) {
   const premiumUntil = profile?.premiumUntil?.toDate ? profile.premiumUntil.toDate() : new Date(profile?.premiumUntil || 0);
   const premiumActive = Number.isFinite(premiumUntil.getTime()) && premiumUntil > new Date();
   const editing = !!goal;
-  const initial = editing
-    ? { name: goal.name || '', type: goal.type || 'goal', targetAmount: String(goal.targetAmount || ''), categoryId: goal.categoryId || 'savings', startDate: goal.startDate || todayIso(), deadline: goal.deadline || todayIso(), frequencyDays: String(goal.frequencyDays || 7), penaltyAmount: String(Math.max(MIN_PENALTY, goal.penaltyAmount || MIN_PENALTY)) }
-    : { name: '', type: 'goal', targetAmount: '', categoryId: 'savings', startDate: todayIso(), deadline: new Date(new Date().setMonth(new Date().getMonth() + 2)).toISOString().slice(0, 10), frequencyDays: '7', penaltyAmount: String(MIN_PENALTY) };
+
+  const initial = editing ? {
+    name: goal.name || '',
+    type: goal.type || 'goal',
+    targetAmount: String(goal.targetAmount || ''),
+    categoryId: goal.categoryId || 'savings',
+    startDate: goal.startDate || todayIso(),
+    deadline: goal.deadline || todayIso(),
+    frequencyDays: String(goal.frequencyDays || 7),
+    penaltyAmount: String(Math.max(MIN_PENALTY, goal.penaltyAmount || MIN_PENALTY)),
+    penaltyEnabled: goal.penaltyEnabled === undefined ? Number(goal.penaltyAmount) > 0 : goal.penaltyEnabled === true,
+    purposeType: goal.purposeType || 'personal',
+    beneficiaryName: goal.beneficiaryName || '',
+    beneficiaryRelation: goal.beneficiaryRelation || '',
+    description: goal.description || '',
+    rulesEnabled: goal.rulesEnabled === true,
+    rulesText: goal.rulesText || '',
+    piggyTargetEnabled: goal.type === 'piggybank' && Number(goal.targetAmount) > 0,
+  } : {
+    name: '',
+    type: 'goal',
+    targetAmount: '',
+    categoryId: 'savings',
+    startDate: todayIso(),
+    deadline: new Date(new Date().setMonth(new Date().getMonth() + 2)).toISOString().slice(0, 10),
+    frequencyDays: '7',
+    penaltyAmount: String(MIN_PENALTY),
+    penaltyEnabled: false,
+    purposeType: 'personal',
+    beneficiaryName: '',
+    beneficiaryRelation: '',
+    description: '',
+    rulesEnabled: false,
+    rulesText: '',
+    piggyTargetEnabled: false,
+  };
 
   const [type, setType] = useState(initial.type);
   const [name, setName] = useState(initial.name);
@@ -307,13 +340,23 @@ function GoalFormModal({ open, onClose, goal }) {
   const [categoryId, setCategoryId] = useState(initial.categoryId);
   const [startDate, setStartDate] = useState(initial.startDate);
   const [deadline, setDeadline] = useState(initial.deadline);
-  const [frequencyPreset, setFrequencyPreset] = useState(String(initial.frequencyDays));
+  const [frequencyPreset, setFrequencyPreset] = useState(initial.frequencyDays);
   const [frequencyCustom, setFrequencyCustom] = useState('');
   const [penaltyAmount, setPenaltyAmount] = useState(initial.penaltyAmount);
+  const [penaltyEnabled, setPenaltyEnabled] = useState(initial.penaltyEnabled);
+  const [purposeType, setPurposeType] = useState(initial.purposeType);
+  const [beneficiaryName, setBeneficiaryName] = useState(initial.beneficiaryName);
+  const [beneficiaryRelation, setBeneficiaryRelation] = useState(initial.beneficiaryRelation);
+  const [description, setDescription] = useState(initial.description);
+  const [rulesEnabled, setRulesEnabled] = useState(initial.rulesEnabled);
+  const [rulesText, setRulesText] = useState(initial.rulesText);
+  const [piggyTargetEnabled, setPiggyTargetEnabled] = useState(initial.piggyTargetEnabled);
+  const [optionsOpen, setOptionsOpen] = useState(Boolean(initial.beneficiaryName || initial.description || initial.rulesEnabled));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  const start = new Date(startDate); const end = new Date(deadline);
+  const start = new Date(startDate);
+  const end = new Date(deadline);
   const freeMaxDate = new Date(start);
   const startDay = freeMaxDate.getDate();
   freeMaxDate.setDate(1);
@@ -325,64 +368,161 @@ function GoalFormModal({ open, onClose, goal }) {
   const totalPayments = Math.max(1, Math.ceil(durationDays / frequencyDays));
   const amountPerPayment = targetAmount ? Math.round(Number(targetAmount) / totalPayments) : 0;
 
-  const onSubmit = async (e) => {
-    e.preventDefault(); setError('');
+  const onSubmit = async (event) => {
+    event.preventDefault();
+    setError('');
     if (!name.trim()) return setError('Le nom est requis.');
-    let payload = { name: name.trim(), type, categoryId };
+
+    let payload = {
+      name: name.trim(),
+      type,
+      categoryId,
+      purposeType,
+      beneficiaryName: beneficiaryName.trim(),
+      beneficiaryRelation: beneficiaryRelation.trim(),
+      description: description.trim(),
+      rulesEnabled,
+      rulesText: rulesEnabled ? rulesText.trim() : '',
+    };
+
     if (type === 'goal') {
       const target = Math.round(Number(targetAmount));
-      if (!target) return setError('Le montant cible est requis.');
+      if (!Number.isSafeInteger(target) || target <= 0) return setError('Le montant cible est requis.');
       if (end <= start) return setError('La date de fin doit être après la date de début.');
-      payload = { ...payload, targetAmount: target, startDate, deadline, frequencyDays, penaltyAmount: Math.max(MIN_PENALTY, Number(penaltyAmount)) };
+      if (frequencyPreset === 'custom' && (!Number.isFinite(Number(frequencyCustom)) || Number(frequencyCustom) < 1)) {
+        return setError('Indique une fréquence de versement valide.');
+      }
+      payload = {
+        ...payload,
+        targetAmount: target,
+        startDate,
+        deadline,
+        frequencyDays,
+        penaltyEnabled,
+        penaltyAmount: penaltyEnabled ? Math.max(MIN_PENALTY, Number(penaltyAmount) || MIN_PENALTY) : 0,
+      };
+    } else {
+      payload.targetAmount = piggyTargetEnabled && Number(targetAmount) > 0 ? Math.round(Number(targetAmount)) : null;
     }
+
     setSaving(true);
     try {
       if (editing) await updateGoal(user.uid, goal.id, payload);
       else await createGoal(user.uid, payload);
       onClose();
-    } catch (err) { setError(err.message || 'Impossible de créer cette épargne.'); } finally { setSaving(false); }
+    } catch (err) {
+      setError(err.message || 'Impossible d’enregistrer cette épargne.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={editing ? "Modifier" : "Nouvelle épargne"} className="max-w-lg">
-      <form onSubmit={onSubmit} className="space-y-4">
+    <Modal open={open} onClose={onClose} title={editing ? "Modifier l’épargne" : "Nouvelle épargne"} className="max-w-xl">
+      <form onSubmit={onSubmit} className="space-y-3">
         {!editing && (
-          <div className="grid grid-cols-2 gap-2 mb-4">
-            <button type="button" onClick={() => setType('goal')} className={`flex flex-col items-center justify-center rounded-xl border p-3 transition ${type === 'goal' ? 'border-brand-500 bg-brand-50' : 'border-slate-200 bg-white hover:bg-slate-50'}`}><Target size={20} className={type === 'goal' ? 'text-brand-600' : 'text-slate-400'} /><span className={`mt-1 text-xs font-bold ${type === 'goal' ? 'text-brand-700' : 'text-slate-600'}`}>Objectif (dates)</span></button>
-            <button type="button" onClick={() => setType('piggybank')} className={`flex flex-col items-center justify-center rounded-xl border p-3 transition ${type === 'piggybank' ? 'border-brand-500 bg-brand-50' : 'border-slate-200 bg-white hover:bg-slate-50'}`}><PiggyBank size={20} className={type === 'piggybank' ? 'text-brand-600' : 'text-slate-400'} /><span className={`mt-1 text-xs font-bold ${type === 'piggybank' ? 'text-brand-700' : 'text-slate-600'}`}>Tirelire (libre)</span></button>
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" onClick={() => setType('goal')} className={`flex min-h-20 flex-col items-center justify-center rounded-xl border p-3 transition ${type === 'goal' ? 'border-brand-500 bg-brand-50' : 'border-slate-200 bg-white hover:bg-slate-50'}`}>
+              <Target size={20} className={type === 'goal' ? 'text-brand-700' : 'text-slate-400'}/>
+              <span className={`mt-1 text-xs font-bold ${type === 'goal' ? 'text-brand-700' : 'text-slate-600'}`}>Objectif avec échéance</span>
+            </button>
+            <button type="button" onClick={() => setType('piggybank')} className={`flex min-h-20 flex-col items-center justify-center rounded-xl border p-3 transition ${type === 'piggybank' ? 'border-brand-500 bg-brand-50' : 'border-slate-200 bg-white hover:bg-slate-50'}`}>
+              <PiggyBank size={20} className={type === 'piggybank' ? 'text-brand-700' : 'text-slate-400'}/>
+              <span className={`mt-1 text-xs font-bold ${type === 'piggybank' ? 'text-brand-700' : 'text-slate-600'}`}>Caisse / tirelire libre</span>
+            </button>
           </div>
         )}
 
-        <Input label="Nom de l'épargne" required value={name} onChange={(e) => setName(e.target.value)} placeholder={type === 'goal' ? "Ex : Acheter un ordinateur" : "Ex : Ma caisse de secours"} />
-        <div><p className="mb-2 text-sm font-medium text-slate-700">Catégorie</p><CategoryManager type="goal" value={categoryId} onChange={setCategoryId} /></div>
+        <Input label="Nom de l’épargne" required value={name} onChange={(event) => setName(event.target.value)} placeholder={type === 'goal' ? 'Ex. Acheter un ordinateur' : 'Ex. Caisse familiale'} />
+        <div><p className="mb-2 text-sm font-medium text-slate-700">Catégorie</p><CategoryManager type="goal" value={categoryId} onChange={setCategoryId}/></div>
+
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50/70">
+          <button type="button" onClick={() => setOptionsOpen((value) => !value)} aria-expanded={optionsOpen} className="flex min-h-12 w-full items-center justify-between gap-3 px-3 py-3 text-left">
+            <span><strong className="block text-sm font-semibold text-slate-800">Personnaliser cette épargne</strong><span className="mt-0.5 block text-xs text-slate-500">Bénéficiaire, raison et règles facultatives</span></span>
+            <ChevronDown size={18} className={'shrink-0 text-slate-500 transition-transform ' + (optionsOpen ? 'rotate-180' : '')}/>
+          </button>
+          {optionsOpen && (
+            <div className="space-y-3 border-t border-slate-200 px-3 pb-3 pt-3">
+              <label className="block text-xs font-semibold text-slate-600">
+                Cette épargne est destinée à…
+                <select value={purposeType} onChange={(event) => setPurposeType(event.target.value)} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100">
+                  <option value="personal">Moi-même</option>
+                  <option value="family">Ma famille / le foyer</option>
+                  <option value="child">Un enfant</option>
+                  <option value="partner">Mon conjoint / ma conjointe</option>
+                  <option value="emergency">Une réserve d’urgence</option>
+                  <option value="project">Un projet précis</option>
+                  <option value="other">Autre personne ou usage</option>
+                </select>
+              </label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Input label="Bénéficiaire (facultatif)" value={beneficiaryName} onChange={(event) => setBeneficiaryName(event.target.value)} placeholder="Nom de la personne"/>
+                <Input label="Lien avec toi (facultatif)" value={beneficiaryRelation} onChange={(event) => setBeneficiaryRelation(event.target.value)} placeholder="Ex. enfant, parent…"/>
+              </div>
+              <label className="block text-xs font-semibold text-slate-600">
+                Description ou objectif personnel (facultatif)
+                <textarea maxLength="500" rows={2} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="À quoi servira cette épargne ? Une précision utile…" className="mt-1.5 w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-normal text-slate-800 outline-none placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-100"/>
+              </label>
+              <label className="flex min-h-11 items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2">
+                <input type="checkbox" checked={rulesEnabled} onChange={(event) => setRulesEnabled(event.target.checked)} className="h-4 w-4 rounded border-slate-300 text-brand-700 focus:ring-brand-500"/>
+                <span><strong className="block text-xs font-semibold text-slate-800">Ajouter des règles ou engagements</strong><span className="text-[10px] text-slate-500">Désactivé par défaut. Tu peux préciser tes propres conditions.</span></span>
+              </label>
+              {rulesEnabled && (
+                <label className="block text-xs font-semibold text-slate-600">
+                  Règles ou engagements facultatifs
+                  <textarea maxLength="1200" rows={3} value={rulesText} onChange={(event) => setRulesText(event.target.value)} placeholder="Ex. contributions prévues, usage réservé à un projet…" className="mt-1.5 w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-normal text-slate-800 outline-none placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-100"/>
+                  <span className="mt-1 block text-[10px] font-normal text-slate-400">Ces règles sont des notes de référence. Pata ne bloque pas automatiquement les retraits en fonction de ce texte.</span>
+                </label>
+              )}
+            </div>
+          )}
+        </section>
 
         {type === 'goal' && (
           <>
-            <Input label="Montant cible (FCFA)" type="number" min="0" required value={targetAmount} onChange={(e) => setTargetAmount(e.target.value)} />
-            <div className="rounded-xl border border-slate-200 p-3 bg-slate-50/50">
-              <p className="mb-2 text-sm font-medium text-slate-700 flex items-center gap-2"><CalendarDays size={16} className="text-brand-600" /> Période</p>
-              <div className="grid grid-cols-2 gap-3"><Input label="Date de début" type="date" required value={startDate} onChange={(e) => setStartDate(e.target.value)} /><Input label="Date de fin" type="date" min={startDate} max={!premiumActive ? deadlineMax : undefined} required value={deadline} onChange={(e) => setDeadline(e.target.value)} /></div>
+            <Input label="Montant cible (FCFA)" type="number" min="1" required value={targetAmount} onChange={(event) => setTargetAmount(event.target.value)}/>
+            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+              <p className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-700"><CalendarDays size={16} className="text-brand-700"/> Période</p>
+              <div className="grid grid-cols-2 gap-3">
+                <Input label="Date de début" type="date" required value={startDate} onChange={(event) => setStartDate(event.target.value)}/>
+                <Input label="Date de fin" type="date" min={startDate} max={!premiumActive ? deadlineMax : undefined} required value={deadline} onChange={(event) => setDeadline(event.target.value)}/>
+              </div>
               <p className="mt-2 text-xs text-slate-500">Durée : <strong className="text-slate-700">{durationDays} jours</strong>. {!premiumActive && <span>Le compte gratuit permet un objectif d’une durée maximale de deux mois.</span>}</p>
             </div>
             <div>
-              <p className="mb-2 text-sm font-medium text-slate-700">Fréquence</p>
-              <div className="flex flex-wrap gap-2">{FREQUENCY_PRESETS.map(({ v, label }) => (<button type="button" key={v} onClick={() => setFrequencyPreset(v)} className={`rounded-full border px-3 py-1 text-xs font-medium ${frequencyPreset === v ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-300 text-slate-700'}`}>{label}</button>))}<button type="button" onClick={() => setFrequencyPreset('custom')} className={`rounded-full border px-3 py-1 text-xs font-medium ${frequencyPreset === 'custom' ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-300 text-slate-700'}`}>Perso.</button></div>
-              {frequencyPreset === 'custom' && <div className="mt-2"><Input label="Tous les X jours" type="number" min="1" value={frequencyCustom} onChange={(e) => setFrequencyCustom(e.target.value)} /></div>}
+              <p className="mb-2 text-sm font-medium text-slate-700">Fréquence des versements</p>
+              <div className="flex flex-wrap gap-2">
+                {FREQUENCY_PRESETS.map(({ v, label }) => <button type="button" key={v} onClick={() => setFrequencyPreset(v)} className={`rounded-full border px-3 py-1.5 text-xs font-medium ${frequencyPreset === v ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-300 bg-white text-slate-700'}`}>{label}</button>)}
+                <button type="button" onClick={() => setFrequencyPreset('custom')} className={`rounded-full border px-3 py-1.5 text-xs font-medium ${frequencyPreset === 'custom' ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-slate-300 bg-white text-slate-700'}`}>Personnalisée</button>
+              </div>
+              {frequencyPreset === 'custom' && <div className="mt-2"><Input label="Tous les X jours" type="number" min="1" value={frequencyCustom} onChange={(event) => setFrequencyCustom(event.target.value)}/></div>}
             </div>
-            <div className="rounded-xl bg-brand-50/50 border border-brand-100 p-3 text-sm"><span className="text-brand-700 font-medium">Aperçu :</span> <span className="text-slate-800 font-bold">{totalPayments} paiements</span> de <strong className="text-brand-700">{formatCurrency(amountPerPayment)}</strong></div>
-            <Input label={`Amende par retard (min. ${formatCurrency(MIN_PENALTY)})`} type="number" min={MIN_PENALTY} value={penaltyAmount} onChange={(e) => setPenaltyAmount(e.target.value)} />
+            <div className="rounded-xl border border-brand-100 bg-brand-50/60 p-3 text-sm"><span className="font-medium text-brand-800">Aperçu : </span><strong className="text-slate-800">{totalPayments} versements de {formatCurrency(amountPerPayment)}</strong></div>
+            <label className="flex min-h-11 items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2">
+              <input type="checkbox" checked={penaltyEnabled} onChange={(event) => setPenaltyEnabled(event.target.checked)} className="h-4 w-4 rounded border-slate-300 text-brand-700 focus:ring-brand-500"/>
+              <span><strong className="block text-xs font-semibold text-slate-800">Activer une pénalité en cas de retard</strong><span className="text-[10px] text-slate-500">Facultatif. Désactivée par défaut pour les nouvelles épargnes.</span></span>
+            </label>
+            {penaltyEnabled && <Input label={`Amende par retard (min. ${formatCurrency(MIN_PENALTY)})`} type="number" min={MIN_PENALTY} value={penaltyAmount} onChange={(event) => setPenaltyAmount(event.target.value)}/>}
           </>
         )}
 
-        {type === 'piggybank' && (<div className="rounded-xl border border-brand-100 bg-brand-50/50 p-4 text-sm text-slate-700"><p className="flex items-center gap-2 font-medium text-brand-700 mb-1"><PiggyBank size={16} /> Mode Tirelire</p><p className="text-xs">Aucun montant fixe, aucune date limite. Dépose ce que tu veux, quand tu veux.</p></div>)}
+        {type === 'piggybank' && (
+          <div className="space-y-3 rounded-xl border border-brand-100 bg-brand-50/50 p-3.5">
+            <div><p className="flex items-center gap-2 text-sm font-semibold text-brand-800"><PiggyBank size={16}/> Mode Caisse / tirelire</p><p className="mt-1 text-xs leading-5 text-slate-600">Dépose ce que tu veux, quand tu veux. Tu peux laisser la caisse sans cible ou définir un montant à atteindre, sans échéance imposée.</p></div>
+            <label className="flex min-h-11 items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2">
+              <input type="checkbox" checked={piggyTargetEnabled} onChange={(event) => setPiggyTargetEnabled(event.target.checked)} className="h-4 w-4 rounded border-slate-300 text-brand-700 focus:ring-brand-500"/>
+              <span><strong className="block text-xs font-semibold text-slate-800">Définir une cible facultative</strong><span className="text-[10px] text-slate-500">Tu peux l’ajouter ou la retirer plus tard.</span></span>
+            </label>
+            {piggyTargetEnabled && <Input label="Montant cible (FCFA)" type="number" min="1" value={targetAmount} onChange={(event) => setTargetAmount(event.target.value)} placeholder="Ex. 100000"/>}
+          </div>
+        )}
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <Button type="submit" className="w-full" disabled={saving}>{saving ? 'Enregistrement…' : editing ? 'Mettre à jour' : "Créer"}</Button>
+        {error && <p role="alert" className="rounded-lg bg-red-50 p-2 text-sm text-red-700">{error}</p>}
+        <Button type="submit" className="w-full" disabled={saving}>{saving ? 'Enregistrement…' : editing ? 'Enregistrer les modifications' : "Créer l’épargne"}</Button>
       </form>
     </Modal>
   );
 }
-
 function GoalCard({ goal, onOpen, onEdit, onAskWithdraw, onTogglePin, onDelete }) {
   const { customCategories } = useCustomCategories('goal');
   const deposits = useDeposits(goal.id);
