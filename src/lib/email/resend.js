@@ -77,7 +77,7 @@ export async function sendPataEmail({ to, subject, html, idempotencyKey }) {
 }
 
 export function welcomeEmail({ name }) {
-  const safeName = escapeEmailHtml(name || 'et bienvenue');
+  const displayName = name || 'et bienvenue';
   const bodyHtml = `
     <p style="margin:0 0 16px;color:#334155;font-size:15px;line-height:1.75;">Ton espace Pata est prêt. Tu peux maintenant organiser ton argent et prendre de meilleures décisions à partir de tes propres données.</p>
     <div style="margin:18px 0;padding:17px 18px;background:#f6f9f7;border:1px solid #e5eee8;border-radius:12px;">
@@ -91,8 +91,21 @@ export function welcomeEmail({ name }) {
       </div>
     </div>
     <p style="margin:0 0 12px;color:#334155;font-size:14px;line-height:1.7;">Tu peux aussi échanger avec <strong>Mč, l’assistante intelligente de Pata</strong>. Elle t’aide à lire tes chiffres, analyser tes dépenses, préparer un budget, réfléchir à ton épargne et répondre à tes questions à partir des informations disponibles dans ton compte.</p>
-    <p style="margin:0;color:#334155;font-size:14px;line-height:1.7;">La version gratuite permet de commencer. Lorsque tu souhaites accéder à davantage de possibilités, tu peux découvrir <a href="${APP_URL}/premium" style="color:#0b5c46;font-weight:700;">Pata Premium</a>.</p>`;
-  return renderPataEmail({ preheader: 'Ton espace personnel est prêt.', eyebrow: 'BIENVENUE SUR PATA', headline: `Bienvenue sur Pata, ${safeName}.`, intro: 'Merci de nous avoir confié une partie de ton organisation financière.', bodyHtml, ctaLabel: 'Accéder à mon tableau de bord', ctaUrl: '/dashboard' });
+    <p style="margin:0;color:#334155;font-size:14px;line-height:1.7;">La version gratuite permet de commencer. Lorsque tu souhaites accéder à davantage de possibilités, tu peux découvrir <a href="${APP_URL}/premium" style="color:#0b5c46;font-weight:700;">Pata Premium</a>.</p>
+    <div style="margin-top:20px;padding-top:16px;border-top:1px solid #e8eeea;">
+      <div style="margin-bottom:10px;color:#475569;font-size:12px;font-weight:700;">Accès rapides à ton espace</div>
+      <table role="presentation" cellspacing="0" cellpadding="0">
+        <tr>
+          <td style="padding:0 7px 7px 0;"><a href="${APP_URL}/expenses" style="display:inline-block;padding:9px 12px;border:1px solid #dbe6df;border-radius:8px;color:#0b5c46;text-decoration:none;font-size:12px;font-weight:700;">Ajouter une dépense</a></td>
+          <td style="padding:0 7px 7px 0;"><a href="${APP_URL}/income" style="display:inline-block;padding:9px 12px;border:1px solid #dbe6df;border-radius:8px;color:#0b5c46;text-decoration:none;font-size:12px;font-weight:700;">Ajouter un revenu</a></td>
+        </tr>
+        <tr>
+          <td style="padding:0 7px 0 0;"><a href="${APP_URL}/goals" style="display:inline-block;padding:9px 12px;border:1px solid #dbe6df;border-radius:8px;color:#0b5c46;text-decoration:none;font-size:12px;font-weight:700;">Mon épargne</a></td>
+          <td style="padding:0 7px 0 0;"><a href="${APP_URL}/reports" style="display:inline-block;padding:9px 12px;border:1px solid #dbe6df;border-radius:8px;color:#0b5c46;text-decoration:none;font-size:12px;font-weight:700;">Mes rapports</a></td>
+        </tr>
+      </table>
+    </div>`;
+  return renderPataEmail({ preheader: 'Ton espace personnel est prêt.', eyebrow: 'BIENVENUE SUR PATA', headline: `Bienvenue sur Pata, ${displayName}.`, intro: 'Merci de nous avoir confié une partie de ton organisation financière.', bodyHtml, ctaLabel: 'Accéder à mon tableau de bord', ctaUrl: '/dashboard' });
 }
 
 export function savingsCreatedEmail({ name, goalName, type, targetAmount, deadline, frequencyDays }) {
@@ -122,5 +135,5 @@ export function pinResetEmail({ code, name }) {
 export function customAdminEmail({ name, headline, body, ctaUrl = '/dashboard', ctaLabel = 'Ouvrir Pata' }) {
   const paragraphs = String(body || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
     .map((line) => `<p style="margin:0 0 13px;color:#334155;font-size:14px;line-height:1.75;">${escapeEmailHtml(line.replaceAll('{nom}', name || ''))}</p>`).join('');
-  return renderPataEmail({ preheader: headline, eyebrow: 'MESSAGE PERSONNEL DE PATA', headline: escapeEmailHtml(headline || 'Un message pour toi'), bodyHtml: paragraphs, ctaLabel, ctaUrl, signoff: 'Avec toute notre considération,<br><strong>L’équipe Pata</strong>' });
+  return renderPataEmail({ preheader: headline, eyebrow: 'MESSAGE PERSONNEL DE PATA', headline: headline || 'Un message pour toi', bodyHtml: paragraphs, ctaLabel, ctaUrl, signoff: 'Avec toute notre considération,<br><strong>L’équipe Pata</strong>' });
 }
