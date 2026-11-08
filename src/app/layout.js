@@ -1,6 +1,7 @@
 import './globals.css';
 import { AppProviders } from './providers';
 import { PWARegister } from '@/components/PWARegister';
+import { PWAInstallPrompt } from '@/components/PWAInstallPrompt';
 
 export const metadata = {
   title: 'Pata — Gère ton argent',
@@ -35,6 +36,7 @@ export default function RootLayout({ children }) {
         <AppProviders>
           {children}
           <PWARegister />
+          <PWAInstallPrompt />
         </AppProviders>
       </body>
     </html>
