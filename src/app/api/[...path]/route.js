@@ -763,7 +763,14 @@ async function handleNotificationScheduler(request) {
         console.error(`[PUSH] Échec utilisateur ${userDoc.id}:`, userError.message);
       }
     }
-    return NextResponse.json({ success: true, date: today, checked: usersSnapshot.size, sent, skipped, failed });
+    // Le planificateur quotidien existant gère également les rappels de cotisation.
+    // Cela évite d'exiger un troisième Cron sur les projets Vercel Hobby.
+    const cotisationResponse = await handleCotisationsScheduler(request);
+    const cotisationSummary = await cotisationResponse.json().catch(() => ({ success: false, error: 'Réponse du planificateur de cotisations illisible.' }));
+    return NextResponse.json({
+      success: true, date: today, checked: usersSnapshot.size, sent, skipped, failed,
+      cotisations: cotisationSummary,
+    });
   } catch (error) {
     console.error('[CRON] Notifications:', error.message);
     return errorResponse('Le rappel quotidien n’a pas pu être exécuté.', 500);
