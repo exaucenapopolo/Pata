@@ -3570,32 +3570,89 @@ async function handleCotisationJoin(request) {
     const groupRef = found.docs[0].ref;
     const group = found.docs[0].data();
     if (group.status !== 'active') return errorResponse('Ce groupe n’accepte plus de membres.', 409);
+    if (group.startedAt) return errorResponse('Cette cotisation a déjà démarré. Les nouvelles adhésions sont fermées.', 409);
     const meta = getCotisationCycleMeta(group);
     const cycleRef = groupRef.collection('cycles').doc(meta.cycleKey);
     const memberRef = groupRef.collection('members').doc(uid);
     const userRef = adminDb.collection('users').doc(uid);
+    const ownerRef = adminDb.collection('users').doc(String(group.ownerId || ''));
     const membershipRef = userRef.collection('cotisationMemberships').doc(groupRef.id);
-    await adminDb.runTransaction(async (transaction) => {
+    const result = await adminDb.runTransaction(async (transaction) => {
       const [freshGroup, existingMember, cycleSnap, userSnap] = await Promise.all([
         transaction.get(groupRef), transaction.get(memberRef), transaction.get(cycleRef), transaction.get(userRef),
       ]);
       if (!freshGroup.exists || !userSnap.exists) throw new Error('Groupe ou profil utilisateur introuvable.');
-      if (existingMember.exists) return;
       const data = freshGroup.data();
-      if (cotisationMoney(data.memberCount) >= cotisationMoney(data.maxMembers || 50)) throw new Error('Ce groupe a atteint sa capacité maximale de 50 membres.');
+      if (data.startedAt) throw new Error('Le chef a déjà lancé cette cotisation. Les adhésions sont fermées.');
+      if (existingMember.exists) return {
+        alreadyJoined: true,
+        position: Number(existingMember.data()?.turnOrder) || null,
+        user: userSnap.data(),
+      };
+      const expectedMembers = cotisationMoney(data.expectedMembers || data.maxMembers || 50);
+      const memberCount = cotisationMoney(data.memberCount);
+      if (memberCount >= expectedMembers) throw new Error('Le nombre de participants prévu est déjà atteint.');
       if (data.membershipLockedCycle === meta.cycleKey || cotisationMoney(cycleSnap.data()?.totalCollected) > 0) {
-        throw new Error('Les cotisations de cette période ont déjà commencé. Rejoins le groupe au prochain cycle.');
+        throw new Error('Les versements de cette période ont déjà commencé. Contacte le chef du groupe.');
       }
       const user = userSnap.data();
+      const position = memberCount + 1;
       transaction.create(memberRef, {
-        uid, displayName: String(user.displayName || 'Membre').slice(0, 100),
-        email: String(user.email || '').slice(0, 180), isOwner: false,
-        turnOrder: cotisationMoney(data.memberCount), joinedAt: FieldValue.serverTimestamp(), active: true,
+        uid,
+        displayName: String(user.displayName || 'Membre').slice(0, 100),
+        email: String(user.email || '').slice(0, 180),
+        isOwner: false, turnOrder: position,
+        joinedAt: FieldValue.serverTimestamp(), active: true,
       });
       transaction.create(membershipRef, { groupId: groupRef.id, name: data.name, joinedAt: FieldValue.serverTimestamp() });
-      transaction.update(groupRef, { memberCount: cotisationMoney(data.memberCount) + 1, updatedAt: FieldValue.serverTimestamp() });
+      transaction.update(groupRef, { memberCount: memberCount + 1, updatedAt: FieldValue.serverTimestamp() });
+      return { alreadyJoined: false, position, user };
     });
-    return NextResponse.json({ success: true, groupId: groupRef.id, message: 'Tu as rejoint le groupe de cotisation.' });
+    const ownerSnap = await ownerRef.get().catch(() => null);
+    const ownerName = String(ownerSnap?.data()?.displayName || 'Chef du groupe');
+    const ownerEmail = String(ownerSnap?.data()?.email || '');
+    const joinerName = String(result.user?.displayName || 'Membre');
+    const joinerEmail = String(result.user?.email || '');
+    const dueLabel = group.frequency === 'monthly' ? 'Le ' + (group.dueDay || 'jour défini') + ' de chaque mois' : group.frequency === 'weekly' ? 'Tous les 7 jours' : 'Chaque jour';
+    let emailSent = false;
+    if (!result.alreadyJoined && joinerEmail.includes('@')) {
+      try {
+        await sendPataEmail({
+          to: joinerEmail,
+          subject: 'Ton adhésion au groupe « ' + String(group.name || 'Cotisation') + ' » est confirmée',
+          html: cotisationJoinedEmail({
+            name: joinerName, groupName: group.name, ownerName,
+            contributionAmount: group.contributionAmount,
+            frequency: cotisationFrequencyLabel(group.frequency),
+            position: result.position, expectedMembers: group.expectedMembers || group.maxMembers,
+            dueLabel,
+          }),
+          idempotencyKey: 'pata-cotisation-joined-' + groupRef.id + '-' + uid,
+        });
+        emailSent = true;
+      } catch (emailError) {
+        console.error('[COTISATION JOINED EMAIL]', emailError.message || emailError);
+      }
+    }
+    if (!result.alreadyJoined && ownerEmail.includes('@')) {
+      await sendPataEmail({
+        to: ownerEmail,
+        subject: 'Un nouveau membre a rejoint « ' + String(group.name || 'ta cotisation') + ' »',
+        html: cotisationJoinedEmail({
+          name: ownerName, groupName: group.name, ownerName,
+          contributionAmount: group.contributionAmount,
+          frequency: cotisationFrequencyLabel(group.frequency),
+          position: result.position, expectedMembers: group.expectedMembers || group.maxMembers,
+          dueLabel,
+        }),
+        idempotencyKey: 'pata-cotisation-owner-joined-' + groupRef.id + '-' + uid,
+      }).catch((emailError) => console.warn('[COTISATION OWNER EMAIL]', emailError.message || emailError));
+    }
+    return NextResponse.json({
+      success: true, groupId: groupRef.id, alreadyJoined: result.alreadyJoined,
+      position: result.position, emailSent,
+      message: result.alreadyJoined ? 'Tu fais déjà partie de ce groupe.' : 'Tu as rejoint le groupe. Un e-mail de confirmation a été envoyé si une adresse est associée à ton compte.',
+    });
   } catch (error) { return errorResponse(error.message || 'Impossible de rejoindre ce groupe.', 400); }
 }
 
