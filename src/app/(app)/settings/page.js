@@ -19,6 +19,7 @@ import { subscribeAutomations } from '@/lib/firestore/automations';
 import { useAllBudgets } from '@/hooks/useAllBudgets';
 import { convertCurrencyAmount, formatCurrency, getPreferredCurrencyCode } from '@/lib/utils';
 import { NotificationSettings } from '@/components/NotificationSettings';
+import { PinSecuritySettings } from '@/components/security/PinSecuritySettings';
 
 export default function SettingsPage() {
   const { user, logout } = useAuth();
