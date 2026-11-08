@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { BrainCircuit } from 'lucide-react';
 import { AssistantChat } from './AssistantChat';
 
-export function AssistantButton() {
+export function AssistantButton({ showLauncher = true }) {
   const [open, setOpen] = useState(false);
   const [initialPrompt, setInitialPrompt] = useState('');
 
@@ -19,6 +19,7 @@ export function AssistantButton() {
 
   return (
     <>
+      {showLauncher && (
       <button
         onClick={() => setOpen(true)}
         className="fixed bottom-[calc(5.75rem+env(safe-area-inset-bottom))] right-4 z-40 flex h-12 w-12 items-center justify-center rounded-2xl border border-brand-800/10 bg-[#075b43] text-white shadow-lg shadow-emerald-950/20 transition hover:bg-[#064b38] active:scale-95 sm:h-14 sm:w-14 lg:bottom-8 md:right-8"
@@ -30,6 +31,7 @@ export function AssistantButton() {
           <span className="relative inline-flex rounded-full h-3 w-3 bg-brand-500"></span>
         </span>
       </button>
+      )}
       <AssistantChat open={open} initialPrompt={initialPrompt} onClose={() => { setOpen(false); setInitialPrompt(''); }} />
     </>
   );
