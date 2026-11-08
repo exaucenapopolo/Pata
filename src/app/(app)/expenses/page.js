@@ -18,6 +18,7 @@ import { createExpense, updateExpense, deleteExpense } from '@/lib/firestore/exp
 import { createAutomation } from '@/lib/firestore/automations';
 import { formatCurrency, formatDate, resolveCategory, getFirstOfMonth, getLastOfMonth, getLocalMonth } from '@/lib/utils';
 import { OptionalTransactionFields } from '@/components/transactions/OptionalTransactionFields';
+import { AssistantShortcut } from '@/components/ai/AssistantShortcut';
 
 const todayIso = () => {
   const d = new Date();
@@ -250,9 +251,12 @@ export default function ExpensesPage() {
             Total affiché : <span className="font-semibold text-slate-800">{formatCurrency(total)}</span>
           </p>
         </div>
-        <Button onClick={openNew} className="shadow-sm">
-          <Plus size={16} /> Nouvelle dépense
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <AssistantShortcut label="Analyser mes dépenses" prompt="Analyse mes dépenses enregistrées dans Pata. Mets en évidence les catégories qui pèsent le plus, les évolutions utiles et les pistes réalistes pour mieux gérer mon argent. Ne modifie aucune opération sans me demander confirmation." />
+          <Button onClick={openNew} className="shadow-sm">
+            <Plus size={16} /> Nouvelle dépense
+          </Button>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-3 bg-white p-3 rounded-xl border border-slate-200">
