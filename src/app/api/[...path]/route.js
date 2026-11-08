@@ -680,8 +680,8 @@ async function handleNotificationScheduler(request) {
           userDoc.ref.collection('automations').get(),
           userDoc.ref.collection('goals').limit(20).get(),
         ]);
-        const todayExpenses = todayExpensesSnap.docs.map((doc) => doc.data());
-        const monthExpenses = monthExpensesSnap.docs.map((doc) => doc.data());
+        const todayExpenses = todayExpensesSnap.docs.map((doc) => doc.data()).filter((item) => !item.expenseType || item.expenseType === 'consumption');
+        const monthExpenses = monthExpensesSnap.docs.map((doc) => doc.data()).filter((item) => !item.expenseType || item.expenseType === 'consumption');
         const totalToday = todayExpenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
         const categoryTotals = {};
         monthExpenses.forEach((item) => { categoryTotals[item.categoryId || 'other'] = (categoryTotals[item.categoryId || 'other'] || 0) + (Number(item.amount) || 0); });
@@ -698,6 +698,7 @@ async function handleNotificationScheduler(request) {
           return lastRunDay === today;
         });
         const automationIssues = runsToday.filter((item) => ['SKIPPED', 'ERROR'].includes(String(item.lastRunStatus || '').toUpperCase()));
+        const topCategory = Object.entries(categoryTotals).sort((left, right) => right[1] - left[1])[0] || null;
         const automationRuns = runsToday.filter((item) => item.lastRunStatus === 'EXECUTED');
         const savingsReminders = [];
         for (const goalDoc of goalsSnap.docs) {
@@ -733,6 +734,12 @@ async function handleNotificationScheduler(request) {
           title = 'Ton épargne attend ton prochain versement';
           body = `Tu avais prévu d’alimenter « ${goal.name} » tous les ${goal.frequencyDays} jour(s). Ton dernier versement remonte à ${goal.daysSinceDeposit} jour(s). Même un petit montant peut t’aider à garder le rythme.`;
           target = '/goals';
+        } else if (topCategory && monthExpenses.length) {
+          const labels = { food: 'Alimentation', transport: 'Transport', housing: 'Logement', internet: 'Internet', health: 'Santé', leisure: 'Loisirs', investment: 'Investissement', contribution: 'Cotisations', savings: 'Épargne', other: 'Autres' };
+          const categoryName = labels[topCategory[0]] || 'une catégorie';
+          title = 'Un aperçu de tes dépenses du mois';
+          body = `Ta catégorie la plus élevée est ${categoryName.toLowerCase()} avec ${Number(topCategory[1]).toLocaleString('fr-FR')} FCFA enregistrés. Consulte ton analyse pour voir comment cette catégorie évolue et ajuster ton budget si nécessaire.`;
+          target = '/reports';
         } else if (automationRuns.length) {
           title = 'Tes opérations programmées';
           body = `${automationRuns.length} opération(s) programmée(s) ont été exécutée(s) aujourd’hui. Consulte les dépenses enregistrées dans Pata.`;
@@ -2854,7 +2861,7 @@ async function handleAdminApproveWithdrawal(request) {
     const apiKey = process.env.FAPSHI_PAYOUT_SECRET_KEY;
     if (!apiUser || !apiKey) {
       await requestRef.update({ status: 'PENDING_REVIEW', adminNote: 'Le service de paiement des retraits n’est pas configuré.' });
-      return errorResponse('Le service de retrait n’est pas encore configuré. Les clés de retrait Fapshi sont distinctes des clés de dépôt.', 503);
+      return errorResponse('Le service de retrait n’est pas encore disponible. Contacte l’assistance pour plus d’informations.', 503);
     }
     const baseUrl = String(process.env.FAPSHI_PAYOUT_BASE_URL || 'https://sandbox.fapshi.com').replace(/\/$/, '');
     if (!['https://sandbox.fapshi.com', 'https://live.fapshi.com'].includes(baseUrl)) {
@@ -3588,11 +3595,11 @@ function validateCotisationProviderPayment(providerResponse, payment, transId) {
   }
   const externalId = data?.externalId || data?.external_id;
   if (externalId && payment.reservationId && String(externalId) !== String(payment.reservationId)) {
-    throw new Error('La référence externe Fapshi ne correspond pas à cette réservation de cotisation.');
+    throw new Error('La référence de paiement ne correspond pas à cette réservation de cotisation.');
   }
   const providerUserId = data?.userId || data?.user_id;
   if (providerUserId && String(providerUserId) !== String(payment.userId)) {
-    throw new Error('Le compte associé à la transaction Fapshi ne correspond pas au membre concerné.');
+    throw new Error('Le compte associé à ce paiement ne correspond pas au membre concerné.');
   }
   return data;
 }
@@ -4561,7 +4568,7 @@ async function handleCotisationPay(request) {
       const fee = Math.round((amount + penaltyAmount) * 0.05);
       const grossAmount = amount + penaltyAmount + fee;
       if (cotisationMoney(cycleSnap.data()?.targetAmount || cycleSnap.data()?.baseTargetAmount) + penaltyAmount > 500000) {
-        throw new Error('Cette majoration ferait dépasser la limite actuelle de retrait Fapshi de 500 000 FCFA.');
+        throw new Error('Cette majoration ferait dépasser la limite autorisée de retrait de 500 000 FCFA.');
       }
       transaction.update(memberRef, {
         pendingPaymentId: reservationId, pendingPaymentAmount: amount + penaltyAmount,
