@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Download, LogOut, Settings, X } from 'lucide-react';
+import { Download, LogOut, Settings, X, User } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
 
@@ -64,8 +64,8 @@ export function Header() {
               <Download size={15}/><span className="hidden sm:inline">Installer</span>
             </button>
           )}
-          <button type="button" onClick={() => setOpen((value) => !value)} className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white shadow-sm transition hover:border-brand-300" aria-label="Ouvrir mon profil" aria-expanded={open}>
-            <img src="/android-chrome-192x192.png" alt="Profil Pata" className="h-full w-full object-contain p-0.5" />
+          <button type="button" onClick={() => setOpen((value) => !value)} className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50" aria-label="Ouvrir mon profil" aria-expanded={open}>
+            <User size={19} strokeWidth={2}/>
           </button>
           {open && (
             <>
