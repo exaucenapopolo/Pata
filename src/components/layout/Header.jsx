@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Download, LogOut, Settings, X, User } from 'lucide-react';
+import { Download, LogOut, Settings, X, User, HelpCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
 
@@ -76,6 +76,7 @@ export function Header() {
                   <p className="mt-0.5 truncate text-xs text-slate-500">{user && user.email}</p>
                 </div>
                 <Link href="/settings" onClick={() => setOpen(false)} className="flex min-h-10 items-center gap-2 rounded-xl px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"><Settings size={16}/> Paramètres du compte</Link>
+                <Link href="/support" onClick={() => setOpen(false)} className="flex min-h-10 items-center gap-2 rounded-xl px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"><HelpCircle size={16}/> Assistance · +1 (242) 454-2961</Link>
                 <button type="button" onClick={handleLogout} className="mt-1 flex min-h-10 w-full items-center gap-2 rounded-xl px-3 text-sm font-semibold text-red-700 hover:bg-red-50"><LogOut size={16}/> Se déconnecter</button>
               </div>
             </>
