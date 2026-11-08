@@ -4289,11 +4289,18 @@ async function handleCotisationsScheduler(request) {
         if (members.length < 2) continue;
 
         const beneficiary = members[meta.cycleIndex % members.length];
-        if (beneficiary?.email && String(beneficiary.email).includes('@')) {
-          const turnRef = groupDoc.ref.collection('turnNotifications').doc(meta.cycleKey);
-          const claimed = await claimMessage(turnRef);
-          if (claimed) {
-            try {
+        const turnRef = groupDoc.ref.collection('turnNotifications').doc(meta.cycleKey);
+        const claimed = await claimMessage(turnRef);
+        if (claimed) {
+          try {
+            await adminDb.collection('users').doc(beneficiary.uid).collection('notifications').doc('cotisation-turn-' + group.id + '-' + meta.cycleKey).set({
+              title: 'C’est ton tour de recevoir la cotisation',
+              body: 'Le groupe ' + group.name + ' t’a désigné comme bénéficiaire de cette période. Tu dois aussi verser ta propre contribution.',
+              target: '/cotisations', source: 'cotisation', read: false, readAt: null,
+              createdAt: FieldValue.serverTimestamp(),
+            }, { merge: true });
+            let emailSent = false;
+            if (beneficiary.email && String(beneficiary.email).includes('@')) {
               await sendPataEmail({
                 to: beneficiary.email,
                 subject: 'Ton tour est arrivé dans « ' + String(group.name || 'ta cotisation') + ' »',
@@ -4309,15 +4316,16 @@ async function handleCotisationsScheduler(request) {
                 }),
                 idempotencyKey: 'pata-cotisation-turn-' + group.id + '-' + meta.cycleKey + '-' + beneficiary.uid,
               });
-              await groupDoc.ref.collection('turnNotifications').doc(meta.cycleKey).set({
-                status: 'SENT', beneficiaryUid: beneficiary.uid,
-                sentAt: FieldValue.serverTimestamp(),
-              }, { merge: true });
+              emailSent = true;
               totals.turnEmails += 1;
-            } catch (emailError) {
-              await turnRef.set({ status: 'FAILED', error: String(emailError.message || emailError).slice(0, 300) }, { merge: true });
-              throw emailError;
             }
+            await turnRef.set({
+              status: 'SENT', beneficiaryUid: beneficiary.uid, emailSent,
+              sentAt: FieldValue.serverTimestamp(),
+            }, { merge: true });
+          } catch (emailError) {
+            await turnRef.set({ status: 'FAILED', error: String(emailError.message || emailError).slice(0, 300) }, { merge: true });
+            throw emailError;
           }
         }
 
