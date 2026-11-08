@@ -12,6 +12,7 @@ import { Card, CardTitle, CardValue } from '@/components/ui/Card';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { CategoryImage } from '@/components/ui/CategoryImage';
+import { AssistantShortcut } from '@/components/ai/AssistantShortcut';
 import { useIncomes } from '@/hooks/useIncomes';
 import { useExpenses } from '@/hooks/useExpenses';
 import { useGoals } from '@/hooks/useGoals';
@@ -131,7 +132,10 @@ export default function DashboardPage() {
         <div className="pointer-events-none absolute -bottom-20 right-24 h-40 w-40 rounded-full border-[20px] border-white/5" />
         <div className="relative flex flex-wrap items-start justify-between gap-4">
           <div><p className="text-xs font-semibold tracking-wide text-emerald-100">TON ESPACE FINANCIER</p><h1 className="mt-2 text-xl font-bold tracking-tight sm:text-2xl">Bonjour {userName}</h1><p className="mt-1 max-w-sm text-xs leading-5 text-emerald-100 sm:text-sm">Voici ce qui se passe dans tes finances. Garde une vue claire sur ton argent.</p></div>
-          <Link href="/reports" className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-white/20 bg-white/10 px-3 text-xs font-semibold text-white transition hover:bg-white/15">Voir mon bilan <ChevronRight size={14}/></Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <AssistantShortcut label="Conseil personnalisé" prompt="Fais un bilan de ma situation financière à partir des informations de mon tableau de bord Pata. Explique les points forts, les risques et trois actions prioritaires adaptées à mes revenus, dépenses, budgets et objectifs. Ne modifie aucune donnée." />
+            <Link href="/reports" className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-white/20 bg-white/10 px-3 text-xs font-semibold text-white transition hover:bg-white/15">Voir mon bilan <ChevronRight size={14}/></Link>
+          </div>
         </div>
         <div className="relative mt-6 border-t border-white/15 pt-4"><p className="text-[11px] font-medium text-emerald-100">Solde global enregistré</p><p className="mt-1 break-words text-3xl font-bold tracking-tight sm:text-4xl">{formatCurrency(globalBalance)}</p><p className="mt-2 text-[10px] text-emerald-100">Total des revenus moins le total des dépenses enregistrées.</p></div>
       </section>
