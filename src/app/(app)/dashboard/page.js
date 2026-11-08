@@ -133,6 +133,14 @@ export default function DashboardPage() {
 
   const periodIncomeTotal = periodIncomes.reduce((s, i) => s + (i.amount || 0), 0);
   const periodExpenseTotal = periodExpenses.reduce((s, e) => s + (e.amount || 0), 0);
+  const getExpenseType = (expense) => ['consumption', 'project', 'savings', 'investment'].includes(expense.expenseType)
+    ? expense.expenseType : 'consumption';
+  const periodTypeTotals = periodExpenses.reduce((totals, expense) => {
+    totals[getExpenseType(expense)] += Number(expense.amount) || 0;
+    return totals;
+  }, { consumption: 0, project: 0, savings: 0, investment: 0 });
+  const periodConsumptionExpenses = useMemo(() => periodExpenses.filter((expense) => getExpenseType(expense) === 'consumption'), [periodExpenses]);
+  const previousConsumptionExpenses = useMemo(() => prevExpenses.filter((expense) => getExpenseType(expense) === 'consumption'), [prevExpenses]);
   const incomeById = useMemo(() => new Map(incomes.map((income) => [income.id, income])), [incomes]);
   const previousIncomeSpend = useMemo(() => periodExpenses.reduce((sum, expense) => {
     const source = incomeById.get(expense.incomeSourceId);
@@ -144,7 +152,7 @@ export default function DashboardPage() {
 
   const byCategory = useMemo(() => {
     const map = {};
-    periodExpenses.forEach((e) => {
+    periodConsumptionExpenses.forEach((e) => {
       map[e.categoryId] = (map[e.categoryId] || 0) + (e.amount || 0);
     });
     return Object.entries(map)
@@ -153,12 +161,12 @@ export default function DashboardPage() {
         return { id, name: cat?.label || id, value, color: cat?.color || '#94a3b8' };
       })
       .sort((a, b) => b.value - a.value);
-  }, [periodExpenses, customCategories]);
+  }, [periodConsumptionExpenses, customCategories]);
 
   const advices = useMemo(
     () => generateAdvice({
-      expenses: periodExpenses,
-      previousExpenses: prevExpenses,
+      expenses: periodConsumptionExpenses,
+      previousExpenses: previousConsumptionExpenses,
       totalIncome: periodIncomeTotal,
       previousIncome: prevTotalIncome,
       previousIncomeSpend,
@@ -166,7 +174,7 @@ export default function DashboardPage() {
       customCategories,
       userName,
     }),
-    [periodExpenses, prevExpenses, periodIncomeTotal, prevTotalIncome, goals, customCategories, userName]
+    [periodConsumptionExpenses, previousConsumptionExpenses, periodIncomeTotal, prevTotalIncome, goals, customCategories, userName]
   );
 
   const topExpenses = useMemo(() => {
@@ -276,7 +284,7 @@ export default function DashboardPage() {
         <Card>
           <div className="flex items-center gap-2 text-red-500">
             <TrendingDown size={16} />
-            <CardTitle className="text-red-500">Dépenses</CardTitle>
+            <CardTitle className="text-red-500">Toutes les sorties</CardTitle>
           </div>
           <CardValue>{formatCurrency(periodExpenseTotal)}</CardValue>
           {expenseChange !== null && (
@@ -302,9 +310,18 @@ export default function DashboardPage() {
           </div>
           <CardValue>{formatCurrency(previousIncomeSpend)}</CardValue>
           <p className="mt-1 text-xs leading-5 text-slate-500">
-            Dépenses de la période financées par des revenus reçus avant cette période.
+            Sorties de la période financées par des revenus reçus avant cette période.
           </p>
         </Card>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {[
+          ['Dépenses courantes', periodTypeTotals.consumption],
+          ['Projets', periodTypeTotals.project],
+          ['Épargne', periodTypeTotals.savings],
+          ['Investissements', periodTypeTotals.investment],
+        ].map(([label, amount]) => <Card key={label}><p className="text-xs font-medium text-slate-500">{label}</p><p className="mt-2 text-lg font-bold text-slate-900">{formatCurrency(amount)}</p></Card>)}
       </div>
 
       {previousIncomeSpend > 0 && (
@@ -341,13 +358,13 @@ export default function DashboardPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <div className="mb-4 flex items-center justify-between">
-            <CardTitle>Répartition des dépenses</CardTitle>
+            <CardTitle>Consommation courante par catégorie</CardTitle>
             <Link href="/expenses" className="flex items-center text-xs font-medium text-brand-600 hover:underline">
               Voir tout <ChevronRight size={14} />
             </Link>
           </div>
           {byCategory.length === 0 ? (
-            <EmptyState icon={Wallet} title="Aucune dépense sur cette période" description="Ajuste les dates ou ajoute une dépense." />
+            <EmptyState icon={Wallet} title="Aucune dépense courante sur cette période" description="Les projets, l’épargne et les investissements sont suivis séparément." />
           ) : (
             <>
               <div className="h-56">
@@ -410,13 +427,13 @@ export default function DashboardPage() {
 
       <Card>
         <div className="mb-4 flex items-center justify-between">
-          <CardTitle>Dépenses les plus élevées</CardTitle>
+          <CardTitle>Sorties d’argent les plus élevées</CardTitle>
           <Link href="/expenses" className="flex items-center text-xs font-medium text-brand-600 hover:underline">
             Tout voir <ChevronRight size={14} />
           </Link>
         </div>
         {topExpenses.length === 0 ? (
-          <EmptyState icon={Wallet} title="Aucune dépense sur cette période" />
+          <EmptyState icon={Wallet} title="Aucune sortie sur cette période" />
         ) : (
           <ul className="divide-y divide-slate-100">
             {topExpenses.map((e) => {
@@ -427,7 +444,7 @@ export default function DashboardPage() {
                     <CategoryImage categoryId={e.categoryId} image={cat?.image} size="sm" />
                     <div>
                       <p className="text-sm font-semibold text-slate-800">{cat?.label || 'Autre'}</p>
-                      <p className="text-xs text-slate-500">{formatDate(e.date)}</p>
+                      <p className="text-xs text-slate-500">{formatDate(e.date)} · {({ consumption: 'Dépense courante', project: 'Projet', savings: 'Épargne', investment: 'Investissement' })[getExpenseType(e)]}</p>
                     </div>
                   </div>
                   <div className="text-right">
