@@ -81,7 +81,7 @@ export function computeGoalPlan(goal, deposits = [], today = new Date()) {
       date: String(deposit.date || (deposit.createdAt?.toDate ? deposit.createdAt.toDate().toISOString().slice(0, 10) : '')).slice(0, 10),
       amount: Math.max(0, Number(deposit.amount) || 0),
     }))
-    .filter((deposit) => /^\\d{4}-\\d{2}-\\d{2}$/.test(deposit.date) && deposit.amount > 0)
+    .filter((deposit) => /^\d{4}-\d{2}-\d{2}$/.test(deposit.date) && deposit.amount > 0)
     .sort((a, b) => a.date.localeCompare(b.date));
 
   // Une échéance manquée reste comptée même si l'utilisateur rattrape ensuite
