@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Download, LogOut, Settings, User, X } from 'lucide-react';
+import { Download, LogOut, Settings, X } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
 
@@ -51,8 +51,7 @@ export function Header() {
       <header className="sticky top-0 z-40 flex h-[68px] shrink-0 items-center justify-between border-b border-slate-200/80 bg-white/95 px-4 backdrop-blur-xl sm:px-6 lg:h-[72px] lg:px-8">
         <div className="lg:hidden">
           <Link href="/dashboard" className="flex items-center gap-2" aria-label="Pata, accueil">
-            <img src="/android-chrome-192x192.png" alt="" className="h-9 w-9 rounded-xl object-cover" />
-            <span className="text-[25px] font-bold tracking-[-0.07em] text-[#075b43]">pata</span>
+            <img src="/android-chrome-192x192.png" alt="Pata" className="h-10 w-10 rounded-xl object-contain" />
           </Link>
         </div>
         <div className="hidden min-w-0 lg:block">
@@ -65,8 +64,8 @@ export function Header() {
               <Download size={15}/><span className="hidden sm:inline">Installer</span>
             </button>
           )}
-          <button type="button" onClick={() => setOpen((value) => !value)} className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-slate-700 transition hover:bg-slate-100" aria-label="Menu utilisateur" aria-expanded={open}>
-            <User size={18}/>
+          <button type="button" onClick={() => setOpen((value) => !value)} className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white shadow-sm transition hover:border-brand-300" aria-label="Ouvrir mon profil" aria-expanded={open}>
+            <img src="/android-chrome-192x192.png" alt="Profil Pata" className="h-full w-full object-contain p-0.5" />
           </button>
           {open && (
             <>
