@@ -141,7 +141,7 @@ export default function ReportsPage() {
     while (start <= end && result.length < 36) { result.push(`${start.getFullYear()}-${String(start.getMonth()+1).padStart(2,'0')}`); start.setMonth(start.getMonth()+1); }
     return result;
   }, [range, rangeValid]);
-  const periodBudgets = budgets.filter((item) => periodMonths.includes(item.month));
+  const periodBudgets = budgets.filter((item) => periodMonths.includes(item.month) && Number(item.amount) > 0);
   const budgetAnalysis = useMemo(() => periodBudgets.map((budget) => {
     const category = resolveCategory(budget.categoryId, 'expense', customCategories);
     const spent = periodExpenses.filter((expense) => expense.categoryId === budget.categoryId && periodMonths.includes(expense.date?.slice(0,7)) && (budget.incomeSourceId === 'all' || !budget.incomeSourceId || expense.incomeSourceId === budget.incomeSourceId)).reduce((sum, expense) => sum + (Number(expense.amount)||0), 0);
