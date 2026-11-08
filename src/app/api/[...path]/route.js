@@ -3430,23 +3430,33 @@ async function handleCotisationsList(request) {
       });
       const turnMember = members.length ? members[meta.cycleIndex % members.length] : null;
       const contributionAmount = cotisationMoney(group.contributionAmount);
-      const targetAmount = cotisationMoney(cycleSnap.data()?.targetAmount) || contributionAmount * members.length;
+      const expectedMembers = cotisationMoney(group.expectedMembers || group.maxMembers || members.length);
+      const baseTarget = cotisationMoney(cycleSnap.data()?.baseTargetAmount) || contributionAmount * expectedMembers;
       const totalCollected = cotisationMoney(cycleSnap.data()?.totalCollected);
+      const targetAmount = cotisationMoney(cycleSnap.data()?.targetAmount) || baseTarget;
       const memberRows = members.map((member) => {
-        const paid = cotisationMoney(contributions.get(member.uid)?.amount);
+        const data = contributions.get(member.uid) || {};
+        const principalPaid = cotisationMoney(data.amount);
+        const penaltyPaid = cotisationMoney(data.penaltyPaid);
         // Ne jamais exposer les e-mails ni les jetons de paiement internes aux autres membres.
         return {
           uid: member.uid,
           displayName: member.displayName || 'Membre',
           isOwner: member.isOwner === true,
           turnOrder: cotisationMoney(member.turnOrder),
-          paid,
-          remaining: Math.max(0, contributionAmount - paid),
+          paid: principalPaid + penaltyPaid,
+          principalPaid,
+          penaltyPaid,
+          remaining: Math.max(0, contributionAmount - principalPaid),
           installments: paymentCounts.get(member.uid) || 0,
         };
       });
-      const myPaid = cotisationMoney(contributions.get(uid)?.amount);
-      const cycleStatus = cycleSnap.data()?.status || (totalCollected >= targetAmount && targetAmount > 0 ? 'READY' : 'OPEN');
+      const myContribution = contributions.get(uid) || {};
+      const myPaid = cotisationMoney(myContribution.amount);
+      const myPenaltyPaid = cotisationMoney(myContribution.penaltyPaid);
+      const cycleStatus = !group.startedAt ? 'NOT_STARTED' : cycleSnap.data()?.status || (totalCollected >= targetAmount && targetAmount > 0 ? 'READY' : 'OPEN');
+      const lateFeeDue = group.startedAt && cotisationIsLate(group, meta) && myPaid < contributionAmount && !myPenaltyPaid
+        ? cotisationLateFee(group) : 0;
       const myMember = members.find((member) => member.uid === uid);
       let myMemberPendingPayment = null;
       if (myMember?.pendingPaymentTransId) {
@@ -3455,22 +3465,31 @@ async function handleCotisationsList(request) {
           const payment = pendingSnap.data();
           myMemberPendingPayment = {
             transId: payment.transId, checkoutUrl: payment.checkoutUrl,
-            amount: cotisationMoney(payment.amount), fee: cotisationMoney(payment.fee),
-            grossAmount: cotisationMoney(payment.grossAmount),
+            amount: cotisationMoney(payment.amount), penaltyAmount: cotisationMoney(payment.penaltyAmount),
+            fee: cotisationMoney(payment.fee), grossAmount: cotisationMoney(payment.grossAmount),
           };
         }
       }
       return {
         id: groupRef.id, name: group.name, ownerId: group.ownerId, isOwner: group.ownerId === uid,
         contributionAmount, frequency: group.frequency, startDate: group.startDate, status: group.status || 'active',
+        dueDay: group.dueDay || null, expectedMembers, graceDays: cotisationMoney(group.graceDays),
+        lateFeeType: group.lateFeeType || 'none', lateFeeValue: cotisationMoney(group.lateFeeValue),
+        lateFeeLabel: cotisationPenaltyLabel(group), startedAt: Boolean(group.startedAt),
         inviteToken: group.ownerId === uid ? group.inviteToken : null,
-        members: memberRows, memberCount: members.length, maxMembers: cotisationMoney(group.maxMembers) || 50,
+        members: memberRows, memberCount: members.length, maxMembers: expectedMembers,
+        canStart: group.ownerId === uid && !group.startedAt && members.length >= 2 && members.length === expectedMembers,
         currentCycle: {
-          ...meta, targetAmount, totalCollected, remainingTotal: Math.max(0, targetAmount - totalCollected),
+          ...meta, targetAmount, baseTarget, totalCollected, remainingTotal: Math.max(0, targetAmount - totalCollected),
           status: cycleStatus, pendingPayment: myMemberPendingPayment, beneficiaryUid: turnMember?.uid || null,
-          beneficiaryName: turnMember?.displayName || 'Membre', isMyTurn: turnMember?.uid === uid,
-          myPaid, myRemaining: Math.max(0, contributionAmount - myPaid),
-          canWithdraw: turnMember?.uid === uid && targetAmount > 0 && totalCollected >= targetAmount && ['READY', 'OPEN'].includes(cycleStatus),
+          beneficiaryName: turnMember?.displayName || 'Membre', beneficiaryPosition: turnMember?.turnOrder || null,
+          isMyTurn: turnMember?.uid === uid,
+          myPaid: myPaid + myPenaltyPaid,
+          myPrincipalPaid: myPaid, myPenaltyPaid,
+          myRemaining: Math.max(0, contributionAmount - myPaid),
+          lateFeeDue,
+          myTotalToPay: Math.max(0, contributionAmount - myPaid) + lateFeeDue,
+          canWithdraw: Boolean(group.startedAt) && turnMember?.uid === uid && targetAmount > 0 && totalCollected >= targetAmount && ['READY', 'OPEN'].includes(cycleStatus),
         },
       };
     }));
