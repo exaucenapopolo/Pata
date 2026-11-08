@@ -42,6 +42,31 @@ const asPositiveMoney = (value, label = 'Montant') => {
 };
 
 const cleanText = (value, max = 180) => String(value ?? '').trim().slice(0, max);
+function readOptionalTransactionMetadata(input = {}, previous = {}) {
+  const rawTime = input.time === undefined ? previous.time : input.time;
+  const time = /^([01]\d|2[0-3]):[0-5]\d$/.test(String(rawTime || '')) ? String(rawTime) : '';
+  const rawLatitude = input.latitude === undefined ? previous.latitude : input.latitude;
+  const rawLongitude = input.longitude === undefined ? previous.longitude : input.longitude;
+  const latitude = rawLatitude === null || rawLatitude === '' ? null : Number(rawLatitude);
+  const longitude = rawLongitude === null || rawLongitude === '' ? null : Number(rawLongitude);
+  const validCoordinates = Number.isFinite(latitude) && latitude >= -90 && latitude <= 90
+    && Number.isFinite(longitude) && longitude >= -180 && longitude <= 180;
+  const rawAccuracy = input.locationAccuracy === undefined ? previous.locationAccuracy : input.locationAccuracy;
+  const accuracy = rawAccuracy === null || rawAccuracy === '' ? null : Number(rawAccuracy);
+  const methods = ['cash', 'mtn_momo', 'orange_money', 'bank_transfer', 'card', 'other'];
+  const rawMethod = input.paymentMethod === undefined ? previous.paymentMethod : input.paymentMethod;
+  const paymentMethod = methods.includes(String(rawMethod || '')) ? String(rawMethod) : '';
+  return {
+    time,
+    locationLabel: cleanText(input.locationLabel === undefined ? previous.locationLabel : input.locationLabel, 160),
+    paymentMethod,
+    details: cleanText(input.details === undefined ? previous.details : input.details, 160),
+    latitude: validCoordinates ? latitude : null,
+    longitude: validCoordinates ? longitude : null,
+    locationAccuracy: Number.isFinite(accuracy) && accuracy >= 0 && accuracy <= 100000 ? Math.round(accuracy) : null,
+  };
+}
+
 const userRefFor = (uid) => adminDb.collection('users').doc(uid);
 const subcol = (uid, name) => userRefFor(uid).collection(name);
 
@@ -119,6 +144,7 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
   const amount = asPositiveMoney(input.amount, 'Dépense');
   const categoryId = await assertExpenseCategory(uid, input.categoryId || input.category || 'other');
   const note = cleanText(input.note, 250);
+  const optionalMetadata = readOptionalTransactionMetadata(input);
   if (input.date && !/^\d{4}-\d{2}-\d{2}$/.test(String(input.date))) {
     throw new Error('Date invalide. Utilise le format AAAA-MM-JJ.');
   }
@@ -243,6 +269,7 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
         date,
         incomeSourceId: income.id,
         incomeSourceName: income.source || 'Revenu sans nom',
+        ...optionalMetadata,
         createdAt: FieldValue.serverTimestamp(),
         ...(input.automationId ? { automationId: input.automationId } : {}),
       });
@@ -293,6 +320,7 @@ export async function updateExpenseForUser(uid, expenseId, input) {
       : validatedRequestedCategory;
     const note = input.note === undefined ? cleanText(previousData.note, 250) : cleanText(input.note, 250);
     const date = input.date || previousData.date || todayDouala();
+    const optionalMetadata = readOptionalTransactionMetadata(input, previousData);
     const budgetSnap = await transaction.get(subcol(uid, 'budgets').where('month', '==', String(date).slice(0, 7)));
     const requestedSourceId = input.incomeSourceId === undefined
       ? (previousData.incomeSourceId || 'all') : input.incomeSourceId;
@@ -362,6 +390,7 @@ export async function updateExpenseForUser(uid, expenseId, input) {
       date,
       incomeSourceId: first.income.id,
       incomeSourceName: first.income.source || 'Revenu sans nom',
+      ...optionalMetadata,
       updatedAt: FieldValue.serverTimestamp(),
     });
 
@@ -375,6 +404,7 @@ export async function updateExpenseForUser(uid, expenseId, input) {
         date,
         incomeSourceId: income.id,
         incomeSourceName: income.source || 'Revenu sans nom',
+        ...optionalMetadata,
         createdAt: previousData.createdAt || FieldValue.serverTimestamp(),
         splitFromExpenseId: id,
       });
