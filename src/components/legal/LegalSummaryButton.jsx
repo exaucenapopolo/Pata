@@ -1,6 +1,7 @@
 'use client';
 
 import { Sparkles } from 'lucide-react';
+import { AssistantButton } from '@/components/ai/AssistantButton';
 
 export function LegalSummaryButton({ documentTitle }) {
   const openSummary = () => {
@@ -29,13 +30,16 @@ export function LegalSummaryButton({ documentTitle }) {
   };
 
   return (
-    <button
-      type="button"
-      onClick={openSummary}
-      className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-white/30 bg-white px-3.5 py-2 text-xs font-semibold text-brand-800 shadow-sm transition hover:bg-emerald-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-    >
-      <Sparkles size={15}/>
-      Comprendre avec Mč
-    </button>
+    <>
+      <AssistantButton showLauncher={false}/>
+      <button
+        type="button"
+        onClick={openSummary}
+        className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-white/30 bg-white px-3.5 py-2 text-xs font-semibold text-brand-800 shadow-sm transition hover:bg-emerald-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+      >
+        <Sparkles size={15}/>
+        Comprendre avec Mč
+      </button>
+    </>
   );
 }
