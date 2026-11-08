@@ -8,7 +8,7 @@ import { generateAudioWithGemini } from '@/lib/ai/geminiTTS';
 import { chatWithGroqVision } from '@/lib/ai/groqVision';
 import { generateImageWithPollinations } from '@/lib/ai/pollinationsImage';
 import { buildUserContext } from '@/lib/ai/buildUserContext';
-import { computeGoalPlan } from '@/lib/goalCalc';
+import { computeGoalPlan, GOAL_LATE_PENALTY_RATE, GOAL_PENALTY_EFFECTIVE_DATE } from '@/lib/goalCalc';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -970,8 +970,12 @@ async function handleCreateGoal(request) {
       if (type === 'goal') Object.assign(record, {
         targetAmount, startDate, deadline,
         frequencyDays: Math.max(1, Math.floor(Number(body.frequencyDays) || 7)),
-        penaltyEnabled: body.penaltyEnabled === true,
-        penaltyAmount: body.penaltyEnabled === true ? Math.max(700, Math.round(Number(body.penaltyAmount) || 700)) : 0,
+        penaltyEnabled: true,
+        penaltyRate: GOAL_LATE_PENALTY_RATE,
+        penaltyAmount: Math.round(targetAmount * GOAL_LATE_PENALTY_RATE),
+        penaltyPolicyStartedOn: new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Africa/Douala', year: 'numeric', month: '2-digit', day: '2-digit',
+        }).format(new Date()),
       });
       if (type === 'piggybank' && optionalTarget !== null) record.targetAmount = optionalTarget;
       transaction.create(goalRef, record);
@@ -1229,8 +1233,15 @@ async function handleUpdateGoal(request) {
         }
       }
       if (body.frequencyDays !== undefined) patch.frequencyDays = Math.max(1, Math.min(365, Math.floor(Number(body.frequencyDays) || 7)));
-      if (body.penaltyEnabled !== undefined) patch.penaltyEnabled = body.penaltyEnabled === true;
-      if (body.penaltyAmount !== undefined) patch.penaltyAmount = body.penaltyEnabled === false ? 0 : Math.max(700, Math.round(Number(body.penaltyAmount) || 700));
+      if (current.type === 'goal') {
+        const effectiveTarget = body.targetAmount === undefined
+          ? Math.max(0, Number(current.targetAmount) || 0)
+          : Math.max(0, Math.round(Number(body.targetAmount)) || 0);
+        patch.penaltyEnabled = true;
+        patch.penaltyRate = GOAL_LATE_PENALTY_RATE;
+        patch.penaltyAmount = Math.round(effectiveTarget * GOAL_LATE_PENALTY_RATE);
+        patch.penaltyPolicyStartedOn = current.penaltyPolicyStartedOn || GOAL_PENALTY_EFFECTIVE_DATE;
+      }
       if (body.pinned !== undefined) patch.pinned = body.pinned === true;
       const nextStart = String(body.startDate ?? current.startDate ?? '');
       const nextDeadline = String(body.deadline ?? current.deadline ?? '');
@@ -1372,9 +1383,13 @@ async function handleGoalWithdraw(request) {
     const result = await adminDb.runTransaction(async (t) => {
       const goalDoc = await t.get(goalRef);
       const depositsSnap = await t.get(goalRef.collection('deposits'));
-      const totalDeposited = depositsSnap.docs.reduce((s, d) => s + (d.data().amount || 0), 0);
-      const debt = goalDoc.data().debtBalance || 0;
-      const netRefund = Math.max(0, totalDeposited - debt);
+      if (!goalDoc.exists) throw new Error('Cette épargne n’existe plus.');
+      const goalData = goalDoc.data() || {};
+      const deposits = depositsSnap.docs.map((document) => document.data() || {});
+      const totalDeposited = deposits.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+      const debt = Number(goalData.debtBalance) || 0;
+      const latePenalty = goalData.type === 'piggybank' ? 0 : (computeGoalPlan(goalData, deposits)?.penalty || 0);
+      const netRefund = Math.max(0, totalDeposited - debt - latePenalty);
 
       if (netRefund > 0) {
         const userDoc = await t.get(userRef);
@@ -1382,7 +1397,7 @@ async function handleGoalWithdraw(request) {
       }
       t.delete(goalRef);
       depositsSnap.docs.forEach(d => t.delete(d.ref));
-      return { totalDeposited, debt, netRefund };
+      return { totalDeposited, debt, latePenalty, netRefund };
     });
     return NextResponse.json({ success: true, ...result });
   } catch (error) { return errorResponse(error.message, 500); }
@@ -1398,10 +1413,14 @@ async function handleGoalCancel(request) {
     const result = await adminDb.runTransaction(async (t) => {
       const goalDoc = await t.get(goalRef);
       const depositsSnap = await t.get(goalRef.collection('deposits'));
-      const totalDeposited = depositsSnap.docs.reduce((s, d) => s + (d.data().amount || 0), 0);
-      const debt = goalDoc.data().debtBalance || 0;
+      if (!goalDoc.exists) throw new Error('Cette épargne n’existe plus.');
+      const goalData = goalDoc.data() || {};
+      const deposits = depositsSnap.docs.map((document) => document.data() || {});
+      const totalDeposited = deposits.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+      const debt = Number(goalData.debtBalance) || 0;
+      const latePenalty = goalData.type === 'piggybank' ? 0 : (computeGoalPlan(goalData, deposits)?.penalty || 0);
       const cancelPenalty = Math.round(totalDeposited * 0.10);
-      const netRefund = Math.max(0, totalDeposited - debt - cancelPenalty);
+      const netRefund = Math.max(0, totalDeposited - debt - latePenalty - cancelPenalty);
 
       if (netRefund > 0) {
         const userDoc = await t.get(userRef);
@@ -1409,7 +1428,7 @@ async function handleGoalCancel(request) {
       }
       t.delete(goalRef);
       depositsSnap.docs.forEach(d => t.delete(d.ref));
-      return { totalDeposited, debt, cancelPenalty, netRefund };
+      return { totalDeposited, debt, latePenalty, cancelPenalty, netRefund };
     });
     return NextResponse.json({ success: true, ...result });
   } catch (error) { return errorResponse(error.message, 500); }
