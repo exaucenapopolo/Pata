@@ -52,7 +52,7 @@ export default function LoginPage() {
         try { await fetch('/api/email/welcome', { method: 'POST', headers: { Authorization: `Bearer ${await credential.user.getIdToken()}` } }); }
         catch (emailError) { console.warn('[PATA WELCOME EMAIL]', emailError?.message || emailError); }
       }
-      router.replace('/dashboard');
+      router.replace(getSafeReturnTo());
     } catch (err) {
       setError(
         err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password'
@@ -77,7 +77,7 @@ export default function LoginPage() {
           try { await fetch('/api/email/welcome', { method: 'POST', headers: { Authorization: `Bearer ${await u.getIdToken()}` } }); }
           catch (emailError) { console.warn('[PATA WELCOME EMAIL]', emailError?.message || emailError); }
         }
-        router.replace('/dashboard');
+        router.replace(getSafeReturnTo());
       }
     } catch (err) {
       setError(err.message || 'Connexion Google impossible.');
