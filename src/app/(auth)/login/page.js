@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { useAuth } from '@/hooks/useAuth';
+import { ensureUserProfile } from '@/lib/firestore/profile';
 
 export default function LoginPage() {
   const { user, loading: authLoading, login, loginWithGoogle } = useAuth();
@@ -59,7 +60,14 @@ export default function LoginPage() {
     setGoogleLoading(true);
     try {
       const u = await loginWithGoogle();
-      if (u) router.replace('/dashboard');
+      if (u) {
+        const profile = await ensureUserProfile(u);
+        if (profile?.created && u.email) {
+          try { await fetch('/api/email/welcome', { method: 'POST', headers: { Authorization: `Bearer ${await u.getIdToken()}` } }); }
+          catch (emailError) { console.warn('[PATA WELCOME EMAIL]', emailError?.message || emailError); }
+        }
+        router.replace('/dashboard');
+      }
     } catch (err) {
       setError(err.message || 'Connexion Google impossible.');
     } finally {
