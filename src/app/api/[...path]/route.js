@@ -102,58 +102,81 @@ async function handleFapshiCheckout(request) {
 async function handleFapshiWebhook(request) {
   try {
     const body = await request.json();
-    if (!body.transId) return NextResponse.json({ received: true });
-    const depositRef = adminDb.collection('deposits').doc(body.transId);
-    const depDoc = await depositRef.get();
-    if (!depDoc.exists || depDoc.data().status === 'CONFIRMED') return NextResponse.json({ received: true });
-
+    const transId = String(body.transId || '').trim();
+    if (!transId) return NextResponse.json({ received: true });
+    const depositRef = adminDb.collection('deposits').doc(transId);
+    const cotisationPaymentRef = adminDb.collection('cotisationPayments').doc(transId);
+    const [depDoc, cotisationDoc] = await Promise.all([depositRef.get(), cotisationPaymentRef.get()]);
+    if ((!depDoc.exists || depDoc.data()?.status === 'CONFIRMED') && (!cotisationDoc.exists || cotisationDoc.data()?.status === 'CONFIRMED')) {
+      return NextResponse.json({ received: true });
+    }
     const API_USER = process.env.FAPSHI_API_USER;
     const SECRET_KEY = process.env.FAPSHI_SECRET_KEY;
-    const verifyRes = await fetch(`https://live.fapshi.com/payment-status/${body.transId}`, {
+    if (!API_USER || !SECRET_KEY) return NextResponse.json({ received: true });
+    const verifyRes = await fetch('https://live.fapshi.com/payment-status/' + transId, {
       headers: { apiuser: API_USER, apikey: SECRET_KEY },
     });
     const verifyData = await verifyRes.json();
-
     if ((verifyData.status || '').toUpperCase() === 'SUCCESSFUL') {
-      await adminDb.runTransaction(async (t) => {
-        const fresh = await t.get(depositRef);
-        if (fresh.data().status === 'CONFIRMED') return;
-        const userRef = adminDb.collection('users').doc(fresh.data().userId);
-        const userDoc = await t.get(userRef);
-        t.update(userRef, { balance: (userDoc.data().balance || 0) + fresh.data().amount });
-        t.update(depositRef, { status: 'CONFIRMED', confirmedAt: FieldValue.serverTimestamp() });
-      });
+      if (depDoc.exists) {
+        await adminDb.runTransaction(async (transaction) => {
+          const fresh = await transaction.get(depositRef);
+          if (!fresh.exists || fresh.data().status === 'CONFIRMED') return;
+          const userRef = adminDb.collection('users').doc(fresh.data().userId);
+          const userDoc = await transaction.get(userRef);
+          if (!userDoc.exists) throw new Error('Utilisateur introuvable pour cette recharge.');
+          transaction.update(userRef, { balance: (Number(userDoc.data().balance) || 0) + Number(fresh.data().amount || 0) });
+          transaction.update(depositRef, { status: 'CONFIRMED', confirmedAt: FieldValue.serverTimestamp() });
+        });
+      } else if (cotisationDoc.exists) {
+        await confirmCotisationPayment(transId);
+      }
     }
     return NextResponse.json({ received: true });
-  } catch (error) { return NextResponse.json({ received: true }); }
+  } catch (error) {
+    console.error('[FAPSHI DEPOSIT WEBHOOK]', error.message || error);
+    return NextResponse.json({ received: true });
+  }
 }
 
 async function handleFapshiStatus(request) {
   try {
     const decoded = await authenticate(request);
     const body = await request.json();
-    const depositRef = adminDb.collection('deposits').doc(body.transId);
-    const depDoc = await depositRef.get();
-    if (!depDoc.exists || depDoc.data().userId !== decoded.uid) return errorResponse('Introuvable.', 404);
-    if (depDoc.data().status === 'CONFIRMED') return NextResponse.json({ success: true, status: 'CONFIRMED' });
-
+    const transId = String(body.transId || '').trim();
+    if (!transId) return errorResponse('Transaction introuvable.', 404);
+    const depositRef = adminDb.collection('deposits').doc(transId);
+    const cotisationRef = adminDb.collection('cotisationPayments').doc(transId);
+    const [depDoc, cotDoc] = await Promise.all([depositRef.get(), cotisationRef.get()]);
+    if (depDoc.exists && depDoc.data().userId === decoded.uid) {
+      if (depDoc.data().status === 'CONFIRMED') return NextResponse.json({ success: true, status: 'CONFIRMED' });
+    } else if (cotDoc.exists && cotDoc.data().userId === decoded.uid) {
+      if (cotDoc.data().status === 'CONFIRMED') return NextResponse.json({ success: true, status: 'CONFIRMED' });
+    } else {
+      return errorResponse('Transaction introuvable.', 404);
+    }
     const API_USER = process.env.FAPSHI_API_USER;
     const SECRET_KEY = process.env.FAPSHI_SECRET_KEY;
-    const res = await fetch(`https://live.fapshi.com/payment-status/${body.transId}`, { headers: { apiuser: API_USER, apikey: SECRET_KEY } });
+    const res = await fetch('https://live.fapshi.com/payment-status/' + transId, { headers: { apiuser: API_USER, apikey: SECRET_KEY } });
     const data = await res.json();
-
     if ((data.status || '').toUpperCase() === 'SUCCESSFUL') {
-      await adminDb.runTransaction(async (t) => {
-        const fresh = await t.get(depositRef);
-        const userRef = adminDb.collection('users').doc(decoded.uid);
-        const userDoc = await t.get(userRef);
-        t.update(userRef, { balance: (userDoc.data().balance || 0) + fresh.data().amount });
-        t.update(depositRef, { status: 'CONFIRMED', confirmedAt: FieldValue.serverTimestamp() });
-      });
+      if (depDoc.exists) {
+        await adminDb.runTransaction(async (transaction) => {
+          const fresh = await transaction.get(depositRef);
+          if (!fresh.exists || fresh.data().status === 'CONFIRMED') return;
+          const userRef = adminDb.collection('users').doc(decoded.uid);
+          const userDoc = await transaction.get(userRef);
+          if (!userDoc.exists) throw new Error('Utilisateur introuvable.');
+          transaction.update(userRef, { balance: (Number(userDoc.data().balance) || 0) + Number(fresh.data().amount || 0) });
+          transaction.update(depositRef, { status: 'CONFIRMED', confirmedAt: FieldValue.serverTimestamp() });
+        });
+      } else {
+        await confirmCotisationPayment(transId);
+      }
       return NextResponse.json({ success: true, status: 'CONFIRMED' });
     }
     return NextResponse.json({ success: true, status: 'PENDING' });
-  } catch (error) { return errorResponse(error.message, 500); }
+  } catch (error) { return errorResponse(error.message || 'Impossible de vérifier le paiement.', 500); }
 }
 
 /* ═══════════════════ ROUTES ABONNEMENT ═══════════════════ */
@@ -2620,10 +2643,22 @@ async function handleAdminRejectWithdrawal(request) {
       if (!snapshot.exists) throw new Error('Demande introuvable.');
       const data = snapshot.data();
       if (data.status !== 'PENDING_REVIEW') throw new Error('Cette demande a déjà été traitée.');
-      transaction.update(requestRef, { status: 'REJECTED', adminNote: String(body.reason || 'Demande refusée après vérification.').slice(0, 300), reviewedAt: FieldValue.serverTimestamp() });
-      return data;
+      transaction.update(requestRef, {
+        status: 'REJECTED',
+        adminNote: String(body.reason || 'Demande refusée après vérification.').slice(0, 300),
+        reviewedAt: FieldValue.serverTimestamp(),
+      });
+      return { ...data, requestId };
     });
-    await unlockGoalAfterPayout(result.userId, result.goalId, 'REJECTED', requestId);
+    if (result.withdrawalType === 'cotisation') await restoreCotisationCycle(result, 'REJECTED');
+    else await unlockGoalAfterPayout(result.userId, result.goalId, 'REJECTED', requestId);
+    await cotisationSendWithdrawalEmail(result, 'rejected');
+    await adminDb.collection('users').doc(result.userId).collection('notifications').doc('withdrawal-' + requestId).set({
+      title: 'Demande de retrait refusée',
+      body: 'Ta demande de retrait a été refusée après vérification. Consulte ton historique pour plus de détails.',
+      target: result.withdrawalType === 'cotisation' ? '/cotisations' : '/goals',
+      createdAt: FieldValue.serverTimestamp(),
+    }).catch(() => {});
     return NextResponse.json({ success: true });
   } catch (error) { return errorResponse(error.message || 'Impossible de refuser la demande.', 400); }
 }
@@ -2711,19 +2746,38 @@ async function handleFapshiPayoutWebhook(request) {
     const requestRef = adminDb.collection('withdrawalRequests').doc(String(body.externalId));
     const snapshot = await requestRef.get();
     if (!snapshot.exists) return NextResponse.json({ received: true });
-    const data = snapshot.data();
+    const data = { ...snapshot.data(), requestId: requestRef.id };
     const status = String(body.status || '').toUpperCase();
-    if (status === 'SUCCESSFUL') {
-      if (data.status !== 'PAID') {
-        await requestRef.update({ status: 'PAID', fapshiTransId: body.transId || data.fapshiTransId || null, financialTransId: body.financialTransId || null, paidAt: FieldValue.serverTimestamp(), providerPayload: { status, amount: Number(body.amount) || data.amount } });
-        await unlockGoalAfterPayout(data.userId, data.goalId, 'PAID', requestRef.id);
-        const userRef = adminDb.collection('users').doc(data.userId);
-        await userRef.collection('notifications').doc(`withdrawal-${requestRef.id}`).set({ title: 'Retrait envoyé', body: `Ton retrait de ${Number(data.amount).toLocaleString('fr-FR')} FCFA a été envoyé.`, target: '/goals', createdAt: FieldValue.serverTimestamp() });
-      }
+    if (status === 'SUCCESSFUL' && data.status !== 'PAID') {
+      await requestRef.update({
+        status: 'PAID', fapshiTransId: body.transId || data.fapshiTransId || null,
+        financialTransId: body.financialTransId || null, paidAt: FieldValue.serverTimestamp(),
+        providerPayload: { status, amount: Number(body.amount) || data.amount },
+      });
+      if (data.withdrawalType === 'cotisation') await restoreCotisationCycle(data, 'PAID');
+      else await unlockGoalAfterPayout(data.userId, data.goalId, 'PAID', requestRef.id);
+      const target = data.withdrawalType === 'cotisation' ? '/cotisations' : '/goals';
+      await adminDb.collection('users').doc(data.userId).collection('notifications').doc('withdrawal-' + requestRef.id).set({
+        title: 'Retrait envoyé',
+        body: 'Ton retrait de ' + Number(data.amount).toLocaleString('fr-FR') + ' FCFA a été envoyé.',
+        target, createdAt: FieldValue.serverTimestamp(),
+      });
+      await cotisationSendWithdrawalEmail(data, 'paid');
     } else if (['FAILED', 'EXPIRED'].includes(status) && !['PAID', 'FAILED'].includes(data.status)) {
-      await requestRef.update({ status: 'FAILED', providerMessage: String(body.reason || 'Le prestataire n’a pas pu effectuer le retrait.').slice(0, 300), failedAt: FieldValue.serverTimestamp() });
-      await unlockGoalAfterPayout(data.userId, data.goalId, 'FAILED', requestRef.id);
-      await adminDb.collection('users').doc(data.userId).collection('notifications').doc(`withdrawal-${requestRef.id}`).set({ title: 'Retrait non effectué', body: 'Le prestataire n’a pas pu effectuer ce retrait. Ta demande a été débloquée ; contacte le support si nécessaire.', target: '/goals', createdAt: FieldValue.serverTimestamp() }).catch(() => {});
+      await requestRef.update({
+        status: 'FAILED',
+        providerMessage: String(body.reason || 'Le prestataire n’a pas pu effectuer le retrait.').slice(0, 300),
+        failedAt: FieldValue.serverTimestamp(),
+      });
+      if (data.withdrawalType === 'cotisation') await restoreCotisationCycle(data, 'FAILED');
+      else await unlockGoalAfterPayout(data.userId, data.goalId, 'FAILED', requestRef.id);
+      const target = data.withdrawalType === 'cotisation' ? '/cotisations' : '/goals';
+      await adminDb.collection('users').doc(data.userId).collection('notifications').doc('withdrawal-' + requestRef.id).set({
+        title: 'Retrait non effectué',
+        body: 'Le prestataire n’a pas pu effectuer ce retrait. Consulte ton historique ou contacte le support.',
+        target, createdAt: FieldValue.serverTimestamp(),
+      }).catch(() => {});
+      await cotisationSendWithdrawalEmail(data, 'failed');
     }
     return NextResponse.json({ received: true });
   } catch (error) {
@@ -2761,12 +2815,13 @@ async function handleGoalWithdrawalRequest(request, actionType = 'withdraw') {
       const plan = computeGoalPlan({ ...goal, id: goalSnap.id }, deposits);
       if (actionType === 'withdraw' && goal.type !== 'piggybank' && !plan.isReached) throw new Error('Cet objectif n’a pas encore atteint son montant cible. Tu peux l’annuler si tu souhaites récupérer les fonds, avec les conditions affichées.');
       const penalty = actionType === 'cancel' && goal.type !== 'piggybank' ? Math.round(totalDeposited * 0.10) : 0;
-      const platformFee = Math.max(0, Math.round(Number(process.env.PATA_WITHDRAWAL_FEE_XAF) || 0));
+      const platformFee = 0; // Aucun frais de retrait ajouté par Pata.
       const amount = Math.floor(Math.max(0, totalDeposited - debt - penalty - platformFee));
       if (amount < 100) throw new Error('Le montant disponible est inférieur au minimum de retrait de 100 FCFA.');
       if (amount > 500000) throw new Error('Le retrait dépasse le plafond de 500 000 FCFA accepté par Fapshi pour une seule opération. Contacte le support Pata pour organiser la suite sans risquer de bloquer ton épargne.');
       const userData = userSnap.data();
       transaction.create(requestRef, {
+        withdrawalType: 'savings',
         userId: uid,
         email: userData.email || '',
         displayName: userData.displayName || 'Utilisateur',
@@ -2782,12 +2837,20 @@ async function handleGoalWithdrawalRequest(request, actionType = 'withdraw') {
         amount,
         currency: 'XAF',
         status: 'PENDING_REVIEW',
+        requestId: requestRef.id,
         createdAt: FieldValue.serverTimestamp(),
       });
       transaction.update(goalRef, { withdrawalPending: true, withdrawalRequestId: requestRef.id, withdrawalStatus: 'PENDING_REVIEW' });
       return { amount, grossAmount: totalDeposited, debt, penalty, platformFee, requestId: requestRef.id };
     });
-    return NextResponse.json({ success: true, ...result, message: 'Ta demande a été envoyée. Elle sera vérifiée avant l’envoi de l’argent.' });
+    const userForEmail = await userRef.get();
+    await cotisationSendWithdrawalEmail({
+      userId: uid, requestId: result.requestId, amount: result.amount,
+      email: userForEmail.data()?.email || '', displayName: userForEmail.data()?.displayName || 'Utilisateur',
+      goalName: actionType === 'cancel' ? 'Clôture de ' + (userForEmail.data()?.displayName || 'ton épargne') : 'Retrait de ton épargne',
+      withdrawalType: 'savings',
+    }, 'received');
+    return NextResponse.json({ success: true, ...result, message: 'Ta demande a été reçue. Elle sera vérifiée avant l’envoi de l’argent.' });
   } catch (error) { return errorResponse(error.message || 'Impossible de créer la demande de retrait.', 400); }
 }
 
