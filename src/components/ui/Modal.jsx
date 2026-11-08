@@ -8,46 +8,58 @@ import { cn } from '@/lib/utils';
 export function Modal({ open, onClose, title, children, className }) {
   const [mounted, setMounted] = useState(false);
 
-  // Nécessaire pour le React Portal (évite les erreurs d'hydratation)
   useEffect(() => {
     setMounted(true);
   }, []);
 
   useEffect(() => {
-    if (!open) return;
-    const handler = (e) => { if (e.key === 'Escape') onClose(); };
+    if (!open) return undefined;
+    const handler = (event) => {
+      if (event.key === 'Escape') onClose();
+    };
+    const previousOverflow = document.body.style.overflow;
     window.addEventListener('keydown', handler);
     document.body.style.overflow = 'hidden';
     return () => {
       window.removeEventListener('keydown', handler);
-      document.body.style.overflow = '';
+      document.body.style.overflow = previousOverflow;
     };
   }, [open, onClose]);
 
   if (!open || !mounted) return null;
 
-  // On utilise createPortal pour sortir la modale du formulaire parent
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4">
-      <div
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/40 px-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] backdrop-blur-[2px] sm:items-center sm:px-4 sm:py-4"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label={title || 'Fenêtre de dialogue'}
         className={cn(
-          'w-full max-w-md rounded-t-2xl bg-white shadow-xl sm:rounded-2xl',
+          'flex max-h-full w-full max-w-md flex-col overflow-hidden rounded-t-[28px] border border-slate-200/80 bg-white shadow-2xl sm:max-h-[90dvh] sm:rounded-3xl',
           className
         )}
+        onMouseDown={(event) => event.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-          <h2 className="text-lg font-semibold">{title}</h2>
+        <header className="flex min-h-14 shrink-0 items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-5">
+          <h2 className="min-w-0 text-base font-bold tracking-tight text-slate-900 sm:text-lg">{title}</h2>
           <button
             onClick={onClose}
             type="button"
-            className="rounded-lg p-1 text-slate-500 hover:bg-slate-100"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-500 transition hover:bg-slate-200 hover:text-slate-800"
             aria-label="Fermer"
           >
-            <X size={20} />
+            <X size={18} />
           </button>
+        </header>
+        <div className="min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-5">
+          {children}
         </div>
-        <div className="max-h-[75vh] overflow-y-auto p-5">{children}</div>
-      </div>
+      </section>
     </div>,
     document.body
   );
