@@ -1,12 +1,12 @@
 {
   "name": "Pata - Gestion Financière",
   "short_name": "Pata",
-  "description": "Gère ton argent, discipline ton épargne.",
+  "description": "Ton espace personnel pour suivre tes revenus, maîtriser tes dépenses et organiser ton épargne.",
   "start_url": "/dashboard",
   "display": "standalone",
-  "background_color": "#f8fafc",
-  "theme_color": "#059669",
-  "orientation": "portrait",
+  "background_color": "#f5f8f6",
+  "theme_color": "#075b43",
+  "orientation": "any",
   "icons": [
     {
       "src": "/android-chrome-192x192.png",
@@ -20,5 +20,7 @@
       "type": "image/png",
       "purpose": "any maskable"
     }
-  ]
+  ],
+  "scope": "/",
+  "display_override": ["standalone", "minimal-ui"]
 }
