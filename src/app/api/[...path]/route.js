@@ -2852,13 +2852,13 @@ async function handleGoalWithdrawalRequest(request, actionType = 'withdraw') {
         createdAt: FieldValue.serverTimestamp(),
       });
       transaction.update(goalRef, { withdrawalPending: true, withdrawalRequestId: requestRef.id, withdrawalStatus: 'PENDING_REVIEW' });
-      return { amount, grossAmount: totalDeposited, debt, penalty, platformFee, requestId: requestRef.id };
+      return { amount, grossAmount: totalDeposited, debt, penalty, platformFee, requestId: requestRef.id, goalName: goal.name || (goal.type === 'piggybank' ? 'Tirelire' : 'Objectif') };
     });
     const userForEmail = await userRef.get();
     await cotisationSendWithdrawalEmail({
       userId: uid, requestId: result.requestId, amount: result.amount,
       email: userForEmail.data()?.email || '', displayName: userForEmail.data()?.displayName || 'Utilisateur',
-      goalName: actionType === 'cancel' ? 'Clôture de ' + (userForEmail.data()?.displayName || 'ton épargne') : 'Retrait de ton épargne',
+      goalName: (actionType === 'cancel' ? 'Clôture · ' : 'Retrait · ') + result.goalName,
       withdrawalType: 'savings',
     }, 'received');
     return NextResponse.json({ success: true, ...result, message: 'Ta demande a été reçue. Elle sera vérifiée avant l’envoi de l’argent.' });
@@ -3335,6 +3335,19 @@ async function handleCotisationsList(request) {
       });
       const myPaid = cotisationMoney(contributions.get(uid)?.amount);
       const cycleStatus = cycleSnap.data()?.status || (totalCollected >= targetAmount && targetAmount > 0 ? 'READY' : 'OPEN');
+      const myMember = members.find((member) => member.uid === uid);
+      let myMemberPendingPayment = null;
+      if (myMember?.pendingPaymentTransId) {
+        const pendingSnap = await adminDb.collection('cotisationPayments').doc(myMember.pendingPaymentTransId).get();
+        if (pendingSnap.exists && pendingSnap.data()?.status === 'PENDING') {
+          const payment = pendingSnap.data();
+          myMemberPendingPayment = {
+            transId: payment.transId, checkoutUrl: payment.checkoutUrl,
+            amount: cotisationMoney(payment.amount), fee: cotisationMoney(payment.fee),
+            grossAmount: cotisationMoney(payment.grossAmount),
+          };
+        }
+      }
       return {
         id: groupRef.id, name: group.name, ownerId: group.ownerId, isOwner: group.ownerId === uid,
         contributionAmount, frequency: group.frequency, startDate: group.startDate, status: group.status || 'active',
@@ -3342,7 +3355,7 @@ async function handleCotisationsList(request) {
         members: memberRows, memberCount: members.length, maxMembers: cotisationMoney(group.maxMembers) || 50,
         currentCycle: {
           ...meta, targetAmount, totalCollected, remainingTotal: Math.max(0, targetAmount - totalCollected),
-          status: cycleStatus, beneficiaryUid: turnMember?.uid || null,
+          status: cycleStatus, pendingPayment: myMemberPendingPayment, beneficiaryUid: turnMember?.uid || null,
           beneficiaryName: turnMember?.displayName || 'Membre', isMyTurn: turnMember?.uid === uid,
           myPaid, myRemaining: Math.max(0, contributionAmount - myPaid),
           canWithdraw: turnMember?.uid === uid && targetAmount > 0 && totalCollected >= targetAmount && ['READY', 'OPEN'].includes(cycleStatus),
@@ -3447,7 +3460,6 @@ async function handleCotisationPay(request) {
     if (!/^6[0-9]{8}$/.test(phone) || !medium) return errorResponse('Vérifie le numéro MTN ou Orange Money.', 400);
     const groupRef = adminDb.collection('cotisationGroups').doc(groupId);
     const memberRef = groupRef.collection('members').doc(uid);
-    const cycleMeta = null;
     const [groupSnap, memberSnap, userSnap] = await Promise.all([
       groupRef.get(), memberRef.get(), adminDb.collection('users').doc(uid).get(),
     ]);
