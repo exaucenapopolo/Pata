@@ -13,12 +13,12 @@ service cloud.firestore {
       allow create: if owner(userId)
         && request.resource.data.keys().hasOnly([
           'email', 'displayName', 'currency', 'currencyRates',
-          'currencyRateUpdatedAt', 'penaltyDefault', 'createdAt'
+          'currencyRateUpdatedAt', 'createdAt'
         ]);
       allow update: if owner(userId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'displayName', 'currency', 'currencyRates', 'currencyRateUpdatedAt',
-          'penaltyDefault', 'theme', 'budgetRules', 'updatedAt'
+          'theme', 'budgetRules', 'updatedAt'
         ]);
       allow delete: if false;
 
