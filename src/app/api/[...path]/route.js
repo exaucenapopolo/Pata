@@ -3291,7 +3291,7 @@ async function handleAdminBroadcast(request) {
           data: { title, body: message, url: path, tag },
           webpush: {
             headers: { TTL: '86400', Urgency: 'high' },
-            fcmOptions: { link: new URL(path, 'https://www.pata-yam.site').toString() },
+            fcmOptions: { link: new URL(path, getPataAppUrl(request)).toString() },
           },
         });
         pushSent += result.successCount;
