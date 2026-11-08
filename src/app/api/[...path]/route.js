@@ -1902,7 +1902,7 @@ async function handleAIChat(request) {
         cycleRef.collection('contributions').limit(50).get(),
       ]);
       const contributionMap = new Map(contributionsSnap.docs.map((doc) => [doc.id, doc.data()]));
-      const turnMember = members.length ? members[meta.cycleIndex % members.length] : null;
+      const turnMember = group.startedAt && members.length ? members[meta.cycleIndex % members.length] : null;
       const myMember = members.find((member) => member.uid === uid);
       const mine = contributionMap.get(uid) || {};
       const myPaid = cotisationMoney(mine.amount);
