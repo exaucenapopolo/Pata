@@ -3484,37 +3484,78 @@ async function handleCotisationCreate(request) {
     const body = await request.json();
     const name = String(body.name || '').trim().slice(0, 90);
     const amount = Math.round(Number(body.contributionAmount));
+    const expectedMembers = Math.floor(Number(body.expectedMembers));
     const frequency = ['daily', 'weekly', 'monthly'].includes(body.frequency) ? body.frequency : '';
     const startDate = String(body.startDate || cotisationToday());
+    const dueDay = frequency === 'monthly' ? Math.floor(Number(body.dueDay || 0)) : null;
+    const graceDays = Math.floor(Number(body.graceDays ?? 0));
+    const lateFeeType = ['none', 'fixed', 'percent'].includes(body.lateFeeType) ? body.lateFeeType : 'none';
+    const lateFeeValue = lateFeeType === 'none' ? 0 : Math.round(Number(body.lateFeeValue));
     if (!name) return errorResponse('Donne un nom au groupe.', 400);
-    if (!Number.isSafeInteger(amount) || amount < 100 || amount > 250000 || amount % 100 !== 0) return errorResponse('La cotisation par membre doit être comprise entre 100 et 250 000 FCFA, par multiples de 100. Cette limite garantit que le montant total d’un tour reste dans la limite de retrait Fapshi.', 400);
-    const maxMembers = Math.min(50, Math.floor(500000 / amount));
+    if (!Number.isSafeInteger(amount) || amount < 100 || amount > 250000 || amount % 100 !== 0) return errorResponse('La cotisation par membre doit être comprise entre 100 et 250 000 FCFA, par multiples de 100.', 400);
+    if (!Number.isSafeInteger(expectedMembers) || expectedMembers < 2 || expectedMembers > 50) return errorResponse('Choisis un nombre de participants compris entre 2 et 50.', 400);
     if (!frequency) return errorResponse('Choisis une fréquence de cotisation.', 400);
+    if (frequency === 'monthly' && (!Number.isInteger(dueDay) || dueDay < 1 || dueDay > 31)) return errorResponse('Choisis un jour d’échéance compris entre 1 et 31.', 400);
+    if (!Number.isInteger(graceDays) || graceDays < 0 || graceDays > 30) return errorResponse('Le délai de grâce doit être compris entre 0 et 30 jours.', 400);
+    if (lateFeeType !== 'none' && (!Number.isSafeInteger(lateFeeValue) || lateFeeValue <= 0 || (lateFeeType === 'percent' && lateFeeValue > 100) || (lateFeeType === 'fixed' && lateFeeValue > 250000))) return errorResponse('Vérifie la valeur de la majoration de retard.', 400);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || startDate < cotisationToday()) return errorResponse('Choisis une date de début à partir d’aujourd’hui.', 400);
+    const lateFee = lateFeeType === 'fixed' ? lateFeeValue : lateFeeType === 'percent' ? Math.round(amount * lateFeeValue / 100) : 0;
+    const maximumPayout = (amount + lateFee) * expectedMembers;
+    if (maximumPayout > 500000) return errorResponse('Le total maximal possible de ce tour dépasse 500 000 FCFA, la limite actuelle d’un retrait Fapshi. Réduis le montant, le nombre de participants ou la majoration.', 400);
+
     const userRef = adminDb.collection('users').doc(uid);
     const groupRef = adminDb.collection('cotisationGroups').doc();
     const inviteToken = randomBytes(24).toString('hex');
     const memberRef = groupRef.collection('members').doc(uid);
     const membershipRef = userRef.collection('cotisationMemberships').doc(groupRef.id);
-    await adminDb.runTransaction(async (transaction) => {
+    const owner = await adminDb.runTransaction(async (transaction) => {
       const userSnap = await transaction.get(userRef);
       if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
       const userData = userSnap.data();
+      const member = {
+        uid,
+        displayName: String(userData.displayName || 'Organisateur').slice(0, 100),
+        email: String(userData.email || '').slice(0, 180),
+        isOwner: true, turnOrder: 1, joinedAt: FieldValue.serverTimestamp(), active: true,
+      };
       transaction.create(groupRef, {
-        name, contributionAmount: amount, frequency, startDate,
-        ownerId: uid, inviteToken, memberCount: 1, maxMembers,
-        status: 'active', membershipLockedCycle: null,
+        name, contributionAmount: amount, frequency, startDate, dueDay,
+        expectedMembers, maxMembers: expectedMembers, memberCount: 1,
+        graceDays, lateFeeType, lateFeeValue,
+        ownerId: uid, inviteToken, status: 'active', startedAt: null,
+        membershipLockedCycle: null,
         createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
       });
-      transaction.create(memberRef, {
-        uid, displayName: String(userData.displayName || 'Organisateur').slice(0, 100),
-        email: String(userData.email || '').slice(0, 180), isOwner: true, turnOrder: 0,
-        joinedAt: FieldValue.serverTimestamp(), active: true,
-      });
+      transaction.create(memberRef, member);
       transaction.create(membershipRef, { groupId: groupRef.id, name, joinedAt: FieldValue.serverTimestamp() });
+      return {
+        name: String(userData.displayName || 'Organisateur'),
+        email: String(userData.email || ''),
+      };
     });
-    const origin = request.headers.get('origin') || getBaseUrl(request);
-    return NextResponse.json({ success: true, groupId: groupRef.id, inviteUrl: origin + '/cotisations?invite=' + inviteToken });
+    const appUrl = (process.env.NEXT_PUBLIC_APP_URL || request.headers.get('origin') || 'https://www.pata-yam.site').replace(/\/$/, '');
+    const inviteUrl = appUrl + '/invitation/cotisation/' + inviteToken;
+    const dueLabel = frequency === 'monthly' ? 'Le ' + dueDay + ' de chaque mois' : frequency === 'weekly' ? 'Tous les 7 jours à partir du ' + startDate : 'Chaque jour à partir du ' + startDate;
+    const penaltyLabel = cotisationPenaltyLabel({ contributionAmount: amount, lateFeeType, lateFeeValue });
+    let emailSent = false;
+    if (owner.email && owner.email.includes('@')) {
+      try {
+        await sendPataEmail({
+          to: owner.email,
+          subject: 'Ton groupe de cotisation « ' + name + ' » est créé',
+          html: cotisationCreatedEmail({
+            name: owner.name, groupName: name, contributionAmount: amount,
+            frequency: cotisationFrequencyLabel(frequency), expectedMembers, dueLabel,
+            graceDays, penaltyLabel, inviteUrl,
+          }),
+          idempotencyKey: 'pata-cotisation-created-' + groupRef.id,
+        });
+        emailSent = true;
+      } catch (emailError) {
+        console.error('[COTISATION CREATED EMAIL]', emailError.message || emailError);
+      }
+    }
+    return NextResponse.json({ success: true, groupId: groupRef.id, inviteUrl, emailSent, message: emailSent ? 'Groupe créé et e-mail de confirmation envoyé.' : 'Groupe créé. Le courriel de confirmation n’a pas pu être envoyé ; vérifie l’adresse e-mail du compte et la configuration Resend.' });
   } catch (error) { return errorResponse(error.message || 'Impossible de créer le groupe.', 400); }
 }
 
