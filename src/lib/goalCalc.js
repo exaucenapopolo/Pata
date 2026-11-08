@@ -9,17 +9,22 @@ export function computeGoalPlan(goal, deposits = [], today = new Date()) {
 
   // 🟢 CAS SPÉCIAL : TIRELIRE
   if (isPiggybank) {
+    const targetAmount = Math.max(0, Number(goal.targetAmount) || 0);
+    const progress = targetAmount > 0 ? Math.min(100, (totalDeposited / targetAmount) * 100) : 0;
     return {
       type: 'piggybank',
       totalDeposited,
+      targetAmount,
+      hasTarget: targetAmount > 0,
       isReached: true,
       totalDebt: 0,
       penalty: 0,
-      progress: 100,
+      progress,
+      remaining: targetAmount > 0 ? Math.max(0, targetAmount - totalDeposited) : 0,
       daysLeft: 0,
       isLate: false,
       notStarted: false,
-      expectedAmount: totalDeposited,
+      expectedAmount: targetAmount > 0 ? targetAmount : totalDeposited,
       shortfall: 0,
       amountPerPayment: 0,
       totalPayments: 0,
@@ -67,10 +72,18 @@ export function computeGoalPlan(goal, deposits = [], today = new Date()) {
   const missedPayments = amountPerPayment > 0 ? Math.ceil(shortfall / amountPerPayment) : 0;
   
   const totalDebt = Number(goal.debtBalance) || 0;
-  const unitPenalty = Math.max(MIN_PENALTY, Number(goal.penaltyAmount) || MIN_PENALTY);
-  
-  // L'amende ne s'applique que si des paiements sont en retard
-  const penalty = missedPayments > 0 && totalDebt === 0 ? missedPayments * unitPenalty : 0;
+  // Les nouveaux objectifs peuvent être suivis sans pénalité. Les anciennes
+  // épargnes n’ayant pas le champ penaltyEnabled conservent leur comportement
+  // historique lorsque penaltyAmount était déjà défini.
+  const penaltyEnabled = goal.penaltyEnabled === undefined
+    ? Number(goal.penaltyAmount) > 0
+    : goal.penaltyEnabled === true;
+  const unitPenalty = penaltyEnabled
+    ? Math.max(MIN_PENALTY, Number(goal.penaltyAmount) || MIN_PENALTY)
+    : 0;
+
+  // Une pénalité n'est calculée que si l'utilisateur l'a explicitement activée.
+  const penalty = penaltyEnabled && missedPayments > 0 && totalDebt === 0 ? missedPayments * unitPenalty : 0;
 
   // Calcul de la prochaine date de paiement (pour l'afficher)
   let nextPaymentDate = null;
@@ -110,6 +123,7 @@ export function computeGoalPlan(goal, deposits = [], today = new Date()) {
     shortfall,
     missedPayments,
     unitPenalty,
+    penaltyEnabled,
     penalty,
     totalDue,
     progress,
