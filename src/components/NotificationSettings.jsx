@@ -60,6 +60,12 @@ export function NotificationSettings() {
         if (active) { setEnabled(false); setDeviceToken(''); }
         return;
       }
+      try {
+        if (localStorage.getItem(`pata-push-disabled:${user.uid}`) === '1') {
+          if (active) { setEnabled(false); setDeviceToken(''); }
+          return;
+        }
+      } catch { /* stockage local indisponible */ }
       const vapidKey = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY;
       if (!vapidKey || !(await isSupported())) {
         if (active) setEnabled(false);
@@ -116,6 +122,7 @@ export function NotificationSettings() {
       });
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.error || 'Impossible d’enregistrer cet appareil.');
+      try { localStorage.removeItem(`pata-push-disabled:${user.uid}`); } catch { /* stockage local indisponible */ }
       setEnabled(true);
       setDeviceToken(token);
       setMessage('Les rappels sont activés sur cet appareil.');
@@ -160,6 +167,7 @@ export function NotificationSettings() {
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok || !result.success) throw new Error(result.error || 'Le nouveau jeton n’a pas pu être enregistré.');
+      try { localStorage.removeItem(`pata-push-disabled:${user.uid}`); } catch { /* stockage local indisponible */ }
       setDeviceToken(freshToken);
       setEnabled(true);
       setMessage('Cet appareil est maintenant réinscrit. Tu peux envoyer un test pour vérifier la réception.');
@@ -206,13 +214,16 @@ export function NotificationSettings() {
         const token = await getDeviceMessagingToken(vapidKey);
         if (token) {
           const idToken = await user.getIdToken();
-          await fetch('/api/notifications/unsubscribe', {
+          const response = await fetch('/api/notifications/unsubscribe', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
             body: JSON.stringify({ token }),
           });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de désactiver cet appareil.');
         }
       }
+      try { localStorage.setItem(`pata-push-disabled:${user?.uid || 'guest'}`, '1'); } catch { /* stockage local indisponible */ }
       setEnabled(false);
       setDeviceToken('');
       setMessage('Les rappels sont désactivés sur cet appareil.');
