@@ -6,7 +6,7 @@ const validDate = (value) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.t
 export function buildUserContext(userData) {
   const {
     profile = {}, incomes = [], expenses = [], goals = [], budgets = [], projects = [],
-    automations = [], memories = [], categories = [], now: providedNow,
+    cotisations = [], automations = [], memories = [], categories = [], now: providedNow,
   } = userData || {};
 
   const now = providedNow instanceof Date ? providedNow : new Date();
@@ -132,6 +132,22 @@ export function buildUserContext(userData) {
     const allocatedIncome = linkedIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
     return `- ID EXACT: ${project.id} | ${project.name || 'Projet'} | Statut: ${project.status || 'active'} | Budget indicatif: ${money(project.targetAmount)} FCFA | Revenus réservés: ${money(allocatedIncome)} FCFA | Sorties liées: ${money(spent)} FCFA | Écart: ${money(allocatedIncome - spent)} FCFA`;
   }).join('\n');
+  const cotisationLines = cotisations.map((group) => {
+    const memberLines = (group.members || []).map((member) => {
+      const markers = [member.isMe ? 'Utilisateur' : '', member.isOwner ? 'Chef' : ''].filter(Boolean).join(', ');
+      return \`  • Position \${member.position || '—'} : \${member.displayName}\${markers ? ' (' + markers + ')' : ''} | Principal versé : \${money(member.principalPaid)} FCFA | Majoration réglée : \${money(member.penaltyPaid)} FCFA | Total confirmé : \${money(member.totalPaid)} FCFA | Reste principal : \${money(member.remainingPrincipal)} FCFA\`;
+    }).join('\\n');
+    return [
+      \`- ID EXACT: \${group.id} | \${group.name} | Rôle: \${group.role} | État: \${group.status} | Lancée: \${group.started ? 'oui' : 'non'}\`,
+      \`  Fréquence: \${group.frequency} | Contribution par personne: \${money(group.contributionAmount)} FCFA | Participants: \${group.memberCount}/\${group.expectedMembers}\`,
+      \`  Position de l’utilisateur: \${group.myPosition || 'non définie'} | Bénéficiaire du tour: \${group.currentBeneficiary} (position \${group.beneficiaryPosition || '—'}) | C’est son tour: \${group.myTurnToReceive ? 'oui' : 'non'}\`,
+      \`  Échéance: \${group.dueAt} | Délai de grâce: \${group.graceDays} jour(s), jusqu’au \${group.graceEndDate} | Majoration: \${group.lateFeeLabel} | Majoration actuellement due par l’utilisateur: \${money(group.lateFeeDue)} FCFA\`,
+      \`  Pot de base: \${money(group.basePot)} FCFA | Total confirmé (principal + majorations): \${money(group.totalCollected)} FCFA | Objectif total du tour: \${money(group.totalTargetWithLateFees)} FCFA | Reste à collecter: \${money(group.remainingToCollect)} FCFA | Statut du cycle: \${group.cycleStatus}\`,
+      \`  Versement personnel confirmé: principal \${money(group.myPrincipalPaid)} FCFA + majoration \${money(group.myPenaltyPaid)} FCFA | Reste de principal: \${money(group.myRemaining)} FCFA\`,
+      '  Participants et contributions :',
+      memberLines || '  • Aucun membre disponible.',
+    ].join('\\n');
+  }).join('\\n\\n');
   const memoryLines = memories.map((item) => `- [${item.kind || 'contexte'}] ${item.fact}`).join('\n');
   const vitalNeeds = profile?.vitalNeeds || {};
   const vitalLines = Object.entries(vitalNeeds).map(([key, value]) => {
@@ -181,6 +197,9 @@ ${recentExpenses || 'Aucune dépense enregistrée.'}
 
 === PROJETS PREMIUM ===
 ${projectLines || 'Aucun projet enregistré.'}
+
+=== GROUPES DE COTISATION ===
+${cotisationLines || 'Aucun groupe de cotisation enregistré pour cet utilisateur.'}
 
 RÈGLE DE CLASSIFICATION : une dépense courante (nourriture, transport, loyer, loisirs) est de la consommation. Une sortie liée à un projet finance un achat ou une réalisation identifiable (construction, équipement, téléphone, ordinateur). Une sortie de type épargne ou investissement est une affectation d’argent, pas une consommation. Toutes réduisent le solde disponible, mais seule la consommation sert à juger si l’utilisateur dépense trop au quotidien. Présente ces quatre montants séparément et ne qualifie jamais automatiquement un projet, une épargne ou un investissement de perte.
 
