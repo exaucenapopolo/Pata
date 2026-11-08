@@ -3036,6 +3036,91 @@ async function handleAdminNotificationRecipients(request) {
   }
 }
 
+async function buildAdminEmailHighlights(uid) {
+  const userRef = adminDb.collection('users').doc(uid);
+  const [projectsSnap, goalsSnap, membershipsSnap] = await Promise.all([
+    userRef.collection('projects').orderBy('createdAt', 'desc').limit(30).get(),
+    userRef.collection('goals').orderBy('createdAt', 'desc').limit(20).get(),
+    userRef.collection('cotisationMemberships').limit(30).get(),
+  ]);
+
+  const projects = projectsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  const activeProjects = projects.filter((project) => project.status === 'active');
+  const completedProjects = projects.filter((project) => ['completed', 'done'].includes(String(project.status || '').toLowerCase()));
+
+  const savings = await Promise.all(goalsSnap.docs.map(async (goalDoc) => {
+    const data = goalDoc.data() || {};
+    const summary = await getGoalCashDepositSummary(goalDoc.ref).catch(() => ({ unavailable: true }));
+    const deposited = summary.unavailable ? null : Number(summary.cashTotal ?? summary.total ?? 0);
+    const target = Math.max(0, Number(data.targetAmount) || 0);
+    return {
+      name: String(data.name || 'Objectif sans nom'),
+      active: !data.closed && !data.withdrawnAt,
+      deposited,
+      target,
+      progress: target > 0 && deposited !== null ? Math.min(100, Math.round(deposited / target * 100)) : null,
+    };
+  }));
+  const activeSavings = savings.filter((goal) => goal.active);
+  const completedSavings = savings.filter((goal) => !goal.active && goal.deposited !== null && goal.deposited > 0);
+
+  const cotisations = await Promise.all(membershipsSnap.docs.map(async (membershipDoc) => {
+    const membership = membershipDoc.data() || {};
+    const groupRef = adminDb.collection('cotisationGroups').doc(String(membership.groupId || membershipDoc.id));
+    const groupSnap = await groupRef.get();
+    if (!groupSnap.exists) return null;
+    const group = groupSnap.data() || {};
+    const membersSnap = await groupRef.collection('members').where('active', '==', true).get();
+    const cyclesSnap = await groupRef.collection('cycles').orderBy('cycleIndex', 'desc').limit(6).get().catch(() => ({ docs: [] }));
+    const latestCycle = cyclesSnap.docs[0]?.data() || {};
+    return {
+      name: String(group.name || membership.name || 'Cotisation'),
+      role: group.ownerId === uid ? 'Chef de groupe' : 'Membre',
+      frequency: cotisationFrequencyLabel(group.frequency),
+      amount: cotisationMoney(group.contributionAmount),
+      memberCount: membersSnap.size,
+      expectedMembers: cotisationMoney(group.expectedMembers || Math.max(2, group.memberCount || membersSnap.size)),
+      active: group.status === 'active',
+      started: Boolean(group.startedAt),
+      lastCycleStatus: String(latestCycle.status || ''),
+      lastCycleTotal: cotisationMoney(latestCycle.totalCollected),
+      lastCycleTarget: cotisationMoney(latestCycle.targetAmount || latestCycle.baseTargetAmount),
+    };
+  }));
+  const activeCotisations = cotisations.filter((item) => item && item.active);
+  const completedCotisations = cotisations.filter((item) => item && item.lastCycleStatus === 'PAID');
+
+  const lines = [];
+  if (completedProjects.length) {
+    lines.push('Projets réalisés : ' + completedProjects.slice(0, 5).map((item) => item.name).join(', ') + '.');
+  }
+  if (activeProjects.length) {
+    lines.push('Projets en cours : ' + activeProjects.slice(0, 5).map((item) => item.name).join(', ') + '.');
+  }
+  if (completedSavings.length) {
+    lines.push('Objectifs d’épargne clôturés : ' + completedSavings.slice(0, 5).map((item) => item.name + (item.deposited === null ? '' : ' (' + item.deposited.toLocaleString('fr-FR') + ' FCFA')).join(', ') + '.');
+  }
+  if (activeSavings.length) {
+    lines.push('Épargnes en cours : ' + activeSavings.slice(0, 5).map((item) => item.name + (item.progress === null ? '' : ' (' + item.progress + ' % de progression)')).join(', ') + '.');
+  }
+  if (completedCotisations.length) {
+    lines.push('Tours de cotisation terminés : ' + completedCotisations.slice(0, 5).map((item) => item.name + ' (' + item.lastCycleTotal.toLocaleString('fr-FR') + ' FCFA réunis)').join(', ') + '.');
+  }
+  if (activeCotisations.length) {
+    lines.push('Cotisations en cours : ' + activeCotisations.slice(0, 5).map((item) => item.name + ' — ' + item.amount.toLocaleString('fr-FR') + ' FCFA par personne, ' + item.memberCount + '/' + item.expectedMembers + ' membres, ' + item.role).join(' ; ') + '.');
+  }
+  if (!lines.length) lines.push('Ton compte ne comporte pas encore de projet, d’objectif d’épargne ou de cotisation renseigné. Tu peux commencer progressivement, selon tes priorités.');
+  return {
+    completedProjects: completedProjects.length,
+    activeProjects: activeProjects.length,
+    activeSavings: activeSavings.length,
+    completedSavings: completedSavings.length,
+    activeCotisations: activeCotisations.length,
+    completedCotisations: completedCotisations.length,
+    text: lines.join('\n'),
+  };
+}
+
 async function handleAdminEmailSend(request) {
   try {
     const admin = await requireAdmin(request);
@@ -3045,6 +3130,7 @@ async function handleAdminEmailSend(request) {
     const message = String(body.message || '').trim().slice(0, 5000);
     const ctaPath = String(body.ctaPath || '/dashboard');
     const ctaLabel = String(body.ctaLabel || 'Ouvrir Pata').trim().slice(0, 50);
+    const templateKey = String(body.templateKey || 'custom').slice(0, 40);
     if (!recipientUid || recipientUid.includes('/') || !subject || !message) {
       return errorResponse('Le destinataire, l’objet et le message sont obligatoires.', 400);
     }
@@ -3055,10 +3141,14 @@ async function handleAdminEmailSend(request) {
     const email = String(recipient.email || '').trim();
     if (!email || !email.includes('@')) return errorResponse('Cet utilisateur ne possède pas d’adresse e-mail valide.', 400);
     const name = String(recipient.displayName || email.split('@')[0] || 'Utilisateur').slice(0, 100);
+    const highlights = await buildAdminEmailHighlights(recipientUid);
+    const messageWithHighlights = templateKey === 'congratulations'
+      ? message + '\\n\\nVoici ce que nous pouvons mettre en valeur dans ton parcours sur Pata :\\n' + highlights.text + '\\n\\nNous tenons à souligner les efforts engagés dans ces projets, ces objectifs d’épargne et ces cotisations. Chaque réalisation mérite d’être reconnue, tout en gardant un rythme qui reste adapté à ta situation.'
+      : message + '\\n\\nTon parcours Pata :\\n' + highlights.text;
     const sent = await sendPataEmail({
       to: email,
       subject,
-      html: customAdminEmail({ name, headline: subject, body: message, ctaUrl: ctaPath, ctaLabel }),
+      html: customAdminEmail({ name, headline: subject, body: messageWithHighlights, ctaUrl: ctaPath, ctaLabel }),
       idempotencyKey: `pata-admin-${admin.uid}-${recipientUid}-${Date.now()}`,
     });
     await adminDb.collection('adminEmailLogs').add({
@@ -3066,12 +3156,14 @@ async function handleAdminEmailSend(request) {
       recipientUid,
       recipientEmail: email,
       subject,
-      message,
+      message: messageWithHighlights,
+      templateKey,
+      highlights,
       resendEmailId: sent.id || null,
       status: 'accepted',
       createdAt: FieldValue.serverTimestamp(),
     });
-    return NextResponse.json({ success: true, emailId: sent.id || null, recipientEmail: email });
+    return NextResponse.json({ success: true, emailId: sent.id || null, recipientEmail: email, highlights });
   } catch (error) {
     console.error('[PATA ADMIN EMAIL]', error.message || error);
     return errorResponse(error.message || 'Le message e-mail n’a pas pu être envoyé.', 502);
