@@ -9,14 +9,102 @@ const money = (value) => value == null || !Number.isFinite(Number(value)) ? '—
 const dateLabel = (value) => { if (!value) return '—'; const date = new Date(value); return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' }); };
 const statusLabel = { PENDING_REVIEW: 'À vérifier', SENDING: 'Envoi en cours', PROCESSING: 'Traitement en cours', RECONCILIATION_REQUIRED: 'Vérification nécessaire', PAID: 'Payé', REJECTED: 'Refusé', FAILED: 'Échec', EXPIRED: 'Expiré' };
 const templates = [
-  { label: 'Bienvenue', subject: 'Bienvenue sur Pata', body: 'Bonjour {nom}, bienvenue sur Pata. Nous sommes heureux de t’accompagner dans le suivi de tes finances.' },
-  { label: 'Félicitations', subject: 'Bravo pour ta progression sur Pata', body: 'Bonjour {nom}, nous tenions à te féliciter pour ta régularité. Continue à suivre tes revenus, tes dépenses et tes objectifs.' },
-  { label: 'Découverte Premium', subject: 'Découvre Pata Premium', body: 'Bonjour {nom}, tu peux découvrir les fonctionnalités supplémentaires de Pata Premium depuis ton espace.' },
-  { label: 'Aide / support', subject: 'Nous sommes là pour t’aider sur Pata', body: 'Bonjour {nom},\n\nNous souhaitions prendre de tes nouvelles et vérifier que tout se passe bien sur Pata. Si une fonctionnalité te pose problème ou si tu as une question, réponds simplement à ce message. Notre équipe prendra le temps de t’accompagner.\n\nTu peux aussi nous écrire directement sur WhatsApp depuis Pata.' },
-  { label: 'Prendre des nouvelles', subject: 'Comment se passe ton expérience avec Pata ?', body: 'Bonjour {nom},\n\nCela fait quelque temps que nous ne nous sommes pas croisés sur Pata. Nous espérons que tout va bien de ton côté. Nous aimerions savoir si l’application répond à tes attentes et si quelque chose pourrait être amélioré pour te faciliter la gestion de ton argent.\n\nTon retour compte réellement pour nous.' },
-  { label: 'Encouragement', subject: 'Continue à avancer à ton rythme', body: 'Bonjour {nom},\n\nChaque petite habitude compte lorsqu’il s’agit de mieux gérer son argent. Enregistrer régulièrement tes opérations et revoir ton budget peut déjà faire une vraie différence.\n\nNous sommes heureux de t’accompagner et restons disponibles si tu as besoin d’aide.' },
-  { label: 'Épargne créée', subject: 'Bravo pour ton engagement envers ton épargne', body: 'Bonjour {nom},\n\nNous souhaitions te féliciter pour le projet d’épargne que tu as lancé. Le plus important est de garder un rythme réaliste et de suivre tes versements.\n\nPata est là pour t’aider à visualiser tes progrès. Continue à avancer étape par étape !' },
-  { label: 'Premium : aller plus loin', subject: 'Découvre les possibilités de Pata Premium', body: 'Bonjour {nom},\n\nTu peux découvrir les fonctions supplémentaires de Pata Premium lorsque tu souhaites aller plus loin dans ton suivi. Prends le temps de consulter les avantages et de vérifier qu’ils correspondent à tes besoins avant de choisir.' },
+  {
+    key: 'welcome', label: 'Bienvenue', subject: 'Bienvenue sur Pata — commençons à construire ton suivi',
+    body: `Bonjour {nom},
+
+Bienvenue sur Pata ! Nous sommes heureux de t’accueillir dans une application conçue pour t’aider à mieux comprendre ton argent et à organiser tes priorités, sans te compliquer la vie.
+
+Tu peux commencer simplement : enregistrer tes revenus, noter tes dépenses courantes, définir un budget réaliste et suivre les objectifs qui comptent pour toi. Tu retrouveras tes informations dans ton tableau de bord et tes rapports.
+
+Prends le temps de découvrir les rubriques à ton rythme. Tu n’as pas besoin de tout configurer en une seule journée : quelques informations fiables et régulièrement mises à jour suffisent pour commencer à voir plus clair.
+
+Merci d’avoir choisi Pata. Notre équipe reste disponible pour t’accompagner si tu rencontres une difficulté ou si tu as une question.`,
+  },
+  {
+    key: 'congratulations', label: 'Félicitations — projets et réalisations', subject: 'Nous souhaitions saluer tes avancées sur Pata',
+    body: `Bonjour {nom},
+
+Nous prenons un moment pour reconnaître les étapes positives de ton parcours sur Pata. Les projets que tu prépares, ceux que tu fais avancer et les objectifs que tu as choisi de financer témoignent d’une démarche concrète : transformer tes idées en réalisations.
+
+Nous avons consulté les informations de ton compte afin de mettre en valeur tes projets, tes objectifs d’épargne et tes cotisations. Tu trouveras ci-dessous un aperçu personnalisé de ces engagements. Nous ne confondons pas ces réalisations avec les dépenses du quotidien : ce sont des objectifs distincts, qui méritent d’être suivis séparément.
+
+Continue à avancer avec un rythme adapté à tes moyens et à tes priorités. Il vaut mieux un plan réaliste, que tu peux tenir, qu’un objectif trop ambitieux qui devient difficile à suivre.
+
+Merci de faire confiance à Pata pour organiser ces étapes. Nous sommes heureux de t’accompagner dans la suite de ton parcours.`,
+  },
+  {
+    key: 'support', label: 'Aide et accompagnement', subject: 'Pata — nous sommes disponibles pour t’accompagner',
+    body: `Bonjour {nom},
+
+Nous souhaitions prendre de tes nouvelles et vérifier que ton expérience sur Pata se déroule dans de bonnes conditions.
+
+Si tu rencontres une difficulté pour enregistrer un revenu, classer une sortie, suivre un objectif d’épargne, utiliser une cotisation ou comprendre un rapport, réponds simplement à ce message en décrivant ce qui se passe. Tu peux également joindre une capture d’écran en prenant soin de masquer les informations confidentielles qui ne sont pas nécessaires.
+
+Notre équipe pourra ainsi mieux comprendre la situation et t’indiquer les étapes à suivre. Nous préférons examiner le problème avec précision plutôt que de te donner une réponse approximative.
+
+Merci de nous aider à améliorer Pata par tes retours. Nous restons disponibles pour t’accompagner.`,
+  },
+  {
+    key: 'checkin', label: 'Prendre des nouvelles', subject: 'Comment se passe ton expérience avec Pata ?',
+    body: `Bonjour {nom},
+
+Cela fait quelque temps que nous ne nous sommes pas croisés sur Pata. Nous espérons que tout va bien de ton côté.
+
+Nous aimerions savoir si l’application répond toujours à tes attentes. Est-ce que le suivi des revenus, les objectifs d’épargne, les projets et les cotisations sont faciles à utiliser ? Y a-t-il une étape qui te semble compliquée ou une fonction qui te manque ?
+
+Ton retour nous aide à identifier les améliorations qui comptent vraiment pour les utilisateurs. Tu peux répondre directement à ce message : nous lirons tes remarques avec attention.
+
+Merci de faire partie de la communauté Pata. Nous serons heureux d’avoir de tes nouvelles.`,
+  },
+  {
+    key: 'encouragement', label: 'Encouragement', subject: 'Continue à avancer à ton rythme',
+    body: `Bonjour {nom},
+
+Un projet financier ne se construit pas toujours en une seule étape. Certaines périodes permettent d’avancer rapidement ; d’autres demandent de revoir les priorités ou de prendre un peu de recul.
+
+L’important est de conserver une vision claire de ce que tu souhaites réaliser. Pata te permet de suivre séparément les dépenses du quotidien, les projets, les sommes mises de côté et les investissements. Tu peux ainsi prendre des décisions en tenant compte de la nature réelle de chaque mouvement.
+
+Choisis des objectifs qui correspondent à tes moyens actuels et ajuste-les lorsque ta situation évolue. Tu peux également consulter tes rapports pour observer tes progrès sur une période précise.
+
+Nous sommes heureux de t’accompagner. Continue avec méthode, sans te mettre une pression inutile.`,
+  },
+  {
+    key: 'savings', label: 'Épargne et objectifs', subject: 'Un point sur tes objectifs d’épargne',
+    body: `Bonjour {nom},
+
+Nous souhaitions revenir sur les objectifs d’épargne que tu as enregistrés dans Pata. Les sommes mises de côté représentent une démarche distincte des dépenses de consommation : elles sont destinées à préparer une utilisation future ou à protéger une partie de tes ressources.
+
+Tu peux consulter le montant déjà constitué, la progression vers chaque cible et les échéances que tu as définies. Si un objectif ne correspond plus à ta situation, prends le temps de revoir son calendrier et tes contributions avant de modifier ton plan.
+
+L’essentiel est de garder un niveau d’épargne compatible avec tes besoins essentiels et tes engagements actuels. Un objectif réaliste et suivi régulièrement est plus utile qu’une cible difficile à tenir.
+
+Merci d’utiliser Pata pour organiser tes priorités.`,
+  },
+  {
+    key: 'cotisation', label: 'Cotisation et tontine', subject: 'Un point sur tes cotisations Pata',
+    body: `Bonjour {nom},
+
+Nous souhaitions te faire un point sur les groupes de cotisation auxquels tu participes sur Pata. Les cotisations reposent sur des engagements collectifs : chaque membre doit connaître sa position, sa contribution, la date limite et le tour du bénéficiaire.
+
+Tu peux consulter le montant déjà confirmé, le reste à verser, l’ordre de passage et les règles de retard définies par le chef du groupe. Les paiements ne sont comptabilisés qu’après confirmation effective de Fapshi. Un lien de paiement ouvert ou une opération encore en attente ne constitue pas un versement reçu.
+
+Lorsque toutes les contributions nécessaires sont confirmées, le bénéficiaire peut demander son retrait. Celui-ci reste soumis à la vérification administrative et à la confirmation du prestataire.
+
+Merci de respecter les échéances et de prévenir ton groupe en cas de difficulté.`,
+  },
+  {
+    key: 'premium', label: 'Découverte Premium', subject: 'Découvre les possibilités de Pata Premium',
+    body: `Bonjour {nom},
+
+Pata évolue pour proposer des outils plus complets à ceux qui souhaitent approfondir leur gestion financière.
+
+Avec les fonctions Premium, tu peux notamment organiser des projets, relier des revenus à un projet précis, suivre les sorties qui lui sont associées et demander à Mč une analyse dédiée. Cela permet de distinguer plus clairement les dépenses du quotidien des sommes affectées à une réalisation importante.
+
+Prends le temps de consulter la page Premium et de comparer les fonctions proposées à tes besoins réels. Tu n’as aucune obligation de souscrire : l’objectif est de te permettre de choisir en connaissance de cause.
+
+Merci de ta confiance.`,
+  },
 ];
 function Metric({ label, value, detail, icon: Icon }) { return <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex items-center justify-between"><p className="text-xs font-medium text-slate-500">{label}</p><span className="rounded-xl bg-slate-100 p-2 text-slate-600"><Icon size={17}/></span></div><p className="mt-3 break-words text-xl font-bold tracking-tight text-slate-950 sm:text-2xl">{value}</p>{detail && <p className="mt-1 text-xs text-slate-500">{detail}</p>}</div>; }
 function SectionTitle({ title, detail, action }) { return <div className="mb-4 flex flex-wrap items-end justify-between gap-2"><div><h2 className="text-lg font-semibold text-slate-900">{title}</h2>{detail && <p className="mt-1 text-xs text-slate-500">{detail}</p>}</div>{action}</div>; }
@@ -27,7 +115,7 @@ export default function AdminPage() {
   const [code, setCode] = useState(''); const [unlocked, setUnlocked] = useState(false); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   const [tab, setTab] = useState('overview'); const [overview, setOverview] = useState(null); const [users, setUsers] = useState([]); const [nextCursor, setNextCursor] = useState(null); const [questions, setQuestions] = useState(null); const [nextQuestionCursor, setNextQuestionCursor] = useState(null); const [savings, setSavings] = useState(null); const [nextSavingsCursor, setNextSavingsCursor] = useState(null); const [recipients, setRecipients] = useState([]); const [recipientSummary, setRecipientSummary] = useState(null); const [nextRecipientCursor, setNextRecipientCursor] = useState(null); const [selectedRecipientIds, setSelectedRecipientIds] = useState([]); const [recipientMode, setRecipientMode] = useState('all'); const [recipientSearch, setRecipientSearch] = useState(''); const [withdrawals, setWithdrawals] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null); const [userDetail, setUserDetail] = useState(null); const [search, setSearch] = useState(''); const [templateChoice, setTemplateChoice] = useState('');
-  const [emailSubject, setEmailSubject] = useState(templates[0].subject); const [emailMessage, setEmailMessage] = useState(templates[0].body); const [emailResult, setEmailResult] = useState(''); const [emailCtaPath, setEmailCtaPath] = useState('/dashboard');
+  const [emailSubject, setEmailSubject] = useState(templates[0].subject); const [emailMessage, setEmailMessage] = useState(templates[0].body); const [emailResult, setEmailResult] = useState(''); const [emailCtaPath, setEmailCtaPath] = useState('/dashboard'); const [emailTemplateKey, setEmailTemplateKey] = useState('welcome');
   const [broadcastTitle, setBroadcastTitle] = useState('Information Pata'); const [broadcastMessage, setBroadcastMessage] = useState(''); const [broadcastPath, setBroadcastPath] = useState('/dashboard'); const [broadcastResult, setBroadcastResult] = useState('');
 
   const api = useCallback(async (path, method = 'GET', body = null) => {
@@ -78,7 +166,7 @@ export default function AdminPage() {
       setNextRecipientCursor(result.nextCursor || null);
     } catch (err) { setError(err.message); } finally { setBusy(false); }
   };
-  const openUser = async (entry) => { setSelectedUser(entry); setUserDetail(null); setTemplateChoice(''); setEmailSubject(templates[0].subject); setEmailMessage(templates[0].body); setEmailResult(''); try { setUserDetail(await api(`admin/user-detail?uid=${encodeURIComponent(entry.id)}`)); } catch (err) { setError(err.message); } };
+  const openUser = async (entry) => { setSelectedUser(entry); setUserDetail(null); setTemplateChoice(''); setEmailSubject(templates[0].subject); setEmailMessage(templates[0].body); setEmailTemplateKey('welcome'); setEmailResult(''); try { setUserDetail(await api(`admin/user-detail?uid=${encodeURIComponent(entry.id)}`)); } catch (err) { setError(err.message); } };
   const sendUserEmail = async () => {
     if (!userDetail?.user?.id || !emailSubject.trim() || !emailMessage.trim()) return;
     setBusy(true); setError(''); setEmailResult('');
@@ -88,7 +176,8 @@ export default function AdminPage() {
         subject: emailSubject.trim(),
         message: emailMessage.trim().replaceAll('{nom}', userDetail.user.displayName || 'bonjour'),
         ctaPath: emailCtaPath,
-        ctaLabel: emailCtaPath === '/premium' ? 'Découvrir Premium' : emailCtaPath === '/goals' ? 'Voir mon épargne' : 'Ouvrir mon tableau de bord',
+        templateKey: emailTemplateKey,
+        ctaLabel: emailCtaPath === '/premium' ? 'Découvrir Premium' : emailCtaPath === '/goals' ? 'Voir mon épargne' : emailCtaPath === '/cotisations' ? 'Voir mes cotisations' : 'Ouvrir mon tableau de bord',
       });
       setEmailResult('E-mail accepté par Resend pour ' + (result.recipientEmail || userDetail.user.email) + '.');
     } catch (err) { setError(err.message || 'Impossible d’envoyer cet e-mail.'); }
@@ -159,14 +248,14 @@ export default function AdminPage() {
           <div className="flex flex-wrap items-center justify-between gap-2"><h4 className="text-sm font-bold text-slate-900">Contacter cet utilisateur par e-mail</h4>{waHref(userDetail.user, templates[3]) && <a href={waHref(userDetail.user, templates[3])} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-800"><MessageCircle size={14}/> WhatsApp</a>}</div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <label className="text-xs font-semibold text-slate-600">Modèle de message
-              <select value={templateChoice} onChange={(event) => { const value=event.target.value; setTemplateChoice(value); const selected=templates.find((item)=>item.label===value); if(selected){setEmailSubject(selected.subject);setEmailMessage(selected.body);} }} className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal"><option value="">Message personnalisé</option>{templates.map((template) => <option key={template.label} value={template.label}>{template.label}</option>)}</select>
+              <select value={templateChoice} onChange={(event) => { const value=event.target.value; setTemplateChoice(value); const selected=templates.find((item)=>item.label===value); if(selected){setEmailSubject(selected.subject);setEmailMessage(selected.body);setEmailTemplateKey(selected.key);} else {setEmailTemplateKey('custom');} }} className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal"><option value="">Message personnalisé</option>{templates.map((template) => <option key={template.label} value={template.label}>{template.label}</option>)}</select>
             </label>
             <label className="text-xs font-semibold text-slate-600">Destination du bouton
-              <select value={emailCtaPath} onChange={(event)=>setEmailCtaPath(event.target.value)} className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal"><option value="/dashboard">Tableau de bord</option><option value="/goals">Épargnes</option><option value="/premium">Premium</option><option value="/reports">Rapports</option></select>
+              <select value={emailCtaPath} onChange={(event)=>setEmailCtaPath(event.target.value)} className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal"><option value="/dashboard">Tableau de bord</option><option value="/goals">Épargnes</option><option value="/premium">Premium</option><option value="/reports">Rapports</option><option value="/cotisations">Cotisations</option></select>
             </label>
           </div>
           <label className="mt-3 block text-xs font-semibold text-slate-600">Objet de l’e-mail<input value={emailSubject} onChange={(event)=>setEmailSubject(event.target.value)} maxLength={140} className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-normal"/></label>
-          <label className="mt-3 block text-xs font-semibold text-slate-600">Message personnalisable<textarea value={emailMessage} onChange={(event)=>setEmailMessage(event.target.value)} maxLength={5000} rows={6} className="mt-1.5 w-full rounded-lg border border-slate-200 p-3 text-sm font-normal leading-6"/><span className="mt-1 block font-normal text-slate-400">Le champ {'{nom}'} sera remplacé par le nom du destinataire. Les liens vers les trois partenaires sont ajoutés automatiquement au pied du mail.</span></label>
+          <label className="mt-3 block text-xs font-semibold text-slate-600">Message personnalisable<textarea value={emailMessage} onChange={(event)=>setEmailMessage(event.target.value)} maxLength={5000} rows={6} className="mt-1.5 w-full rounded-lg border border-slate-200 p-3 text-sm font-normal leading-6"/><span className="mt-1 block font-normal text-slate-400">Le champ {'{nom}'} sera remplacé par le nom du destinataire. Le modèle « Félicitations » ajoute automatiquement les projets, objectifs d’épargne et cotisations enregistrés sur son compte — sans faire référence à ses dépenses.</span></label>
           <div className="mt-3 flex flex-wrap items-center gap-3"><button type="button" onClick={sendUserEmail} disabled={busy || !emailSubject.trim() || !emailMessage.trim()} className="inline-flex h-10 items-center gap-2 rounded-lg bg-slate-950 px-4 text-xs font-semibold text-white disabled:opacity-50">{busy?<Loader2 size={15} className="animate-spin"/>:<Mail size={15}/>} Envoyer l’e-mail</button>{emailResult && <p role="status" className="text-xs font-semibold text-emerald-700">{emailResult}</p>}</div>
         </div>
         <div className="mt-5 grid gap-4 xl:grid-cols-3">
