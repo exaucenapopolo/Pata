@@ -237,6 +237,8 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
   const [activeChatId, setActiveChatId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
+  const [inputError, setInputError] = useState('');
+  const messageLimit = input.includes('CONTENU DU DOCUMENT :') ? 5000 : 1800;
   const [loading, setLoading] = useState(false);
   const [imageFile, setImageFile] = useState(null);
   
@@ -259,7 +261,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
 
   useEffect(() => {
     if (open && initialPrompt) {
-      setInput(initialPrompt);
+      setInput(String(initialPrompt).slice(0, 5000)); setInputError('');
       setActiveChatId(null);
       setMessages([]);
       setShowSidebar(false);
@@ -284,6 +286,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
     setActiveChatId(null);
     setMessages([]);
     setInput('');
+    setInputError('');
     setImageFile(null);
     setShowSidebar(false);
   };
@@ -331,8 +334,11 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
   };
 
   const handleInputChange = (e) => {
-    const val = e.target.value;
+    const raw = e.target.value;
+    const limit = raw.includes('CONTENU DU DOCUMENT :') ? 5000 : 1800;
+    const val = raw.slice(0, limit);
     setInput(val);
+    setInputError(raw.length > limit ? `La limite est de ${limit.toLocaleString('fr-FR')} caractères. Le texte a été raccourci pour éviter un dépassement.` : '');
     if (val.endsWith('@')) {
       setShowMentions(true);
     } else if (showMentions && !val.includes('@')) {
@@ -368,6 +374,9 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
 
   const sendMessage = async (rawText) => {
     if ((!rawText.trim() && !imageFile) || loading) return;
+    const allowedLength = rawText.includes('CONTENU DU DOCUMENT :') ? 5000 : 1800;
+    if (rawText.length > allowedLength) { setInput(rawText.slice(0, allowedLength)); setInputError(`La limite est de ${allowedLength.toLocaleString('fr-FR')} caractères. Raccourcis ton message avant l’envoi.`); return; }
+    setInputError('');
     
     const hasAudio = /@audio/i.test(rawText);
     const hasImageGen = /@image/i.test(rawText);
@@ -717,6 +726,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
                 ref={textareaRef}
                 value={input} 
                 onChange={handleInputChange} 
+                maxLength={messageLimit}
                 placeholder="Pose ta question (tape @ pour les options)..." 
                 className="min-h-[48px] max-h-[160px] flex-1 resize-none rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-3 text-base outline-none transition focus:border-brand-500 focus:bg-white sm:text-sm" 
                 disabled={loading}
@@ -727,6 +737,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
                 <Send size={18} />
               </button>
             </form>
+            <div className="mx-auto mt-1 flex max-w-3xl items-center justify-between gap-3 px-1 text-[10px]" aria-live="polite"><span className={inputError ? 'text-amber-700' : 'text-slate-400'}>{inputError || 'Garde ton message concis pour obtenir une réponse plus rapide.'}</span><span className="shrink-0 tabular-nums text-slate-500">{Math.max(0, messageLimit - input.length).toLocaleString('fr-FR')} caractères restants</span></div>
           </div>
         </div>
 

@@ -673,11 +673,12 @@ async function handleNotificationScheduler(request) {
       if (userData.notificationsDailyDate === today) { skipped += 1; continue; }
       try {
         const monthStart = `${month}-01`;
-        const [todayExpensesSnap, monthExpensesSnap, budgetsSnap, automationsSnap] = await Promise.all([
+        const [todayExpensesSnap, monthExpensesSnap, budgetsSnap, automationsSnap, goalsSnap] = await Promise.all([
           userDoc.ref.collection('expenses').where('date', '==', today).get(),
           userDoc.ref.collection('expenses').where('date', '>=', monthStart).where('date', '<=', today).get(),
           userDoc.ref.collection('budgets').where('month', '==', month).get(),
           userDoc.ref.collection('automations').get(),
+          userDoc.ref.collection('goals').limit(20).get(),
         ]);
         const todayExpenses = todayExpensesSnap.docs.map((doc) => doc.data());
         const monthExpenses = monthExpensesSnap.docs.map((doc) => doc.data());
@@ -698,6 +699,19 @@ async function handleNotificationScheduler(request) {
         });
         const automationIssues = runsToday.filter((item) => ['SKIPPED', 'ERROR'].includes(String(item.lastRunStatus || '').toUpperCase()));
         const automationRuns = runsToday.filter((item) => item.lastRunStatus === 'EXECUTED');
+        const savingsReminders = [];
+        for (const goalDoc of goalsSnap.docs) {
+          const goal = goalDoc.data() || {};
+          if (goal.closed || goal.withdrawnAt || goal.type !== 'goal' || !Number(goal.frequencyDays)) continue;
+          const depositsSnap = await goalDoc.ref.collection('deposits').orderBy('createdAt', 'desc').limit(1).get();
+          const latestDeposit = depositsSnap.docs[0]?.data() || {};
+          const anchorDate = String(latestDeposit.date || goal.startDate || today).slice(0, 10);
+          const anchor = new Date(anchorDate + 'T00:00:00Z');
+          const current = new Date(today + 'T00:00:00Z');
+          const daysSinceDeposit = Number.isNaN(anchor.getTime()) ? 0 : Math.floor((current.getTime() - anchor.getTime()) / 86400000);
+          if (daysSinceDeposit >= Math.max(1, Number(goal.frequencyDays))) savingsReminders.push({ name: String(goal.name || 'ton objectif'), frequencyDays: Number(goal.frequencyDays), daysSinceDeposit });
+        }
+
         let title = 'Ton point financier du jour';
         let body;
         let target = '/dashboard';
@@ -714,6 +728,11 @@ async function handleNotificationScheduler(request) {
           title = 'Une opération programmée a besoin de toi';
           body = `${taskName} n’a pas été enregistrée. ${String(issue.lastRunMessage || 'Vérifie les fonds disponibles et les paramètres de cette opération.').slice(0, 150)}`;
           target = '/expenses';
+        } else if (savingsReminders.length) {
+          const goal = savingsReminders.sort((x, y) => y.daysSinceDeposit - x.daysSinceDeposit)[0];
+          title = 'Ton épargne attend ton prochain versement';
+          body = `Tu avais prévu d’alimenter « ${goal.name} » tous les ${goal.frequencyDays} jour(s). Ton dernier versement remonte à ${goal.daysSinceDeposit} jour(s). Même un petit montant peut t’aider à garder le rythme.`;
+          target = '/goals';
         } else if (automationRuns.length) {
           title = 'Tes opérations programmées';
           body = `${automationRuns.length} opération(s) programmée(s) ont été exécutée(s) aujourd’hui. Consulte les dépenses enregistrées dans Pata.`;
@@ -1733,15 +1752,30 @@ async function handleAutomationsScheduler(request) {
               const pushTokens = profileData.notificationsEnabled && Array.isArray(profileData.pushTokens)
                 ? [...new Set(profileData.pushTokens.filter((token) => typeof token === 'string' && token.length > 20))]
                 : [];
-              if (profileData.notificationsEnabled) {
-                const notificationId = `weekly-${weeklyReport.weekStart}`;
+              if (profileData.email && String(profileData.email).includes('@')) {
+                try {
+                  await sendPataEmail({
+                    to: profileData.email,
+                    subject: 'Ton bilan hebdomadaire est disponible',
+                    html: financialReminderEmail({
+                      name: profileData.displayName,
+                      headline: 'Ton bilan hebdomadaire est prêt',
+                      message: 'Ton résumé de la semaine est disponible dans Pata. Tu peux retrouver tes revenus, tes dépenses courantes, tes objectifs d’épargne et les évolutions de ton budget, puis décider des ajustements utiles pour la semaine qui commence.',
+                      targetUrl: '/reports',
+                    }),
+                    idempotencyKey: 'pata-weekly-report-email-' + userDoc.id + '-' + weeklyReport.weekStart,
+                  });
+                } catch (emailError) { console.warn('[WEEKLY REPORT EMAIL]', userDoc.id, emailError.message || emailError); }
+              }
+              const notificationId = `weekly-${weeklyReport.weekStart}`;
                 const title = 'Ton bilan hebdomadaire est disponible';
                 const body = 'Ton résumé de la semaine est prêt. Consulte tes revenus, tes dépenses et les tendances de ton budget dans Pata.';
                 await userDoc.ref.collection('notifications').doc(notificationId).set({
-                  title, body, target: '/reports', source: 'weekly_report',
-                  weekStart: weeklyReport.weekStart, weekEnd: weeklyReport.weekEnd,
-                  read: false, readAt: null, createdAt: FieldValue.serverTimestamp(),
-                }, { merge: true });
+                title, body, target: '/reports', source: 'weekly_report',
+                weekStart: weeklyReport.weekStart, weekEnd: weeklyReport.weekEnd,
+                read: false, readAt: null, createdAt: FieldValue.serverTimestamp(),
+              }, { merge: true });
+              if (profileData.notificationsEnabled) {
                 for (const token of pushTokens) {
                   try {
                     await adminMessaging.send({
@@ -3834,7 +3868,7 @@ async function handleCotisationCreate(request) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || startDate < cotisationToday()) return errorResponse('Choisis une date de début à partir d’aujourd’hui.', 400);
     const lateFee = lateFeeType === 'fixed' ? lateFeeValue : lateFeeType === 'percent' ? Math.round(amount * lateFeeValue / 100) : 0;
     const maximumPayout = (amount + lateFee) * expectedMembers;
-    if (maximumPayout > 500000) return errorResponse('Le total maximal possible de ce tour dépasse 500 000 FCFA, la limite actuelle d’un retrait Fapshi. Réduis le montant, le nombre de participants ou la majoration.', 400);
+    if (maximumPayout > 500000) return errorResponse('Le total maximal possible de ce tour dépasse la limite autorisée de 500 000 FCFA. Réduis le montant, le nombre de participants ou la majoration.', 400);
 
     const userRef = adminDb.collection('users').doc(uid);
     const groupRef = adminDb.collection('cotisationGroups').doc();
@@ -4032,7 +4066,7 @@ async function handleCotisationJoin(request) {
           frequency: cotisationFrequencyLabel(group.frequency), joinedMembers: result.memberCount || group.memberCount,
           expectedMembers: cotisationExpectedMembers(group, group.memberCount),
           remainingMembers: Math.max(0, cotisationExpectedMembers(group, group.memberCount) - (result.memberCount || group.memberCount)),
-          dueLabel, groupUrl: '/cotisations',
+          dueLabel, groupUrl: '/cotisations?group=' + groupRef.id,
         }),
         idempotencyKey: 'pata-cotisation-owner-joined-' + groupRef.id + '-' + uid,
       }).catch((emailError) => console.warn('[COTISATION OWNER EMAIL]', emailError.message || emailError));
