@@ -797,6 +797,7 @@ async function handleCreateIncome(request) {
   try {
     const { uid } = await authenticate(request);
     const body = await request.json();
+    const projectId = String(body.projectId || '').trim().slice(0, 150);
     const amount = Math.round(Number(body.amount));
     const source = String(body.source || 'Revenu').trim().slice(0, 100);
     const categoryId = String(body.categoryId || 'salary').trim().slice(0, 80);
@@ -812,6 +813,14 @@ async function handleCreateIncome(request) {
       const userSnap = await transaction.get(userRef);
       if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
       const userData = userSnap.data();
+      let projectName = '';
+      if (projectId) {
+        if (!isPremiumAccount(userData)) throw new Error('L’association d’un revenu à un projet est réservée à Pata Premium.');
+        if (projectId.includes('/')) throw new Error('Projet invalide.');
+        const projectSnap = await transaction.get(userRef.collection('projects').doc(projectId));
+        if (!projectSnap.exists || projectSnap.data()?.status === 'archived') throw new Error('Le projet choisi est introuvable ou archivé.');
+        projectName = String(projectSnap.data()?.name || '').slice(0, 100);
+      }
       const currentMonth = getDoualaMonthKey();
       const stats = normalizeMonthlyStatsForMonth(userData.monthlyStats || {}, currentMonth);
       const current = Number(stats.incomes) || 0;
@@ -822,6 +831,7 @@ async function handleCreateIncome(request) {
       stats.lastResetMonth = currentMonth;
       transaction.create(incomeRef, {
         amount, source: source || 'Revenu', categoryId, month, date, note,
+        ...(projectId ? { projectId, projectName } : {}),
         ...optionalMetadata,
         createdAt: FieldValue.serverTimestamp(),
       });
@@ -830,7 +840,7 @@ async function handleCreateIncome(request) {
         lifetimeIncomeAmount: FieldValue.increment(amount),
         lifetimeIncomeCount: FieldValue.increment(1),
       });
-      return { id: incomeRef.id, current: stats.incomes, limit: PLAN_LIMITS.FREE.incomes };
+      return { id: incomeRef.id, current: stats.incomes, limit: PLAN_LIMITS.FREE.incomes, ...(projectId ? { projectId, projectName } : {}) };
     });
     return NextResponse.json({ success: true, ...result });
   } catch (error) {
@@ -1783,7 +1793,7 @@ async function handleAIChat(request) {
     if (quota.reserved) reservedQuota = quota.date;
 
     const userRef = adminDb.collection('users').doc(uid);
-    const [userDoc, incomesSnap, expensesSnap, goalsSnap, budgetsSnap, automationsSnap, memorySnap, categoriesSnap] = await Promise.all([
+    const [userDoc, incomesSnap, expensesSnap, goalsSnap, budgetsSnap, automationsSnap, memorySnap, categoriesSnap, projectsSnap] = await Promise.all([
       userRef.get(),
       userRef.collection('incomes').orderBy('date', 'desc').limit(100).get(),
       userRef.collection('expenses').orderBy('date', 'desc').limit(200).get(),
@@ -1792,6 +1802,7 @@ async function handleAIChat(request) {
       userRef.collection('automations').limit(50).get(),
       userRef.collection('ai_memory').doc('profile').get(),
       userRef.collection('categories').limit(50).get(),
+      userRef.collection('projects').orderBy('createdAt', 'desc').limit(50).get(),
     ]);
 
     const goalsWithDeposits = await Promise.all(goalsSnap.docs.map(async (goalDoc) => {
@@ -1805,6 +1816,7 @@ async function handleAIChat(request) {
       expenses: expensesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
       goals: goalsWithDeposits,
       budgets: budgetsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+      projects: projectsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
       automations: automationsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
       memories: Array.isArray(memorySnap.data()?.facts) ? memorySnap.data().facts : [],
       categories: categoriesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
@@ -1819,7 +1831,8 @@ IDENTITÉ ET MISSION DE PATA
 Pata est une application de gestion financière personnelle créée et détenue par NAPOPOLO EXAUCE. Sa mission est d’aider chacun à reprendre le contrôle de son argent : noter ses revenus et ses dépenses, comprendre où part son argent, préparer des budgets réalistes, suivre ses objectifs d’épargne, connaître le solde restant par source de revenu, gérer son portefeuille Pata, consulter ses rapports et programmer des opérations récurrentes. Pata ne consulte pas les comptes bancaires externes et ne garantit pas de rendement financier.
 
 CONNAISSANCE ET ACCOMPAGNEMENT DE L’APPLICATION
-Tu connais les rubriques disponibles : Tableau de bord, Portefeuille, Dépenses, Revenus (dont les Prévisions vitales), Budgets, Objectifs, Rapports, Premium et Paramètres. Quand on te demande comment faire quelque chose, explique le chemin exact avec les noms visibles dans l’application, dans l’ordre, avec des mots simples. Si l’utilisateur semble perdu, propose de le faire à sa place lorsque l’action est prise en charge et que les informations nécessaires sont disponibles. Sinon, donne un bouton vers la page concernée.
+Tu connais les rubriques disponibles : Tableau de bord, Portefeuille, Dépenses, Revenus (dont les Prévisions vitales), Budgets, Objectifs, Cotisations, Rapports, Premium et Paramètres. Les projets sont une fonction Premium accessible depuis Dépenses.
+CLASSIFICATION DES SORTIES : distingue les dépenses courantes de consommation, les sorties affectées à un projet, l’épargne et les investissements. Toutes réduisent le solde disponible, mais seules les dépenses courantes constituent de la consommation. Les projets, l’épargne et les investissements ne sont pas des pertes de consommation. Les revenus affectés à un projet sont réservés à ce projet ; ils ne financent pas les dépenses générales ni d’autres projets. Quand on te demande comment faire quelque chose, explique le chemin exact avec les noms visibles dans l’application, dans l’ordre, avec des mots simples. Si l’utilisateur semble perdu, propose de le faire à sa place lorsque l’action est prise en charge et que les informations nécessaires sont disponibles. Sinon, donne un bouton vers la page concernée.
 Les prévisions vitales servent à estimer les dépenses nécessaires sur une période; elles ne constituent pas un revenu réel tant que l’utilisateur ne demande pas explicitement de transformer son plan en revenu et budgets. La prévision de durée du capital estime combien de jours un montant peut tenir selon les dépenses quotidiennes, hebdomadaires et mensuelles déclarées. Le Portefeuille Pata est un solde interne destiné aux recharges et paiements pris en charge par Pata, pas un compte bancaire ni un Mobile Money.
 
 GUIDE PRATIQUE DES RUBRIQUES
@@ -2983,6 +2996,61 @@ async function handleAdminBroadcast(request) {
   }
 }
 
+/* ═══════════════════ PROJETS PREMIUM ═══════════════════ */
+
+async function handleCreateProject(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const name = String(body.name || '').trim().slice(0, 100);
+    const description = String(body.description || '').trim().slice(0, 500);
+    const targetAmount = body.targetAmount === '' || body.targetAmount == null ? null : Math.round(Number(body.targetAmount));
+    if (!name) return errorResponse('Donne un nom à ton projet.', 400);
+    if (targetAmount !== null && (!Number.isSafeInteger(targetAmount) || targetAmount <= 0 || targetAmount > 1_000_000_000)) return errorResponse('Le budget indicatif est invalide.', 400);
+    const userRef = adminDb.collection('users').doc(uid);
+    const projectRef = userRef.collection('projects').doc();
+    await adminDb.runTransaction(async (transaction) => {
+      const userSnap = await transaction.get(userRef);
+      if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
+      if (!isPremiumAccount(userSnap.data())) throw new Error('La création de projets est réservée à Pata Premium.');
+      transaction.create(projectRef, { name, description, targetAmount, status: 'active', createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+    });
+    return NextResponse.json({ success: true, id: projectRef.id });
+  } catch (error) { return errorResponse(error.message || 'Impossible de créer ce projet.', /Premium|introuvable/i.test(error.message || '') ? 403 : 400); }
+}
+
+async function handleUpdateProject(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const projectId = String(body.projectId || '').trim().slice(0, 150);
+    if (!projectId || projectId.includes('/')) return errorResponse('Projet invalide.', 400);
+    const patch = {};
+    if (body.name !== undefined) patch.name = String(body.name || '').trim().slice(0, 100);
+    if (body.description !== undefined) patch.description = String(body.description || '').trim().slice(0, 500);
+    if (body.status !== undefined) {
+      if (!['active', 'archived'].includes(body.status)) return errorResponse('Statut de projet invalide.', 400);
+      patch.status = body.status;
+    }
+    if (body.targetAmount !== undefined) {
+      const amount = body.targetAmount === '' || body.targetAmount == null ? null : Math.round(Number(body.targetAmount));
+      if (amount !== null && (!Number.isSafeInteger(amount) || amount <= 0 || amount > 1_000_000_000)) return errorResponse('Budget indicatif invalide.', 400);
+      patch.targetAmount = amount;
+    }
+    if (patch.name === '') return errorResponse('Le nom du projet est obligatoire.', 400);
+    patch.updatedAt = FieldValue.serverTimestamp();
+    const userRef = adminDb.collection('users').doc(uid);
+    const projectRef = userRef.collection('projects').doc(projectId);
+    await adminDb.runTransaction(async (transaction) => {
+      const [userSnap, projectSnap] = await Promise.all([transaction.get(userRef), transaction.get(projectRef)]);
+      if (!userSnap.exists || !projectSnap.exists) throw new Error('Projet introuvable.');
+      if (!isPremiumAccount(userSnap.data())) throw new Error('Cette fonction nécessite Pata Premium.');
+      transaction.update(projectRef, patch);
+    });
+    return NextResponse.json({ success: true });
+  } catch (error) { return errorResponse(error.message || 'Impossible de modifier le projet.', 400); }
+}
+
 /* ═══════════════════ ROUTEUR PRINCIPAL ═══════════════════ */
 
 const ROUTES = {
@@ -3034,6 +3102,8 @@ const ROUTES = {
   'forecasts/duration/save': { POST: handleSaveDurationForecast },
   'forecasts/duration/delete': { POST: handleDeleteDurationForecast },
   'incomes/add': { POST: handleCreateIncome },
+  'projects/create': { POST: handleCreateProject },
+  'projects/update': { POST: handleUpdateProject },
   'budgets/upsert': { POST: handleUpsertBudget },
   'budgets/templates': { GET: handleBudgetTemplates, POST: handleBudgetTemplates, DELETE: handleBudgetTemplates },
   'goals/create': { POST: handleCreateGoal },
