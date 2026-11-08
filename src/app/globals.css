@@ -111,6 +111,15 @@ html.dark .recharts-text { fill: #cbd5e1 !important; }
   main .rounded-\[28px\] { border-radius: 1.35rem !important; }
 }
 
+
+@keyframes pata-feature-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.pata-feature-carousel [aria-live="polite"] {
+  animation: pata-feature-enter 220ms ease-out both;
+}
+
 /* Comfortable touch targets remain available even with denser spacing. */
 @media (max-width: 639px) {
   main button:not(.pata-feature-carousel button), main a { -webkit-tap-highlight-color: transparent; }
