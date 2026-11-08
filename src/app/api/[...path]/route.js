@@ -798,13 +798,10 @@ async function handleBudgetTemplates(request) {
         });
         if (!prepared.length) throw new Error('Ce modèle ne contient aucune catégorie valide.');
 
-        const createCount = prepared.filter((item) => item.amount > 0 && !item.existing).length;
-        const userData = userSnapshot.data() || {};
-        const currentMonth = getDoualaMonthKey();
-        const stats = normalizeMonthlyStatsForMonth(userData.monthlyStats || {}, currentMonth);
-        if (!isPremiumAccount(userData) && (Number(stats.budgets) || 0) + createCount > PLAN_LIMITS.FREE.budgets) {
-          throw new Error(`Ce modèle nécessite ${createCount} nouvelle(s) enveloppe(s), mais ton compte gratuit ne dispose plus d’assez de créations ce mois-ci. Aucun budget n’a été modifié. Passe à Premium pour appliquer le modèle complet.`);
-        }
+        // La création du modèle consomme déjà une place du quota gratuit.
+        // Réappliquer ce modèle est une réutilisation du budget enregistré, pas
+        // une nouvelle création de modèle ; toutes ses catégories peuvent donc
+        // être matérialisées sans compter une place par catégorie.
 
         let createdCount = 0;
         let updatedCount = 0;
@@ -833,11 +830,6 @@ async function handleBudgetTemplates(request) {
           }
         });
 
-        if (createdCount > 0) {
-          stats.budgets = (Number(stats.budgets) || 0) + createdCount;
-          stats.lastResetMonth = currentMonth;
-          transaction.update(userRef, { monthlyStats: stats });
-        }
         return { createdCount, updatedCount, deletedCount, totalCategories: prepared.length };
       });
       return NextResponse.json({ success: true, ...result });
