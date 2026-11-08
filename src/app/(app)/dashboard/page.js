@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   TrendingUp, TrendingDown, Wallet, Target, PiggyBank, ChevronRight,
-  CheckCircle2, AlertTriangle, Lightbulb, Info, Landmark, Calendar
+  CheckCircle2, AlertTriangle, Lightbulb, Info, Landmark, Calendar, ArrowUpRight, ArrowDownLeft, Plus
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { Card, CardTitle, CardValue } from '@/components/ui/Card';
@@ -126,12 +126,25 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Tableau de bord</h1>
-          <p className="text-sm text-slate-500">Vue d'ensemble et comparaisons intelligentes.</p>
+      <section className="relative overflow-hidden rounded-[28px] bg-gradient-to-br from-[#075b43] via-[#08674b] to-[#0c8060] p-5 text-white shadow-lg shadow-emerald-950/10 sm:p-7">
+        <div className="pointer-events-none absolute -right-12 -top-16 h-56 w-56 rounded-full border-[28px] border-white/5" />
+        <div className="pointer-events-none absolute -bottom-20 right-24 h-40 w-40 rounded-full border-[20px] border-white/5" />
+        <div className="relative flex flex-wrap items-start justify-between gap-4">
+          <div><p className="text-xs font-semibold tracking-wide text-emerald-100">TON ESPACE FINANCIER</p><h1 className="mt-2 text-xl font-bold tracking-tight sm:text-2xl">Bonjour {userName}</h1><p className="mt-1 max-w-sm text-xs leading-5 text-emerald-100 sm:text-sm">Voici ce qui se passe dans tes finances. Garde une vue claire sur ton argent.</p></div>
+          <Link href="/reports" className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-white/20 bg-white/10 px-3 text-xs font-semibold text-white transition hover:bg-white/15">Voir mon bilan <ChevronRight size={14}/></Link>
         </div>
-      </div>
+        <div className="relative mt-6 border-t border-white/15 pt-4"><p className="text-[11px] font-medium text-emerald-100">Solde global enregistré</p><p className="mt-1 break-words text-3xl font-bold tracking-tight sm:text-4xl">{formatCurrency(globalBalance)}</p><p className="mt-2 text-[10px] text-emerald-100">Total des revenus moins le total des dépenses enregistrées.</p></div>
+      </section>
+      <section>
+        <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-bold text-slate-900">Actions rapides</h2><span className="text-[10px] font-medium text-slate-400">Gérer mon argent</span></div>
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+          <Link href="/expenses?new=1" className="group flex min-h-[112px] flex-col justify-between rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:-translate-y-0.5 hover:border-rose-200 hover:shadow-md active:scale-[0.98]"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-rose-50 text-rose-700"><ArrowUpRight size={19}/></span><span><strong className="block text-xs text-slate-900">Ajouter une dépense</strong><span className="mt-0.5 block text-[10px] text-slate-500">Enregistrer une sortie</span></span></Link>
+          <Link href="/income?new=1" className="group flex min-h-[112px] flex-col justify-between rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md active:scale-[0.98]"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><ArrowDownLeft size={19}/></span><span><strong className="block text-xs text-slate-900">Ajouter un revenu</strong><span className="mt-0.5 block text-[10px] text-slate-500">Enregistrer une entrée</span></span></Link>
+          <Link href="/budgets" className="group flex min-h-[112px] flex-col justify-between rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md active:scale-[0.98]"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><PiggyBank size={19}/></span><span><strong className="block text-xs text-slate-900">Gérer mes budgets</strong><span className="mt-0.5 block text-[10px] text-slate-500">Prévoir mes dépenses</span></span></Link>
+          <Link href="/goals" className="group flex min-h-[112px] flex-col justify-between rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-md active:scale-[0.98]"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-50 text-violet-700"><Plus size={19}/></span><span><strong className="block text-xs text-slate-900">Créer un objectif</strong><span className="mt-0.5 block text-[10px] text-slate-500">Préparer mon épargne</span></span></Link>
+        </div>
+      </section>
+      <div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="text-base font-bold text-slate-900">Vue d’ensemble</h2><p className="text-xs text-slate-500">Activité et comparaisons financières.</p></div></div>
 
       <Card>
         <div className="flex flex-wrap items-center gap-3">
