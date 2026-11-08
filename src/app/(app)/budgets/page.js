@@ -92,6 +92,14 @@ export default function BudgetsPage() {
   const usedBudgetQuota = profile?.monthlyStats?.lastResetMonth === currentMonthKey ? Number(profile?.monthlyStats?.budgets) || 0 : 0;
   const budgetQuotaReached = !budgetPremium && usedBudgetQuota >= 2;
 
+  // Ne montrer que les catégories qui possèdent réellement une enveloppe pour
+  // la source sélectionnée. Les catégories à zéro restent disponibles dans
+  // l’éditeur de modèles, mais ne polluent pas la vue du budget actif.
+  const budgetedCategories = useMemo(
+    () => enriched.filter((category) => category.budgetId && Number(category.allocated) > 0),
+    [enriched]
+  );
+
   const totalAllocated = enriched.reduce((s, c) => s + c.allocated, 0);
   const totalSpent = enriched.reduce((s, c) => s + c.spent, 0);
 
@@ -280,7 +288,7 @@ export default function BudgetsPage() {
       )}
 
       <div className="grid gap-3 sm:grid-cols-2">
-        {enriched.map((c) => (
+        {budgetedCategories.map((c) => (
           <Card key={c.id}>
             <button type="button" onClick={() => setDetails(c)} className="mb-2 flex w-full items-start justify-between text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-300">
               <div className="flex items-center gap-2">
