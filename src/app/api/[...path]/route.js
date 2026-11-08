@@ -3143,8 +3143,8 @@ async function handleAdminEmailSend(request) {
     const name = String(recipient.displayName || email.split('@')[0] || 'Utilisateur').slice(0, 100);
     const highlights = await buildAdminEmailHighlights(recipientUid);
     const messageWithHighlights = templateKey === 'congratulations'
-      ? message + '\\n\\nVoici ce que nous pouvons mettre en valeur dans ton parcours sur Pata :\\n' + highlights.text + '\\n\\nNous tenons à souligner les efforts engagés dans ces projets, ces objectifs d’épargne et ces cotisations. Chaque réalisation mérite d’être reconnue, tout en gardant un rythme qui reste adapté à ta situation.'
-      : message + '\\n\\nTon parcours Pata :\\n' + highlights.text;
+      ? message + '\n\nVoici ce que nous pouvons mettre en valeur dans ton parcours sur Pata :\n' + highlights.text + '\n\nNous tenons à souligner les efforts engagés dans ces projets, ces objectifs d’épargne et ces cotisations. Chaque réalisation mérite d’être reconnue, tout en gardant un rythme qui reste adapté à ta situation.'
+      : message + '\n\nTon parcours Pata :\n' + highlights.text;
     const sent = await sendPataEmail({
       to: email,
       subject,
