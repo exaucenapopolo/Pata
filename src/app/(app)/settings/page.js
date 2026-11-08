@@ -34,7 +34,6 @@ export default function SettingsPage() {
   const [displayName, setDisplayName] = useState('');
   const [currency, setCurrency] = useState('XAF');
   const [theme, setTheme] = useState('light');
-  const [penaltyDefault, setPenaltyDefault] = useState(500);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [showProfileLogo, setShowProfileLogo] = useState(false);
@@ -49,7 +48,6 @@ export default function SettingsPage() {
       setDisplayName(profile.displayName || '');
       setCurrency(profile.currency || 'XAF');
       setTheme(profile.theme === 'dark' ? 'dark' : 'light');
-      setPenaltyDefault(profile.penaltyDefault ?? 500);
     }
   }, [profile]);
 
@@ -75,7 +73,6 @@ export default function SettingsPage() {
         theme,
         currencyRates,
         currencyRateUpdatedAt: new Date().toISOString(),
-        penaltyDefault: Number(penaltyDefault) || 0,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
@@ -198,13 +195,10 @@ export default function SettingsPage() {
             <option value="dark">Mode sombre</option>
           </Select>
           <p className="text-xs leading-5 text-slate-500">Les valeurs sont conservées en XAF. Pata les convertit à l’écran dans la devise sélectionnée, selon le dernier taux disponible.</p>
-          <Input
-            label="Amende par défaut (FCFA)"
-            type="number"
-            min="0"
-            value={penaltyDefault}
-            onChange={(e) => setPenaltyDefault(e.target.value)}
-          />
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+            <p className="text-xs font-semibold text-amber-900">Règle fixe des pénalités d’épargne</p>
+            <p className="mt-1 text-xs leading-5 text-amber-800">Chaque échéance manquée entraîne automatiquement des frais de 15 % du montant cible total de l’épargne. Cette règle est identique pour tous les comptes et ne peut pas être modifiée ici.</p>
+          </div>
           <div className="flex items-center gap-2">
             <Button type="submit" disabled={saving}>
               <Save size={15} /> {saving ? 'Enregistrement…' : 'Enregistrer'}
