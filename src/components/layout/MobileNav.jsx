@@ -3,14 +3,15 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Home, Wallet, TrendingUp, Plus, Menu, X, Banknote, Target, BarChart3, Settings, Crown, LogOut, PiggyBank, ArrowDownLeft, ArrowUpRight } from 'lucide-react';
+import { Home, Wallet, TrendingUp, Plus, Menu, X, Banknote, Target, BarChart3, Settings, Crown, LogOut, PiggyBank, ArrowDownLeft, ArrowUpRight, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 
 const MORE_NAV = [
   { href: '/wallet', label: 'Portefeuille', icon: Banknote, description: 'Solde et mouvements' },
   { href: '/budgets', label: 'Budgets', icon: PiggyBank, description: 'Enveloppes mensuelles' },
-  { href: '/goals', label: 'Objectifs', icon: Target, description: 'Épargne et projets' },
+  { href: '/goals', label: 'Objectifs', icon: Target, description: 'Épargne personnelle et objectifs' },
+  { href: '/cotisations', label: 'Cotisations', icon: Users, description: 'Groupes, tours et versements' },
   { href: '/reports', label: 'Rapports', icon: BarChart3, description: 'Bilans et analyses' },
   { href: '/premium', label: 'Premium', icon: Crown, description: 'Options et abonnement' },
   { href: '/settings', label: 'Paramètres', icon: Settings, description: 'Compte et préférences' },
