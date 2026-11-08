@@ -3894,6 +3894,54 @@ async function handleCotisationCreate(request) {
   } catch (error) { return errorResponse(error.message || 'Impossible de créer le groupe.', 400); }
 }
 
+
+async function handleCotisationUpdate(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const groupId = String(body.groupId || '').trim().slice(0, 150);
+    const name = String(body.name || '').trim().slice(0, 90);
+    const amount = Math.round(Number(body.contributionAmount));
+    const expectedMembers = Math.floor(Number(body.expectedMembers));
+    const frequency = ['daily', 'weekly', 'monthly'].includes(body.frequency) ? body.frequency : '';
+    const startDate = String(body.startDate || cotisationToday());
+    const dueDay = frequency === 'monthly' ? Math.floor(Number(body.dueDay || 0)) : null;
+    const graceDays = Math.floor(Number(body.graceDays ?? 0));
+    const lateFeeType = ['none', 'fixed', 'percent'].includes(body.lateFeeType) ? body.lateFeeType : 'none';
+    const lateFeeValue = lateFeeType === 'none' ? 0 : Math.round(Number(body.lateFeeValue));
+    if (!groupId || groupId.includes('/') || !name) return errorResponse('Vérifie le nom du groupe.', 400);
+    if (!Number.isSafeInteger(amount) || amount < 100 || amount > 250000 || amount % 100 !== 0) return errorResponse('La contribution doit être comprise entre 100 et 250 000 FCFA, par multiples de 100.', 400);
+    if (!Number.isSafeInteger(expectedMembers) || expectedMembers < 2 || expectedMembers > 50) return errorResponse('Le nombre de participants doit être compris entre 2 et 50.', 400);
+    if (!frequency || (frequency === 'monthly' && (!Number.isInteger(dueDay) || dueDay < 1 || dueDay > 31))) return errorResponse('Vérifie la fréquence et le jour limite de paiement.', 400);
+    if (!Number.isInteger(graceDays) || graceDays < 0 || graceDays > 30) return errorResponse('Le délai de grâce doit être compris entre 0 et 30 jours.', 400);
+    if (lateFeeType !== 'none' && (!Number.isSafeInteger(lateFeeValue) || lateFeeValue <= 0 || (lateFeeType === 'percent' && lateFeeValue > 100) || (lateFeeType === 'fixed' && lateFeeValue > 250000))) return errorResponse('Vérifie la majoration de retard.', 400);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || startDate < cotisationToday()) return errorResponse('La date de début doit être aujourd’hui ou ultérieure.', 400);
+    const lateAmount = lateFeeType === 'fixed' ? lateFeeValue : lateFeeType === 'percent' ? Math.round(amount * lateFeeValue / 100) : 0;
+    if ((amount + lateAmount) * expectedMembers > 500000) return errorResponse('Le montant total maximal du tour dépasse la limite autorisée de 500 000 FCFA.', 400);
+    const groupRef = adminDb.collection('cotisationGroups').doc(groupId);
+    await adminDb.runTransaction(async (transaction) => {
+      const groupSnap = await transaction.get(groupRef);
+      if (!groupSnap.exists) throw new Error('Groupe introuvable.');
+      const group = groupSnap.data();
+      if (group.ownerId !== uid) throw new Error('Seul le chef du groupe peut modifier ses paramètres.');
+      if (group.startedAt || group.membershipLockedCycle) throw new Error('Les paramètres sont verrouillés depuis le lancement de la cotisation.');
+      const membersSnap = await transaction.get(groupRef.collection('members').where('active', '==', true));
+      if (expectedMembers < membersSnap.size) throw new Error('Le nombre de participants ne peut pas être inférieur au nombre de personnes déjà inscrites.');
+      const resetOrder = expectedMembers !== cotisationExpectedMembers(group, group.memberCount);
+      if (resetOrder) membersSnap.docs.forEach((doc) => transaction.update(doc.ref, { turnOrder: null, orderUpdatedAt: null }));
+      transaction.update(groupRef, {
+        name, contributionAmount: amount, expectedMembers, maxMembers: expectedMembers,
+        frequency, startDate, dueDay, graceDays, lateFeeType, lateFeeValue,
+        ...(resetOrder ? { orderConfirmedAt: null, orderConfirmedBy: null } : {}),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    });
+    return NextResponse.json({ success: true, message: 'Les paramètres de ton groupe ont été mis à jour.' });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de modifier les paramètres du groupe.', 400);
+  }
+}
+
 async function handleCotisationJoin(request) {
   try {
     const { uid } = await authenticate(request);
@@ -4669,6 +4717,7 @@ const ROUTES = {
   'cotisations/invite': { GET: handleCotisationInvitePreview },
   'cotisations/scheduler': { GET: handleCotisationsScheduler, POST: handleCotisationsScheduler },
   'cotisations/create': { POST: handleCotisationCreate },
+  'cotisations/update': { POST: handleCotisationUpdate },
   'cotisations/join': { POST: handleCotisationJoin },
   'cotisations/reorder': { POST: handleCotisationReorder },
   'cotisations/contact': { POST: handleCotisationContact },
