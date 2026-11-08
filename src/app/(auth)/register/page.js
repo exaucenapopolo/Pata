@@ -47,7 +47,11 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       const cred = await register(email.trim(), password);
-      await ensureUserProfile(cred.user);
+      const profile = await ensureUserProfile(cred.user);
+      if (profile?.created && cred.user.email) {
+        try { await fetch('/api/email/welcome', { method: 'POST', headers: { Authorization: `Bearer ${await cred.user.getIdToken()}` } }); }
+        catch (emailError) { console.warn('[PATA WELCOME EMAIL]', emailError?.message || emailError); }
+      }
       router.replace('/dashboard');
     } catch (err) {
       setError(
@@ -69,7 +73,11 @@ export default function RegisterPage() {
       const u = await loginWithGoogle();
       if (u) {
         // Crée le profil Firestore si c'est la première connexion Google
-        await ensureUserProfile(u);
+        const profile = await ensureUserProfile(u);
+        if (profile?.created && u.email) {
+          try { await fetch('/api/email/welcome', { method: 'POST', headers: { Authorization: `Bearer ${await u.getIdToken()}` } }); }
+          catch (emailError) { console.warn('[PATA WELCOME EMAIL]', emailError?.message || emailError); }
+        }
         router.replace('/dashboard');
       }
     } catch (err) {
