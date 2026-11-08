@@ -1,8 +1,8 @@
 /* eslint-disable react/no-unescaped-entities */
 'use client';
 
-import { useMemo, useState } from 'react';
-import { PiggyBank, Pencil, Landmark, ChevronRight, MessageCircle, CalendarDays } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { PiggyBank, Pencil, Landmark, ChevronRight, MessageCircle, BookmarkPlus, Trash2, Layers3 } from 'lucide-react';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { Button } from '@/components/ui/Button';
@@ -14,7 +14,7 @@ import { useProfile } from '@/hooks/useProfile';
 import { useBudgets } from '@/hooks/useBudgets';
 import { useExpenses } from '@/hooks/useExpenses';
 import { useIncomes } from '@/hooks/useIncomes';
-import { upsertBudget, deleteBudget } from '@/lib/firestore/budgets';
+import { upsertBudget, deleteBudget, getBudgetTemplates, saveBudgetTemplate, applyBudgetTemplate, removeBudgetTemplate } from '@/lib/firestore/budgets';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { formatCurrency, getLocalMonth } from '@/lib/utils';
 
@@ -36,6 +36,24 @@ export default function BudgetsPage() {
   const [saving, setSaving] = useState(false);
   const [details, setDetails] = useState(null);
   const [saveError, setSaveError] = useState('');
+  const [templates, setTemplates] = useState([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [templateModalOpen, setTemplateModalOpen] = useState(false);
+  const [templateName, setTemplateName] = useState('');
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [applyingTemplate, setApplyingTemplate] = useState('');
+  const [templateMessage, setTemplateMessage] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    if (!user) return () => { active = false; };
+    setTemplatesLoading(true);
+    getBudgetTemplates()
+      .then((items) => { if (active) setTemplates(items); })
+      .catch((error) => { if (active) setTemplateMessage(error.message || 'Impossible de charger les modèles.'); })
+      .finally(() => { if (active) setTemplatesLoading(false); });
+    return () => { active = false; };
+  }, [user]);
 
   const monthIncomes = useMemo(() => incomes.filter(i => i.month === month), [incomes, month]);
 
@@ -80,6 +98,59 @@ export default function BudgetsPage() {
     setAmount(String(category.allocated || ''));
   };
 
+  const onSaveTemplate = async (event) => {
+    event.preventDefault();
+    const items = budgets.filter((budget) => Number(budget.amount) > 0)
+      .map((budget) => ({ categoryId: budget.categoryId, amount: Number(budget.amount) }));
+    if (!items.length) {
+      setTemplateMessage('Définis au moins une enveloppe avant de créer un modèle.');
+      return;
+    }
+    setSavingTemplate(true);
+    setTemplateMessage('');
+    try {
+      await saveBudgetTemplate(templateName, items);
+      setTemplates(await getBudgetTemplates());
+      setTemplateModalOpen(false);
+      setTemplateName('');
+      setTemplateMessage('Modèle enregistré. Tu pourras le réutiliser sur un autre mois.');
+    } catch (error) {
+      setTemplateMessage(error.message || 'Impossible d’enregistrer ce modèle.');
+    } finally {
+      setSavingTemplate(false);
+    }
+  };
+
+  const applyTemplate = async (template) => {
+    if (!Array.isArray(template.items) || !template.items.length) return;
+    const existingCount = template.items.filter((item) => budgets.some((budget) => budget.categoryId === item.categoryId)).length;
+    const confirmed = existingCount > 0
+      ? window.confirm('Appliquer « ' + template.name + ' » à ' + month + ' ? Les enveloppes correspondantes seront mises à jour. Les autres budgets resteront inchangés.')
+      : true;
+    if (!confirmed) return;
+    setApplyingTemplate(template.id);
+    setTemplateMessage('');
+    try {
+      const result = await applyBudgetTemplate(template.id, month, selectedIncome);
+      setTemplateMessage('Modèle appliqué à ' + month + ' : ' + (result.createdCount || 0) + ' enveloppe(s) créée(s), ' + (result.updatedCount || 0) + ' mise(s) à jour.');
+    } catch (error) {
+      setTemplateMessage(error.message || 'Le modèle n’a pas pu être appliqué. Aucun changement partiel n’a été effectué.');
+    } finally {
+      setApplyingTemplate('');
+    }
+  };
+
+  const deleteTemplate = async (template) => {
+    if (!window.confirm('Supprimer le modèle « ' + template.name + ' » ? Cela ne supprimera aucun budget déjà appliqué.')) return;
+    try {
+      await removeBudgetTemplate(template.id);
+      setTemplates((current) => current.filter((item) => item.id !== template.id));
+      setTemplateMessage('Modèle supprimé. Les budgets déjà appliqués sont conservés.');
+    } catch (error) {
+      setTemplateMessage(error.message || 'Impossible de supprimer ce modèle.');
+    }
+  };
+
   const onSave = async (e) => {
     e.preventDefault();
     const value = Number(amount);
@@ -115,7 +186,8 @@ export default function BudgetsPage() {
           </p>
           {!budgetPremium && <p className="mt-1 text-xs text-slate-500">Créations de budgets : {usedBudgetQuota} / 2 ce mois-ci.</p>}
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+          <Button type="button" variant="outline" size="sm" onClick={() => { setTemplateName(''); setTemplateMessage(''); setTemplateModalOpen(true); }} disabled={!budgets.some((budget) => Number(budget.amount) > 0)}><BookmarkPlus size={15}/> Enregistrer ce modèle</Button>
           <input
             type="month"
             value={month}
@@ -134,6 +206,26 @@ export default function BudgetsPage() {
           </select>
         </div>
       </div>
+
+      {(templates.length > 0 || templatesLoading) && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div><h2 className="flex items-center gap-2 text-sm font-bold text-slate-900"><Layers3 size={16} className="text-brand-700"/> Mes modèles de budget</h2><p className="mt-1 text-xs text-slate-500">Réutilise une répartition enregistrée sans ressaisir chaque montant.</p></div>
+            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-600">{templates.length}</span>
+          </div>
+          {templatesLoading ? <p className="py-3 text-xs text-slate-500">Chargement des modèles…</p> : (
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {templates.map((template) => (
+                <article key={template.id} className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+                  <div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-900">{template.name}</p><p className="mt-1 text-[11px] text-slate-500">{template.categoryCount || template.items?.length || 0} catégories · {formatCurrency((template.items || []).reduce((sum, item) => sum + (Number(item.amount) || 0), 0))}</p></div><button type="button" onClick={() => deleteTemplate(template)} className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600" aria-label={'Supprimer ' + template.name}><Trash2 size={14}/></button></div>
+                  <Button type="button" size="sm" className="mt-3 w-full" onClick={() => applyTemplate(template)} disabled={Boolean(applyingTemplate)}>{applyingTemplate === template.id ? 'Application…' : 'Appliquer à cette période'}</Button>
+                </article>
+              ))}
+            </div>
+          )}
+          {templateMessage && <p role="status" className="mt-3 rounded-lg bg-brand-50 px-3 py-2 text-xs text-brand-800">{templateMessage}</p>}
+        </section>
+      )}
 
       {totalAllocated === 0 && (
         <EmptyState
@@ -192,6 +284,16 @@ export default function BudgetsPage() {
       </div>
 
       {budgetQuotaReached && <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3"><p className="text-xs text-amber-800">Tu as utilisé tes deux créations de budget gratuites ce mois-ci. Les enveloppes déjà créées restent modifiables.</p><Button size="sm" onClick={() => window.location.assign('/premium')}>Passer à Premium</Button></div>}
+
+      <Modal open={templateModalOpen} onClose={() => setTemplateModalOpen(false)} title="Enregistrer un modèle de budget">
+        <form onSubmit={onSaveTemplate} className="space-y-4">
+          <div className="rounded-xl bg-brand-50 p-3 text-xs leading-5 text-brand-900">Ce modèle conservera les catégories et les montants de tes budgets actuels. Tu pourras ensuite l’appliquer à un autre mois ou à une autre source de revenu.</div>
+          <Input label="Nom du modèle" placeholder="Ex. Budget personnel mensuel" maxLength="70" required value={templateName} onChange={(event) => setTemplateName(event.target.value)}/>
+          <div className="rounded-xl border border-slate-200 px-3 py-2.5"><p className="text-xs text-slate-500">{budgets.filter((budget) => Number(budget.amount) > 0).length} enveloppe(s) · Total {formatCurrency(budgets.reduce((sum, budget) => sum + (Number(budget.amount) || 0), 0))}</p></div>
+          {templateMessage && <p role="alert" className="text-xs text-red-600">{templateMessage}</p>}
+          <Button type="submit" className="w-full" disabled={savingTemplate || !templateName.trim()}>{savingTemplate ? 'Enregistrement…' : 'Enregistrer le modèle'}</Button>
+        </form>
+      </Modal>
 
       <Modal open={!!details} onClose={() => setDetails(null)} title={details ? `Détail du budget — ${details.label}` : ''}>
         {details && (
