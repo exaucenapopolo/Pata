@@ -18,6 +18,8 @@ export function NotificationNudge() {
     if (!user || typeof window === 'undefined' || !('Notification' in window) || !('serviceWorker' in navigator)) return;
     const vapidKey = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY;
     if (!vapidKey) return;
+    const disabledKey = `pata-push-disabled:${user.uid}`;
+    try { if (localStorage.getItem(disabledKey) === '1') return; } catch { /* stockage local indisponible */ }
 
     // Sur chaque appareil déjà autorisé, récupère le jeton FCM courant.
     // Firebase peut renouveler un jeton après une mise à jour ou une réinstallation.
@@ -73,6 +75,7 @@ export function NotificationNudge() {
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok || !result.success) throw new Error(result.error || 'Activation impossible.');
+      try { localStorage.removeItem(`pata-push-disabled:${user.uid}`); } catch { /* stockage local indisponible */ }
       setVisible(false);
       setFeedback('Les rappels sont activés sur cet appareil.');
     } catch (error) {
