@@ -1984,7 +1984,7 @@ Pata est une application de gestion financière personnelle créée et détenue 
 
 CONNAISSANCE ET ACCOMPAGNEMENT DE L’APPLICATION
 Tu connais les rubriques disponibles : Tableau de bord, Portefeuille, Dépenses, Revenus (dont les Prévisions vitales), Budgets, Objectifs, Cotisations, Rapports, Premium et Paramètres. Les projets sont une fonction Premium accessible depuis Dépenses.
-COTISATIONS : tu peux consulter les groupes auxquels l’utilisateur appartient, son rôle (chef ou membre), les positions définies par le chef, le nombre de participants attendu/inscrits, le bénéficiaire du tour courant, l’échéance, le délai de grâce, la règle de majoration, les contributions confirmées, les montants restant à verser et le statut du cycle. Le principal et les majorations sont indiqués séparément. Les frais de paiement Fapshi sont de 5 % à chaque versement ; Pata ajoute 0 % au retrait. Ne considère jamais un lien de paiement initié comme une contribution confirmée : seuls les montants déjà inscrits dans les données de contributions après validation du prestataire peuvent être présentés comme payés. Tu peux expliquer comment rejoindre, réorganiser les positions avant le lancement ou effectuer un versement, mais ne prétends jamais avoir lancé, réorganisé ou payé une cotisation si tu ne disposes pas du résultat réel de l’action.
+COTISATIONS : tu peux consulter les groupes auxquels l’utilisateur appartient, son rôle (chef ou membre), les positions définies par le chef, le nombre de participants attendu/inscrits, le bénéficiaire du tour courant, l’échéance, le délai de grâce, la règle de majoration, les contributions confirmées, les montants restant à verser et le statut du cycle. Le principal et les majorations sont indiqués séparément. Les frais de service sont de 5 % à chaque versement ; Pata n’ajoute aucun frais de retrait. Ne considère jamais un lien de paiement initié comme une contribution confirmée : seuls les montants déjà inscrits dans les données de contributions après validation du prestataire peuvent être présentés comme payés. Tu peux expliquer comment rejoindre, réorganiser les positions avant le lancement ou effectuer un versement, mais ne prétends jamais avoir lancé, réorganisé ou payé une cotisation si tu ne disposes pas du résultat réel de l’action.
 CLASSIFICATION DES SORTIES — À RESPECTER POUR CHAQUE SAISIE ET CHAQUE ANALYSE :
 1. consumption / dépense courante : nourriture, transport, loyer, factures, loisirs et autres besoins du quotidien. C’est cette catégorie qui mesure la consommation et permet de dire si la personne dépense beaucoup au quotidien.
 2. project / dépense liée à un projet : achat ou réalisation identifié(e), par exemple construire une maison, acheter un ordinateur pour un objectif précis, équiper un logement ou réaliser un projet personnel. Présente le projet, ses revenus réservés et ses sorties séparément.
@@ -2837,7 +2837,7 @@ async function handleAdminApproveWithdrawal(request) {
       externalId: requestRef.id,
       message: `Retrait Pata — ${requestData.goalName || 'épargne'}`,
     };
-    if (!Number.isInteger(payload.amount) || payload.amount < 100 || payload.amount > 500000) throw new Error('Le montant du retrait doit être compris entre 100 et 500 000 FCFA pour une seule opération Fapshi.');
+    if (!Number.isInteger(payload.amount) || payload.amount < 100 || payload.amount > 500000) throw new Error('Le montant du retrait doit être compris entre 100 et 500 000 FCFA pour une seule opération.');
     const response = await fetch(`${baseUrl}/payout`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', apiuser: apiUser, apikey: apiKey },
@@ -2849,7 +2849,7 @@ async function handleAdminApproveWithdrawal(request) {
       const providerMessage = String(result.message || 'Le prestataire n’a pas confirmé le retrait.').slice(0, 300);
       if (response.status >= 500 || response.status === 408 || response.status === 429) {
         await requestRef.update({ status: 'RECONCILIATION_REQUIRED', providerMessage: `Réponse incertaine du prestataire (${response.status}). Vérification manuelle requise avant tout nouvel essai.` });
-        return errorResponse('La réponse du prestataire est incertaine. Vérifie cette demande dans ton espace Fapshi avant toute nouvelle tentative.', 502);
+        return errorResponse('La réponse du prestataire est incertaine. Vérifie le statut de cette demande auprès du support avant toute nouvelle tentative.', 502);
       }
       await requestRef.update({ status: 'FAILED', providerMessage, failedAt: FieldValue.serverTimestamp() });
       if (requestData.withdrawalType === 'cotisation') await restoreCotisationCycle({ ...requestData, requestId: requestRef.id }, 'FAILED');
@@ -2860,7 +2860,7 @@ async function handleAdminApproveWithdrawal(request) {
     }
     if (!result.transId) {
       await requestRef.update({ status: 'RECONCILIATION_REQUIRED', providerMessage: 'Le prestataire a répondu sans identifiant de paiement. Vérification manuelle requise.' });
-      return errorResponse('Le prestataire a répondu de manière inattendue. Vérifie le paiement dans ton espace Fapshi avant toute nouvelle action.', 502);
+      return errorResponse('Le prestataire a répondu de manière inattendue. Contacte le support avant toute nouvelle action.', 502);
     }
     const finalStatus = await adminDb.runTransaction(async (transaction) => {
       const freshRequest = await transaction.get(requestRef);
@@ -2978,7 +2978,7 @@ async function handleGoalWithdrawalRequest(request, actionType = 'withdraw') {
       const platformFee = 0; // Aucun frais de retrait ajouté par Pata.
       const amount = Math.floor(Math.max(0, totalDeposited - debt - penalty - platformFee));
       if (amount < 100) throw new Error('Le montant disponible est inférieur au minimum de retrait de 100 FCFA.');
-      if (amount > 500000) throw new Error('Le retrait dépasse le plafond de 500 000 FCFA accepté par Fapshi pour une seule opération. Contacte le support Pata pour organiser la suite sans risquer de bloquer ton épargne.');
+      if (amount > 500000) throw new Error('Le retrait dépasse le plafond autorisé de 500 000 FCFA pour une seule opération. Contacte le support Pata pour organiser la suite sans risquer de bloquer ton épargne.');
       const userData = userSnap.data();
       transaction.create(requestRef, {
         withdrawalType: 'savings',
@@ -3543,13 +3543,13 @@ function validateCotisationProviderPayment(providerResponse, payment, transId) {
     ? providerResponse.data : providerResponse;
   const providerTransId = data?.transId || data?.trans_id;
   if (providerTransId && String(providerTransId) !== String(transId)) {
-    throw new Error('L’identifiant de transaction retourné par Fapshi ne correspond pas au paiement enregistré.');
+    throw new Error('L’identifiant de transaction ne correspond pas au paiement enregistré.');
   }
   const providerAmount = data?.amount;
   if (providerAmount !== undefined && providerAmount !== null && providerAmount !== '') {
     const amount = Number(providerAmount);
     if (!Number.isSafeInteger(amount) || amount !== cotisationMoney(payment.grossAmount)) {
-      throw new Error('Le montant confirmé par Fapshi ne correspond pas au montant demandé. Le versement reste bloqué pour vérification.');
+      throw new Error('Le montant confirmé ne correspond pas au montant demandé. Le versement reste bloqué pour vérification.');
     }
   }
   const externalId = data?.externalId || data?.external_id;
@@ -3966,7 +3966,7 @@ async function handleCotisationJoin(request) {
             frequency: cotisationFrequencyLabel(group.frequency),
             position: 'À définir par le chef', expectedMembers: cotisationExpectedMembers(group, group.memberCount),
             joinedMembers: result.memberCount || group.memberCount, remainingMembers: Math.max(0, cotisationExpectedMembers(group, group.memberCount) - (result.memberCount || group.memberCount)),
-            dueLabel, groupUrl: '/cotisations',
+            dueLabel, groupUrl: '/cotisations?group=' + groupRef.id,
           }),
           idempotencyKey: 'pata-cotisation-joined-' + groupRef.id + '-' + uid,
         });
@@ -4036,19 +4036,22 @@ async function handleCotisationInvitePreview(request) {
 
 
 async function handleCotisationContact(request) {
- try { const {uid}=await authenticate(request), body=await request.json(), groupId=String(body.groupId||'').trim().slice(0,150), normalized=String(body.whatsappPhone||'').trim().replace(/[.\\-()\\s]/g,'');
- if(!groupId||groupId.includes('/')||!/^[0-9]{8,15}$/.test(normalized))return errorResponse('Entre un numéro WhatsApp valide avec son indicatif si nécessaire.',400);
- const memberRef=adminDb.collection('cotisationGroups').doc(groupId).collection('members').doc(uid), memberSnap=await memberRef.get();
- if(!memberSnap.exists||memberSnap.data()?.active===false)return errorResponse('Tu ne fais pas partie de ce groupe.',403);
- await memberRef.update({whatsappPhone:normalized,whatsappUpdatedAt:FieldValue.serverTimestamp()});return NextResponse.json({success:true,message:'Ton numéro WhatsApp a été enregistré.'});
- }catch(error){return errorResponse(error.message||'Impossible d’enregistrer ton numéro WhatsApp.',400);}
-}    const normalized = String(body.whatsappPhone || '').replace(/[^0-9]/g, '');
- try { const {uid}=await authenticate(request), body=await request.json(), groupId=String(body.groupId||'').trim().slice(0,150), normalized=String(body.whatsappPhone||'').trim().replace(/[.\\-()\\s]/g,'');
- if(!groupId||groupId.includes('/')||!/^[0-9]{8,15}$/.test(normalized))return errorResponse('Entre un numéro WhatsApp valide avec son indicatif si nécessaire.',400);
- const memberRef=adminDb.collection('cotisationGroups').doc(groupId).collection('members').doc(uid), memberSnap=await memberRef.get();
- if(!memberSnap.exists||memberSnap.data()?.active===false)return errorResponse('Tu ne fais pas partie de ce groupe.',403);
- await memberRef.update({whatsappPhone:normalized,whatsappUpdatedAt:FieldValue.serverTimestamp()});return NextResponse.json({success:true,message:'Ton numéro WhatsApp a été enregistré.'});
- }catch(error){return errorResponse(error.message||'Impossible d’enregistrer ton numéro WhatsApp.',400);}
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const groupId = String(body.groupId || '').trim().slice(0, 150);
+    const whatsappPhone = String(body.whatsappPhone || '').replace(/[^0-9]/g, '');
+    if (!groupId || groupId.includes('/') || !/^[0-9]{8,15}$/.test(whatsappPhone)) {
+      return errorResponse('Entre un numéro WhatsApp valide avec son indicatif pays.', 400);
+    }
+    const memberRef = adminDb.collection('cotisationGroups').doc(groupId).collection('members').doc(uid);
+    const memberSnap = await memberRef.get();
+    if (!memberSnap.exists || memberSnap.data()?.active === false) return errorResponse('Tu ne fais pas partie de ce groupe.', 403);
+    await memberRef.update({ whatsappPhone, whatsappUpdatedAt: FieldValue.serverTimestamp() });
+    return NextResponse.json({ success: true, message: 'Ton numéro WhatsApp a été enregistré.' });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible d’enregistrer ton numéro WhatsApp.', 400);
+  }
 }
 
 async function handleCotisationReorder(request) {
@@ -4119,7 +4122,7 @@ async function handleCotisationStart(request) {
       const cycleSnap = await transaction.get(cycleRef);
       if (cotisationMoney(cycleSnap.data()?.totalCollected) > 0) throw new Error('Des versements sont déjà enregistrés pour cette période.');
       const baseTarget = cotisationMoney(group.contributionAmount) * expectedMembers;
-      if (baseTarget > 500000) throw new Error('Le total dépasse la limite actuelle de retrait Fapshi de 500 000 FCFA.');
+      if (baseTarget > 500000) throw new Error('Le montant total dépasse la limite de retrait autorisée de 500 000 FCFA.');
       transaction.set(cycleRef, {
         cycleKey: meta.cycleKey, cycleIndex: meta.cycleIndex,
         startDate: meta.startDate, dueAt: meta.dueAt,
@@ -4504,13 +4507,13 @@ async function handleCotisationPay(request) {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         await releaseCotisationReservation(groupId, uid, reservationId, data.message || 'Paiement refusé');
-        return errorResponse(data.message || 'Le paiement a été refusé par Fapshi.', 502);
+        return errorResponse(data.message || 'Le paiement n’a pas été accepté. Réessaie ou contacte le support.', 502);
       }
       const checkoutUrl = data.data?.url || data.link || data.url;
       const transId = data.transId || data.data?.transId;
       if (!checkoutUrl || !transId) {
         await releaseCotisationReservation(groupId, uid, reservationId, 'Lien de paiement absent');
-        return errorResponse('Fapshi n’a pas fourni de lien de paiement vérifiable.', 502);
+        return errorResponse('Le lien de paiement n’a pas pu être créé. Réessaie plus tard.', 502);
       }
       await adminDb.collection('cotisationPayments').doc(transId).create({
         transId, reservationId, userId: uid, groupId, groupName: reservation.group.name || 'Cotisation',

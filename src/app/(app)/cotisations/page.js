@@ -70,6 +70,13 @@ export default function CotisationsPage() {
   }, [api, user]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (typeof window === 'undefined' || !groups.length) return;
+    const groupId = new URLSearchParams(window.location.search).get('group');
+    if (!groupId || !groups.some((group) => group.id === groupId)) return;
+    setExpandedGroups((current) => ({ ...current, [groupId]: true }));
+    document.getElementById('cotisation-' + groupId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [groups]);
   useEffect(() => { try { setPinnedGroups(JSON.parse(window.localStorage.getItem('pata-cotisation-pinned') || '[]')); } catch { setPinnedGroups([]); } }, []);
   const orderedGroups = useMemo(() => [...groups].sort((x,y)=>{const xp=pinnedGroups.includes(x.id)?1:0,yp=pinnedGroups.includes(y.id)?1:0;if(xp!==yp)return yp-xp;return (Date.parse(y.createdAt||0)||0)-(Date.parse(x.createdAt||0)||0);}),[groups,pinnedGroups]);
   const togglePinned = (id)=>setPinnedGroups((old)=>{const next=old.includes(id)?old.filter((v)=>v!==id):[...old,id];try{window.localStorage.setItem('pata-cotisation-pinned',JSON.stringify(next));}catch{}return next;});
@@ -337,7 +344,7 @@ export default function CotisationsPage() {
             const progress = cycle.targetAmount > 0 ? Math.min(100, Math.round((cycle.totalCollected / cycle.targetAmount) * 100)) : 0;
             const form = payForms[group.id] || {};
             const withdraw = withdrawForms[group.id] || {};
-            return <article key={group.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+            return <article id={'cotisation-' + group.id} key={group.id} className="scroll-mt-20 overflow-hidden rounded-2xl border border-slate-200 bg-white">
               <div className="border-b border-slate-100 p-4 sm:p-5">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div><div className="flex items-center gap-2"><h3 className="text-base font-bold text-slate-950">{group.name}</h3>{group.isOwner && <span className="rounded-full bg-brand-50 px-2 py-1 text-[10px] font-semibold text-brand-700">Chef de groupe</span>}</div><p className="mt-1 text-xs text-slate-500">{currency(group.contributionAmount)} par membre · {frequencyLabels[group.frequency] || group.frequency} · Échéance {group.frequency === 'monthly' ? 'le ' + group.dueDay + ' du mois' : 'à chaque période'} · Début {group.startDate}</p><p className="mt-1 text-[11px] text-slate-500">Majoration : {group.lateFeeLabel} · Délai de grâce : {group.graceDays} jour(s)</p></div>
