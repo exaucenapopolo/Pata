@@ -10,6 +10,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
 import { useDeposits } from '@/hooks/useDeposits';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import { AssistantShortcut } from '@/components/ai/AssistantShortcut';
 
 const QUICK_AMOUNTS = [500, 1000, 2000, 5000, 10000, 25000];
 
@@ -113,11 +114,14 @@ export default function WalletPage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Portefeuille</h1>
-        <p className="text-sm text-slate-500">
-          Recharge ton solde et finance tes objectifs d&apos;épargne.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Portefeuille</h1>
+          <p className="text-sm text-slate-500">
+            Recharge ton solde et finance tes objectifs d&apos;épargne.
+          </p>
+        </div>
+        <AssistantShortcut label="Comprendre mon portefeuille" prompt="Explique-moi le fonctionnement de mon portefeuille Pata, la différence entre solde disponible, recharge initiée, paiement confirmé et argent affecté aux objectifs. Aide-moi à vérifier mes opérations sans en créer ni en modifier aucune." />
       </div>
 
       <Card className="border border-slate-200 bg-white">
