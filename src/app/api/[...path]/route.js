@@ -3181,8 +3181,10 @@ async function confirmCotisationPayment(transId) {
     const groupRef = adminDb.collection('cotisationGroups').doc(payment.groupId);
     const cycleRef = groupRef.collection('cycles').doc(payment.cycleKey);
     const contributionRef = cycleRef.collection('contributions').doc(payment.userId);
-    const [groupSnap, cycleSnap, contributionSnap] = await Promise.all([
-      transaction.get(groupRef), transaction.get(cycleRef), transaction.get(contributionRef),
+    const memberRef = groupRef.collection('members').doc(payment.userId);
+    const paymentHistoryRef = cycleRef.collection('payments').doc(String(transId));
+    const [groupSnap, cycleSnap, contributionSnap, memberSnap] = await Promise.all([
+      transaction.get(groupRef), transaction.get(cycleRef), transaction.get(contributionRef), transaction.get(memberRef),
     ]);
     if (!groupSnap.exists) throw new Error('Groupe de cotisation introuvable.');
     const group = groupSnap.data();
@@ -3195,6 +3197,13 @@ async function confirmCotisationPayment(transId) {
       userId: payment.userId, displayName: payment.displayName || 'Membre',
       amount: nextMemberTotal, updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
+    transaction.set(paymentHistoryRef, {
+      transId: String(transId), userId: payment.userId,
+      displayName: payment.displayName || 'Membre', amount,
+      fee: cotisationMoney(payment.fee), grossAmount: cotisationMoney(payment.grossAmount),
+      status: 'CONFIRMED', confirmedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    if (memberSnap.exists) transaction.update(memberRef, { pendingPaymentId: null, pendingPaymentAmount: 0, pendingPaymentAt: null });
     transaction.set(cycleRef, {
       cycleKey: payment.cycleKey, cycleIndex: payment.cycleIndex,
       startDate: payment.cycleStartDate, dueAt: payment.dueAt,
@@ -3253,8 +3262,8 @@ async function handleCotisationsList(request) {
       const groupSnap = await groupRef.get();
       if (!groupSnap.exists) return null;
       const group = groupSnap.data();
-      const membersSnap = await groupRef.collection('members').where('active', '==', true).orderBy('turnOrder', 'asc').limit(50).get();
-      const members = membersSnap.docs.map((doc) => ({ uid: doc.id, ...doc.data() }));
+      const membersSnap = await groupRef.collection('members').orderBy('turnOrder', 'asc').limit(50).get();
+      const members = membersSnap.docs.map((doc) => ({ uid: doc.id, ...doc.data() })).filter((member) => member.active !== false);
       const meta = getCotisationCycleMeta(group);
       const cycleRef = groupRef.collection('cycles').doc(meta.cycleKey);
       const [cycleSnap, contributionsSnap, paymentsSnap] = await Promise.all([
