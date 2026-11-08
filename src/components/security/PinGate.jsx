@@ -81,7 +81,8 @@ export function PinGate() {
     finally { setBusy(false); }
   };
 
-  if (checking || !locked || !enabled) return null;
+  if (checking && user) return <div className="fixed inset-0 z-[200] grid place-items-center bg-[#f5f8f6]"><span className="h-8 w-8 animate-spin rounded-full border-2 border-[#0b5c46] border-t-transparent"/></div>;
+  if (!locked || !enabled) return null;
 
   return <div className="fixed inset-0 z-[200] grid place-items-center bg-[#f5f8f6] px-4 py-8">
     <section className="w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-6 shadow-xl">
