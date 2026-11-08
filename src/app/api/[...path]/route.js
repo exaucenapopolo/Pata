@@ -1890,8 +1890,11 @@ async function handleAIChat(request) {
       const membersSnap = await groupRef.collection('members').orderBy('turnOrder', 'asc').limit(50).get();
       const members = membersSnap.docs
         .map((memberDoc) => ({ uid: memberDoc.id, ...memberDoc.data() }))
-        .filter((member) => member.active !== false)
-        .sort((a, b) => Number(a.turnOrder) - Number(b.turnOrder));
+        .filter((member) => member.active !== false);
+      const hasAssignedOrder = members.length > 0 && members.every((member) => Number.isInteger(Number(member.turnOrder)) && Number(member.turnOrder) >= 1);
+      members.sort((a, b) => hasAssignedOrder
+        ? Number(a.turnOrder) - Number(b.turnOrder)
+        : String(a.displayName || '').localeCompare(String(b.displayName || ''), 'fr'));
       const meta = await resolveCurrentCotisationCycleMeta(groupRef, group);
       const cycleRef = groupRef.collection('cycles').doc(meta.cycleKey);
       const [cycleSnap, contributionsSnap] = await Promise.all([
@@ -3707,7 +3710,7 @@ async function handleCotisationsList(request) {
       const hasAssignedOrder = members.length > 0 && members.every((member) => Number.isInteger(Number(member.turnOrder)) && Number(member.turnOrder) >= 1);
       members.sort((a, b) => hasAssignedOrder || group.startedAt
         ? Number(a.turnOrder) - Number(b.turnOrder)
-        : ((a.joinedAt?.toMillis?.() || 0) - (b.joinedAt?.toMillis?.() || 0)));
+        : String(a.displayName || '').localeCompare(String(b.displayName || ''), 'fr'));
       const meta = await resolveCurrentCotisationCycleMeta(groupRef, group);
       const cycleRef = groupRef.collection('cycles').doc(meta.cycleKey);
       const [cycleSnap, contributionsSnap, paymentsSnap] = await Promise.all([
@@ -3771,6 +3774,7 @@ async function handleCotisationsList(request) {
         lateFeeLabel: cotisationPenaltyLabel(group), startedAt: Boolean(group.startedAt),
         inviteToken: group.ownerId === uid ? group.inviteToken : null,
         members: memberRows, memberCount: members.length, maxMembers: expectedMembers,
+        orderDefined: hasAssignedOrder,
         canStart: group.ownerId === uid && !group.startedAt && members.length >= 2 && members.length === expectedMembers
           && members.every((member) => Number.isInteger(Number(member.turnOrder)) && Number(member.turnOrder) >= 1)
           && new Set(members.map((member) => Number(member.turnOrder))).size === members.length
