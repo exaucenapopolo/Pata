@@ -40,7 +40,12 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      await login(email.trim(), password);
+      const credential = await login(email.trim(), password);
+      const profile = await ensureUserProfile(credential.user);
+      if (profile?.created && credential.user.email) {
+        try { await fetch('/api/email/welcome', { method: 'POST', headers: { Authorization: `Bearer ${await credential.user.getIdToken()}` } }); }
+        catch (emailError) { console.warn('[PATA WELCOME EMAIL]', emailError?.message || emailError); }
+      }
       router.replace('/dashboard');
     } catch (err) {
       setError(
