@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Bell, BellOff, Loader2 } from 'lucide-react';
-import { getMessaging, getToken, isSupported } from 'firebase/messaging';
+import { deleteToken, getMessaging, getToken, isSupported } from 'firebase/messaging';
 import app from '@/lib/firebase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
@@ -70,7 +70,20 @@ export function NotificationSettings() {
         if (!active) return;
         const savedTokens = Array.isArray(profile?.pushTokens) ? profile.pushTokens : [];
         setDeviceToken(token || '');
-        setEnabled(Boolean(token && profile?.notificationsEnabled && savedTokens.includes(token)));
+        if (token && !savedTokens.includes(token)) {
+          // Un jeton peut être renouvelé par Firebase après une mise à jour du navigateur.
+          // On synchronise le jeton courant au lieu d'afficher un faux état désactivé.
+          const idToken = await user.getIdToken();
+          const response = await fetch('/api/notifications/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+            body: JSON.stringify({ token }),
+          });
+          if (!response.ok) throw new Error('Impossible de synchroniser cet appareil.');
+          if (active) setEnabled(true);
+        } else {
+          setEnabled(Boolean(token && profile?.notificationsEnabled && savedTokens.includes(token)));
+        }
       } catch {
         if (active) setEnabled(false);
       }
@@ -108,6 +121,51 @@ export function NotificationSettings() {
       setMessage('Les rappels sont activés sur cet appareil.');
     } catch (error) {
       setMessage(error.message || 'Activation impossible.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const repairDevice = async () => {
+    if (!user) return setMessage('Reconnecte-toi pour réparer les notifications.');
+    if (typeof window === 'undefined' || !('Notification' in window) || !('serviceWorker' in navigator)) {
+      return setMessage('Ce navigateur ne prend pas en charge les notifications en arrière-plan.');
+    }
+    setLoading(true);
+    setMessage('Réparation de la connexion aux notifications…');
+    try {
+      const supported = await isSupported();
+      if (!supported) throw new Error('Cet appareil ne prend pas en charge les notifications.');
+      const permission = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
+      if (permission !== 'granted') throw new Error('Autorise les notifications dans les paramètres de ton navigateur.');
+      const vapidKey = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY;
+      if (!vapidKey) throw new Error('La clé VAPID manque dans la configuration de Pata.');
+      const messaging = getMessaging(app);
+      const previousToken = deviceToken || await getDeviceMessagingToken(vapidKey);
+      const idToken = await user.getIdToken();
+      if (previousToken) {
+        await fetch('/api/notifications/unsubscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+          body: JSON.stringify({ token: previousToken }),
+        });
+      }
+      await deleteToken(messaging).catch(() => false);
+      const freshToken = await getDeviceMessagingToken(vapidKey);
+      if (!freshToken) throw new Error('Firebase n’a pas fourni de nouveau jeton. Recharge la page et réessaie.');
+      const response = await fetch('/api/notifications/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ token: freshToken }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) throw new Error(result.error || 'Le nouveau jeton n’a pas pu être enregistré.');
+      setDeviceToken(freshToken);
+      setEnabled(true);
+      setMessage('Cet appareil est maintenant réinscrit. Tu peux envoyer un test pour vérifier la réception.');
+    } catch (error) {
+      setEnabled(false);
+      setMessage(error.message || 'Impossible de réparer les notifications sur cet appareil.');
     } finally {
       setLoading(false);
     }
@@ -173,7 +231,11 @@ export function NotificationSettings() {
           {loading ? 'Traitement…' : enabled ? 'Désactiver sur cet appareil' : 'Activer les notifications'}
         </Button>
         <span className={`text-xs font-medium ${enabled ? 'text-emerald-700' : 'text-slate-500'}`}>{enabled ? 'Activées sur cet appareil' : 'Non activées'}</span>
-        {enabled && <Button type="button" variant="outline" onClick={sendTest} disabled={testing}><Bell size={15}/>{testing ? 'Envoi…' : 'Tester'}</Button>}
+        {enabled && <Button type="button" variant="outline" onClick={sendTest} disabled={testing || loading}><Bell size={15}/>{testing ? 'Envoi…' : 'Tester'}</Button>}
+        <Button type="button" variant="outline" onClick={repairDevice} disabled={loading || testing}>
+          {loading ? <Loader2 size={15} className="animate-spin"/> : <Bell size={15}/>}
+          Réparer cet appareil
+        </Button>
       </div>
       {message && <p role="status" className="text-xs text-slate-600">{message}</p>}
       <p className="text-[11px] leading-5 text-slate-400">Reçois des rappels utiles et des alertes importantes pour suivre ton argent.</p>
