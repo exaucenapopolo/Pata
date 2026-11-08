@@ -62,6 +62,7 @@ export default function CotisationsPage() {
         api('withdrawals/list'),
       ]);
       setGroups(groupsResult.groups || []);
+      setPinnedGroups((groupsResult.groups || []).filter((group) => group.isPinned).map((group) => group.id));
       setHistory((historyResult.withdrawals || []).filter((item) => item.withdrawalType === 'cotisation'));
     } catch (err) {
       setError(err.message || 'Impossible de charger les cotisations.');
@@ -78,9 +79,16 @@ export default function CotisationsPage() {
     setExpandedGroups((current) => ({ ...current, [groupId]: true }));
     document.getElementById('cotisation-' + groupId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [groups]);
-  useEffect(() => { try { setPinnedGroups(JSON.parse(window.localStorage.getItem('pata-cotisation-pinned') || '[]')); } catch { setPinnedGroups([]); } }, []);
   const orderedGroups = useMemo(() => [...groups].sort((x,y)=>{const xp=pinnedGroups.includes(x.id)?1:0,yp=pinnedGroups.includes(y.id)?1:0;if(xp!==yp)return yp-xp;return (Date.parse(y.createdAt||0)||0)-(Date.parse(x.createdAt||0)||0);}),[groups,pinnedGroups]);
-  const togglePinned = (id)=>setPinnedGroups((old)=>{const next=old.includes(id)?old.filter((v)=>v!==id):[...old,id];try{window.localStorage.setItem('pata-cotisation-pinned',JSON.stringify(next));}catch{}return next;});
+  const togglePinned = async (group) => {
+    const pinned = !pinnedGroups.includes(group.id);
+    setBusy('pin-' + group.id);
+    try {
+      await api('cotisations/pin', 'POST', { groupId: group.id, pinned });
+      setPinnedGroups((current) => pinned ? [...current, group.id] : current.filter((id) => id !== group.id));
+    } catch (err) { setError(err.message || 'Impossible de modifier cet épinglage.'); }
+    finally { setBusy(''); }
+  };
 
   useEffect(() => {
     if (loading || !user || !groups.length) return;
@@ -100,10 +108,10 @@ export default function CotisationsPage() {
           }
           if (!active) return;
           if (result?.status === 'CONFIRMED') {
-            setNotice('Le paiement de ' + currency(payment.amount) + ' a été vérifié auprès de service de paiement et ajouté à la cotisation.');
+            setNotice('Le paiement de ' + currency(payment.amount) + ' a été vérifié et ajouté à la cotisation.');
             await load();
           } else if (result?.status === 'FAILED') {
-            setNotice('service de paiement a confirmé que le paiement n’a pas abouti. Tu peux recommencer le versement.');
+            setNotice('Le paiement n’a pas abouti. Tu peux recommencer le versement.');
             await load();
           }
         } catch (error) {
@@ -259,7 +267,7 @@ export default function CotisationsPage() {
     setError('');
     try {
       const result = await api('fapshi/status', 'POST', { transId: pending.transId });
-      setNotice(result.status === 'CONFIRMED' ? 'Ton versement a été confirmé.' : result.status === 'FAILED' ? 'Le paiement a échoué. Tu peux maintenant réessayer.' : 'Le paiement est toujours en attente de confirmation service de paiement.');
+      setNotice(result.status === 'CONFIRMED' ? 'Ton versement a été confirmé.' : result.status === 'FAILED' ? 'Le paiement a échoué. Tu peux maintenant réessayer.' : 'Le paiement est toujours en attente de confirmation.');
       await load();
     } catch (err) {
       setError(err.message || 'Impossible de vérifier ce paiement.');
@@ -304,7 +312,7 @@ export default function CotisationsPage() {
           <div className="max-w-2xl">
             <p className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-500">Organisation collective</p>
             <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">Cotisations et tontines</h1>
-            <p className="mt-2 text-sm leading-6 text-slate-600">Crée un groupe, invite les membres et suis chaque versement. Les paiements passent par service de paiement ; l’argent est versé au bénéficiaire du tour après validation du retrait.</p>
+            <p className="mt-2 text-sm leading-6 text-slate-600">Crée un groupe, invite les membres et suis chaque versement. Chaque paiement est vérifié avant d’être ajouté à la cagnotte.</p>
           </div>
           <Button onClick={() => setShowCreate((value) => !value)}><Plus size={16}/> Créer un groupe</Button>
         </div>
@@ -313,7 +321,7 @@ export default function CotisationsPage() {
           <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Frais sur les versements</p><p className="mt-1 text-lg font-bold text-slate-900">5 %</p></div>
           <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Frais de retrait Pata</p><p className="mt-1 text-lg font-bold text-slate-900">0 %</p></div>
         </div>
-        <p className="mt-3 text-[11px] leading-5 text-slate-500">Les 5 % sont calculés sur chaque versement et ajoutés au paiement service de paiement. Pata n’ajoute pas de frais de retrait ; les éventuels frais propres au prestataire de paiement restent indépendants.</p>
+        <p className="mt-3 text-[11px] leading-5 text-slate-500">Les frais de 5 % sont calculés automatiquement sur chaque versement. Aucun frais de retrait supplémentaire n’est ajouté par Pata.</p>
       </header>
 
       {error && <div role="alert" className="flex gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"><AlertCircle size={17} className="mt-0.5 shrink-0"/>{error}<button type="button" onClick={() => setError('')} className="ml-auto text-xs font-semibold">Fermer</button></div>}
@@ -333,8 +341,8 @@ export default function CotisationsPage() {
           <Input label="Délai de grâce après l’échéance (jours)" type="number" min="0" max="30" step="1" required value={groupForm.graceDays} onChange={(e) => setGroupForm({ ...groupForm, graceDays: e.target.value })}/>
           <div><label className="mb-1 block text-sm font-medium text-slate-700">Majoration en cas de retard</label><select value={groupForm.lateFeeType} onChange={(e) => setGroupForm({ ...groupForm, lateFeeType: e.target.value, lateFeeValue: '' })} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="none">Aucune majoration</option><option value="fixed">Montant fixe (FCFA)</option><option value="percent">Pourcentage de la contribution</option></select></div>
           {groupForm.lateFeeType !== 'none' && <Input label={groupForm.lateFeeType === 'fixed' ? 'Majoration fixe (FCFA)' : 'Pourcentage de majoration (%)'} type="number" min="1" max={groupForm.lateFeeType === 'percent' ? '100' : '250000'} step="1" required value={groupForm.lateFeeValue} onChange={(e) => setGroupForm({ ...groupForm, lateFeeValue: e.target.value })}/>}
-          {Number(groupForm.contributionAmount) > 0 && Number(groupForm.expectedMembers) >= 2 && <p className="sm:col-span-2 rounded-lg bg-slate-50 p-3 text-xs leading-5 text-slate-600">Montant collectif de base : <strong>{currency(Number(groupForm.contributionAmount) * Number(groupForm.expectedMembers))}</strong>. Les frais service de paiement de 5 % sont ajoutés à chaque paiement. Le montant total du tour, majorations comprises, ne peut pas dépasser 500 000 FCFA avec le prestataire de retrait actuel.</p>}
-          <div className="sm:col-span-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-950"><p className="font-bold">Responsabilité du chef de groupe</p><p className="mt-1">Pata assure le suivi des versements, la vérification des paiements et l’application des pénalités prévues. Pata ne garantit pas le comportement des membres et ne peut pas poursuivre à ta place une personne qui refuse de rembourser ou qui utilise l’argent reçu. En tant que chef, tu restes responsable du choix des participants et de leur suivi jusqu’au paiement. Informe clairement les membres des règles avant leur adhésion.</p><label className="mt-3 flex items-start gap-2 font-semibold"><input type="checkbox" checked={responsibilityAccepted} onChange={(event) => setResponsibilityAccepted(event.target.checked)} className="mt-0.5 h-4 w-4 shrink-0"/><span>J’ai lu et j’accepte ces responsabilités. Je comprends que Pata n’est pas responsable du défaut de paiement ou du comportement d’un membre.</span></label></div><div className="sm:col-span-2"><Button type="submit" disabled={busy === 'create' || !responsibilityAccepted}>{busy === 'create' ? 'Enregistrement…' : editingGroupId ? 'Enregistrer les paramètres' : 'Créer le groupe'}</Button><button type="button" onClick={() => { setShowCreate(false); setEditingGroupId(''); }} className="ml-3 text-sm font-semibold text-slate-500">Annuler</button></div>
+          {Number(groupForm.contributionAmount) > 0 && Number(groupForm.expectedMembers) >= 2 && <p className="sm:col-span-2 rounded-lg bg-slate-50 p-3 text-xs leading-5 text-slate-600">Montant collectif de base : <strong>{currency(Number(groupForm.contributionAmount) * Number(groupForm.expectedMembers))}</strong>. Les frais de service de 5 % sont calculés automatiquement. Le montant total du tour, majorations comprises, ne peut pas dépasser 500 000 FCFA.</p>}
+          {!editingGroupId && <div className="sm:col-span-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-950"><p className="font-bold">Responsabilité du chef de groupe</p><p className="mt-1">Pata assure le suivi des versements, la vérification des paiements et l’application des pénalités prévues. Pata ne garantit pas le comportement des membres et ne peut pas poursuivre à ta place une personne qui refuse de rembourser ou qui utilise l’argent reçu. En tant que chef, tu restes responsable du choix des participants et de leur suivi jusqu’au paiement. Informe clairement les membres des règles avant leur adhésion.</p><label className="mt-3 flex items-start gap-2 font-semibold"><input type="checkbox" checked={responsibilityAccepted} onChange={(event) => setResponsibilityAccepted(event.target.checked)} className="mt-0.5 h-4 w-4 shrink-0"/><span>J’ai lu et j’accepte ces responsabilités. Je comprends que Pata n’est pas responsable du défaut de paiement ou du comportement d’un membre.</span></label></div>}<div className="sm:col-span-2"><Button type="submit" disabled={busy === 'create' || (!editingGroupId && !responsibilityAccepted)}>{busy === 'create' ? 'Enregistrement…' : editingGroupId ? 'Enregistrer les paramètres' : 'Créer le groupe'}</Button><button type="button" onClick={() => { setShowCreate(false); setEditingGroupId(''); }} className="ml-3 text-sm font-semibold text-slate-500">Annuler</button></div>
         </form>
       </Card>}
 
@@ -351,7 +359,7 @@ export default function CotisationsPage() {
               <div className="border-b border-slate-100 p-4 sm:p-5">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div><div className="flex items-center gap-2"><h3 className="text-base font-bold text-slate-950">{group.name}</h3>{group.isOwner && <span className="rounded-full bg-brand-50 px-2 py-1 text-[10px] font-semibold text-brand-700">Chef de groupe</span>}</div><p className="mt-1 text-xs text-slate-500">{currency(group.contributionAmount)} par membre · {frequencyLabels[group.frequency] || group.frequency} · Échéance {group.frequency === 'monthly' ? 'le ' + group.dueDay + ' du mois' : 'à chaque période'} · Début {group.startDate}</p><p className="mt-1 text-[11px] text-slate-500">Majoration : {group.lateFeeLabel} · Délai de grâce : {group.graceDays} jour(s)</p></div>
-                  <div className="flex items-center gap-2"><button type="button" onClick={() => togglePinned(group.id)} aria-label={pinnedGroups.includes(group.id)?'Désépingler ce groupe':'Épingler ce groupe'} className={'inline-flex h-9 w-9 items-center justify-center rounded-xl border '+(pinnedGroups.includes(group.id)?'border-brand-200 bg-brand-50 text-brand-700':'border-slate-200 text-slate-500')}><Pin size={15}/></button>{group.isOwner && !group.startedAt && <Button size="sm" variant="outline" onClick={() => { setEditingGroupId(group.id); setGroupForm({ name: group.name || '', contributionAmount: String(group.contributionAmount || ''), expectedMembers: String(group.expectedMembers || 2), frequency: group.frequency || 'monthly', startDate: group.startDate || today(), dueDay: String(group.dueDay || 30), graceDays: String(group.graceDays ?? 1), lateFeeType: group.lateFeeType || 'none', lateFeeValue: String(group.lateFeeValue || '') }); setShowCreate(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><Save size={13}/> Paramètres</Button>}{group.isOwner && <Button variant="outline" onClick={() => shareInvite(group)}><Users size={14}/> Inviter</Button>}<button type="button" onClick={() => setExpandedGroups((old)=>({...old,[group.id]:!old[group.id]}))} className="inline-flex h-9 items-center gap-1 rounded-xl border border-slate-200 px-2.5 text-xs font-semibold text-slate-600">{expandedGroups[group.id]?'Masquer':'Détails'}{expandedGroups[group.id]?<ChevronUp size={14}/>:<ChevronDown size={14}/>}</button><span className="rounded-full bg-slate-100 px-2.5 py-1.5 text-[10px] font-semibold text-slate-600">{group.memberCount}/{group.expectedMembers} membres</span></div>
+                  <div className="flex items-center gap-2"><button type="button" onClick={() => togglePinned(group)} aria-label={pinnedGroups.includes(group.id)?'Désépingler ce groupe':'Épingler ce groupe'} className={'inline-flex h-9 w-9 items-center justify-center rounded-xl border '+(pinnedGroups.includes(group.id)?'border-brand-200 bg-brand-50 text-brand-700':'border-slate-200 text-slate-500')}><Pin size={15}/></button>{group.isOwner && !group.startedAt && <Button size="sm" variant="outline" onClick={() => { setEditingGroupId(group.id); setGroupForm({ name: group.name || '', contributionAmount: String(group.contributionAmount || ''), expectedMembers: String(group.expectedMembers || 2), frequency: group.frequency || 'monthly', startDate: group.startDate || today(), dueDay: String(group.dueDay || 30), graceDays: String(group.graceDays ?? 1), lateFeeType: group.lateFeeType || 'none', lateFeeValue: String(group.lateFeeValue || '') }); setShowCreate(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><Save size={13}/> Paramètres</Button>}{group.isOwner && <Button variant="outline" onClick={() => shareInvite(group)}><Users size={14}/> Inviter</Button>}<button type="button" onClick={() => setExpandedGroups((old)=>({...old,[group.id]:!old[group.id]}))} className="inline-flex h-9 items-center gap-1 rounded-xl border border-slate-200 px-2.5 text-xs font-semibold text-slate-600">{expandedGroups[group.id]?'Masquer':'Détails'}{expandedGroups[group.id]?<ChevronUp size={14}/>:<ChevronDown size={14}/>}</button><span className="rounded-full bg-slate-100 px-2.5 py-1.5 text-[10px] font-semibold text-slate-600">{group.memberCount}/{group.expectedMembers} membres</span></div>
                 </div>
                 {!group.startedAt && <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-900">{group.isOwner ? <><strong>Avant de lancer :</strong> invite {Math.max(0, group.expectedMembers - group.memberCount)} participant(s) supplémentaire(s), puis attribue personnellement une position à chaque membre. Aucun ordre n’est imposé par la date d’arrivée ni par le rôle de chef. Enregistre l’ordre choisi avant de lancer la collecte.</> : <>Le groupe attend encore {Math.max(0, group.expectedMembers - group.memberCount)} participant(s). Le chef attribuera lui-même les positions avant le lancement ; ni la date d’arrivée ni son rôle ne lui donnent automatiquement le premier tour.</>}</div>}
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
@@ -386,14 +394,14 @@ export default function CotisationsPage() {
                     <div className="mt-3 space-y-2">
                       <Input label="Montant de ce versement (FCFA)" type="number" min="100" step="100" value={form.amount ?? String(cycle.myRemaining)} onChange={(e) => setPayField(group.id, 'amount', e.target.value)}/>
                       {cycle.lateFeeDue > 0 && <div className="rounded-lg bg-amber-50 p-2 text-xs text-amber-900">Majoration de retard prévue : <strong>{currency(cycle.lateFeeDue)}</strong>. Elle sera ajoutée une seule fois à ta contribution.</div>}
-                      <div className="rounded-lg bg-slate-50 p-2 text-xs text-slate-600">Frais service de paiement (5 %) : <strong>{currency(Math.round((Number(form.amount || cycle.myRemaining) + cycle.lateFeeDue) * 0.05))}</strong> · Total service de paiement : <strong>{currency(Number(form.amount || cycle.myRemaining) + cycle.lateFeeDue + Math.round((Number(form.amount || cycle.myRemaining) + cycle.lateFeeDue) * 0.05))}</strong></div>
-                      <Button className="w-full" onClick={() => payContribution(group)} disabled={busy === 'pay-' + group.id}><Wallet size={15}/>{busy === 'pay-' + group.id ? 'Préparation…' : 'Payer avec service de paiement'}</Button>
+                      <div className="rounded-lg bg-slate-50 p-2 text-xs text-slate-600">Frais de service (5 %) : <strong>{currency(Math.round((Number(form.amount || cycle.myRemaining) + cycle.lateFeeDue) * 0.05))}</strong> · Total à payer : <strong>{currency(Number(form.amount || cycle.myRemaining) + cycle.lateFeeDue + Math.round((Number(form.amount || cycle.myRemaining) + cycle.lateFeeDue) * 0.05))}</strong></div>
+                      <Button className="w-full" onClick={() => payContribution(group)} disabled={busy === 'pay-' + group.id}><Wallet size={15}/>{busy === 'pay-' + group.id ? 'Préparation…' : 'Effectuer le versement'}</Button>
                     </div>
                   </div>}
 
                   {!group.startedAt && !group.canStart && <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">Le groupe doit compter exactement {group.expectedMembers} participants avant de pouvoir être lancé. {Math.max(0, group.expectedMembers - group.memberCount)} place(s) restante(s).</p>}
                   {cycle.canWithdraw && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
-                    <h4 className="text-sm font-bold text-emerald-900">C’est ton tour de recevoir</h4><p className="mt-1 text-xs leading-5 text-emerald-800">Tous les membres ont terminé leur part. Tu peux demander le versement de {currency(cycle.totalCollected)}. La demande sera vérifiée par l’administration avant le paiement service de paiement ; Pata n’ajoute pas de frais de retrait.</p>
+                    <h4 className="text-sm font-bold text-emerald-900">C’est ton tour de recevoir</h4><p className="mt-1 text-xs leading-5 text-emerald-800">Tous les membres ont terminé leur part. Tu peux demander le versement de {currency(cycle.totalCollected)}. La demande sera vérifiée par l’administration avant le versement ; Pata n’ajoute pas de frais de retrait.</p>
                     <div className="mt-3 space-y-2"><Input label="Ton numéro Mobile Money" value={withdraw.phone || ''} onChange={(e) => setWithdrawField(group.id, 'phone', e.target.value)} placeholder="6XXXXXXXX"/><select value={withdraw.network || 'mtn'} onChange={(e) => setWithdrawField(group.id, 'network', e.target.value)} className="h-10 w-full rounded-lg border border-emerald-200 bg-white px-3 text-sm"><option value="mtn">MTN Mobile Money</option><option value="orange">Orange Money</option></select><Button className="w-full" onClick={() => requestWithdrawal(group)} disabled={busy === 'withdraw-' + group.id}><ArrowDownToLine size={15}/>{busy === 'withdraw-' + group.id ? 'Envoi…' : 'Demander le retrait'}</Button></div>
                   </div>}
 
@@ -414,7 +422,7 @@ export default function CotisationsPage() {
 
       <section className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs leading-5 text-slate-600">
         <p className="font-bold text-slate-800">Comment fonctionne la tontine ?</p>
-        <p className="mt-1">Le chef choisit le nombre de participants, définit la position de chacun et lance le groupe lorsque tous les membres prévus ont rejoint. Il fixe aussi le jour d’échéance mensuel, le délai de grâce et une éventuelle majoration fixe ou en pourcentage. Les membres peuvent cotiser en plusieurs fois via service de paiement. Les frais de 5 % sont appliqués à chaque versement ; une majoration de retard éventuelle est ajoutée au pot du bénéficiaire. L’ordre est verrouillé après le lancement. Le retrait reste soumis à la validation administrative et à la confirmation du prestataire.</p>
+        <p className="mt-1">Le chef choisit le nombre de participants, définit la position de chacun et lance le groupe lorsque tous les membres prévus ont rejoint. Il fixe aussi le jour d’échéance mensuel, le délai de grâce et une éventuelle majoration fixe ou en pourcentage. Les membres peuvent cotiser en plusieurs fois depuis Pata. Les frais de 5 % sont appliqués à chaque versement ; une majoration de retard éventuelle est ajoutée au pot du bénéficiaire. L’ordre est verrouillé après le lancement. Le retrait reste soumis à la validation administrative et à la confirmation du prestataire.</p>
       </section>
     </div>
   );

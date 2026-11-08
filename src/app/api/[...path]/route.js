@@ -3821,7 +3821,7 @@ async function handleCotisationsList(request) {
         }
       }
       return {
-        id: groupRef.id, name: group.name, ownerId: group.ownerId, isOwner: group.ownerId === uid, createdAt: serializeAdminValue(group.createdAt || null),
+        id: groupRef.id, name: group.name, ownerId: group.ownerId, isOwner: group.ownerId === uid, createdAt: serializeAdminValue(group.createdAt || null), isPinned: membership.pinned === true,
         contributionAmount, frequency: group.frequency, startDate: group.startDate, status: group.status || 'active',
         dueDay: group.dueDay || null, expectedMembers, graceDays: cotisationMoney(group.graceDays),
         lateFeeType: group.lateFeeType || 'none', lateFeeValue: cotisationMoney(group.lateFeeValue),
@@ -4140,6 +4140,23 @@ async function handleCotisationContact(request) {
     return NextResponse.json({ success: true, message: 'Ton numéro WhatsApp a été enregistré.' });
   } catch (error) {
     return errorResponse(error.message || 'Impossible d’enregistrer ton numéro WhatsApp.', 400);
+  }
+}
+
+
+async function handleCotisationPin(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const groupId = String(body.groupId || '').trim().slice(0, 150);
+    if (!groupId || groupId.includes('/')) return errorResponse('Groupe invalide.', 400);
+    const membershipRef = adminDb.collection('users').doc(uid).collection('cotisationMemberships').doc(groupId);
+    const membershipSnap = await membershipRef.get();
+    if (!membershipSnap.exists) return errorResponse('Tu ne fais pas partie de ce groupe.', 403);
+    await membershipRef.set({ pinned: body.pinned === true, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    return NextResponse.json({ success: true, pinned: body.pinned === true });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de modifier cet épinglage.', 400);
   }
 }
 
@@ -4762,6 +4779,7 @@ const ROUTES = {
   'cotisations/join': { POST: handleCotisationJoin },
   'cotisations/reorder': { POST: handleCotisationReorder },
   'cotisations/contact': { POST: handleCotisationContact },
+  'cotisations/pin': { POST: handleCotisationPin },
   'cotisations/start': { POST: handleCotisationStart },
   'cotisations/pay': { POST: handleCotisationPay },
   'cotisations/withdraw': { POST: handleCotisationWithdrawalRequest },
