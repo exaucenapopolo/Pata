@@ -1,7 +1,7 @@
 /* eslint-disable react/no-unescaped-entities */
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { 
   Send, X, BrainCircuit, Loader2, Plus, MessageSquare, 
   Image as ImageIcon, Volume2, Trash2, Menu, Edit2, Check, Download,
@@ -147,6 +147,62 @@ function MessageContent({ text }) {
   return <div className="space-y-1.5 break-words">{blocks}</div>;
 }
 
+function toDoualaDateKey(value) {
+  const date = value?.toDate ? value.toDate() : (value instanceof Date ? value : new Date(value || 0));
+  if (!Number.isFinite(date.getTime())) return null;
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Douala',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
+
+function getRelativeDateKey(dateKey, offset) {
+  const date = new Date(dateKey + 'T12:00:00Z');
+  date.setUTCDate(date.getUTCDate() + offset);
+  return date.toISOString().slice(0, 10);
+}
+
+function formatConversationTime(value) {
+  const date = value?.toDate ? value.toDate() : (value instanceof Date ? value : new Date(value || 0));
+  if (!Number.isFinite(date.getTime())) return '';
+  return new Intl.DateTimeFormat('fr-FR', {
+    timeZone: 'Africa/Douala',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+}
+
+function groupChatsByDate(chats) {
+  const todayKey = toDoualaDateKey(new Date());
+  const yesterdayKey = todayKey ? getRelativeDateKey(todayKey, -1) : null;
+  const beforeYesterdayKey = todayKey ? getRelativeDateKey(todayKey, -2) : null;
+  const groups = new Map();
+
+  chats.forEach((chat) => {
+    const key = toDoualaDateKey(chat.updatedAt || chat.createdAt) || 'unknown';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(chat);
+  });
+
+  return Array.from(groups, ([key, items]) => {
+    let label = 'Date inconnue';
+    if (key === todayKey) label = "Aujourd’hui";
+    else if (key === yesterdayKey) label = 'Hier';
+    else if (key === beforeYesterdayKey) label = 'Avant-hier';
+    else if (key !== 'unknown') {
+      label = new Intl.DateTimeFormat('fr-FR', {
+        timeZone: 'UTC',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+      }).format(new Date(key + 'T12:00:00Z'));
+    }
+    return { key, label, chats: items };
+  });
+}
+
 function getSuggestedPrompts(text = '') {
   const value = String(text).toLowerCase();
   const suggestions = [];
@@ -172,6 +228,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
   const [imageModal, setImageModal] = useState(null);
   const [editingTitleId, setEditingTitleId] = useState(null);
   const [titleInput, setTitleInput] = useState('');
+  const groupedChats = useMemo(() => groupChatsByDate(chats), [chats]);
   
   const [showMentions, setShowMentions] = useState(false);
   const textareaRef = useRef(null);
@@ -435,24 +492,36 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-1">
-            {chats.map(c => (
-              <div key={c.id} className={`group relative flex items-center rounded-lg transition-colors ${activeChatId === c.id ? 'bg-brand-100' : 'hover:bg-slate-200'}`}>
-                {editingTitleId === c.id ? (
-                  <div className="flex w-full items-center gap-1 p-2">
-                    <input autoFocus value={titleInput} onChange={(e) => setTitleInput(e.target.value)} className="w-full bg-white border border-slate-300 rounded px-2 py-1 text-sm outline-none" onKeyDown={(e) => e.key === 'Enter' && handleSaveTitle(c.id)} />
-                    <button onClick={() => handleSaveTitle(c.id)} className="text-brand-600"><Check size={14} /></button>
-                  </div>
-                ) : (
-                  <>
-                    <button onClick={() => loadChat(c)} className="flex-1 truncate p-2 text-left text-sm text-slate-700">{c.title || 'Sans titre'}</button>
-                    <div className="hidden group-hover:flex items-center pr-1">
-                      <button onClick={() => { setEditingTitleId(c.id); setTitleInput(c.title); }} className="p-1 text-slate-400 hover:text-brand-600"><Edit2 size={12} /></button>
-                      <button onClick={(e) => handleDeleteChat(e, c.id)} className="p-1 text-slate-400 hover:text-red-600"><Trash2 size={12} /></button>
+          <div className="flex-1 overflow-y-auto px-3 pb-3">
+            {groupedChats.length === 0 ? (
+              <p className="px-2 py-4 text-xs leading-5 text-slate-500">Tes conversations enregistrées apparaîtront ici, classées par date.</p>
+            ) : groupedChats.map((group) => (
+              <section key={group.key} className="mb-4">
+                <h3 className="sticky top-0 z-10 mb-1.5 bg-slate-50 px-2 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">{group.label}</h3>
+                <div className="space-y-1">
+                  {group.chats.map((c) => (
+                    <div key={c.id} className={`group relative flex items-center rounded-xl transition-colors ${activeChatId === c.id ? 'bg-brand-100' : 'hover:bg-slate-200'}`}>
+                      {editingTitleId === c.id ? (
+                        <div className="flex w-full items-center gap-1 p-2">
+                          <input autoFocus value={titleInput} onChange={(e) => setTitleInput(e.target.value)} className="w-full min-w-0 rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm outline-none" onKeyDown={(e) => e.key === 'Enter' && handleSaveTitle(c.id)} />
+                          <button type="button" onClick={() => handleSaveTitle(c.id)} className="rounded-lg p-2 text-brand-600 hover:bg-white" aria-label="Enregistrer le titre"><Check size={14} /></button>
+                        </div>
+                      ) : (
+                        <>
+                          <button onClick={() => loadChat(c)} className="min-w-0 flex-1 px-2.5 py-2 text-left">
+                            <span className="block truncate text-xs font-medium text-slate-700">{c.title || 'Sans titre'}</span>
+                            <span className="mt-0.5 block text-[10px] text-slate-400">{formatConversationTime(c.updatedAt || c.createdAt)}</span>
+                          </button>
+                          <div className="flex shrink-0 items-center pr-1 sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100">
+                            <button type="button" onClick={() => { setEditingTitleId(c.id); setTitleInput(c.title || ''); }} className="rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-brand-600" aria-label="Renommer la conversation"><Edit2 size={12} /></button>
+                            <button type="button" onClick={(e) => handleDeleteChat(e, c.id)} className="rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-red-600" aria-label="Supprimer la conversation"><Trash2 size={12} /></button>
+                          </div>
+                        </>
+                      )}
                     </div>
-                  </>
-                )}
-              </div>
+                  ))}
+                </div>
+              </section>
             ))}
           </div>
         </div>
