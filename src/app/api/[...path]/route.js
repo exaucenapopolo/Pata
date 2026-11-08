@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual, randomBytes, randomInt, scryptSync } from 'node:crypto';
 import { adminAuth, adminDb, adminMessaging } from '@/lib/firebase/admin';
 import { FieldValue, FieldPath, AggregateField } from 'firebase-admin/firestore';
 import { completeWithGroq } from '@/lib/ai/groqClient';
@@ -9,7 +9,7 @@ import { chatWithGroqVision } from '@/lib/ai/groqVision';
 import { generateImageWithPollinations } from '@/lib/ai/pollinationsImage';
 import { buildUserContext } from '@/lib/ai/buildUserContext';
 import { computeGoalPlan, GOAL_LATE_PENALTY_RATE, GOAL_PENALTY_EFFECTIVE_DATE } from '@/lib/goalCalc';
-import { sendPataEmail, welcomeEmail, savingsCreatedEmail, customAdminEmail } from '@/lib/email/resend';
+import { sendPataEmail, welcomeEmail, savingsCreatedEmail, customAdminEmail, pinResetEmail } from '@/lib/email/resend';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -367,6 +367,159 @@ async function handleNotificationSubscription(request, remove = false) {
   }
 }
 
+
+
+/* ═══════════════════ CODE PIN UTILISATEUR ═══════════════════ */
+function makePinHash(pin) {
+  const salt = randomBytes(16).toString('hex');
+  const hash = scryptSync(pin, salt, 64).toString('hex');
+  return { salt, hash };
+}
+
+function checkPinHash(pin, saved) {
+  if (!saved?.salt || !saved?.hash) return false;
+  const candidate = scryptSync(pin, saved.salt, 64);
+  const expected = Buffer.from(saved.hash, 'hex');
+  return expected.length === candidate.length && timingSafeEqual(candidate, expected);
+}
+
+function pinOtpHash(uid, code) {
+  const secret = process.env.RESEND_API_KEY || process.env.FIREBASE_SERVICE_ACCOUNT_KEY || 'pata-pin-verification';
+  return createHmac('sha256', secret).update(uid + ':' + code).digest('hex');
+}
+
+async function handlePinStatus(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const snap = await adminDb.collection('users').doc(uid).collection('private_security').doc('pin').get();
+    const data = snap.exists ? snap.data() : {};
+    const lockedUntil = Number(data.lockedUntil || 0);
+    return NextResponse.json({ success: true, enabled: Boolean(data.hash && data.salt), locked: lockedUntil > Date.now(), lockedUntil: lockedUntil > Date.now() ? lockedUntil : null });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de vérifier le code secret.', 401);
+  }
+}
+
+async function handlePinSet(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const pin = String(body.pin || '');
+    const currentPin = String(body.currentPin || '');
+    if (!/^\d{4}$/.test(pin)) return errorResponse('Le code secret doit contenir exactement 4 chiffres.', 400);
+    const ref = adminDb.collection('users').doc(uid).collection('private_security').doc('pin');
+    const snap = await ref.get();
+    const current = snap.exists ? snap.data() : {};
+    if (current.hash && !checkPinHash(currentPin, current)) return errorResponse('Le code actuel est incorrect. Utilise la réinitialisation par e-mail si tu l’as oublié.', 401);
+    const credential = makePinHash(pin);
+    await ref.set({ ...credential, failedAttempts: 0, lockedUntil: null, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    await adminDb.collection('users').doc(uid).set({ pinEnabled: true }, { merge: true });
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible d’enregistrer ce code secret.', 500);
+  }
+}
+
+async function handlePinVerify(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const pin = String(body.pin || '');
+    if (!/^\d{4}$/.test(pin)) return errorResponse('Saisis les 4 chiffres de ton code secret.', 400);
+    const ref = adminDb.collection('users').doc(uid).collection('private_security').doc('pin');
+    const snap = await ref.get();
+    if (!snap.exists || !snap.data()?.hash) return NextResponse.json({ success: true, enabled: false });
+    const data = snap.data();
+    const now = Date.now();
+    if (Number(data.lockedUntil || 0) > now) return errorResponse('Trop de tentatives. Réessaie dans quelques minutes ou réinitialise ton code par e-mail.', 429);
+    if (checkPinHash(pin, data)) {
+      await ref.set({ failedAttempts: 0, lockedUntil: null, lastVerifiedAt: FieldValue.serverTimestamp() }, { merge: true });
+      return NextResponse.json({ success: true });
+    }
+    const attempts = (Number(data.failedAttempts) || 0) + 1;
+    const lockedUntil = attempts >= 5 ? now + 5 * 60 * 1000 : null;
+    await ref.set({ failedAttempts: attempts >= 5 ? 0 : attempts, lockedUntil, lastFailedAt: FieldValue.serverTimestamp() }, { merge: true });
+    return errorResponse(lockedUntil ? 'Trop de tentatives. Le code est bloqué pendant 5 minutes.' : 'Code secret incorrect.', 401);
+  } catch (error) {
+    return errorResponse(error.message || 'Vérification du code impossible.', 401);
+  }
+}
+
+async function handlePinResetRequest(request) {
+  try {
+    const decoded = await authenticate(request);
+    const uid = decoded.uid;
+    const userRef = adminDb.collection('users').doc(uid);
+    const [profileSnap, pinSnap] = await Promise.all([
+      userRef.get(),
+      userRef.collection('private_security').doc('pin').get(),
+    ]);
+    const profile = profileSnap.exists ? profileSnap.data() : {};
+    const email = String(profile.email || decoded.email || '').trim();
+    if (!email) return errorResponse('Aucune adresse e-mail ne permet de vérifier ce compte.', 400);
+    const ref = userRef.collection('private_security').doc('pin');
+    const pinData = pinSnap.exists ? pinSnap.data() : {};
+    const lastRequested = pinData.resetRequestedAt?.toDate ? pinData.resetRequestedAt.toDate().getTime() : Number(pinData.resetRequestedAt || 0);
+    if (lastRequested && Date.now() - lastRequested < 60 * 1000) return errorResponse('Attends une minute avant de demander un nouveau code.', 429);
+    const code = String(randomInt(100000, 1000000));
+    const expiry = Date.now() + 15 * 60 * 1000;
+    await ref.set({
+      resetCodeHash: pinOtpHash(uid, code),
+      resetExpiresAt: expiry,
+      resetAttempts: 0,
+      resetRequestedAt: Date.now(),
+    }, { merge: true });
+    const name = String(profile.displayName || email.split('@')[0] || 'Utilisateur');
+    await sendPataEmail({
+      to: email,
+      subject: 'Ton code de réinitialisation Pata',
+      html: pinResetEmail({ code, name }),
+      idempotencyKey: `pata-pin-reset-${uid}-${expiry}`,
+    });
+    return NextResponse.json({ success: true, expiresInMinutes: 15, maskedEmail: email.replace(/^(.{1,2}).+(@.+)$/, '$1•••$2') });
+  } catch (error) {
+    console.error('[PATA PIN RESET REQUEST]', error.message || error);
+    return errorResponse(error.message || 'Impossible d’envoyer le code de vérification.', 502);
+  }
+}
+
+async function handlePinResetConfirm(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const code = String(body.code || '');
+    const pin = String(body.pin || '');
+    if (!/^\d{6}$/.test(code)) return errorResponse('Le code reçu par e-mail doit contenir 6 chiffres.', 400);
+    if (!/^\d{4}$/.test(pin)) return errorResponse('Le nouveau code secret doit contenir exactement 4 chiffres.', 400);
+    const ref = adminDb.collection('users').doc(uid).collection('private_security').doc('pin');
+    const snap = await ref.get();
+    if (!snap.exists) return errorResponse('Aucune demande de réinitialisation n’a été trouvée.', 400);
+    const data = snap.data();
+    if (Number(data.resetExpiresAt || 0) < Date.now()) return errorResponse('Ce code a expiré. Demande-en un nouveau.', 400);
+    if ((Number(data.resetAttempts) || 0) >= 5) return errorResponse('Trop de codes incorrects. Demande un nouveau code.', 429);
+    const provided = Buffer.from(pinOtpHash(uid, code), 'hex');
+    const expected = Buffer.from(String(data.resetCodeHash || ''), 'hex');
+    if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) {
+      await ref.set({ resetAttempts: (Number(data.resetAttempts) || 0) + 1 }, { merge: true });
+      return errorResponse('Le code de vérification est incorrect.', 401);
+    }
+    const credential = makePinHash(pin);
+    await ref.set({
+      ...credential,
+      failedAttempts: 0,
+      lockedUntil: null,
+      resetCodeHash: FieldValue.delete(),
+      resetExpiresAt: FieldValue.delete(),
+      resetAttempts: FieldValue.delete(),
+      resetRequestedAt: FieldValue.delete(),
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    await adminDb.collection('users').doc(uid).set({ pinEnabled: true }, { merge: true });
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de réinitialiser le code secret.', 500);
+  }
+}
 
 async function handleWelcomeEmail(request) {
   try {
@@ -2875,6 +3028,11 @@ const ROUTES = {
   'admin/notifications/broadcast': { POST: handleAdminBroadcast },
   'admin/email/send': { POST: handleAdminEmailSend },
   'email/welcome': { POST: handleWelcomeEmail },
+  'security/pin/status': { GET: handlePinStatus },
+  'security/pin/set': { POST: handlePinSet },
+  'security/pin/verify': { POST: handlePinVerify },
+  'security/pin/reset/request': { POST: handlePinResetRequest },
+  'security/pin/reset/confirm': { POST: handlePinResetConfirm },
   'admin/notifications/sync': { POST: handleAdminNotificationSync },
   'profile/activity': { POST: handleProfileActivity },
   'analytics/income-created': { POST: handleIncomeAnalyticsEvent },
