@@ -3656,6 +3656,171 @@ async function handleCotisationJoin(request) {
   } catch (error) { return errorResponse(error.message || 'Impossible de rejoindre ce groupe.', 400); }
 }
 
+
+async function handleCotisationInvitePreview(request) {
+  try {
+    const token = String(new URL(request.url).searchParams.get('token') || '').trim().slice(0, 100);
+    if (!token) return errorResponse('Lien d’invitation invalide.', 400);
+    const result = await adminDb.collection('cotisationGroups').where('inviteToken', '==', token).limit(1).get();
+    if (result.empty) return errorResponse('Cette invitation n’existe plus ou son lien est incorrect.', 404);
+    const snapshot = result.docs[0];
+    const group = snapshot.data();
+    const ownerSnap = await adminDb.collection('users').doc(String(group.ownerId || '')).get();
+    const owner = ownerSnap.exists ? ownerSnap.data() : {};
+    const expectedMembers = cotisationMoney(group.expectedMembers || group.maxMembers || 2);
+    const memberCount = cotisationMoney(group.memberCount);
+    return NextResponse.json({
+      success: true,
+      group: {
+        id: snapshot.id,
+        name: String(group.name || 'Cotisation Pata'),
+        ownerName: String(owner.displayName || 'Organisateur'),
+        contributionAmount: cotisationMoney(group.contributionAmount),
+        frequency: group.frequency,
+        dueDay: group.dueDay || null,
+        startDate: group.startDate,
+        graceDays: cotisationMoney(group.graceDays),
+        lateFeeLabel: cotisationPenaltyLabel(group),
+        expectedMembers,
+        memberCount,
+        status: group.startedAt ? 'started' : group.status || 'forming',
+        startedAt: Boolean(group.startedAt),
+        canJoin: !group.startedAt && group.status === 'active' && memberCount < expectedMembers,
+      },
+    });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de consulter cette invitation.', 500);
+  }
+}
+
+async function handleCotisationReorder(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const groupId = String(body.groupId || '').trim().slice(0, 150);
+    const orderedIds = Array.isArray(body.memberIds) ? body.memberIds.map((id) => String(id || '').trim()) : [];
+    if (!groupId || groupId.includes('/') || !orderedIds.length || orderedIds.some((id) => !id || id.includes('/')) || new Set(orderedIds).size !== orderedIds.length) {
+      return errorResponse('La liste des positions est invalide.', 400);
+    }
+    const groupRef = adminDb.collection('cotisationGroups').doc(groupId);
+    const membersQuery = groupRef.collection('members').where('active', '==', true);
+    await adminDb.runTransaction(async (transaction) => {
+      const [groupSnap, membersSnap] = await Promise.all([transaction.get(groupRef), transaction.get(membersQuery)]);
+      if (!groupSnap.exists) throw new Error('Groupe introuvable.');
+      const group = groupSnap.data();
+      if (group.ownerId !== uid) throw new Error('Seul le chef du groupe peut modifier l’ordre de passage.');
+      if (group.startedAt || group.membershipLockedCycle) throw new Error('L’ordre de passage est verrouillé depuis le démarrage de la cotisation.');
+      const currentIds = membersSnap.docs.map((doc) => doc.id);
+      if (orderedIds.length !== currentIds.length || currentIds.some((id) => !orderedIds.includes(id))) {
+        throw new Error('La liste des positions doit contenir tous les membres actifs, une seule fois chacun.');
+      }
+      orderedIds.forEach((memberId, index) => {
+        transaction.update(groupRef.collection('members').doc(memberId), {
+          turnOrder: index + 1,
+          orderUpdatedAt: FieldValue.serverTimestamp(),
+        });
+      });
+      transaction.update(groupRef, { updatedAt: FieldValue.serverTimestamp() });
+    });
+    return NextResponse.json({ success: true, message: 'L’ordre de passage a été enregistré.' });
+  } catch (error) { return errorResponse(error.message || 'Impossible de modifier l’ordre des membres.', 400); }
+}
+
+async function handleCotisationStart(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const groupId = String(body.groupId || '').trim().slice(0, 150);
+    if (!groupId || groupId.includes('/')) return errorResponse('Groupe invalide.', 400);
+    const groupRef = adminDb.collection('cotisationGroups').doc(groupId);
+    const result = await adminDb.runTransaction(async (transaction) => {
+      const groupSnap = await transaction.get(groupRef);
+      if (!groupSnap.exists) throw new Error('Groupe introuvable.');
+      const group = groupSnap.data();
+      if (group.ownerId !== uid) throw new Error('Seul le chef du groupe peut lancer la cotisation.');
+      if (group.startedAt) throw new Error('Cette cotisation a déjà été lancée.');
+      const expectedMembers = cotisationMoney(group.expectedMembers || group.maxMembers);
+      const membersQuery = groupRef.collection('members').where('active', '==', true);
+      const membersSnap = await transaction.get(membersQuery);
+      if (membersSnap.size < 2) throw new Error('Au moins deux personnes doivent avoir rejoint le groupe.');
+      if (membersSnap.size !== expectedMembers) throw new Error('Il faut exactement ' + expectedMembers + ' participants avant de lancer ce groupe. Il en manque ' + Math.max(0, expectedMembers - membersSnap.size) + '.');
+      const members = membersSnap.docs.map((doc) => ({ uid: doc.id, ...doc.data() })).sort((a, b) => Number(a.turnOrder) - Number(b.turnOrder));
+      if (new Set(members.map((member) => Number(member.turnOrder))).size !== members.length || members.some((member, index) => Number(member.turnOrder) !== index + 1)) {
+        throw new Error('Le chef doit enregistrer une position unique pour chaque participant avant le lancement.');
+      }
+      const meta = getCotisationCycleMeta(group);
+      if (meta.notStarted) throw new Error('La date de début choisie est le ' + meta.startDate + '. Le groupe pourra être lancé à cette date.');
+      const cycleRef = groupRef.collection('cycles').doc(meta.cycleKey);
+      const cycleSnap = await transaction.get(cycleRef);
+      if (cotisationMoney(cycleSnap.data()?.totalCollected) > 0) throw new Error('Des versements sont déjà enregistrés pour cette période.');
+      const baseTarget = cotisationMoney(group.contributionAmount) * expectedMembers;
+      if (baseTarget > 500000) throw new Error('Le total dépasse la limite actuelle de retrait Fapshi de 500 000 FCFA.');
+      transaction.set(cycleRef, {
+        cycleKey: meta.cycleKey, cycleIndex: meta.cycleIndex,
+        startDate: meta.startDate, dueAt: meta.dueAt,
+        baseTargetAmount: baseTarget, targetAmount: baseTarget,
+        totalCollected: 0, status: 'OPEN',
+        createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      transaction.update(groupRef, {
+        startedAt: FieldValue.serverTimestamp(),
+        startedBy: uid,
+        membershipLockedCycle: meta.cycleKey,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      return { group, members, meta, baseTarget };
+    });
+    const frequencyLabel = cotisationFrequencyLabel(result.group.frequency);
+    const dueLabel = result.meta.dueAt;
+    const emailResults = await Promise.all(result.members.map(async (member, index) => {
+      if (!member.email || !String(member.email).includes('@')) return false;
+      try {
+        await sendPataEmail({
+          to: member.email,
+          subject: 'La cotisation « ' + String(result.group.name || '') + ' » a démarré',
+          html: cotisationStartedEmail({
+            name: member.displayName,
+            groupName: result.group.name,
+            contributionAmount: result.group.contributionAmount,
+            frequency: frequencyLabel,
+            position: index + 1,
+            beneficiaryName: result.members[0]?.displayName,
+            turnAmount: result.baseTarget,
+            dueLabel,
+            expectedMembers: result.members.length,
+          }),
+          idempotencyKey: 'pata-cotisation-start-' + groupId + '-' + result.meta.cycleKey + '-' + member.uid,
+        });
+        await adminDb.collection('users').doc(member.uid).collection('notifications').doc('cotisation-start-' + groupId + '-' + result.meta.cycleKey).set({
+          title: 'Ta cotisation a démarré',
+          body: 'Le groupe ' + result.group.name + ' est lancé. Ta position dans le groupe est ' + (index + 1) + '.',
+          target: '/cotisations', source: 'cotisation', read: false, readAt: null,
+          createdAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+        return true;
+      } catch (emailError) {
+        console.warn('[COTISATION START EMAIL]', member.uid, emailError.message || emailError);
+        return false;
+      }
+    }));
+    const beneficiary = result.members[0];
+    if (beneficiary?.email && String(beneficiary.email).includes('@')) {
+      await sendPataEmail({
+        to: beneficiary.email,
+        subject: 'Tu es le premier bénéficiaire de « ' + String(result.group.name || '') + ' »',
+        html: cotisationTurnEmail({
+          name: beneficiary.displayName, groupName: result.group.name,
+          frequency: frequencyLabel, position: 1,
+          contributionAmount: result.group.contributionAmount,
+          totalAmount: result.baseTarget, dueLabel, isMyTurn: true,
+        }),
+        idempotencyKey: 'pata-cotisation-turn-' + groupId + '-' + result.meta.cycleKey + '-' + beneficiary.uid,
+      }).catch((emailError) => console.warn('[COTISATION TURN EMAIL]', emailError.message || emailError));
+    }
+    return NextResponse.json({ success: true, notified: emailResults.filter(Boolean).length, message: 'La cotisation est lancée. Les positions sont verrouillées et les membres peuvent commencer à verser.' });
+  } catch (error) { return errorResponse(error.message || 'Impossible de lancer le groupe.', 400); }
+}
+
 async function handleCotisationPay(request) {
   try {
     const { uid } = await authenticate(request);
