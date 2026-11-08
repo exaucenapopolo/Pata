@@ -6,7 +6,7 @@ import confetti from 'canvas-confetti';
 import {
   Plus, Target, Trash2, AlertTriangle, Banknote, Pencil, Lightbulb,
   Info, CheckCircle2, TrendingUp, ShieldAlert, ArrowDownToLine, Landmark,
-  MessageCircle, CalendarDays, PiggyBank, Pin, CalendarCheck, Zap, Unlock
+  MessageCircle, CalendarDays, PiggyBank, Pin, CalendarCheck, Zap, Unlock, ChevronDown
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -151,6 +151,15 @@ function GoalDetail({ goal, onClose, onAskWithdraw }) {
   const category = resolveCategory(goal.categoryId, 'goal', customCategories);
   const advices = buildGoalAdvices(plan, profile?.balance || 0, goal.name);
   const isPiggybank = goal.type === 'piggybank';
+  const purposeLabels = {
+    personal: 'Pour moi-même',
+    family: 'Pour ma famille / le foyer',
+    child: 'Pour un enfant',
+    partner: 'Pour mon conjoint / ma conjointe',
+    emergency: 'Réserve d’urgence',
+    project: 'Pour un projet précis',
+    other: 'Autre usage ou bénéficiaire',
+  };
 
   const [amount, setAmount] = useState('');
   const [repayAmount, setRepayAmount] = useState('');
@@ -207,6 +216,17 @@ function GoalDetail({ goal, onClose, onAskWithdraw }) {
           <div className="mt-2 flex items-center gap-2"><span className="h-2 w-2 rounded-full" style={{ backgroundColor: category.color }} /><span className="text-xs font-medium text-slate-500">{category.label}</span></div>
         </div>
 
+        <div className="rounded-xl border border-slate-200 bg-white p-3.5">
+          <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-slate-400">Informations sur cette épargne</p>
+          <div className="space-y-2 text-sm">
+            <div className="flex items-start justify-between gap-3"><span className="text-slate-500">Destination</span><strong className="text-right text-slate-800">{purposeLabels[goal.purposeType || 'personal'] || 'Pour moi-même'}</strong></div>
+            {goal.beneficiaryName && <div className="flex items-start justify-between gap-3"><span className="text-slate-500">Bénéficiaire</span><strong className="text-right text-slate-800">{goal.beneficiaryName}</strong></div>}
+            {goal.beneficiaryRelation && <div className="flex items-start justify-between gap-3"><span className="text-slate-500">Lien</span><strong className="text-right text-slate-800">{goal.beneficiaryRelation}</strong></div>}
+            {goal.description && <div className="border-t border-slate-100 pt-2"><p className="text-xs text-slate-500">Description</p><p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-700">{goal.description}</p></div>}
+            {goal.rulesEnabled && goal.rulesText && <div className="rounded-lg bg-amber-50 p-3"><p className="text-xs font-semibold text-amber-900">Règles ou engagements indiqués</p><p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-amber-800">{goal.rulesText}</p><p className="mt-1 text-[10px] leading-4 text-amber-700">Note informative : ces règles ne bloquent pas automatiquement les opérations.</p></div>}
+          </div>
+        </div>
+
         {!isPiggybank && (
           <div className="rounded-xl bg-slate-50 border border-slate-200 p-4 space-y-3">
             <div className="flex items-center justify-between"><span className="text-sm text-slate-600">Objectif ciblé</span><span className="font-bold text-slate-900">{formatCurrency(goal.targetAmount)}</span></div>
@@ -228,7 +248,20 @@ function GoalDetail({ goal, onClose, onAskWithdraw }) {
           </div>
         )}
 
-        {isPiggybank && (<div className="rounded-xl border border-brand-200 bg-brand-50 p-4 text-center"><p className="text-xs font-semibold uppercase tracking-wide text-brand-700 mb-1">Total dans la tirelire</p><p className="text-3xl font-bold text-brand-700">{formatCurrency(plan.totalDeposited)}</p></div>)}
+        {isPiggybank && (
+          <div className="rounded-xl border border-brand-200 bg-brand-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-brand-700 mb-1">Total dans la caisse</p>
+            <p className="text-3xl font-bold text-brand-800">{formatCurrency(plan.totalDeposited)}</p>
+            {plan.hasTarget && (
+              <div className="mt-3 space-y-1.5">
+                <div className="flex items-center justify-between gap-2 text-xs"><span className="text-brand-800">Cible : {formatCurrency(plan.targetAmount)}</span><strong className="text-brand-900">{Math.round(plan.progress)}%</strong></div>
+                <div className="h-2 overflow-hidden rounded-full bg-white/80"><div className="h-full rounded-full bg-brand-700 transition-all" style={{ width: `${plan.progress}%` }}/></div>
+                <p className="text-[11px] text-brand-800">Encore {formatCurrency(plan.remaining)} pour atteindre ta cible. Aucun délai ne t’est imposé.</p>
+              </div>
+            )}
+            {!plan.hasTarget && <p className="mt-1 text-xs text-brand-800">Caisse libre, sans cible ni échéance imposée.</p>}
+          </div>
+        )}
 
         {!isPiggybank && plan.notStarted && (<div className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700"><CalendarDays size={16} /><span>Démarre le {formatDate(plan.startDate)}</span></div>)}
 
@@ -536,21 +569,29 @@ function GoalCard({ goal, onOpen, onEdit, onAskWithdraw, onTogglePin, onDelete }
   else if (plan.isLate) { statusColor = '#ef4444'; statusLabel = 'En retard'; }
 
   return (
-    <Card className={`flex flex-col transition-shadow ${goal.pinned ? 'ring-2 ring-brand-500 shadow-md' : ''}`}>
-      <div className="mb-3 flex items-start justify-between">
-        <div className="min-w-0 flex-1">
+    <Card
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onOpen(); } }}
+      className={`flex cursor-pointer flex-col transition-shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300 ${goal.pinned ? 'ring-2 ring-brand-500 shadow-md' : ''}`}
+    >
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <button type="button" onClick={(event) => { event.stopPropagation(); onOpen(); }} className="min-w-0 flex-1 rounded-lg text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300">
           <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: category?.color || '#94a3b8' }} /><p className="truncate text-lg font-bold text-slate-900">{goal.name}</p></div>
           {!isPiggybank && (<p className="mt-1 text-xs text-slate-500">{formatCurrency(goal.targetAmount)} — {formatCurrency(plan.amountPerPayment)} / {plan.frequencyDays} j</p>)}
-        </div>
-        <div className="flex items-center gap-1">
-          <button onClick={() => onTogglePin(goal.id, goal.pinned)} className={`rounded-lg p-1.5 transition-colors ${goal.pinned ? 'text-amber-500 hover:bg-amber-50' : 'text-slate-300 hover:bg-slate-100'}`} title={goal.pinned ? "Désépingler" : "Épingler"}><Pin size={18} className={goal.pinned ? 'fill-current' : ''} /></button>
-          <button onClick={onEdit} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100"><Pencil size={16} /></button>
+          {isPiggybank && goal.targetAmount > 0 && <p className="mt-1 text-xs text-slate-500">Cible : {formatCurrency(goal.targetAmount)}</p>}
+          <p className="mt-1 text-[10px] font-semibold text-brand-700">Ouvrir la fiche et l’historique →</p>
+        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          <button type="button" onClick={(event) => { event.stopPropagation(); onTogglePin(goal.id, goal.pinned); }} className={`rounded-lg p-1.5 transition-colors ${goal.pinned ? 'text-amber-500 hover:bg-amber-50' : 'text-slate-300 hover:bg-slate-100'}`} title={goal.pinned ? "Désépingler" : "Épingler"} aria-label={goal.pinned ? "Désépingler" : "Épingler"}><Pin size={18} className={goal.pinned ? 'fill-current' : ''} /></button>
+          <button type="button" onClick={(event) => { event.stopPropagation(); onEdit(); }} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100" aria-label="Modifier l’épargne"><Pencil size={16} /></button>
         </div>
       </div>
       <div className="mb-2"><span className="inline-block rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white" style={{ backgroundColor: statusColor }}>{statusLabel}</span></div>
 
       {isPiggybank ? (
-        <div className="mb-4 flex items-center justify-between"><div className="flex h-12 w-12 items-center justify-center rounded-full bg-brand-50 text-brand-600"><PiggyBank size={24} /></div><div className="text-right"><p className="text-sm text-slate-500">Total épargné</p><p className="text-xl font-bold text-brand-600">{formatCurrency(plan.totalDeposited)}</p></div></div>
+        <div className="mb-4 flex items-center justify-between gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-brand-50 text-brand-700"><PiggyBank size={22} /></div><div className="min-w-0 flex-1 text-right"><p className="text-xs text-slate-500">Total épargné</p><p className="text-lg font-bold text-brand-700">{formatCurrency(plan.totalDeposited)}</p>{plan.hasTarget && <p className="text-[10px] text-slate-500">{Math.round(plan.progress)}% de la cible</p>}</div></div>
       ) : (
         <div className="mb-4 flex items-center gap-4">
           <ProgressCircle value={plan.progress} size={70} />
