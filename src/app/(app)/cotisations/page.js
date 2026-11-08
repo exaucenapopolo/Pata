@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -33,6 +33,7 @@ export default function CotisationsPage() {
   const [orderDrafts, setOrderDrafts] = useState({});
   const [payForms, setPayForms] = useState({});
   const [withdrawForms, setWithdrawForms] = useState({});
+  const autoVerifiedPayments = useRef(new Set());
 
   const api = useCallback(async (path, method = 'GET', payload) => {
     if (!user) throw new Error('Connecte-toi pour continuer.');
@@ -65,6 +66,38 @@ export default function CotisationsPage() {
   }, [api, user]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (loading || !user || !groups.length) return;
+    let active = true;
+    const pending = groups
+      .map((group) => ({ group, payment: group.currentCycle?.pendingPayment }))
+      .filter((entry) => entry.payment?.transId && !autoVerifiedPayments.current.has(entry.payment.transId));
+    pending.forEach(({ group, payment }) => {
+      autoVerifiedPayments.current.add(payment.transId);
+      (async () => {
+        try {
+          let result = null;
+          for (let attempt = 0; attempt < 3; attempt += 1) {
+            result = await api('fapshi/status', 'POST', { transId: payment.transId });
+            if (result.status !== 'PENDING') break;
+            if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 5000));
+          }
+          if (!active) return;
+          if (result?.status === 'CONFIRMED') {
+            setNotice('Le paiement de ' + currency(payment.amount) + ' a été vérifié auprès de Fapshi et ajouté à la cotisation.');
+            await load();
+          } else if (result?.status === 'FAILED') {
+            setNotice('Fapshi a confirmé que le paiement n’a pas abouti. Tu peux recommencer le versement.');
+            await load();
+          }
+        } catch (error) {
+          if (active) console.warn('[PATA COTISATION AUTO VERIFY]', group.id, error.message || error);
+        }
+      })();
+    });
+    return () => { active = false; };
+  }, [groups, loading, user, api, load]);
 
   useEffect(() => {
     if (!user || typeof window === 'undefined') return;
@@ -170,6 +203,8 @@ export default function CotisationsPage() {
     setError('');
     setNotice('');
     try {
+      const memberIds = orderDrafts[group.id] || group.members.map((member) => member.uid);
+      await api('cotisations/reorder', 'POST', { groupId: group.id, memberIds });
       const result = await api('cotisations/start', 'POST', { groupId: group.id });
       setNotice(result.message || 'La cotisation est lancée.');
       setOrderDrafts((value) => ({ ...value, [group.id]: undefined }));
