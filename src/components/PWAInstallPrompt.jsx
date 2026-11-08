@@ -31,10 +31,12 @@ export function PWAInstallPrompt() {
       setVisible(false);
       setInstallEvent(null);
     };
+    const fallbackTimer = window.setTimeout(() => setVisible(true), 1800);
     window.addEventListener('beforeinstallprompt', onInstallAvailable);
     window.addEventListener('appinstalled', onInstalled);
     if (isIOS) setVisible(true);
     return () => {
+      window.clearTimeout(fallbackTimer);
       window.removeEventListener('beforeinstallprompt', onInstallAvailable);
       window.removeEventListener('appinstalled', onInstalled);
     };
