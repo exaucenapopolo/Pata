@@ -2717,8 +2717,10 @@ async function handleAdminApproveWithdrawal(request) {
         return errorResponse('La réponse du prestataire est incertaine. Vérifie cette demande dans ton espace Fapshi avant toute nouvelle tentative.', 502);
       }
       await requestRef.update({ status: 'FAILED', providerMessage, failedAt: FieldValue.serverTimestamp() });
-      await unlockGoalAfterPayout(requestData.userId, requestData.goalId, 'FAILED', requestRef.id);
-      await adminDb.collection('users').doc(requestData.userId).collection('notifications').doc(`withdrawal-${requestRef.id}`).set({ title: 'Retrait non effectué', body: 'Le prestataire n’a pas pu effectuer ce retrait. Ta demande a été débloquée ; contacte le support si nécessaire.', target: '/goals', createdAt: FieldValue.serverTimestamp() }).catch(() => {});
+      if (requestData.withdrawalType === 'cotisation') await restoreCotisationCycle({ ...requestData, requestId: requestRef.id }, 'FAILED');
+      else await unlockGoalAfterPayout(requestData.userId, requestData.goalId, 'FAILED', requestRef.id);
+      await adminDb.collection('users').doc(requestData.userId).collection('notifications').doc(`withdrawal-${requestRef.id}`).set({ title: 'Retrait non effectué', body: 'Le prestataire n’a pas pu effectuer ce retrait. Consulte ton historique ou contacte le support.', target: requestData.withdrawalType === 'cotisation' ? '/cotisations' : '/goals', createdAt: FieldValue.serverTimestamp() }).catch(() => {});
+      await cotisationSendWithdrawalEmail({ ...requestData, requestId: requestRef.id }, 'failed');
       return errorResponse(providerMessage, 502);
     }
     if (!result.transId) {
@@ -2726,6 +2728,7 @@ async function handleAdminApproveWithdrawal(request) {
       return errorResponse('Le prestataire a répondu de manière inattendue. Vérifie le paiement dans ton espace Fapshi avant toute nouvelle action.', 502);
     }
     await requestRef.update({ status: 'PROCESSING', fapshiTransId: result.transId, providerMessage: result.message || 'Demande transmise au prestataire.', providerDateInitiated: result.dateInitiated || null, submittedAt: FieldValue.serverTimestamp() });
+    await cotisationSendWithdrawalEmail({ ...requestData, requestId: requestRef.id }, 'approved');
     return NextResponse.json({ success: true, status: 'PROCESSING', transId: result.transId });
   } catch (error) {
     if (requestRef && requestData) {
@@ -3201,7 +3204,7 @@ async function confirmCotisationPayment(transId) {
       transId: String(transId), userId: payment.userId,
       displayName: payment.displayName || 'Membre', amount,
       fee: cotisationMoney(payment.fee), grossAmount: cotisationMoney(payment.grossAmount),
-      status: 'CONFIRMED', confirmedAt: FieldValue.serverTimestamp(),
+      status: 'CONFIRMED', createdAt: FieldValue.serverTimestamp(), confirmedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
     if (memberSnap.exists) transaction.update(memberRef, { pendingPaymentId: null, pendingPaymentAmount: 0, pendingPaymentAt: null });
     transaction.set(cycleRef, {
@@ -3221,7 +3224,8 @@ async function cotisationSendWithdrawalEmail(data, status) {
   if (!data || !data.email) return;
   const details = {
     received: ['Demande de retrait reçue par Pata', 'Ta demande a bien été reçue.', 'Nous avons reçu ta demande de retrait de ' + cotisationMoney(data.amount).toLocaleString('fr-FR') + ' FCFA concernant ' + (data.goalName || 'ta cotisation') + '. Elle sera vérifiée par l’administration avant l’envoi.'],
-    paid: ['Ton retrait Pata a été envoyé', 'Ton retrait a été envoyé.', 'Le retrait de ' + cotisationMoney(data.amount).toLocaleString('fr-FR') + ' FCFA concernant ' + (data.goalName || 'ta cotisation') + ' a été confirmé par le prestataire.'],
+    approved: ['Ta demande de retrait Pata a été approuvée', 'Ta demande a été approuvée.', 'L’administration a approuvé ta demande de retrait de ' + cotisationMoney(data.amount).toLocaleString('fr-FR') + ' FCFA concernant ' + (data.goalName || 'ton épargne') + '. Le paiement a été transmis à Fapshi ; nous te confirmerons dès que le prestataire aura terminé le transfert.'],
+    paid: ['Ton retrait Pata a été envoyé', 'Ton retrait a été envoyé.', 'Le retrait de ' + cotisationMoney(data.amount).toLocaleString('fr-FR') + ' FCFA concernant ' + (data.goalName || 'ta cotisation') + ' a été confirmé par le prestataire.']
     rejected: ['Mise à jour de ta demande de retrait Pata', 'Ta demande de retrait n’a pas été approuvée.', 'La demande concernant ' + (data.goalName || 'ton épargne') + ' a été refusée après vérification. Tu peux consulter le statut dans ton espace Pata ou contacter l’assistance.'],
     failed: ['Ton retrait Pata n’a pas abouti', 'Le prestataire n’a pas pu effectuer le retrait.', 'Le retrait de ' + cotisationMoney(data.amount).toLocaleString('fr-FR') + ' FCFA concernant ' + (data.goalName || 'ta cotisation') + ' n’a pas été confirmé. Consulte ton espace Pata avant toute nouvelle demande.'],
   }[status];
@@ -3411,6 +3415,7 @@ async function handleCotisationPay(request) {
       cycleRef.get(), cycleRef.collection('contributions').doc(uid).get(),
       groupRef.collection('members').where('active', '==', true).get(),
     ]);
+    if (membersSnap.size < 2) return errorResponse('Invite au moins un autre membre avant de commencer les versements.', 409);
     const currentStatus = cycleSnap.data()?.status || 'OPEN';
     if (currentStatus !== 'OPEN') return errorResponse('Cette période est entièrement financée ou en cours de retrait.', 409);
     const contributionAmount = cotisationMoney(group.contributionAmount);
@@ -3480,6 +3485,7 @@ async function handleCotisationWithdrawalRequest(request) {
       if (!memberSnap.exists || !userSnap.exists) throw new Error('Tu ne fais pas partie de ce groupe.');
       const members = membersSnap.docs.map((doc) => ({ uid: doc.id, ...doc.data() })).sort((a, b) => Number(a.turnOrder) - Number(b.turnOrder));
       const beneficiary = members.length ? members[meta.cycleIndex % members.length] : null;
+      if (members.length < 2) throw new Error('Le groupe doit compter au moins deux membres avant un retrait.');
       if (!beneficiary || beneficiary.uid !== uid) throw new Error('Ce n’est pas encore ton tour de recevoir la cotisation.');
       const cycle = cycleSnap.data() || {};
       const target = cotisationMoney(cycle.targetAmount) || cotisationMoney(group.contributionAmount) * members.length;
