@@ -133,6 +133,98 @@ export function pinResetEmail({ code, name }) {
   return renderPataEmail({ preheader: 'Ton code de vérification Pata est prêt.', eyebrow: 'SÉCURITÉ DU COMPTE', headline: 'Vérification de ton identité', bodyHtml, ctaLabel: 'Ouvrir Pata', ctaUrl: '/settings' });
 }
 
+
+function cotisationDetailsTable(rows = []) {
+  const items = rows.filter((row) => row && row[1] !== undefined && row[1] !== null && row[1] !== '');
+  return `<div style="margin:18px 0;padding:16px 18px;border:1px solid #e5eee8;border-radius:12px;background:#f8faf9;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0">${items.map(([label, value]) => `<tr><td style="padding:9px 0;color:#64748b;font-size:12px;border-bottom:1px solid #e8eeea;">${escapeEmailHtml(label)}</td><td align="right" style="padding:9px 0;color:#173b2c;font-size:13px;font-weight:700;border-bottom:1px solid #e8eeea;">${escapeEmailHtml(value)}</td></tr>`).join('')}</table>
+  </div>`;
+}
+
+export function cotisationCreatedEmail({ name, groupName, contributionAmount, frequency, expectedMembers, dueLabel, graceDays, penaltyLabel, inviteUrl }) {
+  const rows = [
+    ['Groupe', groupName],
+    ['Ta contribution par période', Number(contributionAmount || 0).toLocaleString('fr-FR') + ' FCFA'],
+    ['Fréquence', frequency],
+    ['Nombre de participants prévu', String(expectedMembers || 0)],
+    ['Échéance de paiement', dueLabel],
+    ['Délai de grâce', String(graceDays ?? 0) + ' jour(s)'],
+    ['Règle de retard', penaltyLabel || 'Aucune majoration'],
+  ];
+  const bodyHtml = `
+    <p style="margin:0 0 14px;color:#334155;font-size:14px;line-height:1.75;">Bonjour ${escapeEmailHtml(name || '')}, ta cotisation a bien été créée sur Pata. Tu es le chef du groupe : tu peux inviter les participants, définir leur ordre de passage et lancer la collecte lorsque le nombre de membres prévu sera atteint.</p>
+    ${cotisationDetailsTable(rows)}
+    <p style="margin:0 0 12px;color:#334155;font-size:14px;line-height:1.75;">Avant le démarrage, vérifie les paramètres du groupe et partage le lien uniquement avec les personnes qui doivent réellement participer. Une fois les versements commencés, l’ordre de passage sera verrouillé pour protéger les tours de chacun.</p>
+    ${inviteUrl ? `<p style="margin:0;color:#334155;font-size:13px;line-height:1.7;">Lien d’invitation : <a href="${escapeEmailHtml(inviteUrl)}" style="color:#0b5c46;font-weight:700;">rejoindre le groupe ${escapeEmailHtml(groupName)}</a></p>` : ''}
+  `;
+  return renderPataEmail({ preheader: 'Ton groupe de cotisation est créé.', eyebrow: 'NOUVEAU GROUPE DE COTISATION', headline: 'Ton groupe est prêt à être organisé.', bodyHtml, ctaLabel: 'Gérer ma cotisation', ctaUrl: '/cotisations' });
+}
+
+export function cotisationJoinedEmail({ name, groupName, ownerName, contributionAmount, frequency, position, expectedMembers, dueLabel }) {
+  const bodyHtml = `
+    <p style="margin:0 0 14px;color:#334155;font-size:14px;line-height:1.75;">Bonjour ${escapeEmailHtml(name || '')}, ton adhésion au groupe <strong>${escapeEmailHtml(groupName || 'de cotisation')}</strong> a été enregistrée. Le chef du groupe est ${escapeEmailHtml(ownerName || 'l’organisateur')}.</p>
+    ${cotisationDetailsTable([
+      ['Groupe', groupName],
+      ['Chef du groupe', ownerName],
+      ['Contribution prévue', Number(contributionAmount || 0).toLocaleString('fr-FR') + ' FCFA'],
+      ['Fréquence', frequency],
+      ['Ta position actuelle', position ? String(position) : 'À confirmer par le chef'],
+      ['Participants attendus', String(expectedMembers || 0)],
+      ['Échéance prévue', dueLabel],
+    ])}
+    <p style="margin:0;color:#475569;font-size:13px;line-height:1.75;">Le chef peut encore réorganiser les positions tant que le groupe n’a pas démarré. Les versements ne seront ouverts qu’une fois le nombre de participants requis atteint et le groupe lancé.</p>`;
+  return renderPataEmail({ preheader: 'Ton adhésion au groupe a été confirmée.', eyebrow: 'ADHÉSION CONFIRMÉE', headline: 'Tu as rejoint une cotisation.', bodyHtml, ctaLabel: 'Consulter le groupe', ctaUrl: '/cotisations' });
+}
+
+export function cotisationStartedEmail({ name, groupName, contributionAmount, frequency, position, beneficiaryName, turnAmount, dueLabel, expectedMembers }) {
+  const bodyHtml = `
+    <p style="margin:0 0 14px;color:#334155;font-size:14px;line-height:1.75;">Bonjour ${escapeEmailHtml(name || '')}, le chef a lancé le groupe <strong>${escapeEmailHtml(groupName || '')}</strong>. Les positions sont maintenant fixées et les versements de cette période peuvent commencer.</p>
+    ${cotisationDetailsTable([
+      ['Groupe', groupName],
+      ['Ta position dans le groupe', String(position || '—')],
+      ['Contribution par période', Number(contributionAmount || 0).toLocaleString('fr-FR') + ' FCFA'],
+      ['Fréquence', frequency],
+      ['Bénéficiaire du tour', beneficiaryName || 'À confirmer'],
+      ['Montant collectif prévu', Number(turnAmount || 0).toLocaleString('fr-FR') + ' FCFA'],
+      ['Date limite de paiement', dueLabel],
+      ['Nombre de participants', String(expectedMembers || 0)],
+    ])}
+    <p style="margin:0;color:#475569;font-size:13px;line-height:1.75;">Tu peux verser en plusieurs fois depuis ton espace Cotisations. Chaque paiement passe par Fapshi et n’est ajouté au total du groupe qu’après confirmation du prestataire.</p>`;
+  return renderPataEmail({ preheader: 'Les versements de ton groupe peuvent commencer.', eyebrow: 'COTISATION LANCÉE', headline: 'Le groupe a officiellement démarré.', bodyHtml, ctaLabel: 'Effectuer ma cotisation', ctaUrl: '/cotisations' });
+}
+
+export function cotisationTurnEmail({ name, groupName, frequency, position, contributionAmount, totalAmount, dueLabel, isMyTurn }) {
+  const bodyHtml = `
+    <p style="margin:0 0 14px;color:#334155;font-size:14px;line-height:1.75;">Bonjour ${escapeEmailHtml(name || '')}, voici l’information concernant ton tour dans le groupe <strong>${escapeEmailHtml(groupName || '')}</strong>. Le chef a défini l’ordre de passage avant le démarrage de la cotisation.</p>
+    ${cotisationDetailsTable([
+      ['Groupe', groupName],
+      ['Ta position', String(position || '—')],
+      ['Fréquence', frequency],
+      ['Contribution par membre', Number(contributionAmount || 0).toLocaleString('fr-FR') + ' FCFA'],
+      ['Montant total prévu pour le bénéficiaire', Number(totalAmount || 0).toLocaleString('fr-FR') + ' FCFA'],
+      ['Échéance de la période', dueLabel],
+      ['Bénéficiaire de ce tour', isMyTurn ? 'Toi' : 'Un autre membre'],
+    ])}
+    <p style="margin:0;color:#475569;font-size:13px;line-height:1.75;">Même si c’est ton tour de recevoir, tu dois également verser ta propre contribution comme les autres membres. Le retrait ne devient disponible qu’après confirmation de toutes les contributions et validation de la demande par l’administration.</p>`;
+  return renderPataEmail({ preheader: 'Ton ordre de passage est disponible.', eyebrow: 'ORDRE DE PASSAGE', headline: isMyTurn ? 'Tu es le bénéficiaire de ce tour.' : 'Ton tour de cotisation est planifié.', bodyHtml, ctaLabel: 'Voir l’ordre et les versements', ctaUrl: '/cotisations' });
+}
+
+export function cotisationDueEmail({ name, groupName, contributionAmount, paidAmount, remainingAmount, dueLabel, graceDays, lateFeeLabel, overdue = false }) {
+  const bodyHtml = `
+    <p style="margin:0 0 14px;color:#334155;font-size:14px;line-height:1.75;">Bonjour ${escapeEmailHtml(name || '')}, ${overdue ? 'la période de grâce de ta cotisation est arrivée à son terme.' : 'la date limite de contribution de ton groupe approche aujourd’hui.'} Nous t’écrivons pour que tu puisses vérifier ta situation avant que la période ne soit clôturée.</p>
+    ${cotisationDetailsTable([
+      ['Groupe', groupName],
+      ['Montant prévu pour toi', Number(contributionAmount || 0).toLocaleString('fr-FR') + ' FCFA'],
+      ['Déjà versé et confirmé', Number(paidAmount || 0).toLocaleString('fr-FR') + ' FCFA'],
+      ['Reste à verser', Number(remainingAmount || 0).toLocaleString('fr-FR') + ' FCFA'],
+      ['Date limite', dueLabel],
+      ['Délai de grâce défini par le chef', String(graceDays ?? 0) + ' jour(s)'],
+      ['Règle de retard', lateFeeLabel || 'Aucune majoration'],
+    ])}
+    <p style="margin:0;color:#475569;font-size:13px;line-height:1.75;">${overdue ? 'Selon les règles du groupe, une majoration peut maintenant s’appliquer à ton prochain versement. Son montant exact sera affiché avant de confirmer le paiement.' : 'Tu peux cotiser petit à petit depuis Pata. Le total versé sera mis à jour uniquement après confirmation effective du paiement par Fapshi.'} Si tu as déjà effectué un versement, vérifie son statut dans ton espace avant de recommencer.</p>`;
+  return renderPataEmail({ preheader: overdue ? 'La période de grâce de ta cotisation est terminée.' : 'La date limite de cotisation est arrivée.', eyebrow: 'RAPPEL DE COTISATION', headline: overdue ? 'Pense à régulariser ta contribution.' : 'La date de cotisation est arrivée.', bodyHtml, ctaLabel: 'Voir ma cotisation', ctaUrl: '/cotisations' });
+}
+
 export function customAdminEmail({ name, headline, body, ctaUrl = '/dashboard', ctaLabel = 'Ouvrir Pata' }) {
   const paragraphs = String(body || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
     .map((line) => `<p style="margin:0 0 13px;color:#334155;font-size:14px;line-height:1.75;">${escapeEmailHtml(line.replaceAll('{nom}', name || ''))}</p>`).join('');
