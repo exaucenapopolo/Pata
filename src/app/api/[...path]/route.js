@@ -3072,7 +3072,20 @@ async function buildAdminEmailHighlights(uid) {
     const group = groupSnap.data() || {};
     const membersSnap = await groupRef.collection('members').where('active', '==', true).get();
     const cyclesSnap = await groupRef.collection('cycles').orderBy('cycleIndex', 'desc').limit(6).get().catch(() => ({ docs: [] }));
-    const latestCycle = cyclesSnap.docs[0]?.data() || {};
+    const latestCycleDoc = cyclesSnap.docs[0] || null;
+    const latestCycle = latestCycleDoc?.data() || {};
+    const memberRows = membersSnap.docs.map((doc) => ({ uid: doc.id, ...doc.data() }))
+      .sort((a, b) => Number(a.turnOrder || 0) - Number(b.turnOrder || 0));
+    const ownMember = memberRows.find((member) => member.uid === uid) || null;
+    const ownContributionSnap = latestCycleDoc
+      ? await groupRef.collection('cycles').doc(latestCycleDoc.id).collection('contributions').doc(uid).get()
+      : null;
+    const ownContribution = ownContributionSnap?.exists ? ownContributionSnap.data() : {};
+    const myPaid = cotisationMoney(ownContribution.amount) + cotisationMoney(ownContribution.penaltyPaid);
+    const myRemaining = Math.max(0, cotisationMoney(group.contributionAmount) - cotisationMoney(ownContribution.amount));
+    const currentBeneficiary = group.startedAt && memberRows.length
+      ? memberRows[(cotisationMoney(latestCycle.cycleIndex) % memberRows.length)]
+      : null;
     return {
       name: String(group.name || membership.name || 'Cotisation'),
       role: group.ownerId === uid ? 'Chef de groupe' : 'Membre',
@@ -3082,6 +3095,12 @@ async function buildAdminEmailHighlights(uid) {
       expectedMembers: cotisationMoney(group.expectedMembers || Math.max(2, group.memberCount || membersSnap.size)),
       active: group.status === 'active',
       started: Boolean(group.startedAt),
+      position: ownMember?.turnOrder ? cotisationMoney(ownMember.turnOrder) : null,
+      beneficiaryName: currentBeneficiary?.displayName || null,
+      isMyTurn: currentBeneficiary?.uid === uid,
+      dueAt: String(latestCycle.dueAt || ''),
+      myPaid,
+      myRemaining,
       lastCycleStatus: String(latestCycle.status || ''),
       lastCycleTotal: cotisationMoney(latestCycle.totalCollected),
       lastCycleTarget: cotisationMoney(latestCycle.targetAmount || latestCycle.baseTargetAmount),
@@ -3107,7 +3126,19 @@ async function buildAdminEmailHighlights(uid) {
     lines.push('Tours de cotisation terminés : ' + completedCotisations.slice(0, 5).map((item) => item.name + ' (' + item.lastCycleTotal.toLocaleString('fr-FR') + ' FCFA réunis)').join(', ') + '.');
   }
   if (activeCotisations.length) {
-    lines.push('Cotisations en cours : ' + activeCotisations.slice(0, 5).map((item) => item.name + ' — ' + item.amount.toLocaleString('fr-FR') + ' FCFA par personne, ' + item.memberCount + '/' + item.expectedMembers + ' membres, ' + item.role).join(' ; ') + '.');
+    lines.push('Cotisations en cours : ' + activeCotisations.slice(0, 5).map((item) => {
+      const details = [
+        item.name + ' — ' + item.amount.toLocaleString('fr-FR') + ' FCFA par personne, ' + item.frequency,
+        item.memberCount + '/' + item.expectedMembers + ' membres',
+        item.role,
+        item.started ? (item.position ? 'ta position : ' + item.position : 'position à confirmer') : 'en attente du lancement',
+        item.started && item.beneficiaryName ? 'bénéficiaire actuel : ' + item.beneficiaryName + (item.isMyTurn ? ' (ton tour)' : '') : '',
+        item.dueAt ? 'échéance : ' + item.dueAt : '',
+        item.started ? 'versements confirmés par toi : ' + item.myPaid.toLocaleString('fr-FR') + ' FCFA, reste personnel : ' + item.myRemaining.toLocaleString('fr-FR') + ' FCFA' : '',
+        item.started ? 'collecte du tour : ' + item.lastCycleTotal.toLocaleString('fr-FR') + ' / ' + item.lastCycleTarget.toLocaleString('fr-FR') + ' FCFA' : '',
+      ].filter(Boolean);
+      return details.join(' ; ');
+    }).join(' | ') + '.');
   }
   if (!lines.length) lines.push('Ton compte ne comporte pas encore de projet, d’objectif d’épargne ou de cotisation renseigné. Tu peux commencer progressivement, selon tes priorités.');
   return {
