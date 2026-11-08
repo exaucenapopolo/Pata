@@ -76,19 +76,10 @@ export function NotificationSettings() {
         if (!active) return;
         const savedTokens = Array.isArray(profile?.pushTokens) ? profile.pushTokens : [];
         setDeviceToken(token || '');
-        if (token && !savedTokens.includes(token)) {
-          // Un jeton peut être renouvelé par Firebase après une mise à jour du navigateur.
-          // On synchronise le jeton courant au lieu d'afficher un faux état désactivé.
-          const idToken = await user.getIdToken();
-          const response = await fetch('/api/notifications/subscribe', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-            body: JSON.stringify({ token }),
-          });
-          if (!response.ok) throw new Error('Impossible de synchroniser cet appareil.');
-          if (active) setEnabled(true);
-        } else {
-          setEnabled(Boolean(token && profile?.notificationsEnabled && savedTokens.includes(token)));
+        const registeredOnThisDevice = Boolean(token && savedTokens.includes(token));
+        setEnabled(registeredOnThisDevice && Boolean(profile?.notificationsEnabled));
+        if (token && !registeredOnThisDevice && active) {
+          setMessage('Le jeton de cet appareil n’est pas enregistré dans Pata. Utilise « Réparer cet appareil » pour créer un nouveau jeton et le réinscrire.');
         }
       } catch {
         if (active) setEnabled(false);
