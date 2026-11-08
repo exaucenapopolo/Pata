@@ -1901,7 +1901,7 @@ async function handleAIChat(request) {
           remainingPrincipal: Math.max(0, cotisationMoney(group.contributionAmount) - principal),
         };
       });
-      const expectedMembers = cotisationMoney(group.expectedMembers || Math.max(2, group.memberCount || members.length));
+      const expectedMembers = cotisationExpectedMembers(group, members.length);
       const baseTarget = cotisationMoney(cycleSnap.data()?.baseTargetAmount) || cotisationMoney(group.contributionAmount) * expectedMembers;
       const totalCollected = cotisationMoney(cycleSnap.data()?.totalCollected);
       const targetAmount = cotisationMoney(cycleSnap.data()?.targetAmount) || baseTarget;
@@ -3094,7 +3094,7 @@ async function buildAdminEmailHighlights(uid) {
       frequency: cotisationFrequencyLabel(group.frequency),
       amount: cotisationMoney(group.contributionAmount),
       memberCount: membersSnap.size,
-      expectedMembers: cotisationMoney(group.expectedMembers || Math.max(2, group.memberCount || membersSnap.size)),
+      expectedMembers: cotisationExpectedMembers(group, membersSnap.size),
       active: group.status === 'active',
       started: Boolean(group.startedAt),
       position: ownMember?.turnOrder ? cotisationMoney(ownMember.turnOrder) : null,
@@ -3439,6 +3439,13 @@ function cotisationMoney(value) {
   return Math.max(0, Math.round(Number(value) || 0));
 }
 
+function cotisationExpectedMembers(group, actualCount = 0) {
+  const configured = Math.floor(Number(group?.expectedMembers));
+  if (Number.isInteger(configured) && configured >= 2 && configured <= 50) return configured;
+  const current = Math.floor(Number(group?.memberCount || actualCount || 2));
+  return Math.max(2, Math.min(50, current || 2));
+}
+
 function cotisationMonthlyDueDate(periodStart, dueDay = 30) {
   const start = new Date(String(periodStart) + 'T12:00:00Z');
   const desiredDay = Math.max(1, Math.min(31, Math.floor(Number(dueDay) || start.getUTCDate())));
@@ -3530,7 +3537,7 @@ async function confirmCotisationPayment(transId) {
     const nextMemberTotal = cotisationMoney(previousContribution.amount) + amount;
     const nextPenaltyTotal = cotisationMoney(previousContribution.penaltyPaid) + penaltyAmount;
     const nextTotal = cotisationMoney(cycleSnap.data()?.totalCollected) + amount + penaltyAmount;
-    const expectedMembers = cotisationMoney(group.expectedMembers || group.maxMembers || group.memberCount);
+    const expectedMembers = cotisationExpectedMembers(group);
     const baseTarget = cotisationMoney(cycleSnap.data()?.baseTargetAmount) || cotisationMoney(group.contributionAmount) * expectedMembers;
     const currentTarget = cotisationMoney(cycleSnap.data()?.targetAmount) || baseTarget;
     const targetAmount = currentTarget + penaltyAmount;
@@ -3666,7 +3673,7 @@ async function handleCotisationsList(request) {
       });
       const turnMember = group.startedAt && members.length ? members[meta.cycleIndex % members.length] : null;
       const contributionAmount = cotisationMoney(group.contributionAmount);
-      const expectedMembers = cotisationMoney(group.expectedMembers || group.maxMembers || members.length);
+      const expectedMembers = cotisationExpectedMembers(group, members.length);
       const baseTarget = cotisationMoney(cycleSnap.data()?.baseTargetAmount) || contributionAmount * expectedMembers;
       const totalCollected = cotisationMoney(cycleSnap.data()?.totalCollected);
       const targetAmount = cotisationMoney(cycleSnap.data()?.targetAmount) || baseTarget;
@@ -3847,7 +3854,7 @@ async function handleCotisationJoin(request) {
         position: Number(existingMember.data()?.turnOrder) || null,
         user: userSnap.data(),
       };
-      const expectedMembers = cotisationMoney(data.expectedMembers || data.maxMembers || 50);
+      const expectedMembers = cotisationExpectedMembers(data, data.memberCount);
       const memberCount = cotisationMoney(data.memberCount);
       if (memberCount >= expectedMembers) throw new Error('Le nombre de participants prévu est déjà atteint.');
       if (data.membershipLockedCycle === meta.cycleKey || cotisationMoney(cycleSnap.data()?.totalCollected) > 0) {
@@ -3882,7 +3889,7 @@ async function handleCotisationJoin(request) {
             name: joinerName, groupName: group.name, ownerName,
             contributionAmount: group.contributionAmount,
             frequency: cotisationFrequencyLabel(group.frequency),
-            position: 'À définir par le chef', expectedMembers: group.expectedMembers || group.maxMembers,
+            position: 'À définir par le chef', expectedMembers: cotisationExpectedMembers(group, group.memberCount),
             dueLabel,
           }),
           idempotencyKey: 'pata-cotisation-joined-' + groupRef.id + '-' + uid,
@@ -3900,7 +3907,7 @@ async function handleCotisationJoin(request) {
           name: ownerName, groupName: group.name, ownerName,
           contributionAmount: group.contributionAmount,
           frequency: cotisationFrequencyLabel(group.frequency),
-          position: 'À définir par le chef', expectedMembers: group.expectedMembers || group.maxMembers,
+          position: 'À définir par le chef', expectedMembers: cotisationExpectedMembers(group, group.memberCount),
           dueLabel,
         }),
         idempotencyKey: 'pata-cotisation-owner-joined-' + groupRef.id + '-' + uid,
@@ -3925,7 +3932,7 @@ async function handleCotisationInvitePreview(request) {
     const group = snapshot.data();
     const ownerSnap = await adminDb.collection('users').doc(String(group.ownerId || '')).get();
     const owner = ownerSnap.exists ? ownerSnap.data() : {};
-    const expectedMembers = cotisationMoney(group.expectedMembers || group.maxMembers || 2);
+    const expectedMembers = cotisationExpectedMembers(group, group.memberCount);
     const memberCount = cotisationMoney(group.memberCount);
     return NextResponse.json({
       success: true,
@@ -3997,7 +4004,7 @@ async function handleCotisationStart(request) {
       const group = groupSnap.data();
       if (group.ownerId !== uid) throw new Error('Seul le chef du groupe peut lancer la cotisation.');
       if (group.startedAt) throw new Error('Cette cotisation a déjà été lancée.');
-      const expectedMembers = cotisationMoney(group.expectedMembers || group.maxMembers);
+      const expectedMembers = cotisationExpectedMembers(group, group.memberCount);
       const membersQuery = groupRef.collection('members').where('active', '==', true);
       const membersSnap = await transaction.get(membersQuery);
       if (membersSnap.size < 2) throw new Error('Au moins deux personnes doivent avoir rejoint le groupe.');
@@ -4315,7 +4322,7 @@ async function handleCotisationPay(request) {
     const cycleRef = groupRef.collection('cycles').doc(meta.cycleKey);
     const contributionRef = cycleRef.collection('contributions').doc(uid);
     const membersSnap = await groupRef.collection('members').where('active', '==', true).get();
-    const expectedMembers = cotisationMoney(group.expectedMembers || group.maxMembers || 0);
+    const expectedMembers = cotisationExpectedMembers(group, group.memberCount);
     if (membersSnap.size < 2 || membersSnap.size !== expectedMembers) return errorResponse('Le groupe doit être complet et lancé avant les versements.', 409);
     const apiUser = process.env.FAPSHI_API_USER;
     const apiKey = process.env.FAPSHI_SECRET_KEY;
