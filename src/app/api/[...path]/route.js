@@ -2748,7 +2748,10 @@ async function handleAdminApproveWithdrawal(request) {
       });
       return 'PROCESSING';
     });
-    if (finalStatus === 'PROCESSING') await cotisationSendWithdrawalEmail({ ...requestData, requestId: requestRef.id }, 'approved');
+    if (finalStatus === 'PROCESSING') {
+      if (requestData.withdrawalType === 'cotisation') await restoreCotisationCycle({ ...requestData, requestId: requestRef.id }, 'PROCESSING');
+      await cotisationSendWithdrawalEmail({ ...requestData, requestId: requestRef.id }, 'approved');
+    }
     return NextResponse.json({ success: true, status: finalStatus, transId: result.transId });
   } catch (error) {
     if (requestRef && requestData) {
@@ -3183,16 +3186,21 @@ function getCotisationCycleMeta(group, today = cotisationToday()) {
     const days = Math.floor((Date.UTC(current.getUTCFullYear(), current.getUTCMonth(), current.getUTCDate()) - Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate())) / 86400000);
     index = Math.floor(days / (frequency === 'daily' ? 1 : 7));
   } else {
-    index = (current.getUTCFullYear() - start.getUTCFullYear()) * 12 + current.getUTCMonth() - start.getUTCMonth();
-    if (current.getUTCDate() < start.getUTCDate()) index -= 1;
-    index = Math.max(0, index);
+    // Les périodes mensuelles se calent sur le jour d'origine, ou le dernier jour d'un mois plus court.
+    // Ex. 31 janvier -> 28 février -> 31 mars.
+    index = 0;
+    while (index < 6000) {
+      const nextCycleStart = cotisationAddMonths(startDate, index + 1);
+      if (nextCycleStart > today) break;
+      index += 1;
+    }
   }
   const periodStart = frequency === 'daily' ? cotisationAddDays(startDate, index)
     : frequency === 'weekly' ? cotisationAddDays(startDate, index * 7)
     : cotisationAddMonths(startDate, index);
   const dueAt = frequency === 'daily' ? cotisationAddDays(periodStart, 1)
     : frequency === 'weekly' ? cotisationAddDays(periodStart, 7)
-    : cotisationAddMonths(periodStart, 1);
+    : cotisationAddMonths(startDate, index + 1);
   return { cycleIndex: index, cycleKey: 'cycle-' + String(index + 1).padStart(4, '0'), startDate: periodStart, dueAt, notStarted: false };
 }
 
@@ -3312,8 +3320,8 @@ async function restoreCotisationCycle(data, status) {
   const cycle = cycleSnap.data();
   const stillFunded = cotisationMoney(cycle.totalCollected) >= cotisationMoney(cycle.targetAmount);
   await cycleRef.set({
-    status: status === 'PAID' ? 'PAID' : (stillFunded ? 'READY' : 'OPEN'),
-    withdrawalRequestId: status === 'PAID' ? (data.requestId || null) : null,
+    status: status === 'PAID' ? 'PAID' : (status === 'PROCESSING' ? 'PROCESSING' : (stillFunded ? 'READY' : 'OPEN')),
+    withdrawalRequestId: ['PAID', 'PROCESSING'].includes(status) ? (data.requestId || null) : null,
     paidAt: status === 'PAID' ? FieldValue.serverTimestamp() : null,
     updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true });
@@ -3350,7 +3358,16 @@ async function handleCotisationsList(request) {
       const totalCollected = cotisationMoney(cycleSnap.data()?.totalCollected);
       const memberRows = members.map((member) => {
         const paid = cotisationMoney(contributions.get(member.uid)?.amount);
-        return { ...member, paid, remaining: Math.max(0, contributionAmount - paid), installments: paymentCounts.get(member.uid) || 0 };
+        // Ne jamais exposer les e-mails ni les jetons de paiement internes aux autres membres.
+        return {
+          uid: member.uid,
+          displayName: member.displayName || 'Membre',
+          isOwner: member.isOwner === true,
+          turnOrder: cotisationMoney(member.turnOrder),
+          paid,
+          remaining: Math.max(0, contributionAmount - paid),
+          installments: paymentCounts.get(member.uid) || 0,
+        };
       });
       const myPaid = cotisationMoney(contributions.get(uid)?.amount);
       const cycleStatus = cycleSnap.data()?.status || (totalCollected >= targetAmount && targetAmount > 0 ? 'READY' : 'OPEN');
@@ -3394,7 +3411,8 @@ async function handleCotisationCreate(request) {
     const frequency = ['daily', 'weekly', 'monthly'].includes(body.frequency) ? body.frequency : '';
     const startDate = String(body.startDate || cotisationToday());
     if (!name) return errorResponse('Donne un nom au groupe.', 400);
-    if (!Number.isSafeInteger(amount) || amount < 100 || amount > 5000000 || amount % 100 !== 0) return errorResponse('La cotisation par membre doit être au moins de 100 FCFA et un multiple de 100.', 400);
+    if (!Number.isSafeInteger(amount) || amount < 100 || amount > 250000 || amount % 100 !== 0) return errorResponse('La cotisation par membre doit être comprise entre 100 et 250 000 FCFA, par multiples de 100. Cette limite garantit que le montant total d’un tour reste dans la limite de retrait Fapshi.', 400);
+    const maxMembers = Math.min(50, Math.floor(500000 / amount));
     if (!frequency) return errorResponse('Choisis une fréquence de cotisation.', 400);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || startDate < cotisationToday()) return errorResponse('Choisis une date de début à partir d’aujourd’hui.', 400);
     const userRef = adminDb.collection('users').doc(uid);
@@ -3408,7 +3426,7 @@ async function handleCotisationCreate(request) {
       const userData = userSnap.data();
       transaction.create(groupRef, {
         name, contributionAmount: amount, frequency, startDate,
-        ownerId: uid, inviteToken, memberCount: 1, maxMembers: 50,
+        ownerId: uid, inviteToken, memberCount: 1, maxMembers,
         status: 'active', membershipLockedCycle: null,
         createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
       });
