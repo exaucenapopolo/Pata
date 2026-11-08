@@ -203,8 +203,7 @@ export default function CotisationsPage() {
     setError('');
     setNotice('');
     try {
-      const memberIds = orderDrafts[group.id] || group.members.map((member) => member.uid);
-      await api('cotisations/reorder', 'POST', { groupId: group.id, memberIds });
+      if (!group.orderDefined) throw new Error('Confirme d’abord les positions de tous les membres.');
       const result = await api('cotisations/start', 'POST', { groupId: group.id });
       setNotice(result.message || 'La cotisation est lancée.');
       setOrderDrafts((value) => ({ ...value, [group.id]: undefined }));
