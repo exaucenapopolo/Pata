@@ -25,14 +25,7 @@ service cloud.firestore {
       match /incomes/{incomeId} {
         allow read: if owner(userId);
         allow create: if false;
-        allow update: if owner(userId)
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'amount', 'source', 'categoryId', 'date', 'month', 'note', 'time',
-            'locationLabel', 'latitude', 'longitude', 'locationAccuracy',
-            'paymentMethod', 'details', 'updatedAt'
-          ])
-          && request.resource.data.amount is number
-          && request.resource.data.amount > 0;
+        allow update: if false;
         allow delete: if owner(userId);
       }
 
