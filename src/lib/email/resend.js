@@ -39,7 +39,7 @@ export function renderPataEmail({ preheader = '', eyebrow = 'PATA', headline, in
         <table role="presentation" cellspacing="0" cellpadding="0" style="margin-top:24px;"><tr><td bgcolor="#0b5c46" style="border-radius:9px;">
           <a href="${destination}" style="display:inline-block;padding:13px 20px;color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;">${escapeEmailHtml(ctaLabel)}</a>
         </td></tr></table>
-        <p style="margin:25px 0 0;color:#475569;font-size:13px;line-height:1.7;">${escapeEmailHtml(signoff)}</p>
+        <p style="margin:25px 0 0;color:#475569;font-size:13px;line-height:1.7;">${escapeEmailHtml(signoff).replace(/\\n/g, '<br>')}</p>
       </td></tr>
       <tr><td style="padding:20px 22px;background:#f8faf9;border-top:1px solid #edf1ee;">
         <div style="color:#64748b;font-size:10px;font-weight:700;letter-spacing:1.3px;margin:0 0 8px;">DÉCOUVRIR AUSSI</div>
@@ -135,5 +135,5 @@ export function pinResetEmail({ code, name }) {
 export function customAdminEmail({ name, headline, body, ctaUrl = '/dashboard', ctaLabel = 'Ouvrir Pata' }) {
   const paragraphs = String(body || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
     .map((line) => `<p style="margin:0 0 13px;color:#334155;font-size:14px;line-height:1.75;">${escapeEmailHtml(line.replaceAll('{nom}', name || ''))}</p>`).join('');
-  return renderPataEmail({ preheader: headline, eyebrow: 'MESSAGE PERSONNEL DE PATA', headline: headline || 'Un message pour toi', bodyHtml: paragraphs, ctaLabel, ctaUrl, signoff: 'Avec toute notre considération,<br><strong>L’équipe Pata</strong>' });
+  return renderPataEmail({ preheader: headline, eyebrow: 'MESSAGE PERSONNEL DE PATA', headline: headline || 'Un message pour toi', bodyHtml: paragraphs, ctaLabel, ctaUrl, signoff: 'Avec toute notre considération,\\nL’équipe Pata' });
 }
