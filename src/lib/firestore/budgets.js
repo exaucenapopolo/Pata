@@ -41,3 +41,36 @@ export function subscribeAllBudgets(uid, cb) {
   const q = query(col(uid), orderBy('month', 'desc'), limit(150));
   return onSnapshot(q, (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
 }
+
+
+async function requestBudgetTemplates(method = 'GET', body = null) {
+  const user = auth.currentUser;
+  if (!user) throw new Error('Session expirée. Reconnecte-toi puis réessaie.');
+  const token = await user.getIdToken();
+  const response = await fetch('/api/budgets/templates', {
+    method,
+    headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de gérer les modèles de budget.');
+  return result;
+}
+
+export async function getBudgetTemplates() {
+  const result = await requestBudgetTemplates('GET');
+  return Array.isArray(result.templates) ? result.templates : [];
+}
+
+export async function saveBudgetTemplate(name, items) {
+  const result = await requestBudgetTemplates('POST', { name, items });
+  return result.id;
+}
+
+export async function applyBudgetTemplate(templateId, month, incomeSourceId = 'all') {
+  return requestBudgetTemplates('POST', { action: 'apply', templateId, month, incomeSourceId });
+}
+
+export async function removeBudgetTemplate(templateId) {
+  await requestBudgetTemplates('DELETE', { templateId });
+}
