@@ -37,7 +37,7 @@ export function OptionalTransactionFields({ value, onChange, kind = 'expense' })
     timeoutRef.current = null;
   }, []);
 
-  const finishLocation = (position, message) => {
+  const finishLocation = async (position, message) => {
     if (finishedRef.current) return;
     finishedRef.current = true;
     const coords = position && position.coords;
@@ -48,15 +48,48 @@ export function OptionalTransactionFields({ value, onChange, kind = 'expense' })
     const latitude = Number(coords.latitude.toFixed(6));
     const longitude = Number(coords.longitude.toFixed(6));
     const accuracy = Math.max(0, Math.round(Number(coords.accuracy) || 0));
+    let locationLabel = '';
+    try {
+      const query = new URLSearchParams({
+        latitude: String(latitude),
+        longitude: String(longitude),
+        localityLanguage: 'fr',
+      });
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 6500);
+      try {
+        const response = await fetch('https://api.bigdatacloud.net/data/reverse-geocode-client?' + query.toString(), {
+          signal: controller.signal,
+          headers: { Accept: 'application/json' },
+        });
+        if (response.ok) {
+          const place = await response.json();
+          const parts = [
+            place.locality,
+            place.city,
+            place.principalSubdivision,
+            place.countryName,
+          ].filter((part, index, all) => part && all.indexOf(part) === index);
+          locationLabel = parts.slice(0, 3).join(', ');
+        }
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    } catch (error) {
+      console.warn('[PATA LOCATION LABEL]', error?.message || error);
+    }
+    if (!locationLabel) {
+      locationLabel = accuracy > 2500 ? 'Position approximative' : 'Position géographique';
+    }
     update({
       latitude,
       longitude,
-      locationLabel: 'Position GPS',
+      locationLabel,
       locationAccuracy: accuracy || null,
     });
     setLocationMessage(message || (accuracy > 2500
-      ? 'Position GPS enregistrée. La précision est approximative ; essaie à nouveau dans un endroit mieux dégagé pour l’améliorer.'
-      : 'Position GPS détectée et enregistrée.'));
+      ? 'Position enregistrée avec une précision approximative. Le nom du lieu sera affiché si le service de localisation le reconnaît.'
+      : 'Lieu détecté et enregistré.'));
     setLocating(false);
   };
 
@@ -197,7 +230,7 @@ export function OptionalTransactionFields({ value, onChange, kind = 'expense' })
             </button>
             {value.latitude != null && value.longitude != null && (
               <div className="mt-3 rounded-xl bg-slate-50 p-3">
-                <p className="text-xs font-semibold text-slate-800">Position GPS enregistrée</p>
+                <p className="text-xs font-semibold text-slate-800">{value.locationLabel || 'Position géographique enregistrée'}</p>
                 <p className="mt-1 text-[11px] text-slate-500">{Number(value.latitude).toFixed(5)}, {Number(value.longitude).toFixed(5)}{value.locationAccuracy ? ' · précision ±' + value.locationAccuracy + ' m' : ''}</p>
                 <div className="mt-2 flex items-center justify-between gap-3">
                   <a href={mapUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-700"><ExternalLink size={13}/> Voir sur la carte</a>
