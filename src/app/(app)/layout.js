@@ -9,6 +9,7 @@ import { AssistantButton } from '@/components/ai/AssistantButton';
 import { SmartBackButton } from '@/components/layout/SmartBackButton';
 import { NotificationNudge } from '@/components/NotificationNudge';
 import { NotificationInbox } from '@/components/NotificationInbox';
+import { PinGate } from '@/components/security/PinGate';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 
 export default function AppLayout({ children }) {
@@ -33,6 +34,7 @@ export default function AppLayout({ children }) {
       </div>
       <MobileNav />
       <AssistantButton />
+      <PinGate />
     </div>
   );
 }
