@@ -1891,7 +1891,7 @@ async function handleAIChat(request) {
       const members = membersSnap.docs
         .map((memberDoc) => ({ uid: memberDoc.id, ...memberDoc.data() }))
         .filter((member) => member.active !== false);
-      const hasAssignedOrder = members.length > 0 && members.every((member) => Number.isInteger(Number(member.turnOrder)) && Number(member.turnOrder) >= 1);
+      const hasAssignedOrder = Boolean(group.orderConfirmedAt) && members.length > 0 && members.every((member) => Number.isInteger(Number(member.turnOrder)) && Number(member.turnOrder) >= 1);
       members.sort((a, b) => hasAssignedOrder
         ? Number(a.turnOrder) - Number(b.turnOrder)
         : String(a.displayName || '').localeCompare(String(b.displayName || ''), 'fr'));
@@ -3707,7 +3707,7 @@ async function handleCotisationsList(request) {
       const group = groupSnap.data();
       const membersSnap = await groupRef.collection('members').orderBy('joinedAt', 'asc').limit(50).get();
       const members = membersSnap.docs.map((doc) => ({ uid: doc.id, ...doc.data() })).filter((member) => member.active !== false);
-      const hasAssignedOrder = members.length > 0 && members.every((member) => Number.isInteger(Number(member.turnOrder)) && Number(member.turnOrder) >= 1);
+      const hasAssignedOrder = Boolean(group.orderConfirmedAt) && members.length > 0 && members.every((member) => Number.isInteger(Number(member.turnOrder)) && Number(member.turnOrder) >= 1);
       members.sort((a, b) => hasAssignedOrder || group.startedAt
         ? Number(a.turnOrder) - Number(b.turnOrder)
         : String(a.displayName || '').localeCompare(String(b.displayName || ''), 'fr'));
@@ -3739,7 +3739,7 @@ async function handleCotisationsList(request) {
           uid: member.uid,
           displayName: member.displayName || 'Membre',
           isOwner: member.isOwner === true,
-          turnOrder: member.turnOrder == null ? null : cotisationMoney(member.turnOrder),
+          turnOrder: group.orderConfirmedAt && member.turnOrder != null ? cotisationMoney(member.turnOrder) : null,
           paid: principalPaid + penaltyPaid,
           principalPaid,
           penaltyPaid,
@@ -3775,7 +3775,7 @@ async function handleCotisationsList(request) {
         inviteToken: group.ownerId === uid ? group.inviteToken : null,
         members: memberRows, memberCount: members.length, maxMembers: expectedMembers,
         orderDefined: hasAssignedOrder,
-        canStart: group.ownerId === uid && !group.startedAt && !meta.notStarted && members.length >= 2 && members.length === expectedMembers
+        canStart: group.ownerId === uid && !group.startedAt && Boolean(group.orderConfirmedAt) && !meta.notStarted && members.length >= 2 && members.length === expectedMembers
           && members.every((member) => Number.isInteger(Number(member.turnOrder)) && Number(member.turnOrder) >= 1)
           && new Set(members.map((member) => Number(member.turnOrder))).size === members.length
           && members.map((member) => Number(member.turnOrder)).sort((a, b) => a - b).every((position, index) => position === index + 1),
@@ -3842,6 +3842,7 @@ async function handleCotisationCreate(request) {
         expectedMembers, maxMembers: expectedMembers, memberCount: 1,
         graceDays, lateFeeType, lateFeeValue,
         ownerId: uid, inviteToken, status: 'active', startedAt: null,
+        orderConfirmedAt: null, orderConfirmedBy: null,
         membershipLockedCycle: null,
         createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
       });
@@ -3924,7 +3925,12 @@ async function handleCotisationJoin(request) {
         joinedAt: FieldValue.serverTimestamp(), active: true,
       });
       transaction.create(membershipRef, { groupId: groupRef.id, name: data.name, joinedAt: FieldValue.serverTimestamp() });
-      transaction.update(groupRef, { memberCount: memberCount + 1, updatedAt: FieldValue.serverTimestamp() });
+      transaction.update(groupRef, {
+        memberCount: memberCount + 1,
+        orderConfirmedAt: null,
+        orderConfirmedBy: null,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
       return { alreadyJoined: false, position, user };
     });
     const ownerSnap = await ownerRef.get().catch(() => null);
@@ -4039,7 +4045,11 @@ async function handleCotisationReorder(request) {
           orderUpdatedAt: FieldValue.serverTimestamp(),
         });
       });
-      transaction.update(groupRef, { updatedAt: FieldValue.serverTimestamp() });
+      transaction.update(groupRef, {
+        orderConfirmedAt: FieldValue.serverTimestamp(),
+        orderConfirmedBy: uid,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
     });
     return NextResponse.json({ success: true, message: 'L’ordre de passage a été enregistré.' });
   } catch (error) { return errorResponse(error.message || 'Impossible de modifier l’ordre des membres.', 400); }
@@ -4058,6 +4068,7 @@ async function handleCotisationStart(request) {
       const group = groupSnap.data();
       if (group.ownerId !== uid) throw new Error('Seul le chef du groupe peut lancer la cotisation.');
       if (group.startedAt) throw new Error('Cette cotisation a déjà été lancée.');
+      if (!group.orderConfirmedAt) throw new Error('Le chef doit enregistrer explicitement l’ordre des membres avant le lancement.');
       const expectedMembers = cotisationExpectedMembers(group, group.memberCount);
       const membersQuery = groupRef.collection('members').where('active', '==', true);
       const membersSnap = await transaction.get(membersQuery);
