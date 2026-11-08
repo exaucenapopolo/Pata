@@ -67,6 +67,7 @@ export async function sendPataEmail({ to, subject, html, idempotencyKey }) {
     headers,
     body: JSON.stringify({ from: FROM, to: [to], subject, html }),
     cache: 'no-store',
+    signal: AbortSignal.timeout(12000),
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
