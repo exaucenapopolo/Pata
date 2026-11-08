@@ -93,8 +93,8 @@ export default function HomePage() {
     setSlide(Math.round(event.currentTarget.scrollLeft / width));
   };
 
-  const authCard = (
-    <section id="connexion" className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_20px_60px_-40px_rgba(15,23,42,.25)] sm:p-7">
+  const renderAuthCard = (formId) => (
+    <section id={formId} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_20px_60px_-40px_rgba(15,23,42,.25)] sm:p-7">
       <div className="flex items-center gap-2">
         <span className="grid h-9 w-9 place-items-center rounded-xl bg-[#edf5f0] text-[#0b5c46]"><Lock size={17}/></span>
         <div><p className="text-sm font-bold text-slate-900">{mode === 'register' ? 'Créer mon espace' : 'Retrouver mon espace'}</p><p className="text-xs text-slate-500">{mode === 'register' ? 'Deux informations pour commencer.' : 'Connecte-toi à ton compte Pata.'}</p></div>
@@ -150,7 +150,7 @@ export default function HomePage() {
         </div>
         <div className="mx-auto w-full max-w-md lg:mx-0 lg:ml-auto">
           <div className="mb-5 lg:hidden"><p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#0b5c46]">Tes finances, avec une méthode claire</p><h1 className="mt-2 text-3xl font-bold leading-tight tracking-tight text-slate-950">Ton argent mérite mieux qu’une mémoire approximative.</h1><p className="mt-2 text-sm leading-6 text-slate-600">Dépenses, revenus, budgets, épargne et analyses : tout est réuni dans Pata.</p></div>
-          <div className="hidden lg:block">{authCard}</div>
+          <div className="hidden lg:block">{renderAuthCard('connexion')}</div>
         </div>
       </section>
 
@@ -169,11 +169,11 @@ export default function HomePage() {
             </div>
           </div>
           <div className="mt-4 flex items-center justify-between"><div className="flex gap-1.5">{slides.map((s,i)=><button key={s.mark} aria-label={`Présentation ${i+1}`} onClick={()=>moveSlide(i)} className={`h-1.5 rounded-full transition-all ${slide===i?'w-7 bg-[#0b5c46]':'w-2 bg-slate-300'}`}/>)}</div><div className="flex gap-2"><button type="button" onClick={previousSlide} disabled={slide===0} aria-label="Précédent" className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-600 disabled:opacity-30"><ChevronLeft size={17}/></button><button type="button" onClick={nextSlide} disabled={slide===2} aria-label="Suivant" className="grid h-9 w-9 place-items-center rounded-full bg-[#0b5c46] text-white disabled:opacity-30"><ChevronRight size={17}/></button></div></div>
-          <a href="#connexion" className="mt-5 flex h-11 items-center justify-center rounded-xl border border-[#0b5c46]/20 text-sm font-bold text-[#0b5c46]">Créer mon compte ou me connecter</a>
+          <a href="#connexion-mobile" className="mt-5 flex h-11 items-center justify-center rounded-xl border border-[#0b5c46]/20 text-sm font-bold text-[#0b5c46]">Créer mon compte ou me connecter</a>
         </div>
       </section>
 
-      <section className="mx-auto max-w-md px-4 py-10 lg:hidden">{authCard}</section>
+      <section className="mx-auto max-w-md px-4 py-10 lg:hidden">{renderAuthCard('connexion-mobile')}</section>
 
       <section className="mx-auto hidden max-w-7xl grid-cols-3 gap-5 px-6 py-14 lg:grid">
         <article className="rounded-2xl border border-slate-200 bg-white p-6"><p className="text-xs font-bold text-[#0b5c46]">MČ · ASSISTANCE INTELLIGENTE</p><h2 className="mt-3 text-xl font-bold">Une aide qui part de tes données.</h2><p className="mt-2 text-sm leading-6 text-slate-600">Mč peut expliquer tes mouvements, analyser une dépense, comparer tes habitudes et t’aider à bâtir un budget réaliste. Les actions restent sous ton contrôle.</p></article>
