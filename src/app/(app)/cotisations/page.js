@@ -157,6 +157,22 @@ export default function CotisationsPage() {
     }
   };
 
+  const verifyPendingPayment = async (group) => {
+    const pending = group.currentCycle.pendingPayment;
+    if (!pending?.transId) return;
+    setBusy('verify-' + group.id);
+    setError('');
+    try {
+      const result = await api('fapshi/status', 'POST', { transId: pending.transId });
+      setNotice(result.status === 'CONFIRMED' ? 'Ton versement a été confirmé.' : result.status === 'FAILED' ? 'Le paiement a échoué. Tu peux maintenant réessayer.' : 'Le paiement est toujours en attente de confirmation Fapshi.');
+      await load();
+    } catch (err) {
+      setError(err.message || 'Impossible de vérifier ce paiement.');
+    } finally {
+      setBusy('');
+    }
+  };
+
   const requestWithdrawal = async (group) => {
     const form = withdrawForms[group.id] || {};
     setError('');
@@ -256,7 +272,15 @@ export default function CotisationsPage() {
                 </div>
 
                 <div className="space-y-3">
-                  {cycle.myRemaining > 0 && cycle.status === 'OPEN' && <div className="rounded-xl border border-slate-200 p-3">
+                  {cycle.pendingPayment && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                    <h4 className="text-sm font-bold text-amber-900">Un paiement est en attente</h4>
+                    <p className="mt-1 text-xs leading-5 text-amber-800">Un versement de {currency(cycle.pendingPayment.amount)} + {currency(cycle.pendingPayment.fee)} de frais a été initié. Termine le paiement déjà ouvert ; un second versement ne peut pas être lancé tant que celui-ci n’est pas confirmé ou refusé.</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <a href={cycle.pendingPayment.checkoutUrl} className="inline-flex h-9 items-center rounded-lg bg-brand-700 px-3 text-xs font-semibold text-white">Reprendre le paiement</a>
+                      <Button size="sm" variant="outline" onClick={() => verifyPendingPayment(group)} disabled={busy === 'verify-' + group.id}>{busy === 'verify-' + group.id ? 'Vérification…' : 'Vérifier le paiement'}</Button>
+                    </div>
+                  </div>}
+                  {cycle.myRemaining > 0 && cycle.status === 'OPEN' && !cycle.pendingPayment && group.memberCount >= 2 && <div className="rounded-xl border border-slate-200 p-3">
                     <h4 className="text-sm font-bold text-slate-900">Verser ma cotisation</h4>
                     <p className="mt-1 text-xs text-slate-500">Il te reste {currency(cycle.myRemaining)} pour cette période. Tu peux payer en plusieurs fois.</p>
                     <div className="mt-3 space-y-2">
@@ -268,6 +292,7 @@ export default function CotisationsPage() {
                     </div>
                   </div>}
 
+                  {group.memberCount < 2 && <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">Invite au moins un autre membre avant de commencer les versements. Le tour de cotisation ne démarre qu’à partir de deux participants.</p>}
                   {cycle.canWithdraw && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
                     <h4 className="text-sm font-bold text-emerald-900">C’est ton tour de recevoir</h4><p className="mt-1 text-xs leading-5 text-emerald-800">Tous les membres ont terminé leur part. Tu peux demander le versement de {currency(cycle.totalCollected)}. La demande sera vérifiée par l’administration avant le paiement Fapshi ; Pata n’ajoute pas de frais de retrait.</p>
                     <div className="mt-3 space-y-2"><Input label="Ton numéro Mobile Money" value={withdraw.phone || ''} onChange={(e) => setWithdrawField(group.id, 'phone', e.target.value)} placeholder="6XXXXXXXX"/><select value={withdraw.network || 'mtn'} onChange={(e) => setWithdrawField(group.id, 'network', e.target.value)} className="h-10 w-full rounded-lg border border-emerald-200 bg-white px-3 text-sm"><option value="mtn">MTN Mobile Money</option><option value="orange">Orange Money</option></select><Button className="w-full" onClick={() => requestWithdrawal(group)} disabled={busy === 'withdraw-' + group.id}><ArrowDownToLine size={15}/>{busy === 'withdraw-' + group.id ? 'Envoi…' : 'Demander le retrait'}</Button></div>
