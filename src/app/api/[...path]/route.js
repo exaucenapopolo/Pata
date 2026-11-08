@@ -3485,6 +3485,38 @@ function cotisationFrequencyLabel(frequency) {
   return ({ daily: 'Chaque jour', weekly: 'Chaque semaine', monthly: 'Chaque mois' })[frequency] || 'Chaque mois';
 }
 
+function getCotisationCycleMetaForIndex(group, index) {
+  const startDate = String(group.startDate || cotisationToday());
+  const frequency = ['daily', 'weekly', 'monthly'].includes(group.frequency) ? group.frequency : 'monthly';
+  const periodStart = frequency === 'daily' ? cotisationAddDays(startDate, index)
+    : frequency === 'weekly' ? cotisationAddDays(startDate, index * 7)
+    : cotisationAddMonths(startDate, index);
+  const dueAt = frequency === 'daily' ? cotisationAddDays(periodStart, 1)
+    : frequency === 'weekly' ? cotisationAddDays(periodStart, 7)
+    : cotisationMonthlyDueDate(periodStart, group.dueDay);
+  return {
+    cycleIndex: index,
+    cycleKey: 'cycle-' + String(index + 1).padStart(4, '0'),
+    startDate: periodStart,
+    dueAt,
+    notStarted: false,
+  };
+}
+
+async function resolveCurrentCotisationCycleMeta(groupRef, group, today = cotisationToday(), transaction = null) {
+  const calendarMeta = getCotisationCycleMeta(group, today);
+  if (calendarMeta.notStarted || calendarMeta.cycleIndex <= 0) return calendarMeta;
+  for (let index = 0; index < calendarMeta.cycleIndex; index += 1) {
+    const cycleKey = 'cycle-' + String(index + 1).padStart(4, '0');
+    const cycleRef = groupRef.collection('cycles').doc(cycleKey);
+    const cycleSnap = transaction ? await transaction.get(cycleRef) : await cycleRef.get();
+    if (!cycleSnap.exists || cycleSnap.data()?.status !== 'PAID') {
+      return getCotisationCycleMetaForIndex(group, index);
+    }
+  }
+  return calendarMeta;
+}
+
 function validateCotisationProviderPayment(providerResponse, payment, transId) {
   const data = providerResponse?.data && typeof providerResponse.data === 'object'
     ? providerResponse.data : providerResponse;
