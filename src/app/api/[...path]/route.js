@@ -4004,35 +4004,40 @@ async function handleCotisationStart(request) {
     const frequencyLabel = cotisationFrequencyLabel(result.group.frequency);
     const dueLabel = result.meta.dueAt;
     const emailResults = await Promise.all(result.members.map(async (member, index) => {
-      if (!member.email || !String(member.email).includes('@')) return false;
-      try {
-        await sendPataEmail({
-          to: member.email,
-          subject: 'La cotisation « ' + String(result.group.name || '') + ' » a démarré',
-          html: cotisationStartedEmail({
-            name: member.displayName,
-            groupName: result.group.name,
-            contributionAmount: result.group.contributionAmount,
-            frequency: frequencyLabel,
-            position: index + 1,
-            beneficiaryName: result.members[0]?.displayName,
-            turnAmount: result.baseTarget,
-            dueLabel,
-            expectedMembers: result.members.length,
-          }),
-          idempotencyKey: 'pata-cotisation-start-' + groupId + '-' + result.meta.cycleKey + '-' + member.uid,
-        });
-        await adminDb.collection('users').doc(member.uid).collection('notifications').doc('cotisation-start-' + groupId + '-' + result.meta.cycleKey).set({
-          title: 'Ta cotisation a démarré',
-          body: 'Le groupe ' + result.group.name + ' est lancé. Ta position dans le groupe est ' + (index + 1) + '.',
-          target: '/cotisations', source: 'cotisation', read: false, readAt: null,
-          createdAt: FieldValue.serverTimestamp(),
-        }, { merge: true });
-        return true;
-      } catch (emailError) {
-        console.warn('[COTISATION START EMAIL]', member.uid, emailError.message || emailError);
-        return false;
+      let emailSent = false;
+      if (member.email && String(member.email).includes('@')) {
+        try {
+          await sendPataEmail({
+            to: member.email,
+            subject: 'La cotisation « ' + String(result.group.name || '') + ' » a démarré',
+            html: cotisationStartedEmail({
+              name: member.displayName,
+              groupName: result.group.name,
+              contributionAmount: result.group.contributionAmount,
+              frequency: frequencyLabel,
+              position: index + 1,
+              beneficiaryName: result.members[0]?.displayName,
+              turnAmount: result.baseTarget,
+              dueLabel,
+              expectedMembers: result.members.length,
+            }),
+            idempotencyKey: 'pata-cotisation-start-' + groupId + '-' + result.meta.cycleKey + '-' + member.uid,
+          });
+          emailSent = true;
+        } catch (emailError) {
+          console.warn('[COTISATION START EMAIL]', member.uid, emailError.message || emailError);
+        }
       }
+      // La boîte Pata doit être alimentée même si Resend est momentanément indisponible.
+      await adminDb.collection('users').doc(member.uid).collection('notifications').doc('cotisation-start-' + groupId + '-' + result.meta.cycleKey).set({
+        title: 'Ta cotisation a démarré',
+        body: 'Le groupe ' + result.group.name + ' est lancé. Ta position dans le groupe est ' + (index + 1) + '.',
+        target: '/cotisations', source: 'cotisation', read: false, readAt: null,
+        createdAt: FieldValue.serverTimestamp(),
+      }, { merge: true }).catch((notificationError) => {
+        console.warn('[COTISATION START IN-APP]', member.uid, notificationError.message || notificationError);
+      });
+      return emailSent;
     }));
     const beneficiary = result.members[0];
     if (beneficiary?.email && String(beneficiary.email).includes('@')) {
