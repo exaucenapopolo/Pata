@@ -1874,7 +1874,7 @@ async function handleAIChat(request) {
         .map((memberDoc) => ({ uid: memberDoc.id, ...memberDoc.data() }))
         .filter((member) => member.active !== false)
         .sort((a, b) => Number(a.turnOrder) - Number(b.turnOrder));
-      const meta = getCotisationCycleMeta(group);
+      const meta = await resolveCurrentCotisationCycleMeta(groupRef, group);
       const cycleRef = groupRef.collection('cycles').doc(meta.cycleKey);
       const [cycleSnap, contributionsSnap] = await Promise.all([
         cycleRef.get(),
@@ -3690,7 +3690,7 @@ async function handleCotisationsList(request) {
       members.sort((a, b) => hasAssignedOrder || group.startedAt
         ? Number(a.turnOrder) - Number(b.turnOrder)
         : ((a.joinedAt?.toMillis?.() || 0) - (b.joinedAt?.toMillis?.() || 0)));
-      const meta = getCotisationCycleMeta(group);
+      const meta = await resolveCurrentCotisationCycleMeta(groupRef, group);
       const cycleRef = groupRef.collection('cycles').doc(meta.cycleKey);
       const [cycleSnap, contributionsSnap, paymentsSnap] = await Promise.all([
         cycleRef.get(),
@@ -4240,7 +4240,7 @@ async function handleCotisationsScheduler(request) {
       const group = { id: groupDoc.id, ...groupDoc.data() };
       if (!group.startedAt) continue;
       try {
-        const meta = getCotisationCycleMeta(group, today);
+        const meta = await resolveCurrentCotisationCycleMeta(groupDoc.ref, group, today);
         if (meta.notStarted) continue;
         const membersSnap = await groupDoc.ref.collection('members').orderBy('turnOrder', 'asc').limit(50).get();
         const members = membersSnap.docs
@@ -4290,7 +4290,7 @@ async function handleCotisationsScheduler(request) {
         const contributions = new Map(contributionsSnap.docs.map((doc) => [doc.id, doc.data()]));
         const isDueDay = today === meta.dueAt;
         const graceEnd = cotisationAddDays(meta.dueAt, cotisationMoney(group.graceDays));
-        const isOverdueDay = today === cotisationAddDays(graceEnd, 1);
+        const isOverdueDay = today > graceEnd;
         if (!isDueDay && !isOverdueDay) continue;
 
         const expectedPrincipal = cotisationMoney(group.contributionAmount);
@@ -4349,7 +4349,7 @@ async function handleCotisationPay(request) {
     const group = groupSnap.data();
     if (group.status !== 'active') return errorResponse('Ce groupe n’accepte plus de versements.', 409);
     if (!group.startedAt) return errorResponse('Le chef du groupe doit d’abord lancer la cotisation après l’adhésion de tous les participants prévus.', 409);
-    const meta = getCotisationCycleMeta(group);
+    const meta = await resolveCurrentCotisationCycleMeta(groupRef, group);
     if (meta.notStarted) return errorResponse('Les cotisations commencent le ' + meta.startDate + '.', 409);
     const cycleRef = groupRef.collection('cycles').doc(meta.cycleKey);
     const contributionRef = cycleRef.collection('contributions').doc(uid);
@@ -4371,8 +4371,9 @@ async function handleCotisationPay(request) {
       const fresh = freshGroup.data();
       if (fresh.status !== 'active') throw new Error('Ce groupe n’accepte plus de versements.');
       if (!fresh.startedAt) throw new Error('Le chef du groupe doit d’abord lancer la cotisation.');
-      const freshMeta = getCotisationCycleMeta(fresh);
+      const freshMeta = await resolveCurrentCotisationCycleMeta(groupRef, fresh, cotisationToday(), transaction);
       if (freshMeta.notStarted) throw new Error('Les cotisations commencent le ' + freshMeta.startDate + '.');
+      if (freshMeta.cycleKey !== meta.cycleKey) throw new Error('Le tour de cotisation a changé. Actualise la page puis réessaie.');
       const cycleStatus = cycleSnap.data()?.status || 'OPEN';
       if (cycleStatus !== 'OPEN') throw new Error('Cette période est déjà entièrement financée ou en cours de retrait.');
       const member = freshMember.data();
@@ -4466,7 +4467,7 @@ async function handleCotisationWithdrawalRequest(request) {
       const groupSnap = await transaction.get(groupRef);
       if (!groupSnap.exists) throw new Error('Groupe introuvable.');
       const group = groupSnap.data();
-      const meta = getCotisationCycleMeta(group);
+      const meta = await resolveCurrentCotisationCycleMeta(groupRef, group, cotisationToday(), transaction);
       if (meta.notStarted) throw new Error('La période de cotisation n’a pas encore commencé.');
       const cycleRef = groupRef.collection('cycles').doc(meta.cycleKey);
       const userRef = adminDb.collection('users').doc(uid);
