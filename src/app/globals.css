@@ -46,7 +46,7 @@ html.dark .text-slate-500 { color: #94a3b8 !important; }
 html.dark .border-slate-100, html.dark .border-slate-200, html.dark .border-slate-300 { border-color: #293950 !important; }
 html.dark input, html.dark select, html.dark textarea { background-color: #101b2b !important; color: #f3f4f6 !important; border-color: #34445c !important; }
 html.dark input::placeholder, html.dark textarea::placeholder { color: #8c9bb0 !important; }
-html.dark .hover\\:bg-slate-50:hover, html.dark .hover\\:bg-slate-100:hover { background-color: #1c2a40 !important; }
+html.dark .hover\:bg-slate-50:hover, html.dark .hover\:bg-slate-100:hover { background-color: #1c2a40 !important; }
 html.dark .bg-brand-50 { background-color: #172d3a !important; }
 html.dark .text-brand-700, html.dark .text-brand-600 { color: #6ee7b7 !important; }
 html.dark table td, html.dark table th { border-color: #2b3a50 !important; }
