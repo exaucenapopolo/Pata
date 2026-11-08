@@ -85,6 +85,7 @@ export default function PrivacyPage() {
 
             <Section id="localisation" number="03" title="Position et données facultatives">
               <p>La localisation est facultative. Lorsque tu appuies sur « Détecter automatiquement ma position », le navigateur ou le système du téléphone peut demander ton autorisation. Si tu l’accordes, Pata reçoit les coordonnées disponibles et peut les enregistrer avec la dépense ou le revenu concerné.</p>
+              <p>Pour afficher un nom de lieu lisible à partir des coordonnées, Pata peut transmettre ces coordonnées au service de géocodage inverse BigDataCloud. Ce traitement sert uniquement à retrouver une indication géographique ; si le service ne répond pas, Pata conserve les coordonnées et affiche une indication de position approximative.</p>
               <p>La position n’est pas suivie en arrière-plan par cette fonctionnalité. Tu peux refuser ou retirer la position d’une opération avant de l’enregistrer. Tu peux également désactiver l’autorisation de localisation dans les réglages du navigateur ou du téléphone.</p>
               <p>La précision dépend du GPS, du réseau, de l’appareil et de l’environnement. Une position peut être approximative ou indisponible ; elle ne doit pas être considérée comme une preuve de présence ou de paiement.</p>
             </Section>
