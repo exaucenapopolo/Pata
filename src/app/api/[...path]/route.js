@@ -590,10 +590,14 @@ async function handleWelcomeEmail(request) {
 }
 
 async function handleNotificationTest(request) {
+  let uidForCleanup = '';
+  let tokenForCleanup = '';
   try {
     const { uid } = await authenticate(request);
+    uidForCleanup = uid;
     const body = await request.json();
     const token = String(body.token || '').trim();
+    tokenForCleanup = token;
     if (token.length < 40 || token.length > 4096) return errorResponse('Appareil non reconnu.', 400);
     const userRef = adminDb.collection('users').doc(uid);
     const userSnap = await userRef.get();
@@ -619,9 +623,21 @@ async function handleNotificationTest(request) {
     console.info('[PATA PUSH TEST ACCEPTED]', { uid, messageId, tokenSuffix: token.slice(-8) });
     return NextResponse.json({ success: true, messageId });
   } catch (error) {
-    const message = error.code === 'messaging/registration-token-not-registered'
-      ? 'Cet appareil doit être reconnecté aux rappels. Désactive puis réactive les notifications.'
-      : 'Le test de notification a échoué. Vérifie les paramètres de notification de cet appareil.';
+    const invalidToken = ['messaging/registration-token-not-registered', 'messaging/invalid-registration-token'].includes(error.code);
+    if (invalidToken && uidForCleanup && tokenForCleanup) {
+      try {
+        const userRef = adminDb.collection('users').doc(uidForCleanup);
+        await userRef.set({ pushTokens: FieldValue.arrayRemove(tokenForCleanup), notificationsUpdatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        const fresh = await userRef.get();
+        const remaining = Array.isArray(fresh.data()?.pushTokens) ? fresh.data().pushTokens : [];
+        await userRef.set({ notificationsEnabled: remaining.length > 0 }, { merge: true });
+      } catch (cleanupError) {
+        console.warn('[PUSH TEST TOKEN CLEANUP]', cleanupError.code || cleanupError.message);
+      }
+    }
+    const message = invalidToken
+      ? 'Ce jeton est devenu obsolète et vient d’être supprimé. Dans les paramètres Pata, utilise « Réparer cet appareil » pour créer et enregistrer un nouveau jeton.'
+      : 'Le test de notification a échoué. Vérifie les autorisations et les paramètres de notification de cet appareil.';
     console.error('[PUSH TEST]:', error.code || error.message);
     return errorResponse(message, 502);
   }
@@ -3088,7 +3104,7 @@ async function handleAdminBroadcast(request) {
       message: pushError
         ? `Notification enregistrée dans Pata pour ${inAppDelivered} compte(s), mais le service push a signalé une erreur : ${pushError}`
         : optedTokens.length
-          ? `Notification enregistrée dans Pata pour ${inAppDelivered} compte(s). Envoi accepté par ${pushSent} appareil(s) sur ${optedTokens.length} ; ${pushFailed} échec(s), ${invalidTokens.length} jeton(s) invalide(s) nettoyé(s).`
+          ? `Notification enregistrée dans la boîte Pata de ${inAppDelivered} compte(s). FCM a accepté l’envoi vers ${pushSent} appareil(s) sur ${optedTokens.length}. ${invalidTokens.length} ancien(s) jeton(s) ont été supprimés ; les appareils concernés doivent réactiver les notifications. Autres erreurs push : ${Math.max(0, pushFailed - invalidTokens.length)}.`
           : `Notification enregistrée dans Pata pour ${inAppDelivered} compte(s). Aucun appareil n’a activé les notifications push.`,
     });
   } catch (error) {
