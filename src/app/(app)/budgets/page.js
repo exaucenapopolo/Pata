@@ -219,7 +219,7 @@ export default function BudgetsPage() {
           <p className="text-sm text-slate-500">
             {formatCurrency(totalSpent)} dépensés sur {formatCurrency(totalAllocated)} alloués
           </p>
-          {!budgetPremium && <p className="mt-1 text-xs text-slate-500">Créations de budgets : {usedBudgetQuota} / 2 ce mois-ci.</p>}
+          {!budgetPremium && <p className="mt-1 text-xs text-slate-500">Créations de budgets et modèles : {usedBudgetQuota} / 2 ce mois-ci.</p>}
         </div>
         <div className="flex w-full flex-wrap gap-2 sm:w-auto">
           <Button type="button" variant="outline" size="sm" onClick={openNewTemplate} disabled={!enriched.length || (!budgetPremium && budgetQuotaReached)}><BookmarkPlus size={15}/> Enregistrer un modèle</Button>
