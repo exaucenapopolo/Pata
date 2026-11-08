@@ -799,7 +799,7 @@ export const AI_TOOLS = [
           amount: { type: 'integer', description: 'Montant entier en FCFA.' },
           categoryId: { type: 'string', description: 'Identifiant de catégorie standard ou catégorie personnalisée connue dans le profil.' },
           note: { type: 'string' },
-          expenseType: { type: 'string', enum: ['consumption', 'project', 'savings', 'investment'], description: 'Nature de la sortie. Par défaut : consommation.' },
+          expenseType: { type: 'string', enum: ['consumption', 'project', 'savings', 'investment'], description: 'Nature obligatoire à choisir selon le contexte : consumption pour nourriture, transport, loyer et besoins quotidiens ; project pour une réalisation identifiée comme construction, achat prévu d’un téléphone ou ordinateur ; savings pour de l’argent mis de côté ; investment pour une somme affectée à une activité ou un actif. Ne classe pas l’épargne ou les projets comme consommation.' },
           projectId: { type: 'string', description: 'ID exact du projet Premium si la sortie est liée à un projet.' },
           date: { type: 'string', description: 'Date YYYY-MM-DD uniquement si elle a été indiquée; sinon omettre.' },
           incomeSourceId: { type: 'string', description: 'ID exact de la source dans les données, ou all si toutes les sources.' },
@@ -820,7 +820,7 @@ export const AI_TOOLS = [
         properties: {
           expenseId: { type: 'string' }, amount: { type: 'integer' },
           categoryId: { type: 'string', description: 'Identifiant de catégorie standard ou personnalisée.' },
-          expenseType: { type: 'string', enum: ['consumption', 'project', 'savings', 'investment'] },
+          expenseType: { type: 'string', enum: ['consumption', 'project', 'savings', 'investment'], description: 'Conserve la nature réelle de la sortie lors de la modification : consommation quotidienne, projet, épargne ou investissement.' },
           projectId: { type: 'string', description: 'ID exact du projet Premium si la sortie est liée à un projet.' },
           note: { type: 'string' }, date: { type: 'string' },
           incomeSourceId: { type: 'string' }, incomeSourceName: { type: 'string' },
