@@ -21,7 +21,7 @@ export function AssistantButton() {
     <>
       <button
         onClick={() => setOpen(true)}
-        className="fixed bottom-[calc(5.75rem+env(safe-area-inset-bottom))] right-4 z-40 flex h-12 w-12 items-center justify-center rounded-2xl border border-brand-800/10 bg-[#075b43] text-white shadow-lg shadow-emerald-950/20 transition hover:bg-[#064b38] active:scale-95 sm:h-14 sm:w-14 md:bottom-8 md:right-8"
+        className="fixed bottom-[calc(5.75rem+env(safe-area-inset-bottom))] right-4 z-40 flex h-12 w-12 items-center justify-center rounded-2xl border border-brand-800/10 bg-[#075b43] text-white shadow-lg shadow-emerald-950/20 transition hover:bg-[#064b38] active:scale-95 sm:h-14 sm:w-14 lg:bottom-8 md:right-8"
         aria-label="Ouvrir l'assistante Mč"
       >
         <BrainCircuit size={26} />
