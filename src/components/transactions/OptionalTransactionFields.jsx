@@ -112,7 +112,7 @@ export function OptionalTransactionFields({ value, onChange, kind = 'expense' })
         {
           enableHighAccuracy: true,
           timeout: 60000,
-          maximumAge: 30000,
+          maximumAge: 120000,
         }
       );
 
