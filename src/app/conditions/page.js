@@ -89,7 +89,8 @@ export default function TermsPage() {
 
             <Section id="epargne" number="05" title="Budgets, objectifs et épargne">
               <p>Les budgets et objectifs sont des outils de planification. Ils ne garantissent pas qu’un montant sera effectivement disponible ou épargné. L’utilisateur doit tenir compte de ses revenus, de ses dépenses, de ses engagements et de ses besoins essentiels avant de définir une contribution.</p>
-              <p>Certains objectifs peuvent prévoir des échéances, des rappels, des pénalités ou des mécanismes de prêt. Les règles et montants affichés au moment de la création ou de la confirmation doivent être lus attentivement. L’utilisateur ne doit pas valider un mécanisme dont il ne comprend pas les conséquences.</p>
+              <p>Les objectifs datés comportent des frais de retard obligatoires de 15 % du montant cible total par échéance manquée, et non 15 % du versement attendu. Cette règle s’applique aux échéances manquées à partir du 8 novembre 2026. Les frais dus sont déduits du montant restitué lors du retrait ou de la clôture. En cas d’annulation anticipée d’un objectif daté, des frais distincts de 10 % du montant déjà épargné s’appliquent. La tirelire libre n’est soumise ni aux frais de retard ni aux frais d’annulation.</p>
+              <p>Certains objectifs peuvent également prévoir des rappels ou des mécanismes de prêt. Les règles et montants affichés au moment de la création ou de la confirmation doivent être lus attentivement. L’utilisateur ne doit pas valider un mécanisme dont il ne comprend pas les conséquences.</p>
               <p>Les projections reposent sur les données disponibles et des hypothèses de calcul. Elles peuvent différer de la situation réelle et ne constituent pas une promesse de résultat.</p>
             </Section>
 
