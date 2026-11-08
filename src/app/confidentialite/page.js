@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { LegalSummaryButton } from '@/components/legal/LegalSummaryButton';
 
 export const metadata = {
   title: 'Politique de confidentialité — Pata',
@@ -40,15 +41,12 @@ export default function PrivacyPage() {
             <Link href="/dashboard" className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/15">
               <img src="/android-chrome-192x192.png" alt="" className="h-6 w-6 rounded-lg bg-white object-contain"/> Retour à Pata
             </Link>
-            <span className="rounded-full bg-white/15 px-3 py-1.5 text-[10px] font-semibold tracking-wide text-emerald-50">VIE PRIVÉE</span>
           </div>
           <p className="mt-8 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-100">Tes informations personnelles</p>
           <h1 className="mt-2 max-w-2xl text-3xl font-bold tracking-tight sm:text-4xl">Politique de confidentialité</h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-emerald-50">Cette page explique quelles informations Pata utilise, pourquoi elles sont nécessaires et les choix que tu gardes sur tes données.</p>
-          <div className="mt-6 flex flex-wrap items-center gap-2 text-[11px] text-emerald-100">
-            <span className="rounded-full border border-white/20 px-3 py-1.5">Mis à jour le 8 novembre 2026</span>
-            <span className="rounded-full border border-white/20 px-3 py-1.5">Responsable : NAPOPOLO EXAUCE</span>
-          </div>
+          <p className="mt-5 text-[11px] text-emerald-100">Mis à jour le 8 novembre 2026 · Responsable : NAPOPOLO EXAUCE</p>
+          <div className="mt-4"><LegalSummaryButton documentTitle="la politique de confidentialité de Pata"/></div>
         </header>
 
         <div className="mt-5 grid gap-5 lg:grid-cols-[250px_minmax(0,1fr)]">
@@ -64,7 +62,7 @@ export default function PrivacyPage() {
             </nav>
           </aside>
 
-          <div className="space-y-3">
+          <div className="space-y-3" data-legal-document>
             <div className="rounded-2xl border border-brand-100 bg-brand-50 p-4 text-xs leading-6 text-brand-900">
               Pata n’utilise pas la géolocalisation en continu. La position n’est demandée que lorsque tu lances volontairement la détection dans une opération. Tu peux refuser cette autorisation et continuer à utiliser les fonctions principales de l’application.
             </div>
@@ -121,7 +119,6 @@ export default function PrivacyPage() {
 
             <Section id="responsable" number="09" title="Responsable du traitement">
               <p>Pata est créé et exploité sous la responsabilité de NAPOPOLO EXAUCE. Pour toute question sur les données ou pour exercer une demande, utilise le canal d’assistance affiché dans l’application.</p>
-              <p>Cette politique est une information destinée aux utilisateurs. Elle doit être revue par un professionnel du droit et de la protection des données afin de confirmer son adéquation aux pays dans lesquels Pata est proposé.</p>
             </Section>
 
             <footer className="rounded-2xl border border-slate-200 bg-white p-4 text-xs leading-6 text-slate-500">
