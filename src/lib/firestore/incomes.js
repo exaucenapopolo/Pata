@@ -1,5 +1,5 @@
 import {
-  collection, updateDoc, deleteDoc, doc,
+  collection, deleteDoc, doc,
   onSnapshot, query, orderBy,
 } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase/client';
@@ -28,7 +28,17 @@ export async function createIncome(uid, data) {
 }
 
 export async function updateIncome(uid, id, patch) {
-  await updateDoc(doc(db, 'users', uid, 'incomes', id), patch);
+  const user = auth.currentUser;
+  if (!user || user.uid !== uid) throw new Error('Session expirée. Reconnecte-toi puis réessaie.');
+  const token = await user.getIdToken();
+  const response = await fetch('/api/incomes/update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ incomeId: id, ...patch }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de modifier ce revenu.');
+  return result;
 }
 
 export async function deleteIncome(uid, id) {
