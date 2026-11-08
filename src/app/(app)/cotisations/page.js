@@ -5,7 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
-import { Users, Plus, Copy, RefreshCw, Wallet, CalendarDays, ArrowDownToLine, Clock3, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Users, Plus, Copy, RefreshCw, Wallet, CalendarDays, ArrowDownToLine, Clock3, CheckCircle2, AlertCircle, ArrowUp, ArrowDown, PlayCircle, Save } from 'lucide-react';
 
 const currency = (value) => new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 }).format(Number(value) || 0) + ' FCFA';
 const today = () => {
@@ -14,7 +14,7 @@ const today = () => {
 };
 const frequencyLabels = { daily: 'Chaque jour', weekly: 'Chaque semaine', monthly: 'Chaque mois' };
 const statusLabels = {
-  OPEN: 'En cours', READY: 'Cotisation complète', PENDING_REVIEW: 'Retrait en vérification',
+  NOT_STARTED: 'En attente du lancement', OPEN: 'En cours', READY: 'Cotisation complète', PENDING_REVIEW: 'Retrait en vérification',
   PROCESSING: 'Retrait en cours', PAID: 'Tour payé', FAILED: 'Échec de retrait',
   PENDING_REVIEW_USER: 'En attente de validation', REJECTED: 'Refusé', PENDING: 'En attente',
 };
@@ -29,7 +29,8 @@ export default function CotisationsPage() {
   const [notice, setNotice] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [createdInvite, setCreatedInvite] = useState('');
-  const [groupForm, setGroupForm] = useState({ name: '', contributionAmount: '', frequency: 'monthly', startDate: today() });
+  const [groupForm, setGroupForm] = useState({ name: '', contributionAmount: '', expectedMembers: '5', frequency: 'monthly', startDate: today(), dueDay: '30', graceDays: '1', lateFeeType: 'none', lateFeeValue: '' });
+  const [orderDrafts, setOrderDrafts] = useState({});
   const [payForms, setPayForms] = useState({});
   const [withdrawForms, setWithdrawForms] = useState({});
 
@@ -108,11 +109,16 @@ export default function CotisationsPage() {
       const result = await api('cotisations/create', 'POST', {
         ...groupForm,
         contributionAmount: Number(groupForm.contributionAmount),
+        expectedMembers: Number(groupForm.expectedMembers),
+        dueDay: groupForm.frequency === 'monthly' ? Number(groupForm.dueDay) : null,
+        graceDays: Number(groupForm.graceDays),
+        lateFeeType: groupForm.lateFeeType,
+        lateFeeValue: Number(groupForm.lateFeeValue || 0),
       });
       setCreatedInvite(result.inviteUrl || '');
-      setNotice('Ton groupe de cotisation a été créé. Tu peux maintenant inviter les membres.');
+      setNotice(result.message || 'Ton groupe de cotisation a été créé. Tu peux maintenant inviter les membres.');
       setShowCreate(false);
-      setGroupForm({ name: '', contributionAmount: '', frequency: 'monthly', startDate: today() });
+      setGroupForm({ name: '', contributionAmount: '', expectedMembers: '5', frequency: 'monthly', startDate: today(), dueDay: '30', graceDays: '1', lateFeeType: 'none', lateFeeValue: '' });
       await load();
     } catch (err) {
       setError(err.message || 'Impossible de créer le groupe.');
@@ -122,7 +128,7 @@ export default function CotisationsPage() {
   };
 
   const shareInvite = async (group) => {
-    const inviteUrl = group.inviteToken ? window.location.origin + '/cotisations?invite=' + group.inviteToken : createdInvite;
+    const inviteUrl = group.inviteToken ? window.location.origin + '/invitation/cotisation/' + group.inviteToken : createdInvite;
     if (!inviteUrl) return;
     try {
       if (navigator.share) await navigator.share({ title: 'Rejoins mon groupe de cotisation sur Pata', text: 'Voici le lien pour rejoindre notre groupe de cotisation.', url: inviteUrl });
@@ -133,6 +139,44 @@ export default function CotisationsPage() {
     } catch (err) {
       if (err.name !== 'AbortError') setError('Impossible de partager le lien. Essaie de le copier.');
     }
+  };
+
+  const moveMember = (group, memberUid, direction) => {
+    const current = orderDrafts[group.id] || group.members.map((member) => member.uid);
+    const next = [...current];
+    const index = next.indexOf(memberUid);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= next.length) return;
+    [next[index], next[target]] = [next[target], next[index]];
+    setOrderDrafts((value) => ({ ...value, [group.id]: next }));
+  };
+
+  const saveMemberOrder = async (group) => {
+    const memberIds = orderDrafts[group.id] || group.members.map((member) => member.uid);
+    setBusy('order-' + group.id);
+    setError('');
+    try {
+      await api('cotisations/reorder', 'POST', { groupId: group.id, memberIds });
+      setOrderDrafts((value) => ({ ...value, [group.id]: undefined }));
+      setNotice('L’ordre de passage a été enregistré.');
+      await load();
+    } catch (err) {
+      setError(err.message || 'Impossible d’enregistrer les positions.');
+    } finally { setBusy(''); }
+  };
+
+  const startGroup = async (group) => {
+    setBusy('start-' + group.id);
+    setError('');
+    setNotice('');
+    try {
+      const result = await api('cotisations/start', 'POST', { groupId: group.id });
+      setNotice(result.message || 'La cotisation est lancée.');
+      setOrderDrafts((value) => ({ ...value, [group.id]: undefined }));
+      await load();
+    } catch (err) {
+      setError(err.message || 'Impossible de lancer ce groupe.');
+    } finally { setBusy(''); }
   };
 
   const payContribution = async (group) => {
@@ -227,12 +271,18 @@ export default function CotisationsPage() {
       {createdInvite && <section className="rounded-xl border border-brand-200 bg-brand-50 p-4"><p className="text-sm font-bold text-brand-900">Lien d’invitation prêt</p><p className="mt-1 break-all text-xs text-brand-800">{createdInvite}</p><Button variant="outline" className="mt-3" onClick={copyCreatedInvite}><Copy size={15}/> Copier le lien</Button></section>}
 
       {showCreate && <Card className="space-y-4 p-4 sm:p-5">
-        <div><h2 className="text-base font-bold text-slate-900">Créer une cotisation</h2><p className="mt-1 text-xs leading-5 text-slate-500">Tu seras le chef du groupe. Les membres seront servis dans l’ordre où ils rejoignent le groupe.</p></div>
+        <div><h2 className="text-base font-bold text-slate-900">Créer une cotisation</h2><p className="mt-1 text-xs leading-5 text-slate-500">Tu seras le chef du groupe. Choisis le nombre de participants, les échéances et les règles de retard ; tu définiras les positions avant le lancement.</p></div>
         <form onSubmit={createGroup} className="grid gap-3 sm:grid-cols-2">
           <Input label="Nom du groupe" required maxLength={90} value={groupForm.name} onChange={(e) => setGroupForm({ ...groupForm, name: e.target.value })} placeholder="Ex. Tontine des collègues"/>
-          <Input label="Montant par membre et par période (FCFA)" type="number" min="100" step="100" required value={groupForm.contributionAmount} onChange={(e) => setGroupForm({ ...groupForm, contributionAmount: e.target.value })} placeholder="Ex. 10000"/>
+          <Input label="Montant par membre et par période (FCFA)" type="number" min="100" max="250000" step="100" required value={groupForm.contributionAmount} onChange={(e) => setGroupForm({ ...groupForm, contributionAmount: e.target.value })} placeholder="Ex. 10000"/>
+          <Input label="Nombre de participants prévus" type="number" min="2" max="50" step="1" required value={groupForm.expectedMembers} onChange={(e) => setGroupForm({ ...groupForm, expectedMembers: e.target.value })} placeholder="Ex. 5"/>
           <div><label className="mb-1 block text-sm font-medium text-slate-700">Fréquence</label><select value={groupForm.frequency} onChange={(e) => setGroupForm({ ...groupForm, frequency: e.target.value })} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="daily">Chaque jour</option><option value="weekly">Chaque semaine</option><option value="monthly">Chaque mois</option></select></div>
           <Input label="Date de début" type="date" min={today()} required value={groupForm.startDate} onChange={(e) => setGroupForm({ ...groupForm, startDate: e.target.value })}/>
+          {groupForm.frequency === 'monthly' && <Input label="Jour limite de paiement dans le mois" type="number" min="1" max="31" step="1" required value={groupForm.dueDay} onChange={(e) => setGroupForm({ ...groupForm, dueDay: e.target.value })} placeholder="30"/>}
+          <Input label="Délai de grâce après l’échéance (jours)" type="number" min="0" max="30" step="1" required value={groupForm.graceDays} onChange={(e) => setGroupForm({ ...groupForm, graceDays: e.target.value })}/>
+          <div><label className="mb-1 block text-sm font-medium text-slate-700">Majoration en cas de retard</label><select value={groupForm.lateFeeType} onChange={(e) => setGroupForm({ ...groupForm, lateFeeType: e.target.value, lateFeeValue: '' })} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="none">Aucune majoration</option><option value="fixed">Montant fixe (FCFA)</option><option value="percent">Pourcentage de la contribution</option></select></div>
+          {groupForm.lateFeeType !== 'none' && <Input label={groupForm.lateFeeType === 'fixed' ? 'Majoration fixe (FCFA)' : 'Pourcentage de majoration (%)'} type="number" min="1" max={groupForm.lateFeeType === 'percent' ? '100' : '250000'} step="1" required value={groupForm.lateFeeValue} onChange={(e) => setGroupForm({ ...groupForm, lateFeeValue: e.target.value })}/>}
+          {Number(groupForm.contributionAmount) > 0 && Number(groupForm.expectedMembers) >= 2 && <p className="sm:col-span-2 rounded-lg bg-slate-50 p-3 text-xs leading-5 text-slate-600">Montant collectif de base : <strong>{currency(Number(groupForm.contributionAmount) * Number(groupForm.expectedMembers))}</strong>. Les frais Fapshi de 5 % sont ajoutés à chaque paiement. Le montant total du tour, majorations comprises, ne peut pas dépasser 500 000 FCFA avec le prestataire de retrait actuel.</p>}
           <div className="sm:col-span-2"><Button type="submit" disabled={busy === 'create'}>{busy === 'create' ? 'Création…' : 'Créer le groupe'}</Button><button type="button" onClick={() => setShowCreate(false)} className="ml-3 text-sm font-semibold text-slate-500">Annuler</button></div>
         </form>
       </Card>}
@@ -249,9 +299,10 @@ export default function CotisationsPage() {
             return <article key={group.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
               <div className="border-b border-slate-100 p-4 sm:p-5">
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div><div className="flex items-center gap-2"><h3 className="text-base font-bold text-slate-950">{group.name}</h3>{group.isOwner && <span className="rounded-full bg-brand-50 px-2 py-1 text-[10px] font-semibold text-brand-700">Chef de groupe</span>}</div><p className="mt-1 text-xs text-slate-500">{currency(group.contributionAmount)} par membre · {frequencyLabels[group.frequency] || group.frequency} · Début {group.startDate}</p></div>
-                  <div className="flex items-center gap-2">{group.isOwner && <Button variant="outline" onClick={() => shareInvite(group)}><Users size={14}/> Inviter</Button>}<span className="rounded-full bg-slate-100 px-2.5 py-1.5 text-[10px] font-semibold text-slate-600">{group.memberCount}/{group.maxMembers} membres</span></div>
+                  <div><div className="flex items-center gap-2"><h3 className="text-base font-bold text-slate-950">{group.name}</h3>{group.isOwner && <span className="rounded-full bg-brand-50 px-2 py-1 text-[10px] font-semibold text-brand-700">Chef de groupe</span>}</div><p className="mt-1 text-xs text-slate-500">{currency(group.contributionAmount)} par membre · {frequencyLabels[group.frequency] || group.frequency} · Échéance {group.frequency === 'monthly' ? 'le ' + group.dueDay + ' du mois' : 'à chaque période'} · Début {group.startDate}</p><p className="mt-1 text-[11px] text-slate-500">Majoration : {group.lateFeeLabel} · Délai de grâce : {group.graceDays} jour(s)</p></div>
+                  <div className="flex items-center gap-2">{group.isOwner && <Button variant="outline" onClick={() => shareInvite(group)}><Users size={14}/> Inviter</Button>}<span className="rounded-full bg-slate-100 px-2.5 py-1.5 text-[10px] font-semibold text-slate-600">{group.memberCount}/{group.expectedMembers} membres</span></div>
                 </div>
+                {!group.startedAt && <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-900">{group.isOwner ? <><strong>Avant de lancer :</strong> invite {Math.max(0, group.expectedMembers - group.memberCount)} participant(s) supplémentaire(s), puis définis l’ordre de passage. La collecte ne s’ouvrira qu’après le lancement.</> : <>Le groupe attend encore {Math.max(0, group.expectedMembers - group.memberCount)} participant(s). Le chef pourra ensuite définir les positions et lancer la cotisation.</>}</div>}
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
                   <div className="rounded-xl bg-slate-50 p-3"><p className="text-[11px] text-slate-500">Collecté pour ce tour</p><p className="mt-1 text-base font-bold text-slate-900">{currency(cycle.totalCollected)}</p></div>
                   <div className="rounded-xl bg-slate-50 p-3"><p className="text-[11px] text-slate-500">Objectif collectif</p><p className="mt-1 text-base font-bold text-slate-900">{currency(cycle.targetAmount)}</p></div>
@@ -262,16 +313,21 @@ export default function CotisationsPage() {
 
               <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[1fr_0.85fr]">
                 <div>
-                  <h4 className="mb-2 flex items-center gap-2 text-sm font-bold text-slate-900"><Users size={15}/> Suivi des membres</h4>
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><h4 className="flex items-center gap-2 text-sm font-bold text-slate-900"><Users size={15}/> Ordre et suivi des membres</h4>{group.isOwner && !group.startedAt && <Button size="sm" variant="outline" onClick={() => saveMemberOrder(group)} disabled={busy === 'order-' + group.id || !orderDrafts[group.id]}><Save size={13}/>{busy === 'order-' + group.id ? 'Enregistrement…' : 'Enregistrer l’ordre'}</Button>}</div>
                   <div className="overflow-x-auto rounded-xl border border-slate-100">
                     <table className="w-full min-w-[460px] text-left text-xs">
-                      <thead className="bg-slate-50 text-slate-500"><tr><th className="px-3 py-2.5 font-semibold">Membre</th><th className="px-3 py-2.5 font-semibold">Cotisé</th><th className="px-3 py-2.5 font-semibold">Reste</th><th className="px-3 py-2.5 font-semibold">Versements</th></tr></thead>
-                      <tbody className="divide-y divide-slate-100">{group.members.map((member) => <tr key={member.uid}><td className="px-3 py-2.5 font-medium text-slate-800">{member.displayName}{member.isOwner ? ' · Chef' : ''}{member.uid === cycle.beneficiaryUid ? ' · Reçoit ce tour' : ''}</td><td className="px-3 py-2.5 text-slate-700">{currency(member.paid)}</td><td className="px-3 py-2.5 text-slate-700">{currency(member.remaining)}</td><td className="px-3 py-2.5 text-slate-700">{member.installments || 0}</td></tr>)}</tbody>
+                      <thead className="bg-slate-50 text-slate-500"><tr><th className="px-3 py-2.5 font-semibold">Position / membre</th><th className="px-3 py-2.5 font-semibold">Cotisé</th><th className="px-3 py-2.5 font-semibold">Reste</th><th className="px-3 py-2.5 font-semibold">Versements</th></tr></thead>
+                      <tbody className="divide-y divide-slate-100">{group.members.map((member) => {
+                        const currentOrder = orderDrafts[group.id] || group.members.map((item) => item.uid);
+                        const position = currentOrder.indexOf(member.uid) + 1;
+                        return <tr key={member.uid}><td className="px-3 py-2.5 font-medium text-slate-800"><div className="flex items-center gap-2"><span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold">{position}</span><span>{member.displayName}{member.isOwner ? ' · Chef' : ''}{member.uid === cycle.beneficiaryUid && group.startedAt ? ' · Bénéficiaire' : ''}</span>{group.isOwner && !group.startedAt && <span className="ml-auto flex gap-1"><button type="button" aria-label="Monter" onClick={() => moveMember(group, member.uid, -1)} disabled={position === 1} className="rounded border border-slate-200 p-1 disabled:opacity-30"><ArrowUp size={12}/></button><button type="button" aria-label="Descendre" onClick={() => moveMember(group, member.uid, 1)} disabled={position === group.memberCount} className="rounded border border-slate-200 p-1 disabled:opacity-30"><ArrowDown size={12}/></button></span>}</div></td><td className="px-3 py-2.5 text-slate-700">{currency(member.paid)}</td><td className="px-3 py-2.5 text-slate-700">{currency(member.remaining)}</td><td className="px-3 py-2.5 text-slate-700">{member.installments || 0}</td></tr>;
+                      })}</tbody>
                     </table>
                   </div>
                 </div>
 
                 <div className="space-y-3">
+                  {!group.startedAt && group.canStart && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><h4 className="text-sm font-bold text-emerald-900">Le groupe est complet</h4><p className="mt-1 text-xs leading-5 text-emerald-800">Tu as réuni les {group.expectedMembers} participants. Vérifie les positions puis lance la cotisation.</p><Button className="mt-3 w-full" onClick={() => startGroup(group)} disabled={busy === 'start-' + group.id}><PlayCircle size={15}/>{busy === 'start-' + group.id ? 'Lancement…' : 'Lancer la cotisation'}</Button></div>}
                   {cycle.pendingPayment && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
                     <h4 className="text-sm font-bold text-amber-900">Un paiement est en attente</h4>
                     <p className="mt-1 text-xs leading-5 text-amber-800">Un versement de {currency(cycle.pendingPayment.amount)} + {currency(cycle.pendingPayment.fee)} de frais a été initié. Termine le paiement déjà ouvert ; un second versement ne peut pas être lancé tant que celui-ci n’est pas confirmé ou refusé.</p>
@@ -280,19 +336,20 @@ export default function CotisationsPage() {
                       <Button size="sm" variant="outline" onClick={() => verifyPendingPayment(group)} disabled={busy === 'verify-' + group.id}>{busy === 'verify-' + group.id ? 'Vérification…' : 'Vérifier le paiement'}</Button>
                     </div>
                   </div>}
-                  {cycle.myRemaining > 0 && cycle.status === 'OPEN' && !cycle.pendingPayment && group.memberCount >= 2 && <div className="rounded-xl border border-slate-200 p-3">
+                  {group.startedAt && cycle.myRemaining > 0 && cycle.status === 'OPEN' && !cycle.pendingPayment && <div className="rounded-xl border border-slate-200 p-3">
                     <h4 className="text-sm font-bold text-slate-900">Verser ma cotisation</h4>
                     <p className="mt-1 text-xs text-slate-500">Il te reste {currency(cycle.myRemaining)} pour cette période. Tu peux payer en plusieurs fois.</p>
                     <div className="mt-3 space-y-2">
                       <Input label="Montant de ce versement (FCFA)" type="number" min="100" step="100" value={form.amount ?? String(cycle.myRemaining)} onChange={(e) => setPayField(group.id, 'amount', e.target.value)}/>
-                      <div className="rounded-lg bg-slate-50 p-2 text-xs text-slate-600">Frais 5 % : <strong>{currency(Math.round(Number(form.amount || cycle.myRemaining) * 0.05))}</strong> · Total Fapshi : <strong>{currency(Number(form.amount || cycle.myRemaining) + Math.round(Number(form.amount || cycle.myRemaining) * 0.05))}</strong></div>
+                      {cycle.lateFeeDue > 0 && <div className="rounded-lg bg-amber-50 p-2 text-xs text-amber-900">Majoration de retard prévue : <strong>{currency(cycle.lateFeeDue)}</strong>. Elle sera ajoutée une seule fois à ta contribution.</div>}
+                      <div className="rounded-lg bg-slate-50 p-2 text-xs text-slate-600">Frais Fapshi (5 %) : <strong>{currency(Math.round((Number(form.amount || cycle.myRemaining) + cycle.lateFeeDue) * 0.05))}</strong> · Total Fapshi : <strong>{currency(Number(form.amount || cycle.myRemaining) + cycle.lateFeeDue + Math.round((Number(form.amount || cycle.myRemaining) + cycle.lateFeeDue) * 0.05))}</strong></div>
                       <Input label="Numéro Mobile Money" value={form.phone || ''} onChange={(e) => setPayField(group.id, 'phone', e.target.value)} placeholder="6XXXXXXXX"/>
                       <select value={form.network || 'mtn'} onChange={(e) => setPayField(group.id, 'network', e.target.value)} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="mtn">MTN Mobile Money</option><option value="orange">Orange Money</option></select>
                       <Button className="w-full" onClick={() => payContribution(group)} disabled={busy === 'pay-' + group.id}><Wallet size={15}/>{busy === 'pay-' + group.id ? 'Préparation…' : 'Payer avec Fapshi'}</Button>
                     </div>
                   </div>}
 
-                  {group.memberCount < 2 && <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">Invite au moins un autre membre avant de commencer les versements. Le tour de cotisation ne démarre qu’à partir de deux participants.</p>}
+                  {!group.startedAt && !group.canStart && <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">Le groupe doit compter exactement {group.expectedMembers} participants avant de pouvoir être lancé. {Math.max(0, group.expectedMembers - group.memberCount)} place(s) restante(s).</p>}
                   {cycle.canWithdraw && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
                     <h4 className="text-sm font-bold text-emerald-900">C’est ton tour de recevoir</h4><p className="mt-1 text-xs leading-5 text-emerald-800">Tous les membres ont terminé leur part. Tu peux demander le versement de {currency(cycle.totalCollected)}. La demande sera vérifiée par l’administration avant le paiement Fapshi ; Pata n’ajoute pas de frais de retrait.</p>
                     <div className="mt-3 space-y-2"><Input label="Ton numéro Mobile Money" value={withdraw.phone || ''} onChange={(e) => setWithdrawField(group.id, 'phone', e.target.value)} placeholder="6XXXXXXXX"/><select value={withdraw.network || 'mtn'} onChange={(e) => setWithdrawField(group.id, 'network', e.target.value)} className="h-10 w-full rounded-lg border border-emerald-200 bg-white px-3 text-sm"><option value="mtn">MTN Mobile Money</option><option value="orange">Orange Money</option></select><Button className="w-full" onClick={() => requestWithdrawal(group)} disabled={busy === 'withdraw-' + group.id}><ArrowDownToLine size={15}/>{busy === 'withdraw-' + group.id ? 'Envoi…' : 'Demander le retrait'}</Button></div>
@@ -315,7 +372,7 @@ export default function CotisationsPage() {
 
       <section className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs leading-5 text-slate-600">
         <p className="font-bold text-slate-800">Comment fonctionne la tontine ?</p>
-        <p className="mt-1">Le chef crée le groupe et partage le lien. L’ordre de passage suit l’ordre d’adhésion. Chaque membre verse sa part en une ou plusieurs transactions Fapshi. Lorsque toutes les parts sont complètes, le bénéficiaire du tour peut demander le retrait. L’administration vérifie puis transmet le paiement. Un nouveau membre ne peut plus modifier le cycle après le début des versements, afin de protéger l’ordre et le montant attendus.</p>
+        <p className="mt-1">Le chef choisit le nombre de participants, définit la position de chacun et lance le groupe lorsque tous les membres prévus ont rejoint. Il fixe aussi le jour d’échéance mensuel, le délai de grâce et une éventuelle majoration fixe ou en pourcentage. Les membres peuvent cotiser en plusieurs fois via Fapshi. Les frais de 5 % sont appliqués à chaque versement ; une majoration de retard éventuelle est ajoutée au pot du bénéficiaire. L’ordre est verrouillé après le lancement. Le retrait reste soumis à la validation administrative et à la confirmation du prestataire.</p>
       </section>
     </div>
   );
