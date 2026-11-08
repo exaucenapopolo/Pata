@@ -21,6 +21,9 @@ import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { generateAdvice, adviceIconColor } from '@/lib/advisor';
 import { formatCurrency, formatDate, resolveCategory, getFirstOfMonth, getLastOfMonth } from '@/lib/utils';
 
+const getDashboardExpenseType = (expense) => ['consumption', 'project', 'savings', 'investment'].includes(expense?.expenseType)
+  ? expense.expenseType : 'consumption';
+
 const todayIso = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -133,14 +136,12 @@ export default function DashboardPage() {
 
   const periodIncomeTotal = periodIncomes.reduce((s, i) => s + (i.amount || 0), 0);
   const periodExpenseTotal = periodExpenses.reduce((s, e) => s + (e.amount || 0), 0);
-  const getExpenseType = (expense) => ['consumption', 'project', 'savings', 'investment'].includes(expense.expenseType)
-    ? expense.expenseType : 'consumption';
   const periodTypeTotals = periodExpenses.reduce((totals, expense) => {
-    totals[getExpenseType(expense)] += Number(expense.amount) || 0;
+    totals[getDashboardExpenseType(expense)] += Number(expense.amount) || 0;
     return totals;
   }, { consumption: 0, project: 0, savings: 0, investment: 0 });
-  const periodConsumptionExpenses = useMemo(() => periodExpenses.filter((expense) => getExpenseType(expense) === 'consumption'), [periodExpenses]);
-  const previousConsumptionExpenses = useMemo(() => prevExpenses.filter((expense) => getExpenseType(expense) === 'consumption'), [prevExpenses]);
+  const periodConsumptionExpenses = useMemo(() => periodExpenses.filter((expense) => getDashboardExpenseType(expense) === 'consumption'), [periodExpenses]);
+  const previousConsumptionExpenses = useMemo(() => prevExpenses.filter((expense) => getDashboardExpenseType(expense) === 'consumption'), [prevExpenses]);
   const incomeById = useMemo(() => new Map(incomes.map((income) => [income.id, income])), [incomes]);
   const previousIncomeSpend = useMemo(() => periodExpenses.reduce((sum, expense) => {
     const source = incomeById.get(expense.incomeSourceId);
@@ -386,7 +387,7 @@ export default function DashboardPage() {
                     </span>
                     <span className="font-medium text-slate-700">
                       {formatCurrency(c.value)}
-                      <span className="ml-1 text-xs text-slate-400">({((c.value / periodExpenseTotal) * 100).toFixed(0)}%)</span>
+                      <span className="ml-1 text-xs text-slate-400">({((c.value / (periodTypeTotals.consumption || 1)) * 100).toFixed(0)}%)</span>
                     </span>
                   </li>
                 ))}
@@ -444,7 +445,7 @@ export default function DashboardPage() {
                     <CategoryImage categoryId={e.categoryId} image={cat?.image} size="sm" />
                     <div>
                       <p className="text-sm font-semibold text-slate-800">{cat?.label || 'Autre'}</p>
-                      <p className="text-xs text-slate-500">{formatDate(e.date)} · {({ consumption: 'Dépense courante', project: 'Projet', savings: 'Épargne', investment: 'Investissement' })[getExpenseType(e)]}</p>
+                      <p className="text-xs text-slate-500">{formatDate(e.date)} · {({ consumption: 'Dépense courante', project: 'Projet', savings: 'Épargne', investment: 'Investissement' })[getDashboardExpenseType(e)]}</p>
                     </div>
                   </div>
                   <div className="text-right">
