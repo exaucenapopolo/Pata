@@ -563,6 +563,30 @@ function monthKeysBetween(startDate, endDate) {
   return keys;
 }
 
+function readOptionalIncomeMetadata(body = {}, previous = {}) {
+  const rawTime = body.time === undefined ? previous.time : body.time;
+  const time = /^([01]\d|2[0-3]):[0-5]\d$/.test(String(rawTime || '')) ? String(rawTime) : '';
+  const rawLatitude = body.latitude === undefined ? previous.latitude : body.latitude;
+  const rawLongitude = body.longitude === undefined ? previous.longitude : body.longitude;
+  const latitude = rawLatitude === null || rawLatitude === '' ? null : Number(rawLatitude);
+  const longitude = rawLongitude === null || rawLongitude === '' ? null : Number(rawLongitude);
+  const validCoordinates = Number.isFinite(latitude) && latitude >= -90 && latitude <= 90
+    && Number.isFinite(longitude) && longitude >= -180 && longitude <= 180;
+  const rawAccuracy = body.locationAccuracy === undefined ? previous.locationAccuracy : body.locationAccuracy;
+  const accuracy = rawAccuracy === null || rawAccuracy === '' ? null : Number(rawAccuracy);
+  const paymentMethods = ['cash', 'mtn_momo', 'orange_money', 'bank_transfer', 'card', 'other'];
+  const rawMethod = body.paymentMethod === undefined ? previous.paymentMethod : body.paymentMethod;
+  return {
+    time,
+    locationLabel: String(body.locationLabel === undefined ? previous.locationLabel || '' : body.locationLabel || '').trim().slice(0, 160),
+    paymentMethod: paymentMethods.includes(String(rawMethod || '')) ? String(rawMethod) : '',
+    details: String(body.details === undefined ? previous.details || '' : body.details || '').trim().slice(0, 160),
+    latitude: validCoordinates ? latitude : null,
+    longitude: validCoordinates ? longitude : null,
+    locationAccuracy: Number.isFinite(accuracy) && accuracy >= 0 && accuracy <= 100000 ? Math.round(accuracy) : null,
+  };
+}
+
 async function handleCreateIncome(request) {
   try {
     const { uid } = await authenticate(request);
@@ -573,6 +597,7 @@ async function handleCreateIncome(request) {
     const date = String(body.date || new Date().toISOString().slice(0, 10));
     const month = String(body.month || date.slice(0, 7));
     const note = String(body.note || '').trim().slice(0, 250);
+    const optionalMetadata = readOptionalIncomeMetadata(body);
     if (!Number.isSafeInteger(amount) || amount <= 0) return errorResponse('Indique un montant de revenu valide.', 400);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{4}-\d{2}$/.test(month) || month !== date.slice(0, 7)) return errorResponse('La date du revenu est invalide.', 400);
     const userRef = adminDb.collection('users').doc(uid);
@@ -591,6 +616,7 @@ async function handleCreateIncome(request) {
       stats.lastResetMonth = currentMonth;
       transaction.create(incomeRef, {
         amount, source: source || 'Revenu', categoryId, month, date, note,
+        ...optionalMetadata,
         createdAt: FieldValue.serverTimestamp(),
       });
       transaction.update(userRef, {
@@ -604,6 +630,58 @@ async function handleCreateIncome(request) {
   } catch (error) {
     const status = /atteint|introuvable|invalide/i.test(error.message || '') ? 403 : 500;
     return errorResponse(error.message || 'Impossible d’enregistrer ce revenu.', status);
+  }
+}
+
+async function handleUpdateIncome(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const incomeId = String(body.incomeId || body.id || '').trim().slice(0, 150);
+    if (!incomeId || incomeId.includes('/')) return errorResponse('Revenu introuvable.', 400);
+    const amount = body.amount === undefined ? null : Math.round(Number(body.amount));
+    if (amount !== null && (!Number.isSafeInteger(amount) || amount <= 0 || amount > 1_000_000_000)) return errorResponse('Indique un montant de revenu valide.', 400);
+    const source = body.source === undefined ? null : String(body.source || '').trim().slice(0, 100);
+    if (source !== null && !source) return errorResponse('Le nom de la source est obligatoire.', 400);
+    const categoryId = body.categoryId === undefined ? null : String(body.categoryId || 'other_income').trim().slice(0, 80);
+    const date = body.date === undefined ? null : String(body.date || '');
+    if (date !== null && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return errorResponse('La date du revenu est invalide.', 400);
+    const note = body.note === undefined ? null : String(body.note || '').trim().slice(0, 250);
+    const userRef = adminDb.collection('users').doc(uid);
+    const incomeRef = userRef.collection('incomes').doc(incomeId);
+    const result = await adminDb.runTransaction(async (transaction) => {
+      const [incomeSnap, allIncomesSnap] = await Promise.all([
+        transaction.get(incomeRef),
+        transaction.get(userRef.collection('incomes')),
+      ]);
+      if (!incomeSnap.exists) throw new Error('Revenu introuvable.');
+      const previous = incomeSnap.data() || {};
+      const nextAmount = amount === null ? Math.round(Number(previous.amount) || 0) : amount;
+      const nextDate = date === null ? String(previous.date || new Date().toISOString().slice(0, 10)) : date;
+      const next = {
+        amount: nextAmount,
+        source: source === null ? String(previous.source || 'Revenu') : source,
+        categoryId: categoryId === null ? String(previous.categoryId || 'other_income') : categoryId,
+        date: nextDate,
+        month: nextDate.slice(0, 7),
+        note: note === null ? String(previous.note || '') : note,
+        ...readOptionalIncomeMetadata(body, previous),
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+      transaction.update(incomeRef, next);
+      const totalAfterUpdate = allIncomesSnap.docs.reduce((sum, document) => {
+        if (document.id === incomeId) return sum + nextAmount;
+        return sum + (Number(document.data().amount) || 0);
+      }, 0);
+      transaction.set(userRef, {
+        lifetimeIncomeAmount: totalAfterUpdate,
+        lifetimeIncomeCount: allIncomesSnap.size,
+      }, { merge: true });
+      return { id: incomeId };
+    });
+    return NextResponse.json({ success: true, ...result });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de modifier ce revenu.', /introuvable|obligatoire|invalide/i.test(error.message || '') ? 400 : 500);
   }
 }
 
@@ -643,6 +721,105 @@ async function handleUpsertBudget(request) {
     return NextResponse.json({ success: true, ...result });
   } catch (error) {
     return errorResponse(error.message || 'Impossible d’enregistrer ce budget.', /atteint|introuvable|invalide/i.test(error.message || '') ? 403 : 500);
+  }
+}
+
+async function handleBudgetTemplates(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const templatesRef = adminDb.collection('users').doc(uid).collection('budget_templates');
+    if (request.method === 'GET') {
+      const snapshot = await templatesRef.orderBy('createdAt', 'desc').limit(50).get();
+      return NextResponse.json({ success: true, templates: snapshot.docs.map((document) => ({ id: document.id, ...serializeAdminValue(document.data()) })) });
+    }
+    const body = await request.json();
+    if (request.method === 'DELETE') {
+      const templateId = String(body.templateId || '').trim().slice(0, 150);
+      if (!templateId || templateId.includes('/')) return errorResponse('Modèle introuvable.', 400);
+      const reference = templatesRef.doc(templateId);
+      const snapshot = await reference.get();
+      if (!snapshot.exists) return errorResponse('Ce modèle n’existe plus.', 404);
+      await reference.delete();
+      return NextResponse.json({ success: true });
+    }
+    if (body.action === 'apply') {
+      const templateId = String(body.templateId || '').trim().slice(0, 150);
+      const month = String(body.month || '');
+      const incomeSourceId = String(body.incomeSourceId || 'all').trim().slice(0, 150);
+      if (!templateId || templateId.includes('/') || !/^\d{4}-\d{2}$/.test(month)) return errorResponse('Modèle ou période invalide.', 400);
+      const userRef = adminDb.collection('users').doc(uid);
+      const templateRef = templatesRef.doc(templateId);
+      const budgetsRef = userRef.collection('budgets');
+      const result = await adminDb.runTransaction(async (transaction) => {
+        const [userSnapshot, templateSnapshot, budgetsSnapshot] = await Promise.all([
+          transaction.get(userRef), transaction.get(templateRef),
+          transaction.get(budgetsRef.where('month', '==', month)),
+        ]);
+        if (!userSnapshot.exists) throw new Error('Profil utilisateur introuvable.');
+        if (!templateSnapshot.exists) throw new Error('Ce modèle n’existe plus.');
+        const items = Array.isArray(templateSnapshot.data()?.items) ? templateSnapshot.data().items.slice(0, 40) : [];
+        if (!items.length) throw new Error('Ce modèle ne contient aucune enveloppe valide.');
+        const existingByCategory = new Map();
+        budgetsSnapshot.docs.forEach((document) => {
+          const data = document.data() || {};
+          const key = `${String(data.categoryId || '')}::${String(data.incomeSourceId || 'all')}`;
+          if (!existingByCategory.has(key)) existingByCategory.set(key, document);
+        });
+        const seen = new Set();
+        const prepared = [];
+        items.forEach((item) => {
+          const categoryId = String(item?.categoryId || '').trim().slice(0, 100);
+          const amount = Math.round(Number(item?.amount));
+          if (!categoryId || !Number.isSafeInteger(amount) || amount <= 0 || amount > 1_000_000_000) return;
+          const key = `${categoryId}::${incomeSourceId}`;
+          if (seen.has(key)) return;
+          seen.add(key);
+          prepared.push({ categoryId, amount, existing: existingByCategory.get(key) || null });
+        });
+        if (!prepared.length) throw new Error('Ce modèle ne contient aucune enveloppe valide.');
+        const createCount = prepared.filter((item) => !item.existing).length;
+        const userData = userSnapshot.data() || {};
+        const currentMonth = getDoualaMonthKey();
+        const stats = normalizeMonthlyStatsForMonth(userData.monthlyStats || {}, currentMonth);
+        if (!isPremiumAccount(userData) && (Number(stats.budgets) || 0) + createCount > PLAN_LIMITS.FREE.budgets) {
+          throw new Error(`Ce modèle nécessite ${createCount} nouvelle(s) enveloppe(s), mais ton compte gratuit ne dispose plus d’assez de créations ce mois-ci. Aucun budget n’a été modifié. Passe à Premium pour appliquer le modèle complet.`);
+        }
+        let updatedCount = 0;
+        let createdCount = 0;
+        prepared.forEach((item) => {
+          if (item.existing) {
+            transaction.update(item.existing.ref, { amount: item.amount, updatedAt: FieldValue.serverTimestamp() });
+            updatedCount += 1;
+          } else {
+            transaction.create(budgetsRef.doc(), { categoryId: item.categoryId, amount: item.amount, month, incomeSourceId, createdAt: FieldValue.serverTimestamp() });
+            createdCount += 1;
+          }
+        });
+        if (createdCount > 0) {
+          stats.budgets = (Number(stats.budgets) || 0) + createdCount;
+          stats.lastResetMonth = currentMonth;
+          transaction.update(userRef, { monthlyStats: stats });
+        }
+        return { createdCount, updatedCount, totalApplied: prepared.length };
+      });
+      return NextResponse.json({ success: true, ...result });
+    }
+    const name = String(body.name || '').trim().slice(0, 70);
+    const itemsInput = Array.isArray(body.items) ? body.items : [];
+    const byCategory = new Map();
+    itemsInput.slice(0, 40).forEach((item) => {
+      const categoryId = String(item?.categoryId || '').trim().slice(0, 100);
+      const amount = Math.round(Number(item?.amount));
+      if (categoryId && Number.isSafeInteger(amount) && amount > 0 && amount <= 1_000_000_000) byCategory.set(categoryId, { categoryId, amount });
+    });
+    const items = [...byCategory.values()];
+    if (!name) return errorResponse('Donne un nom à ce modèle de budget.', 400);
+    if (!items.length) return errorResponse('Ajoute au moins une catégorie avec un montant avant d’enregistrer ce modèle.', 400);
+    const templateRef = templatesRef.doc();
+    await templateRef.create({ name, items, categoryCount: items.length, createdAt: FieldValue.serverTimestamp() });
+    return NextResponse.json({ success: true, id: templateRef.id });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de charger ou enregistrer les modèles de budget.', 400);
   }
 }
 
@@ -2464,7 +2641,9 @@ const ROUTES = {
   'forecasts/duration/save': { POST: handleSaveDurationForecast },
   'forecasts/duration/delete': { POST: handleDeleteDurationForecast },
   'incomes/add': { POST: handleCreateIncome },
+  'incomes/update': { POST: handleUpdateIncome },
   'budgets/upsert': { POST: handleUpsertBudget },
+  'budgets/templates': { GET: handleBudgetTemplates, POST: handleBudgetTemplates, DELETE: handleBudgetTemplates },
   'goals/create': { POST: handleCreateGoal },
   'goals/update': { POST: handleUpdateGoal },
   'goals/delete': { POST: handleDeleteGoal },
