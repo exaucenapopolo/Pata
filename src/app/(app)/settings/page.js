@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { Modal } from '@/components/ui/Modal';
 import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
 import { useExpenses } from '@/hooks/useExpenses';
@@ -36,6 +37,7 @@ export default function SettingsPage() {
   const [penaltyDefault, setPenaltyDefault] = useState(500);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [showProfileLogo, setShowProfileLogo] = useState(false);
 
   useEffect(() => {
     if (!user) { setAutomations([]); return undefined; }
@@ -171,12 +173,14 @@ export default function SettingsPage() {
         <CardTitle className="mb-3">Profil</CardTitle>
         <form onSubmit={onSave} className="space-y-3">
           <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-            <img src="/android-chrome-192x192.png" alt="Logo officiel de Pata" className="h-16 w-16 shrink-0 rounded-2xl bg-white object-contain p-1 shadow-sm" />
+            <button type="button" onClick={() => setShowProfileLogo(true)} aria-label="Afficher le logo de profil en grand" className="shrink-0 rounded-2xl bg-white p-1 shadow-sm transition hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400">
+              <img src="/android-chrome-192x192.png" alt="Logo de profil Pata" className="h-16 w-16 rounded-xl object-contain" />
+            </button>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold text-slate-900">Photo de profil</p>
-              <p className="mt-1 text-xs leading-5 text-slate-500">Le logo officiel de Pata est utilisé par défaut pour tous les comptes. Il est fixe et ne peut pas être remplacé par une photo personnelle.</p>
+              <p className="mt-1 text-xs leading-5 text-slate-500">Le logo Pata est utilisé comme image de profil de ton compte.</p>
+              <button type="button" onClick={() => setShowProfileLogo(true)} className="mt-1 text-xs font-semibold text-brand-700">Afficher en grand</button>
             </div>
-            <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[10px] font-semibold text-slate-500">Par défaut</span>
           </div>
           <Input
             label="Nom affiché"
@@ -243,6 +247,13 @@ export default function SettingsPage() {
           </Link>
         </div>
       </Card>
+
+      <Modal open={showProfileLogo} onClose={() => setShowProfileLogo(false)} title="Logo de profil Pata" className="max-w-sm">
+        <div className="flex flex-col items-center gap-3 py-2">
+          <img src="/android-chrome-512x512.png" alt="Logo Pata" className="h-52 w-52 max-w-full rounded-3xl object-contain"/>
+          <p className="text-center text-xs leading-5 text-slate-500">Ce logo identifie le profil dans l’application.</p>
+        </div>
+      </Modal>
 
       <Card>
         <CardTitle className="mb-3">Compte</CardTitle>
