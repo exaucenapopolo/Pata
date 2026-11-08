@@ -1377,7 +1377,7 @@ async function handleGoalCancel(request) {
       const totalDeposited = deposits.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
       const debt = Number(goalData.debtBalance) || 0;
       const latePenalty = goalData.type === 'piggybank' ? 0 : (computeGoalPlan(goalData, deposits)?.penalty || 0);
-      const cancelPenalty = Math.round(totalDeposited * 0.10);
+      const cancelPenalty = goalData.type === 'piggybank' ? 0 : Math.round(totalDeposited * 0.10);
       const netRefund = Math.max(0, totalDeposited - debt - latePenalty - cancelPenalty);
 
       if (netRefund > 0) {
