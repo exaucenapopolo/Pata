@@ -3825,7 +3825,7 @@ async function handleCotisationsList(request) {
         contributionAmount, frequency: group.frequency, startDate: group.startDate, status: group.status || 'active',
         dueDay: group.dueDay || null, expectedMembers, graceDays: cotisationMoney(group.graceDays),
         lateFeeType: group.lateFeeType || 'none', lateFeeValue: cotisationMoney(group.lateFeeValue),
-        lateFeeLabel: cotisationPenaltyLabel(group), startedAt: Boolean(group.startedAt),
+        lateFeeLabel: cotisationPenaltyLabel(group), startedAt: Boolean(group.startedAt), responsibilityAccepted: group.responsibilityAcceptedBy === uid,
         inviteToken: group.ownerId === uid ? group.inviteToken : null,
         members: memberRows, memberCount: members.length, maxMembers: expectedMembers,
         orderDefined: hasAssignedOrder,
@@ -3974,6 +3974,7 @@ async function handleCotisationUpdate(request) {
         name, contributionAmount: amount, expectedMembers, maxMembers: expectedMembers,
         frequency, startDate, dueDay, graceDays, lateFeeType, lateFeeValue,
         ...(resetOrder ? { orderConfirmedAt: null, orderConfirmedBy: null } : {}),
+        ...(body.responsibilityAccepted === true ? { responsibilityAcceptedAt: FieldValue.serverTimestamp(), responsibilityAcceptedBy: uid } : {}),
         updatedAt: FieldValue.serverTimestamp(),
       });
     });
