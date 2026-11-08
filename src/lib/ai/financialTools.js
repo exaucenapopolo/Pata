@@ -140,6 +140,11 @@ function buildIncomeBalances(incomes, expenses) {
   });
 }
 
+function getExpenseTypeForBudget(expense) {
+  return ['consumption', 'project', 'savings', 'investment'].includes(expense?.expenseType)
+    ? expense.expenseType : 'consumption';
+}
+
 export async function createExpenseForUser(uid, input, { countQuota = true, sourceOverride = null, idempotencyKey = null } = {}) {
   const amount = asPositiveMoney(input.amount, 'Dépense');
   const categoryId = await assertExpenseCategory(uid, input.categoryId || input.category || 'other');
@@ -234,14 +239,15 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
     const warnings = [];
     const budgetRows = budgetsSnap?.docs?.map((doc) => ({ id: doc.id, ...doc.data() })) || [];
     for (const budget of budgetRows) {
-      if (budget.categoryId !== categoryId) continue;
+      if (expenseType !== 'consumption' || budget.categoryId !== categoryId) continue;
       const sourceId = budget.incomeSourceId || 'all';
       const planned = sourceId === 'all'
         ? amount
         : (plannedBySource.get(sourceId) || 0);
       if (planned <= 0) continue;
       const spentBefore = expenses
-        .filter((expense) => String(expense.date || '').slice(0, 7) === String(date).slice(0, 7)
+        .filter((expense) => getExpenseTypeForBudget(expense) === 'consumption'
+          && String(expense.date || '').slice(0, 7) === String(date).slice(0, 7)
           && expense.categoryId === categoryId
           && (sourceId === 'all' || expense.incomeSourceId === sourceId))
         .reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0);
@@ -342,7 +348,9 @@ export async function updateExpenseForUser(uid, expenseId, input) {
     const date = input.date || previousData.date || todayDouala();
     const expenseType = cleanText(input.expenseType === undefined ? previousData.expenseType || 'consumption' : input.expenseType, 30);
     if (!['consumption', 'project', 'savings', 'investment'].includes(expenseType)) throw new Error('Choisis une nature de sortie valide.');
-    const projectId = cleanText(input.projectId === undefined ? previousData.projectId : input.projectId, 150);
+    const projectId = expenseType === 'project'
+      ? cleanText(input.projectId === undefined ? previousData.projectId : input.projectId, 150)
+      : '';
     if (expenseType === 'project' && !projectId) throw new Error('Sélectionne le projet concerné.');
     if (expenseType !== 'project' && projectId) throw new Error('Associe un projet uniquement à une sortie de type projet.');
     let projectName = '';
@@ -398,11 +406,12 @@ export async function updateExpenseForUser(uid, expenseId, input) {
     const budgetWarnings = [];
     for (const doc of budgetSnap.docs) {
       const budget = doc.data();
-      if (budget.categoryId !== categoryId) continue;
+      if (expenseType !== 'consumption' || budget.categoryId !== categoryId) continue;
       const budgetSourceId = budget.incomeSourceId || 'all';
       const planned = budgetSourceId === 'all' ? amount : (plannedBySource.get(budgetSourceId) || 0);
       if (planned <= 0) continue;
-      const alreadySpent = expenses.filter((item) => String(item.date || '').slice(0, 7) === String(date).slice(0, 7)
+      const alreadySpent = expenses.filter((item) => getExpenseTypeForBudget(item) === 'consumption'
+        && String(item.date || '').slice(0, 7) === String(date).slice(0, 7)
         && item.categoryId === categoryId
         && (budgetSourceId === 'all' || item.incomeSourceId === budgetSourceId))
         .reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
