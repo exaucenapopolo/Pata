@@ -77,7 +77,7 @@ export function PWAInstallPrompt() {
             </div>
           )}
           <div className="mt-2 flex flex-wrap gap-2">
-            <button type="button" onClick={install} disabled={busy} className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-emerald-700 px-3 text-xs font-semibold text-white disabled:opacity-60">
+            <button type="button" onClick={showHelp ? dismiss : install} disabled={busy} className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-emerald-700 px-3 text-xs font-semibold text-white disabled:opacity-60">
               {ios || !installEvent ? <Share size={14}/> : <Download size={14}/>}
               {busy ? 'Préparation…' : showHelp ? 'Compris' : 'Installer Pata'}
             </button>
