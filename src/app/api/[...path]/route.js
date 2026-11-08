@@ -2967,7 +2967,7 @@ async function handleFapshiPayoutWebhook(request) {
     } else if (['FAILED', 'EXPIRED'].includes(status) && !['PAID', 'FAILED'].includes(data.status)) {
       await requestRef.update({
         status: 'FAILED',
-        providerMessage: String(body.reason || 'Le prestataire n’a pas pu effectuer le retrait.').slice(0, 300),
+        providerMessage: String(body.reason || 'Le retrait n’a pas pu être effectué.').slice(0, 300),
         failedAt: FieldValue.serverTimestamp(),
       });
       if (data.withdrawalType === 'cotisation') await restoreCotisationCycle(data, 'FAILED');
@@ -3716,8 +3716,8 @@ async function cotisationSendWithdrawalEmail(data, status) {
   if (!data || !data.email) return;
   const details = {
     received: ['Demande de retrait reçue par Pata', 'Ta demande a bien été reçue.', 'Nous avons reçu ta demande de retrait de ' + cotisationMoney(data.amount).toLocaleString('fr-FR') + ' FCFA concernant ' + (data.goalName || 'ta cotisation') + '. Elle sera vérifiée par l’administration avant l’envoi.'],
-    approved: ['Ta demande de retrait Pata a été approuvée', 'Ta demande a été approuvée.', 'L’administration a approuvé ta demande de retrait de ' + cotisationMoney(data.amount).toLocaleString('fr-FR') + ' FCFA concernant ' + (data.goalName || 'ton épargne') + '. Le paiement a été transmis à Fapshi ; nous te confirmerons dès que le prestataire aura terminé le transfert.'],
-    paid: ['Ton retrait Pata a été envoyé', 'Ton retrait a été envoyé.', 'Le retrait de ' + cotisationMoney(data.amount).toLocaleString('fr-FR') + ' FCFA concernant ' + (data.goalName || 'ta cotisation') + ' a été confirmé par le prestataire.'],
+    approved: ['Ta demande de retrait Pata a été approuvée', 'Ta demande a été approuvée.', 'L’administration a approuvé ta demande de retrait de ' + cotisationMoney(data.amount).toLocaleString('fr-FR') + ' FCFA concernant ' + (data.goalName || 'ton épargne') + '. Le paiement a été transmis pour traitement. Nous te confirmerons dès que le transfert sera terminé.'],
+    paid: ['Ton retrait Pata a été envoyé', 'Ton retrait a été envoyé.', 'Le retrait de ' + cotisationMoney(data.amount).toLocaleString('fr-FR') + ' FCFA concernant ' + (data.goalName || 'ta cotisation') + ' a été confirmé.'],
     rejected: ['Mise à jour de ta demande de retrait Pata', 'Ta demande de retrait n’a pas été approuvée.', 'La demande concernant ' + (data.goalName || 'ton épargne') + ' a été refusée après vérification. Tu peux consulter le statut dans ton espace Pata ou contacter l’assistance.'],
     failed: ['Ton retrait Pata n’a pas abouti', 'Le prestataire n’a pas pu effectuer le retrait.', 'Le retrait de ' + cotisationMoney(data.amount).toLocaleString('fr-FR') + ' FCFA concernant ' + (data.goalName || 'ta cotisation') + ' n’a pas été confirmé. Consulte ton espace Pata avant toute nouvelle demande.'],
   }[status];
@@ -4177,6 +4177,9 @@ async function handleCotisationReorder(request) {
       const group = groupSnap.data();
       if (group.ownerId !== uid) throw new Error('Seul le chef du groupe peut modifier l’ordre de passage.');
       if (group.startedAt || group.membershipLockedCycle) throw new Error('L’ordre de passage est verrouillé depuis le démarrage de la cotisation.');
+      if (membersSnap.docs.some((doc) => !/^[0-9]{8,15}$/.test(String(doc.data()?.whatsappPhone || '').replace(/[^0-9]/g, '')))) {
+        throw new Error('Chaque membre doit enregistrer son numéro WhatsApp avant que le chef attribue les positions.');
+      }
       const currentIds = membersSnap.docs.map((doc) => doc.id);
       if (orderedIds.length !== currentIds.length || currentIds.some((id) => !orderedIds.includes(id))) {
         throw new Error('La liste des positions doit contenir tous les membres actifs, une seule fois chacun.');
