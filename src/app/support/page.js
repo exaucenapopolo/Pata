@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { ArrowLeft, MessageCircle } from 'lucide-react';
 
-const SUPPORT_NUMBER = '12424542961';
+const SUPPORT_NUMBER = '14236752034';
 
 export default function SupportPage() {
   const [reason, setReason] = useState('Question sur l’application');
@@ -49,7 +49,7 @@ export default function SupportPage() {
           </label>
           <button type="submit" disabled={message.trim().length<8} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#0b5c46] px-4 text-sm font-bold text-white disabled:opacity-50"><MessageCircle size={17}/> Continuer sur WhatsApp</button>
         </form>
-        <p className="mt-4 text-center text-xs text-slate-500">Support WhatsApp : +1 (242) 454-2961</p>
+        <p className="mt-4 text-center text-xs text-slate-500">Support WhatsApp : +1 (423) 675-2034</p>
       </section>
     </div>
   </main>;

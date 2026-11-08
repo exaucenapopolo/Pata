@@ -285,7 +285,7 @@ export default function DashboardPage() {
         <Card>
           <div className="flex items-center gap-2 text-red-500">
             <TrendingDown size={16} />
-            <CardTitle className="text-red-500">Toutes les sorties</CardTitle>
+            <CardTitle className="text-red-500">Sorties totales</CardTitle>
           </div>
           <CardValue>{formatCurrency(periodExpenseTotal)}</CardValue>
           {expenseChange !== null && (
@@ -302,7 +302,7 @@ export default function DashboardPage() {
           <CardValue className={globalBalance < 0 ? 'text-red-600' : 'text-slate-900'}>
             {formatCurrency(globalBalance)}
           </CardValue>
-          <p className="mt-1 text-xs text-slate-500">Tout compte confondu</p>
+          <p className="mt-1 text-xs text-slate-500">Revenus moins toutes les sorties : dépenses, épargne et investissements.</p>
         </Card>
         <Card>
           <div className="flex items-center gap-2 text-slate-500">
@@ -318,7 +318,7 @@ export default function DashboardPage() {
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
-          ['Dépenses courantes', periodTypeTotals.consumption],
+          ['Dépenses réelles', periodTypeTotals.consumption],
           ['Projets', periodTypeTotals.project],
           ['Épargne', periodTypeTotals.savings],
           ['Investissements', periodTypeTotals.investment],

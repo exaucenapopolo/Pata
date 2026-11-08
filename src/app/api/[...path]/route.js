@@ -77,16 +77,12 @@ async function handleFapshiCheckout(request) {
 
     const userDoc = await adminDb.collection('users').doc(uid).get();
     const userData = userDoc.exists ? userDoc.data() : {};
-    const phone = String(body.phone || userData.phone || '').replace(/\D/g, '');
-    
-    if (phone && phone !== userData.phone) await adminDb.collection('users').doc(uid).update({ phone, updatedAt: FieldValue.serverTimestamp() });
-
     const baseUrl = getBaseUrl(request);
     const payload = {
       amount, currency: 'XAF', description: 'Recharge Pata',
       redirect_url: `${request.headers.get('origin') || baseUrl}/wallet`,
       webhook_url: `${baseUrl}/api/fapshi/webhook`,
-      phone, email: userData.email || decoded.email || '', name: userData.displayName || 'Client',
+      email: userData.email || decoded.email || '', name: userData.displayName || 'Client',
     };
 
     const controller = new AbortController();
@@ -106,7 +102,7 @@ async function handleFapshiCheckout(request) {
 
     await adminDb.collection('deposits').doc(transId).set({
       transId, userId: uid, amount, currency: 'XAF', description: payload.description,
-      phone, status: 'PENDING', checkoutUrl, createdAt: FieldValue.serverTimestamp(), confirmedAt: null, failedAt: null,
+      status: 'PENDING', checkoutUrl, createdAt: FieldValue.serverTimestamp(), confirmedAt: null, failedAt: null,
     });
 
     return NextResponse.json({ success: true, checkoutUrl, transId });
@@ -4041,7 +4037,14 @@ async function handleCotisationInvitePreview(request) {
 
 async function handleCotisationContact(request) {
  try { const {uid}=await authenticate(request), body=await request.json(), groupId=String(body.groupId||'').trim().slice(0,150), normalized=String(body.whatsappPhone||'').trim().replace(/[.\\-()\\s]/g,'');
- if(!groupId||groupId.includes('/')||!/^\\+?[0-9]{8,15}$/.test(normalized))return errorResponse('Entre un numéro WhatsApp valide avec son indicatif si nécessaire.',400);
+ if(!groupId||groupId.includes('/')||!/^[0-9]{8,15}$/.test(normalized))return errorResponse('Entre un numéro WhatsApp valide avec son indicatif si nécessaire.',400);
+ const memberRef=adminDb.collection('cotisationGroups').doc(groupId).collection('members').doc(uid), memberSnap=await memberRef.get();
+ if(!memberSnap.exists||memberSnap.data()?.active===false)return errorResponse('Tu ne fais pas partie de ce groupe.',403);
+ await memberRef.update({whatsappPhone:normalized,whatsappUpdatedAt:FieldValue.serverTimestamp()});return NextResponse.json({success:true,message:'Ton numéro WhatsApp a été enregistré.'});
+ }catch(error){return errorResponse(error.message||'Impossible d’enregistrer ton numéro WhatsApp.',400);}
+}    const normalized = String(body.whatsappPhone || '').replace(/[^0-9]/g, '');
+ try { const {uid}=await authenticate(request), body=await request.json(), groupId=String(body.groupId||'').trim().slice(0,150), normalized=String(body.whatsappPhone||'').trim().replace(/[.\\-()\\s]/g,'');
+ if(!groupId||groupId.includes('/')||!/^[0-9]{8,15}$/.test(normalized))return errorResponse('Entre un numéro WhatsApp valide avec son indicatif si nécessaire.',400);
  const memberRef=adminDb.collection('cotisationGroups').doc(groupId).collection('members').doc(uid), memberSnap=await memberRef.get();
  if(!memberSnap.exists||memberSnap.data()?.active===false)return errorResponse('Tu ne fais pas partie de ce groupe.',403);
  await memberRef.update({whatsappPhone:normalized,whatsappUpdatedAt:FieldValue.serverTimestamp()});return NextResponse.json({success:true,message:'Ton numéro WhatsApp a été enregistré.'});
@@ -4105,7 +4108,7 @@ async function handleCotisationStart(request) {
       const membersSnap = await transaction.get(membersQuery);
       if (membersSnap.size < 2) throw new Error('Au moins deux personnes doivent avoir rejoint le groupe.');
       if (membersSnap.size !== expectedMembers) throw new Error('Il faut exactement ' + expectedMembers + ' participants avant de lancer ce groupe. Il en manque ' + Math.max(0, expectedMembers - membersSnap.size) + '.');
-      if (membersSnap.docs.some((doc) => !/^\\+?[0-9 ()-]{8,20}$/.test(String(doc.data()?.whatsappPhone || '')))) throw new Error('Chaque participant doit enregistrer son numéro WhatsApp avant le lancement.');
+      if (membersSnap.docs.some((doc) => !/^[0-9]{8,15}$/.test(String(doc.data()?.whatsappPhone || '').replace(/[^0-9]/g, '')))) throw new Error('Chaque participant doit enregistrer son numéro WhatsApp avant le lancement.');
       const members = membersSnap.docs.map((doc) => ({ uid: doc.id, ...doc.data() })).sort((a, b) => Number(a.turnOrder) - Number(b.turnOrder));
       if (new Set(members.map((member) => Number(member.turnOrder))).size !== members.length || members.some((member, index) => Number(member.turnOrder) !== index + 1)) {
         throw new Error('Le chef doit enregistrer une position unique pour chaque participant avant le lancement.');
@@ -4423,13 +4426,8 @@ async function handleCotisationPay(request) {
     const body = await request.json();
     const groupId = String(body.groupId || '').trim().slice(0, 150);
     const amount = Math.round(Number(body.amount));
-    const phoneRaw = String(body.phone || '').replace(/[^0-9+]/g, '');
-    let phone = phoneRaw.replace(/^\+/, '');
-    if (phone.startsWith('237') && phone.length === 12) phone = phone.slice(3);
-    const medium = body.network === 'orange' ? 'orange money' : body.network === 'mtn' ? 'mobile money' : '';
     if (!groupId || groupId.includes('/')) return errorResponse('Groupe invalide.', 400);
     if (!Number.isSafeInteger(amount) || amount < 100 || amount % 100 !== 0) return errorResponse('Chaque versement doit être d’au moins 100 FCFA et par multiples de 100.', 400);
-    if (!/^6[0-9]{8}$/.test(phone) || !medium) return errorResponse('Vérifie le numéro MTN ou Orange Money.', 400);
     const groupRef = adminDb.collection('cotisationGroups').doc(groupId);
     const memberRef = groupRef.collection('members').doc(uid);
     const [groupSnap, memberSnap, userSnap] = await Promise.all([
@@ -4577,7 +4575,7 @@ async function handleCotisationWithdrawalRequest(request) {
       if (!['READY', 'OPEN'].includes(cycle.status || 'OPEN')) throw new Error('Une demande de retrait est déjà en cours ou ce cycle est terminé.');
       const user = userSnap.data();
       if (collected < 100 || collected > 500000) throw new Error('Le montant du retrait doit être compris entre 100 et 500 000 FCFA.');
-      if (!/^\\+?[0-9 ()-]{8,20}$/.test(String(memberSnap.data()?.whatsappPhone || ''))) throw new Error('Enregistre ton numéro WhatsApp dans les informations du groupe avant de demander le retrait.');
+      if (!/^[0-9]{8,15}$/.test(String(memberSnap.data()?.whatsappPhone || '').replace(/[^0-9]/g, ''))) throw new Error('Enregistre ton numéro WhatsApp dans les informations du groupe avant de demander le retrait.');
       transaction.create(requestRef, {
         withdrawalType: 'cotisation', userId: uid, email: user.email || '',
         displayName: user.displayName || beneficiary.displayName || 'Membre', phone, medium,

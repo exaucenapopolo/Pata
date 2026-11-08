@@ -223,7 +223,7 @@ export function cotisationDueEmail({ name, groupName, contributionAmount, paidAm
       ['Délai de grâce défini par le chef', String(graceDays ?? 0) + ' jour(s)'],
       ['Règle de retard', lateFeeLabel || 'Aucune majoration'],
     ])}
-    <p style="margin:0;color:#475569;font-size:13px;line-height:1.75;">${overdue ? 'Selon les règles du groupe, une majoration peut maintenant s’appliquer à ton prochain versement. Son montant exact sera affiché avant de confirmer le paiement.' : 'Tu peux cotiser petit à petit depuis Pata. Le total versé sera mis à jour uniquement après confirmation effective du paiement par Fapshi.'} Si tu as déjà effectué un versement, vérifie son statut dans ton espace avant de recommencer.</p>`;
+    <p style="margin:0;color:#475569;font-size:13px;line-height:1.75;">${overdue ? 'Selon les règles du groupe, une majoration peut maintenant s’appliquer à ton prochain versement. Son montant exact sera affiché avant de confirmer le paiement.' : 'Tu peux cotiser petit à petit depuis Pata. Le total versé sera mis à jour uniquement après confirmation effective du paiement par le service de paiement.'} Si tu as déjà effectué un versement, vérifie son statut dans ton espace avant de recommencer.</p>`;
   return renderPataEmail({ preheader: overdue ? 'La période de grâce de ta cotisation est terminée.' : 'La date limite de cotisation est arrivée.', eyebrow: 'RAPPEL DE COTISATION', headline: overdue ? 'Pense à régulariser ta contribution.' : 'La date de cotisation est arrivée.', bodyHtml, ctaLabel: 'Voir ma cotisation', ctaUrl: '/cotisations' });
 }
 

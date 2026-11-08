@@ -30,17 +30,12 @@ export default function WalletPage() {
   const { profile } = useProfile();
   const { deposits, loading } = useDeposits();
 
-  const [phone, setPhone] = useState('');
   const [amount, setAmount] = useState('1000');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
   const pollRef = useRef(null);
   const balance = profile?.balance || 0;
-
-  useEffect(() => {
-    if (profile?.phone) setPhone(profile.phone);
-  }, [profile]);
 
   const pendingDeposits = useMemo(
     () => deposits.filter((d) => (d.status || '').toUpperCase() === 'PENDING'),
@@ -85,10 +80,6 @@ export default function WalletPage() {
   const onSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    const cleanPhone = phone.replace(/\D/g, '');
-    if (cleanPhone.length < 9 || cleanPhone.length > 13) {
-      return setError('Numéro invalide.');
-    }
     const amountNum = Math.round(Number(amount));
     if (!amountNum || amountNum < 100) {
       return setError('Minimum : 100 FCFA.');
@@ -99,7 +90,7 @@ export default function WalletPage() {
       const res = await fetch('/api/fapshi/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ amount: amountNum, phone: cleanPhone, description: 'Recharge de solde' }),
+        body: JSON.stringify({ amount: amountNum, description: 'Recharge de solde' }),
       });
       const data = await res.json();
       if (!data.success || !data.checkoutUrl) {
@@ -137,15 +128,6 @@ export default function WalletPage() {
       <Card>
         <CardTitle className="mb-3">Recharger mon solde</CardTitle>
         <form onSubmit={onSubmit} className="space-y-3">
-          <Input
-            label="Numéro Mobile Money"
-            type="tel"
-            inputMode="numeric"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="6XXXXXXXX"
-            required
-          />
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">Montant (FCFA)</label>
             <input
@@ -209,7 +191,6 @@ export default function WalletPage() {
                     <p className="text-sm font-semibold text-slate-800">{formatCurrency(d.amount)}</p>
                     <p className="text-xs text-slate-500">
                       {formatDate(d.createdAt?.toDate ? d.createdAt.toDate() : d.createdAt)}
-                      {d.phone ? ` — ${d.phone}` : ''}
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
