@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, Check, ChevronLeft, ChevronRight, Eye, EyeOff, Lock, Mail, Sparkles } from 'lucide-react';
+import { ArrowRight, Check, ChevronLeft, ChevronRight, Lock, Mail, BrainCircuit } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/Button';
 import { PWAInstallButton } from '@/components/PWAInstallButton';
@@ -36,6 +36,7 @@ export default function HomePage() {
   const [busy, setBusy] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
   const [slide, setSlide] = useState(0);
+  const carouselRef = useRef(null);
 
   useEffect(() => {
     if (!authLoading && user) router.replace('/dashboard');
@@ -80,8 +81,17 @@ export default function HomePage() {
     finally { setGoogleBusy(false); }
   };
 
-  const nextSlide = () => setSlide((current) => Math.min(slides.length - 1, current + 1));
-  const previousSlide = () => setSlide((current) => Math.max(0, current - 1));
+  const moveSlide = (next) => {
+    const target = Math.max(0, Math.min(slides.length - 1, next));
+    setSlide(target);
+    carouselRef.current?.children?.[target]?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
+  };
+  const nextSlide = () => moveSlide(slide + 1);
+  const previousSlide = () => moveSlide(slide - 1);
+  const onCarouselScroll = (event) => {
+    const width = event.currentTarget.clientWidth || 1;
+    setSlide(Math.round(event.currentTarget.scrollLeft / width));
+  };
 
   const authCard = (
     <section id="connexion" className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_20px_60px_-40px_rgba(15,23,42,.25)] sm:p-7">
@@ -140,18 +150,18 @@ export default function HomePage() {
         </div>
         <div className="mx-auto w-full max-w-md lg:mx-0 lg:ml-auto">
           <div className="mb-5 lg:hidden"><p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#0b5c46]">Tes finances, avec une méthode claire</p><h1 className="mt-2 text-3xl font-bold leading-tight tracking-tight text-slate-950">Ton argent mérite mieux qu’une mémoire approximative.</h1><p className="mt-2 text-sm leading-6 text-slate-600">Dépenses, revenus, budgets, épargne et analyses : tout est réuni dans Pata.</p></div>
-          {authCard}
+          <div className="hidden lg:block">{authCard}</div>
         </div>
       </section>
 
       <section className="border-y border-slate-200 bg-white py-8 lg:hidden">
         <div className="px-4"><div className="mb-4 flex items-end justify-between"><div><p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#0b5c46]">Découvrir Pata</p><p className="mt-1 text-lg font-bold">Trois façons de reprendre la main.</p></div><span className="text-xs tabular-nums text-slate-400">{slide+1}/3</span></div>
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-[#f8faf9]">
-            <div className="flex transition-transform duration-500 ease-out" style={{transform:`translateX(-${slide*100}%)`}}>
-              {slides.map((item)=><article key={item.mark} className="w-full shrink-0 p-5">
+            <div ref={carouselRef} onScroll={onCarouselScroll} className="flex snap-x snap-mandatory overflow-x-auto scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {slides.map((item)=><article key={item.mark} className="w-full shrink-0 snap-start p-5">
                 <div className="flex h-36 items-center justify-center rounded-xl bg-white">
                   {item.art==='flow' ? <svg viewBox="0 0 270 110" className="h-full w-full max-w-xs"><path d="M15 85H255" stroke="#dbe5df" strokeWidth="2"/><path d="M20 75L80 53L130 65L190 32L250 18" fill="none" stroke="#0b5c46" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="360" className="pata-draw"/><circle cx="250" cy="18" r="5" fill="#0b5c46"/></svg>
-                    : item.art==='ai' ? <div className="relative flex h-20 w-20 items-center justify-center rounded-3xl border border-[#dbe9e0] bg-[#edf5f0]"><svg viewBox="0 0 64 64" className="h-12 w-12"><path d="M32 7l4.8 15.2L52 27l-15.2 4.8L32 47l-4.8-15.2L12 27l15.2-4.8L32 7Z" fill="none" stroke="#0b5c46" strokeWidth="2.5" strokeLinejoin="round"/><path d="M49 42l2.5 7.5L59 52l-7.5 2.5L49 62l-2.5-7.5L39 52l7.5-2.5L49 42Z" fill="none" stroke="#7a9d88" strokeWidth="2"/></svg></div>
+                    : item.art==='ai' ? <div className="relative flex h-20 w-20 items-center justify-center rounded-3xl border border-[#dbe9e0] bg-[#edf5f0]"><BrainCircuit className="h-12 w-12 text-[#0b5c46]" strokeWidth={1.7}/></div>
                     : <svg viewBox="0 0 270 110" className="h-full w-full max-w-xs"><rect x="22" y="15" width="226" height="82" rx="12" fill="#f5f8f6" stroke="#dce8e0"/><path d="M135 35v44M93 57h84" stroke="#0b5c46" strokeWidth="3" strokeLinecap="round"/><circle cx="135" cy="57" r="27" fill="none" stroke="#9ab6a4" strokeWidth="3" strokeDasharray="6 6"/></svg>}
                 </div>
                 <p className="mt-5 text-[10px] font-bold tracking-[.16em] text-[#0b5c46]">{item.eyebrow}</p><h2 className="mt-2 text-xl font-bold leading-tight">{item.title}</h2><p className="mt-2 text-sm leading-6 text-slate-600">{item.text}</p>
@@ -162,6 +172,8 @@ export default function HomePage() {
           <a href="#connexion" className="mt-5 flex h-11 items-center justify-center rounded-xl border border-[#0b5c46]/20 text-sm font-bold text-[#0b5c46]">Créer mon compte ou me connecter</a>
         </div>
       </section>
+
+      <section className="mx-auto max-w-md px-4 py-10 lg:hidden">{authCard}</section>
 
       <section className="mx-auto hidden max-w-7xl grid-cols-3 gap-5 px-6 py-14 lg:grid">
         <article className="rounded-2xl border border-slate-200 bg-white p-6"><p className="text-xs font-bold text-[#0b5c46]">MČ · ASSISTANCE INTELLIGENTE</p><h2 className="mt-3 text-xl font-bold">Une aide qui part de tes données.</h2><p className="mt-2 text-sm leading-6 text-slate-600">Mč peut expliquer tes mouvements, analyser une dépense, comparer tes habitudes et t’aider à bâtir un budget réaliste. Les actions restent sous ton contrôle.</p></article>
