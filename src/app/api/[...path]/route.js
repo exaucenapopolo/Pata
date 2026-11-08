@@ -540,7 +540,7 @@ async function handleWelcomeEmail(request) {
     const recipient = String(profile.email || decoded.email || '').trim();
     if (!recipient) return errorResponse('Aucune adresse e-mail associée à ce compte.', 400);
     if (profile.welcomeEmailSentAt) return NextResponse.json({ success: true, alreadySent: true });
-    const name = String(profile.displayName || recipient.split('@')[0] || 'Utilisateur').replace(/[\\r\\n\\u0000-\\u001f]/g, ' ').slice(0, 80);
+    const name = String(profile.displayName || recipient.split('@')[0] || 'Utilisateur').replaceAll(String.fromCharCode(10), ' ').replaceAll(String.fromCharCode(13), ' ').slice(0, 80);
     const sent = await sendPataEmail({
       to: recipient,
       subject: `Bienvenue sur Pata, ${name} !`,
