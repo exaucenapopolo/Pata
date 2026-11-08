@@ -8,6 +8,12 @@ import { Input } from '@/components/ui/Input';
 import { useAuth } from '@/hooks/useAuth';
 import { ensureUserProfile } from '@/lib/firestore/profile';
 
+function getSafeReturnTo() {
+  if (typeof window === 'undefined') return '/dashboard';
+  const value = new URLSearchParams(window.location.search).get('returnTo') || '';
+  return /^\/cotisations\?invite=[A-Za-z0-9_-]+$/.test(value) ? value : '/dashboard';
+}
+
 export default function LoginPage() {
   const { user, loading: authLoading, login, loginWithGoogle } = useAuth();
   const router = useRouter();
@@ -21,7 +27,7 @@ export default function LoginPage() {
   // Redirige dès que la session est connue — évite de rester bloqué sur /login
   useEffect(() => {
     if (!authLoading && user) {
-      router.replace('/dashboard');
+      router.replace(getSafeReturnTo());
     }
   }, [user, authLoading, router]);
 
