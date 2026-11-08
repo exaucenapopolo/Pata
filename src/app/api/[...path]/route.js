@@ -907,6 +907,20 @@ async function handleBudgetTemplates(request) {
     return errorResponse(message, denied ? 403 : 500);
   }
 }
+function readGoalOptionalDetails(body = {}) {
+  const allowedPurposes = ['personal', 'family', 'child', 'partner', 'emergency', 'project', 'other'];
+  const requestedPurpose = String(body.purposeType || 'personal');
+  const purposeType = allowedPurposes.includes(requestedPurpose) ? requestedPurpose : 'personal';
+  return {
+    purposeType,
+    beneficiaryName: String(body.beneficiaryName || '').trim().slice(0, 100),
+    beneficiaryRelation: String(body.beneficiaryRelation || '').trim().slice(0, 60),
+    description: String(body.description || '').trim().slice(0, 500),
+    rulesEnabled: body.rulesEnabled === true,
+    rulesText: body.rulesEnabled === true ? String(body.rulesText || '').trim().slice(0, 1200) : '',
+  };
+}
+
 async function handleCreateGoal(request) {
   try {
     const { uid } = await authenticate(request);
@@ -918,8 +932,13 @@ async function handleCreateGoal(request) {
     const startDate = String(body.startDate || new Date().toISOString().slice(0, 10));
     const deadline = String(body.deadline || '');
     const targetAmount = Math.round(Number(body.targetAmount));
+    const optionalTarget = body.targetAmount === undefined || body.targetAmount === null || String(body.targetAmount).trim() === ''
+      ? null
+      : targetAmount;
     if (type === 'goal') {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(deadline) || deadline <= startDate || !Number.isSafeInteger(targetAmount) || targetAmount <= 0) return errorResponse('Vérifie le montant et les dates de ton objectif.', 400);
+    } else if (optionalTarget !== null && (!Number.isSafeInteger(optionalTarget) || optionalTarget <= 0 || optionalTarget > 1_000_000_000)) {
+      return errorResponse('Le montant cible facultatif de la caisse est invalide.', 400);
     }
     const userRef = adminDb.collection('users').doc(uid);
     const goalsQuery = userRef.collection('goals');
@@ -953,13 +972,16 @@ async function handleCreateGoal(request) {
       stats.lastResetMonth = currentMonth;
       const record = {
         name, type, categoryId, debtBalance: 0, pinned: false,
+        ...readGoalOptionalDetails(body),
         createdAt: FieldValue.serverTimestamp(),
       };
       if (type === 'goal') Object.assign(record, {
         targetAmount, startDate, deadline,
         frequencyDays: Math.max(1, Math.floor(Number(body.frequencyDays) || 7)),
-        penaltyAmount: Math.max(0, Math.round(Number(body.penaltyAmount) || 0)),
+        penaltyEnabled: body.penaltyEnabled === true,
+        penaltyAmount: body.penaltyEnabled === true ? Math.max(700, Math.round(Number(body.penaltyAmount) || 700)) : 0,
       });
+      if (type === 'piggybank' && optionalTarget !== null) record.targetAmount = optionalTarget;
       transaction.create(goalRef, record);
       transaction.update(userRef, { monthlyStats: stats });
       return { id: goalRef.id, current: stats.goals, limit: PLAN_LIMITS.FREE.goals };
@@ -1192,13 +1214,31 @@ async function handleUpdateGoal(request) {
         patch.name = value;
       }
       if (body.categoryId !== undefined) patch.categoryId = String(body.categoryId || 'savings').trim().slice(0, 80);
-      if (body.targetAmount !== undefined && current.type === 'goal') {
-        const value = Math.round(Number(body.targetAmount));
-        if (!Number.isSafeInteger(value) || value <= 0 || value > 1_000_000_000) throw new Error('Montant cible invalide.');
-        patch.targetAmount = value;
+      if (body.purposeType !== undefined) {
+        const allowedPurposes = ['personal', 'family', 'child', 'partner', 'emergency', 'project', 'other'];
+        const requestedPurpose = String(body.purposeType || 'personal');
+        patch.purposeType = allowedPurposes.includes(requestedPurpose) ? requestedPurpose : 'personal';
+      }
+      if (body.beneficiaryName !== undefined) patch.beneficiaryName = String(body.beneficiaryName || '').trim().slice(0, 100);
+      if (body.beneficiaryRelation !== undefined) patch.beneficiaryRelation = String(body.beneficiaryRelation || '').trim().slice(0, 60);
+      if (body.description !== undefined) patch.description = String(body.description || '').trim().slice(0, 500);
+      if (body.rulesEnabled !== undefined) patch.rulesEnabled = body.rulesEnabled === true;
+      if (body.rulesText !== undefined) patch.rulesText = body.rulesEnabled === false ? '' : String(body.rulesText || '').trim().slice(0, 1200);
+      if (body.targetAmount !== undefined) {
+        const rawTarget = body.targetAmount === null || String(body.targetAmount).trim() === '' ? null : Math.round(Number(body.targetAmount));
+        if (current.type === 'goal') {
+          if (!Number.isSafeInteger(rawTarget) || rawTarget <= 0 || rawTarget > 1_000_000_000) throw new Error('Montant cible invalide.');
+          patch.targetAmount = rawTarget;
+        } else if (rawTarget === null) {
+          patch.targetAmount = FieldValue.delete();
+        } else {
+          if (!Number.isSafeInteger(rawTarget) || rawTarget <= 0 || rawTarget > 1_000_000_000) throw new Error('Montant cible invalide.');
+          patch.targetAmount = rawTarget;
+        }
       }
       if (body.frequencyDays !== undefined) patch.frequencyDays = Math.max(1, Math.min(365, Math.floor(Number(body.frequencyDays) || 7)));
-      if (body.penaltyAmount !== undefined) patch.penaltyAmount = Math.max(0, Math.round(Number(body.penaltyAmount) || 0));
+      if (body.penaltyEnabled !== undefined) patch.penaltyEnabled = body.penaltyEnabled === true;
+      if (body.penaltyAmount !== undefined) patch.penaltyAmount = body.penaltyEnabled === false ? 0 : Math.max(700, Math.round(Number(body.penaltyAmount) || 700));
       if (body.pinned !== undefined) patch.pinned = body.pinned === true;
       const nextStart = String(body.startDate ?? current.startDate ?? '');
       const nextDeadline = String(body.deadline ?? current.deadline ?? '');
