@@ -3587,8 +3587,12 @@ async function handleCotisationsList(request) {
       const groupSnap = await groupRef.get();
       if (!groupSnap.exists) return null;
       const group = groupSnap.data();
-      const membersSnap = await groupRef.collection('members').orderBy('turnOrder', 'asc').limit(50).get();
+      const membersSnap = await groupRef.collection('members').orderBy('joinedAt', 'asc').limit(50).get();
       const members = membersSnap.docs.map((doc) => ({ uid: doc.id, ...doc.data() })).filter((member) => member.active !== false);
+      const hasAssignedOrder = members.length > 0 && members.every((member) => Number.isInteger(Number(member.turnOrder)) && Number(member.turnOrder) >= 1);
+      members.sort((a, b) => hasAssignedOrder || group.startedAt
+        ? Number(a.turnOrder) - Number(b.turnOrder)
+        : ((a.joinedAt?.toMillis?.() || 0) - (b.joinedAt?.toMillis?.() || 0)));
       const meta = getCotisationCycleMeta(group);
       const cycleRef = groupRef.collection('cycles').doc(meta.cycleKey);
       const [cycleSnap, contributionsSnap, paymentsSnap] = await Promise.all([
@@ -3602,7 +3606,7 @@ async function handleCotisationsList(request) {
         const item = doc.data();
         paymentCounts.set(item.userId, (paymentCounts.get(item.userId) || 0) + 1);
       });
-      const turnMember = members.length ? members[meta.cycleIndex % members.length] : null;
+      const turnMember = group.startedAt && members.length ? members[meta.cycleIndex % members.length] : null;
       const contributionAmount = cotisationMoney(group.contributionAmount);
       const expectedMembers = cotisationMoney(group.expectedMembers || group.maxMembers || members.length);
       const baseTarget = cotisationMoney(cycleSnap.data()?.baseTargetAmount) || contributionAmount * expectedMembers;
@@ -3617,7 +3621,7 @@ async function handleCotisationsList(request) {
           uid: member.uid,
           displayName: member.displayName || 'Membre',
           isOwner: member.isOwner === true,
-          turnOrder: cotisationMoney(member.turnOrder),
+          turnOrder: member.turnOrder == null ? null : cotisationMoney(member.turnOrder),
           paid: principalPaid + penaltyPaid,
           principalPaid,
           penaltyPaid,
@@ -3652,7 +3656,10 @@ async function handleCotisationsList(request) {
         lateFeeLabel: cotisationPenaltyLabel(group), startedAt: Boolean(group.startedAt),
         inviteToken: group.ownerId === uid ? group.inviteToken : null,
         members: memberRows, memberCount: members.length, maxMembers: expectedMembers,
-        canStart: group.ownerId === uid && !group.startedAt && members.length >= 2 && members.length === expectedMembers,
+        canStart: group.ownerId === uid && !group.startedAt && members.length >= 2 && members.length === expectedMembers
+          && members.every((member) => Number.isInteger(Number(member.turnOrder)) && Number(member.turnOrder) >= 1)
+          && new Set(members.map((member) => Number(member.turnOrder))).size === members.length
+          && members.map((member) => Number(member.turnOrder)).sort((a, b) => a - b).every((position, index) => position === index + 1),
         currentCycle: {
           ...meta, targetAmount, baseTarget, totalCollected, remainingTotal: Math.max(0, targetAmount - totalCollected),
           status: cycleStatus, pendingPayment: myMemberPendingPayment, beneficiaryUid: turnMember?.uid || null,
@@ -3709,7 +3716,7 @@ async function handleCotisationCreate(request) {
         uid,
         displayName: String(userData.displayName || 'Organisateur').slice(0, 100),
         email: String(userData.email || '').slice(0, 180),
-        isOwner: true, turnOrder: 1, joinedAt: FieldValue.serverTimestamp(), active: true,
+        isOwner: true, turnOrder: null, joinedAt: FieldValue.serverTimestamp(), active: true,
       };
       transaction.create(groupRef, {
         name, contributionAmount: amount, frequency, startDate, dueDay,
@@ -3789,12 +3796,12 @@ async function handleCotisationJoin(request) {
         throw new Error('Les versements de cette période ont déjà commencé. Contacte le chef du groupe.');
       }
       const user = userSnap.data();
-      const position = memberCount + 1;
+      const position = null;
       transaction.create(memberRef, {
         uid,
         displayName: String(user.displayName || 'Membre').slice(0, 100),
         email: String(user.email || '').slice(0, 180),
-        isOwner: false, turnOrder: position,
+        isOwner: false, turnOrder: null,
         joinedAt: FieldValue.serverTimestamp(), active: true,
       });
       transaction.create(membershipRef, { groupId: groupRef.id, name: data.name, joinedAt: FieldValue.serverTimestamp() });
@@ -3817,7 +3824,7 @@ async function handleCotisationJoin(request) {
             name: joinerName, groupName: group.name, ownerName,
             contributionAmount: group.contributionAmount,
             frequency: cotisationFrequencyLabel(group.frequency),
-            position: result.position, expectedMembers: group.expectedMembers || group.maxMembers,
+            position: 'À définir par le chef', expectedMembers: group.expectedMembers || group.maxMembers,
             dueLabel,
           }),
           idempotencyKey: 'pata-cotisation-joined-' + groupRef.id + '-' + uid,
@@ -3835,7 +3842,7 @@ async function handleCotisationJoin(request) {
           name: ownerName, groupName: group.name, ownerName,
           contributionAmount: group.contributionAmount,
           frequency: cotisationFrequencyLabel(group.frequency),
-          position: result.position, expectedMembers: group.expectedMembers || group.maxMembers,
+          position: 'À définir par le chef', expectedMembers: group.expectedMembers || group.maxMembers,
           dueLabel,
         }),
         idempotencyKey: 'pata-cotisation-owner-joined-' + groupRef.id + '-' + uid,
