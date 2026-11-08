@@ -28,7 +28,7 @@ export default function AdminPage() {
   const [tab, setTab] = useState('overview'); const [overview, setOverview] = useState(null); const [users, setUsers] = useState([]); const [nextCursor, setNextCursor] = useState(null); const [questions, setQuestions] = useState(null); const [nextQuestionCursor, setNextQuestionCursor] = useState(null); const [savings, setSavings] = useState(null); const [nextSavingsCursor, setNextSavingsCursor] = useState(null); const [recipients, setRecipients] = useState([]); const [recipientSummary, setRecipientSummary] = useState(null); const [nextRecipientCursor, setNextRecipientCursor] = useState(null); const [selectedRecipientIds, setSelectedRecipientIds] = useState([]); const [recipientMode, setRecipientMode] = useState('all'); const [recipientSearch, setRecipientSearch] = useState(''); const [withdrawals, setWithdrawals] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null); const [userDetail, setUserDetail] = useState(null); const [search, setSearch] = useState(''); const [templateChoice, setTemplateChoice] = useState('');
   const [emailSubject, setEmailSubject] = useState(templates[0].subject); const [emailMessage, setEmailMessage] = useState(templates[0].body); const [emailResult, setEmailResult] = useState(''); const [emailCtaPath, setEmailCtaPath] = useState('/dashboard');
-  const [broadcastTitle, setBroadcastTitle] = useState('Information Pata'); const [broadcastMessage, setBroadcastMessage] = useState(''); const [broadcastPath, setBroadcastPath] = useState('/dashboard'); const [broadcastResult, setBroadcastResult] = useState(''); const [syncCursor, setSyncCursor] = useState(null); const [syncResult, setSyncResult] = useState('');
+  const [broadcastTitle, setBroadcastTitle] = useState('Information Pata'); const [broadcastMessage, setBroadcastMessage] = useState(''); const [broadcastPath, setBroadcastPath] = useState('/dashboard'); const [broadcastResult, setBroadcastResult] = useState('');
 
   const api = useCallback(async (path, method = 'GET', body = null) => {
     if (!user) throw new Error('Connecte-toi à ton compte avant de continuer.');
@@ -108,7 +108,6 @@ export default function AdminPage() {
     } catch (err) { setError(err.message); }
     finally { setBusy(false); }
   };
-  const syncNotificationDevices = async () => { setBusy(true); setError(''); setSyncResult(''); try { const cursor = syncCursor ? `&cursor=${encodeURIComponent(syncCursor)}` : ''; const result = await api(`admin/notifications/sync?limit=300${cursor}`, 'POST', {}); setSyncCursor(result.nextCursor || null); setSyncResult(`${result.message}${result.hasMore ? ' Lance le prochain lot pour continuer.' : ' Tous les comptes activés ont été parcourus.'}`); } catch (err) { setError(err.message); } finally { setBusy(false); } };
 
   useEffect(() => {
     if (!unlocked || tab !== 'savings') return;
