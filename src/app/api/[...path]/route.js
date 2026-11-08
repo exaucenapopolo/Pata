@@ -482,9 +482,8 @@ async function handleNotificationScheduler(request) {
           try {
             await adminMessaging.send({
               token,
-              notification: { title, body },
-              data: { url: target, tag: `pata-${today}` },
-              webpush: { notification: { icon: '/android-chrome-192x192.png', badge: '/android-chrome-192x192.png', tag: `pata-${today}`, renotify: false } },
+              data: { title, body, url: target, tag: `pata-${today}` },
+              webpush: { headers: { TTL: '86400' } },
             });
             delivered += 1;
           } catch (sendError) {
@@ -2663,9 +2662,8 @@ async function handleAdminBroadcast(request) {
       if (recipientMode === 'all') {
         await adminMessaging.send({
           topic: 'pata_all_users',
-          notification: { title, body: message },
           data: { title, body: message, url: path, tag },
-          webpush: { notification: { icon: '/android-chrome-192x192.png', badge: '/android-chrome-192x192.png', tag, renotify: false } },
+          webpush: { headers: { TTL: '86400' } },
         });
         // Topic send returns a message ID, not per-device delivery receipts.
         pushSent = 0;
@@ -2673,9 +2671,9 @@ async function handleAdminBroadcast(request) {
         for (let offset = 0; offset < optedTokens.length; offset += 500) {
           const chunk = optedTokens.slice(offset, offset + 500);
           const result = await adminMessaging.sendEachForMulticast({
-            tokens: chunk, notification: { title, body: message },
+            tokens: chunk,
             data: { title, body: message, url: path, tag },
-            webpush: { notification: { icon: '/android-chrome-192x192.png', badge: '/android-chrome-192x192.png', tag, renotify: false } },
+            webpush: { headers: { TTL: '86400' } },
           });
           pushSent += result.successCount;
           pushFailed += result.failureCount;
