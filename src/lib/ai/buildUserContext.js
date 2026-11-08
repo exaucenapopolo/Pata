@@ -135,19 +135,19 @@ export function buildUserContext(userData) {
   const cotisationLines = cotisations.map((group) => {
     const memberLines = (group.members || []).map((member) => {
       const markers = [member.isMe ? 'Utilisateur' : '', member.isOwner ? 'Chef' : ''].filter(Boolean).join(', ');
-      return \`  • Position \${member.position || '—'} : \${member.displayName}\${markers ? ' (' + markers + ')' : ''} | Principal versé : \${money(member.principalPaid)} FCFA | Majoration réglée : \${money(member.penaltyPaid)} FCFA | Total confirmé : \${money(member.totalPaid)} FCFA | Reste principal : \${money(member.remainingPrincipal)} FCFA\`;
-    }).join('\\n');
+      return `  • Position ${member.position || '—'} : ${member.displayName}${markers ? ' (' + markers + ')' : ''} | Principal versé : ${money(member.principalPaid)} FCFA | Majoration réglée : ${money(member.penaltyPaid)} FCFA | Total confirmé : ${money(member.totalPaid)} FCFA | Reste principal : ${money(member.remainingPrincipal)} FCFA`;
+    }).join('\n');
     return [
-      \`- ID EXACT: \${group.id} | \${group.name} | Rôle: \${group.role} | État: \${group.status} | Lancée: \${group.started ? 'oui' : 'non'}\`,
-      \`  Fréquence: \${group.frequency} | Contribution par personne: \${money(group.contributionAmount)} FCFA | Participants: \${group.memberCount}/\${group.expectedMembers}\`,
-      \`  Position de l’utilisateur: \${group.myPosition || 'non définie'} | Bénéficiaire du tour: \${group.currentBeneficiary} (position \${group.beneficiaryPosition || '—'}) | C’est son tour: \${group.myTurnToReceive ? 'oui' : 'non'}\`,
-      \`  Échéance: \${group.dueAt} | Délai de grâce: \${group.graceDays} jour(s), jusqu’au \${group.graceEndDate} | Majoration: \${group.lateFeeLabel} | Majoration actuellement due par l’utilisateur: \${money(group.lateFeeDue)} FCFA\`,
-      \`  Pot de base: \${money(group.basePot)} FCFA | Total confirmé (principal + majorations): \${money(group.totalCollected)} FCFA | Objectif total du tour: \${money(group.totalTargetWithLateFees)} FCFA | Reste à collecter: \${money(group.remainingToCollect)} FCFA | Statut du cycle: \${group.cycleStatus}\`,
-      \`  Versement personnel confirmé: principal \${money(group.myPrincipalPaid)} FCFA + majoration \${money(group.myPenaltyPaid)} FCFA | Reste de principal: \${money(group.myRemaining)} FCFA\`,
+      `- ID EXACT: ${group.id} | ${group.name} | Rôle: ${group.role} | État: ${group.status} | Lancée: ${group.started ? 'oui' : 'non'}`,
+      `  Fréquence: ${group.frequency} | Contribution par personne: ${money(group.contributionAmount)} FCFA | Participants: ${group.memberCount}/${group.expectedMembers}`,
+      `  Position de l’utilisateur: ${group.myPosition || 'non définie'} | Bénéficiaire du tour: ${group.currentBeneficiary} (position ${group.beneficiaryPosition || '—'}) | C’est son tour: ${group.myTurnToReceive ? 'oui' : 'non'}`,
+      `  Échéance: ${group.dueAt} | Délai de grâce: ${group.graceDays} jour(s), jusqu’au ${group.graceEndDate} | Majoration: ${group.lateFeeLabel} | Majoration actuellement due par l’utilisateur: ${money(group.lateFeeDue)} FCFA`,
+      `  Pot de base: ${money(group.basePot)} FCFA | Total confirmé (principal + majorations): ${money(group.totalCollected)} FCFA | Objectif total du tour: ${money(group.totalTargetWithLateFees)} FCFA | Reste à collecter: ${money(group.remainingToCollect)} FCFA | Statut du cycle: ${group.cycleStatus}`,
+      `  Versement personnel confirmé: principal ${money(group.myPrincipalPaid)} FCFA + majoration ${money(group.myPenaltyPaid)} FCFA | Reste de principal: ${money(group.myRemaining)} FCFA`,
       '  Participants et contributions :',
       memberLines || '  • Aucun membre disponible.',
-    ].join('\\n');
-  }).join('\\n\\n');
+    ].join('\n');
+  }).join('\n\n');
   const memoryLines = memories.map((item) => `- [${item.kind || 'contexte'}] ${item.fact}`).join('\n');
   const vitalNeeds = profile?.vitalNeeds || {};
   const vitalLines = Object.entries(vitalNeeds).map(([key, value]) => {
