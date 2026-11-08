@@ -2,6 +2,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   Plus, Trash2, TrendingUp, CheckCircle2, Landmark, Save, RotateCcw, Percent,
   PiggyBank, Target, Pencil, AlertTriangle, Calculator, ArrowRight, Clock3, MapPin
@@ -18,6 +19,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useIncomes } from '@/hooks/useIncomes';
 import { useExpenses } from '@/hooks/useExpenses';
 import { useProfile } from '@/hooks/useProfile';
+import { useProjects } from '@/hooks/useProjects';
 import { useBudgetRules } from '@/hooks/useBudgetRules';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { createIncome, deleteIncome } from '@/lib/firestore/incomes';
@@ -44,7 +46,7 @@ const currentTime = () => {
   const d = new Date();
   return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 };
-const emptyIncomeForm = () => ({ amount: '', source: 'Salaire', categoryId: 'salary', note: '', date: todayIso(), time: currentTime(), locationLabel: '', latitude: null, longitude: null, locationAccuracy: null, paymentMethod: '', details: '' });
+const emptyIncomeForm = () => ({ amount: '', source: 'Salaire', categoryId: 'salary', note: '', date: todayIso(), projectId: '', time: currentTime(), locationLabel: '', latitude: null, longitude: null, locationAccuracy: null, paymentMethod: '', details: '' });
 
 const FREQUENCIES = [
   { id: 'daily', label: 'Par jour', multiplier: 30 },
@@ -57,6 +59,9 @@ export default function IncomePage() {
   const { incomes } = useIncomes();
   const { expenses } = useExpenses();
   const { profile, save } = useProfile();
+  const { projects } = useProjects();
+  const premiumExpiry = profile?.premiumUntil?.toDate ? profile.premiumUntil.toDate() : new Date(profile?.premiumUntil || 0);
+  const isPremium = Number.isFinite(premiumExpiry.getTime()) && premiumExpiry > new Date();
   const { customCategories } = useCustomCategories('expense');
   const { rules, updatePercent, saveRules, resetRules, total, isValid, loading: rulesLoading } = useBudgetRules();
 
@@ -73,6 +78,7 @@ export default function IncomePage() {
   const [selectedIncomeToApply, setSelectedIncomeToApply] = useState('all');
   const { budgets: appliedBudgets } = useBudgets(month, selectedIncomeToApply);
   const [deleteId, setDeleteId] = useState(null);
+  const [showCotisationReminder, setShowCotisationReminder] = useState(false);
 
   // 🟢 États des prévisions
   const [vitalOpen, setVitalOpen] = useState(false);
@@ -336,13 +342,14 @@ export default function IncomePage() {
     try {
       const payload = {
         amount, source: form.source, categoryId: form.categoryId, note: form.note,
-        date: form.date, month: form.date.slice(0, 7), time: form.time,
+        date: form.date, month: form.date.slice(0, 7), projectId: isPremium ? form.projectId : '', time: form.time,
         locationLabel: form.locationLabel, latitude: form.latitude, longitude: form.longitude,
         locationAccuracy: form.locationAccuracy, paymentMethod: form.paymentMethod, details: form.details,
       };
       await createIncome(user.uid, payload);
       setOpen(false);
       setForm(emptyIncomeForm());
+      setShowCotisationReminder(true);
     } catch (err) { setError(err.message || 'Impossible d’enregistrer ce revenu.'); } finally { setSaving(false); }
   };
 
@@ -384,6 +391,7 @@ export default function IncomePage() {
 
   return (
     <div className="space-y-4">
+      {showCotisationReminder && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3"><div><p className="text-sm font-semibold text-brand-900">Revenu enregistré.</p><p className="mt-0.5 text-xs text-brand-800">Pense à vérifier ta prochaine cotisation si tu participes à un groupe.</p></div><div className="flex items-center gap-3"><Link href="/cotisations" className="text-xs font-bold text-brand-800 underline">Voir mes cotisations</Link><button type="button" onClick={() => setShowCotisationReminder(false)} className="text-xs text-brand-700">Fermer</button></div></div>}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Revenus</h1>
@@ -662,6 +670,7 @@ export default function IncomePage() {
           </div>
           <Input label="Nom / Source" required value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} />
           <Input label="Date" type="date" required value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+          {isPremium && <div><label className="mb-1 block text-sm font-medium text-slate-700">Affecter ce revenu à un projet (facultatif)</label><select value={form.projectId || ''} onChange={(e) => setForm({ ...form, projectId: e.target.value })} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="">Aucun projet — revenu général</option>{projects.filter((item) => item.status !== 'archived').map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select><p className="mt-1 text-[11px] leading-4 text-slate-500">Un revenu affecté à un projet est réservé à celui-ci et n’est pas proposé pour les dépenses générales.</p></div>}
           <Input label="Note (facultatif)" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
           <OptionalTransactionFields value={form} onChange={(next) => setForm(next)} kind="income" />
           {error && <p className="text-sm text-red-600">{error}</p>}
