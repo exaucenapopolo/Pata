@@ -3840,6 +3840,210 @@ async function handleCotisationStart(request) {
   } catch (error) { return errorResponse(error.message || 'Impossible de lancer le groupe.', 400); }
 }
 
+async function handleCotisationsScheduler(request) {
+  try {
+    const expectedSecret = process.env.CRON_SECRET;
+    const authHeader = request.headers.get('authorization') || '';
+    const suppliedSecret = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : request.headers.get('x-cron-secret');
+    if (!expectedSecret || !suppliedSecret || !safeStringEqual(suppliedSecret, expectedSecret)) {
+      return errorResponse('Accès au planificateur des cotisations refusé.', 401);
+    }
+
+    const today = cotisationToday();
+    const groupsSnap = await adminDb.collection('cotisationGroups').where('status', '==', 'active').limit(500).get();
+    const totals = { groupsChecked: groupsSnap.size, turnEmails: 0, dueReminders: 0, overdueReminders: 0, pushSent: 0, failed: 0 };
+    const appUrl = (process.env.NEXT_PUBLIC_APP_URL || 'https://www.pata-yam.site').replace(/\/$/, '');
+
+    const claimMessage = async (ref) => {
+      return adminDb.runTransaction(async (transaction) => {
+        const snapshot = await transaction.get(ref);
+        if (snapshot.exists) {
+          const data = snapshot.data() || {};
+          if (data.status === 'SENT') return false;
+          const started = data.startedAt?.toDate ? data.startedAt.toDate().getTime() : Number(data.startedAt || 0);
+          if (data.status === 'SENDING' && started && Date.now() - started < 20 * 60 * 1000) return false;
+        }
+        transaction.set(ref, {
+          status: 'SENDING',
+          startedAt: FieldValue.serverTimestamp(),
+          attempts: FieldValue.increment(1),
+        }, { merge: true });
+        return true;
+      });
+    };
+
+    const sendCotisationMessage = async ({ group, member, meta, title, body, dueAmount, penaltyDue, reminderType }) => {
+      const reminderId = 'cotisation-' + group.id + '-' + meta.cycleKey + '-' + member.uid + '-' + reminderType;
+      const reminderRef = adminDb.collection('cotisationReminderRuns').doc(reminderId);
+      const claimed = await claimMessage(reminderRef);
+      if (!claimed) return false;
+
+      const userRef = adminDb.collection('users').doc(member.uid);
+      const inAppRef = userRef.collection('notifications').doc(reminderId);
+      let emailSent = false;
+      let pushSent = 0;
+      try {
+        await inAppRef.set({
+          title, body, target: '/cotisations', source: 'cotisation',
+          groupId: group.id, cycleKey: meta.cycleKey,
+          read: false, readAt: null, createdAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+
+        if (member.email && String(member.email).includes('@')) {
+          await sendPataEmail({
+            to: member.email,
+            subject: title,
+            html: cotisationDueEmail({
+              name: member.displayName,
+              groupName: group.name,
+              contributionAmount: group.contributionAmount,
+              paidAmount: member.paid,
+              remainingAmount: dueAmount,
+              dueLabel: meta.dueAt,
+              graceDays: group.graceDays,
+              lateFeeLabel: penaltyDue > 0
+                ? cotisationPenaltyLabel(group) + ' — montant appliqué : ' + penaltyDue.toLocaleString('fr-FR') + ' FCFA'
+                : cotisationPenaltyLabel(group),
+              overdue: reminderType === 'overdue',
+            }),
+            idempotencyKey: 'pata-' + reminderId,
+          });
+          emailSent = true;
+        }
+
+        const userSnap = await userRef.get();
+        const userData = userSnap.exists ? userSnap.data() : {};
+        if (userData.notificationsEnabled && Array.isArray(userData.pushTokens)) {
+          const tokens = [...new Set(userData.pushTokens.filter((token) => typeof token === 'string' && token.length > 20))];
+          const invalidTokens = [];
+          for (const token of tokens) {
+            try {
+              await adminMessaging.send({
+                token,
+                data: { title, body, url: '/cotisations', tag: reminderId },
+                webpush: { headers: { TTL: '86400', Urgency: 'high' }, fcmOptions: { link: appUrl + '/cotisations' } },
+              });
+              pushSent += 1;
+            } catch (pushError) {
+              if (['messaging/registration-token-not-registered', 'messaging/invalid-registration-token'].includes(pushError.code)) invalidTokens.push(token);
+              console.warn('[COTISATION REMINDER PUSH]', member.uid, pushError.code || pushError.message);
+            }
+          }
+          if (invalidTokens.length) {
+            await userRef.set({ pushTokens: FieldValue.arrayRemove(...invalidTokens) }, { merge: true });
+            const remaining = tokens.filter((token) => !invalidTokens.includes(token));
+            if (!remaining.length) await userRef.set({ notificationsEnabled: false }, { merge: true });
+          }
+        }
+
+        await reminderRef.set({
+          status: 'SENT',
+          emailSent,
+          pushSent,
+          completedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+        return true;
+      } catch (error) {
+        await reminderRef.set({
+          status: 'FAILED',
+          error: String(error.message || error).slice(0, 300),
+          failedAt: FieldValue.serverTimestamp(),
+        }, { merge: true }).catch(() => {});
+        throw error;
+      }
+    };
+
+    for (const groupDoc of groupsSnap.docs) {
+      const group = { id: groupDoc.id, ...groupDoc.data() };
+      if (!group.startedAt) continue;
+      try {
+        const meta = getCotisationCycleMeta(group, today);
+        if (meta.notStarted) continue;
+        const membersSnap = await groupDoc.ref.collection('members').orderBy('turnOrder', 'asc').limit(50).get();
+        const members = membersSnap.docs
+          .map((doc) => ({ uid: doc.id, ...doc.data() }))
+          .filter((member) => member.active !== false)
+          .sort((a, b) => Number(a.turnOrder) - Number(b.turnOrder));
+        if (members.length < 2) continue;
+
+        const beneficiary = members[meta.cycleIndex % members.length];
+        if (beneficiary?.email && String(beneficiary.email).includes('@')) {
+          const turnRef = groupDoc.ref.collection('turnNotifications').doc(meta.cycleKey);
+          const claimed = await claimMessage(turnRef);
+          if (claimed) {
+            try {
+              await sendPataEmail({
+                to: beneficiary.email,
+                subject: 'Ton tour est arrivé dans « ' + String(group.name || 'ta cotisation') + ' »',
+                html: cotisationTurnEmail({
+                  name: beneficiary.displayName,
+                  groupName: group.name,
+                  frequency: cotisationFrequencyLabel(group.frequency),
+                  position: Number(beneficiary.turnOrder) || meta.cycleIndex + 1,
+                  contributionAmount: group.contributionAmount,
+                  totalAmount: cotisationMoney(group.contributionAmount) * members.length,
+                  dueLabel: meta.dueAt,
+                  isMyTurn: true,
+                }),
+                idempotencyKey: 'pata-cotisation-turn-' + group.id + '-' + meta.cycleKey + '-' + beneficiary.uid,
+              });
+              await groupDoc.ref.collection('turnNotifications').doc(meta.cycleKey).set({
+                status: 'SENT', beneficiaryUid: beneficiary.uid,
+                sentAt: FieldValue.serverTimestamp(),
+              }, { merge: true });
+              totals.turnEmails += 1;
+            } catch (emailError) {
+              await turnRef.set({ status: 'FAILED', error: String(emailError.message || emailError).slice(0, 300) }, { merge: true });
+              throw emailError;
+            }
+          }
+        }
+
+        const cycleRef = groupDoc.ref.collection('cycles').doc(meta.cycleKey);
+        const [cycleSnap, contributionsSnap] = await Promise.all([
+          cycleRef.get(),
+          cycleRef.collection('contributions').limit(50).get(),
+        ]);
+        const contributions = new Map(contributionsSnap.docs.map((doc) => [doc.id, doc.data()]));
+        const isDueDay = today === meta.dueAt;
+        const graceEnd = cotisationAddDays(meta.dueAt, cotisationMoney(group.graceDays));
+        const isOverdueDay = today === cotisationAddDays(graceEnd, 1);
+        if (!isDueDay && !isOverdueDay) continue;
+
+        const expectedPrincipal = cotisationMoney(group.contributionAmount);
+        for (const member of members) {
+          const contribution = contributions.get(member.uid) || {};
+          const paid = cotisationMoney(contribution.amount);
+          const remaining = Math.max(0, expectedPrincipal - paid);
+          if (!remaining) continue;
+          const penaltyDue = isOverdueDay && !cotisationMoney(contribution.penaltyPaid) ? cotisationLateFee(group) : 0;
+          const reminderType = isOverdueDay ? 'overdue' : 'due';
+          const title = isOverdueDay ? 'Délai de grâce terminé — cotisation à régulariser' : 'La date limite de ta cotisation est arrivée';
+          const body = isOverdueDay
+            ? 'Il te reste ' + remaining.toLocaleString('fr-FR') + ' FCFA à verser dans « ' + group.name + ' ». Le délai de grâce est terminé. La règle du groupe prévoit une majoration de ' + penaltyDue.toLocaleString('fr-FR') + ' FCFA, le cas échéant.'
+            : 'La date limite de paiement de « ' + group.name + ' » est aujourd’hui. Il te reste ' + remaining.toLocaleString('fr-FR') + ' FCFA à verser. Tu peux cotiser en plusieurs fois dans Pata.';
+          const sent = await sendCotisationMessage({
+            group, member, meta, title, body,
+            dueAmount: remaining, penaltyDue, reminderType,
+          });
+          if (sent) {
+            if (isOverdueDay) totals.overdueReminders += 1;
+            else totals.dueReminders += 1;
+          }
+        }
+      } catch (error) {
+        totals.failed += 1;
+        console.error('[COTISATION SCHEDULER]', group.id, error.message || error);
+      }
+    }
+
+    return NextResponse.json({ success: true, date: today, ...totals });
+  } catch (error) {
+    console.error('[CRON] Cotisations:', error.message || error);
+    return errorResponse(error.message || 'Le rappel quotidien des cotisations a échoué.', 500);
+  }
+}
+
 async function handleCotisationPay(request) {
   try {
     const { uid } = await authenticate(request);
@@ -4085,6 +4289,7 @@ const ROUTES = {
   'incomes/add': { POST: handleCreateIncome },
   'projects/create': { POST: handleCreateProject },
   'cotisations/invite': { GET: handleCotisationInvitePreview },
+  'cotisations/scheduler': { GET: handleCotisationsScheduler, POST: handleCotisationsScheduler },
   'cotisations/create': { POST: handleCotisationCreate },
   'cotisations/join': { POST: handleCotisationJoin },
   'cotisations/reorder': { POST: handleCotisationReorder },
