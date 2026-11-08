@@ -36,6 +36,17 @@ function getBaseUrl(request) {
   return process.env.FAPSHI_WEBHOOK_URL?.replace(/\/$/, '') || `${proto}://${host}`;
 }
 
+function getPataAppUrl(request) {
+  const configured = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL;
+  if (configured) {
+    try { return new URL(configured).origin; } catch { /* utiliser le domaine de la requête */ }
+  }
+  const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || '';
+  const proto = request.headers.get('x-forwarded-proto') || 'https';
+  if (host) return `${proto}://${host}`;
+  return getBaseUrl(request);
+}
+
 /* ═══════════════════ GESTION DES QUOTAS & SÉCURITÉ ═══════════════════ */
 
 const PLAN_LIMITS = {
@@ -611,7 +622,7 @@ async function handleNotificationTest(request) {
       await userRef.set({ pushTokens: FieldValue.arrayUnion(token), notificationsEnabled: true, notificationsUpdatedAt: FieldValue.serverTimestamp() }, { merge: true });
     }
     const tag = `pata-test-${Date.now()}`;
-    const appUrl = 'https://www.pata-yam.site';
+    const appUrl = getPataAppUrl(request);
     const messageId = await adminMessaging.send({
       token,
       data: {
@@ -3830,7 +3841,7 @@ async function handleCotisationCreate(request) {
         email: String(userData.email || ''),
       };
     });
-    const appUrl = (process.env.NEXT_PUBLIC_APP_URL || request.headers.get('origin') || getBaseUrl(request)).replace(/\/$/, '');
+    const appUrl = getPataAppUrl(request);
     const inviteUrl = appUrl + '/invitation/cotisation/' + inviteToken;
     const dueLabel = frequency === 'monthly' ? 'Le ' + dueDay + ' de chaque mois' : frequency === 'weekly' ? 'Tous les 7 jours à partir du ' + startDate : 'Chaque jour à partir du ' + startDate;
     const penaltyLabel = cotisationPenaltyLabel({ contributionAmount: amount, lateFeeType, lateFeeValue });
@@ -4152,7 +4163,7 @@ async function handleCotisationsScheduler(request) {
     const today = cotisationToday();
     const groupsSnap = await adminDb.collection('cotisationGroups').where('status', '==', 'active').limit(500).get();
     const totals = { groupsChecked: groupsSnap.size, turnEmails: 0, dueReminders: 0, overdueReminders: 0, pushSent: 0, failed: 0 };
-    const appUrl = (process.env.NEXT_PUBLIC_APP_URL || request.headers.get('origin') || getBaseUrl(request)).replace(/\/$/, '');
+    const appUrl = getPataAppUrl(request);
 
     const claimMessage = async (ref) => {
       return adminDb.runTransaction(async (transaction) => {
