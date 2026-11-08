@@ -67,7 +67,7 @@ function buildGoalAdvices(plan, balance, goalName) {
     advices.push({ type: 'info', message: `Cet objectif est programmé pour commencer le ${formatDate(plan.startDate)}.` });
     return advices;
   }
-  if (plan.isReached) {
+  if (plan.isReached && !plan.isLate) {
     advices.push({ type: 'success', message: `Ton objectif « ${goalName} » est atteint. Tu peux retirer ton argent à tout moment.` });
     return advices;
   }
