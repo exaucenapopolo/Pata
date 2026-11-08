@@ -3571,7 +3571,13 @@ async function handleCotisationPay(request) {
         displayName: userData.displayName || 'Membre', amount, fee, grossAmount, phone, medium,
         status: 'PENDING', checkoutUrl, createdAt: FieldValue.serverTimestamp(),
       });
-      await memberRef.update({ pendingPaymentTransId: transId });
+      // Ne rattache le lien que si la réservation existe toujours : le webhook peut avoir confirmé très vite.
+      await adminDb.runTransaction(async (transaction) => {
+        const freshMember = await transaction.get(memberRef);
+        if (freshMember.exists && freshMember.data()?.pendingPaymentId === reservationId) {
+          transaction.update(memberRef, { pendingPaymentTransId: transId });
+        }
+      });
       return NextResponse.json({ success: true, checkoutUrl, transId, amount, fee, grossAmount });
     } catch (error) {
       await releaseCotisationReservation(groupId, uid, reservationId, error.message || 'Erreur au démarrage du paiement').catch(() => {});
