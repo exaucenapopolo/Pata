@@ -633,57 +633,6 @@ async function handleCreateIncome(request) {
   }
 }
 
-async function handleUpdateIncome(request) {
-  try {
-    const { uid } = await authenticate(request);
-    const body = await request.json();
-    const incomeId = String(body.incomeId || body.id || '').trim().slice(0, 150);
-    if (!incomeId || incomeId.includes('/')) return errorResponse('Revenu introuvable.', 400);
-    const amount = body.amount === undefined ? null : Math.round(Number(body.amount));
-    if (amount !== null && (!Number.isSafeInteger(amount) || amount <= 0 || amount > 1_000_000_000)) return errorResponse('Indique un montant de revenu valide.', 400);
-    const source = body.source === undefined ? null : String(body.source || '').trim().slice(0, 100);
-    if (source !== null && !source) return errorResponse('Le nom de la source est obligatoire.', 400);
-    const categoryId = body.categoryId === undefined ? null : String(body.categoryId || 'other_income').trim().slice(0, 80);
-    const date = body.date === undefined ? null : String(body.date || '');
-    if (date !== null && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return errorResponse('La date du revenu est invalide.', 400);
-    const note = body.note === undefined ? null : String(body.note || '').trim().slice(0, 250);
-    const userRef = adminDb.collection('users').doc(uid);
-    const incomeRef = userRef.collection('incomes').doc(incomeId);
-    const result = await adminDb.runTransaction(async (transaction) => {
-      const [incomeSnap, allIncomesSnap] = await Promise.all([
-        transaction.get(incomeRef),
-        transaction.get(userRef.collection('incomes')),
-      ]);
-      if (!incomeSnap.exists) throw new Error('Revenu introuvable.');
-      const previous = incomeSnap.data() || {};
-      const nextAmount = amount === null ? Math.round(Number(previous.amount) || 0) : amount;
-      const nextDate = date === null ? String(previous.date || new Date().toISOString().slice(0, 10)) : date;
-      const next = {
-        amount: nextAmount,
-        source: source === null ? String(previous.source || 'Revenu') : source,
-        categoryId: categoryId === null ? String(previous.categoryId || 'other_income') : categoryId,
-        date: nextDate,
-        month: nextDate.slice(0, 7),
-        note: note === null ? String(previous.note || '') : note,
-        ...readOptionalIncomeMetadata(body, previous),
-        updatedAt: FieldValue.serverTimestamp(),
-      };
-      transaction.update(incomeRef, next);
-      const totalAfterUpdate = allIncomesSnap.docs.reduce((sum, document) => {
-        if (document.id === incomeId) return sum + nextAmount;
-        return sum + (Number(document.data().amount) || 0);
-      }, 0);
-      transaction.set(userRef, {
-        lifetimeIncomeAmount: totalAfterUpdate,
-        lifetimeIncomeCount: allIncomesSnap.size,
-      }, { merge: true });
-      return { id: incomeId };
-    });
-    return NextResponse.json({ success: true, ...result });
-  } catch (error) {
-    return errorResponse(error.message || 'Impossible de modifier ce revenu.', /introuvable|obligatoire|invalide/i.test(error.message || '') ? 400 : 500);
-  }
-}
 
 async function handleUpsertBudget(request) {
   try {
@@ -2776,7 +2725,6 @@ const ROUTES = {
   'forecasts/duration/save': { POST: handleSaveDurationForecast },
   'forecasts/duration/delete': { POST: handleDeleteDurationForecast },
   'incomes/add': { POST: handleCreateIncome },
-  'incomes/update': { POST: handleUpdateIncome },
   'budgets/upsert': { POST: handleUpsertBudget },
   'budgets/templates': { GET: handleBudgetTemplates, POST: handleBudgetTemplates, DELETE: handleBudgetTemplates },
   'goals/create': { POST: handleCreateGoal },
