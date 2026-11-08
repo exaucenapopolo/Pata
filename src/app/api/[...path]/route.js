@@ -11,7 +11,7 @@ import { buildUserContext } from '@/lib/ai/buildUserContext';
 import { computeGoalPlan, GOAL_LATE_PENALTY_RATE, GOAL_PENALTY_EFFECTIVE_DATE } from '@/lib/goalCalc';
 import {
   sendPataEmail, welcomeEmail, savingsCreatedEmail, customAdminEmail, pinResetEmail,
-  cotisationCreatedEmail, cotisationJoinedEmail, cotisationStartedEmail, cotisationTurnEmail, cotisationDueEmail,
+  cotisationCreatedEmail, cotisationJoinedEmail, cotisationOwnerJoinedEmail, cotisationStartedEmail, cotisationTurnEmail, cotisationDueEmail, cotisationContributionPaidEmail, financialReminderEmail,
 } from '@/lib/email/resend';
 
 export const runtime = 'nodejs';
@@ -667,14 +667,14 @@ async function handleNotificationScheduler(request) {
     if (!expectedSecret || suppliedSecret !== expectedSecret) return errorResponse('Accès au planificateur refusé.', 401);
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Douala', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
     const month = today.slice(0, 7);
-    const usersSnapshot = await adminDb.collection('users').where('notificationsEnabled', '==', true).get();
+    const usersSnapshot = await adminDb.collection('users').get();
     let sent = 0;
     let skipped = 0;
     let failed = 0;
     for (const userDoc of usersSnapshot.docs) {
       const userData = userDoc.data();
       const tokens = Array.isArray(userData.pushTokens) ? [...new Set(userData.pushTokens.filter(Boolean))] : [];
-      if (!tokens.length || userData.notificationsDailyDate === today) { skipped += 1; continue; }
+      if (userData.notificationsDailyDate === today) { skipped += 1; continue; }
       try {
         const monthStart = `${month}-01`;
         const [todayExpensesSnap, monthExpensesSnap, budgetsSnap, automationsSnap] = await Promise.all([
@@ -735,6 +735,8 @@ async function handleNotificationScheduler(request) {
           target = '/expenses';
         }
         let delivered = 0;
+        let emailSent = false;
+        if(userData.email&&String(userData.email).includes('@')){try{await sendPataEmail({to:userData.email,subject:title,html:financialReminderEmail({name:userData.displayName,headline:title,message:body,category:overBudget?({food:'Alimentation',transport:'Transport',housing:'Logement',internet:'Internet',health:'Santé',leisure:'Loisirs',investment:'Investissement',contribution:'Cotisations',savings:'Épargne',other:'Autres'}[overBudget.categoryId]||'Dépenses'):'',amount:overBudget?overBudget.spent:null,budgetAmount:overBudget?overBudget.allocated:null,targetUrl:target}),idempotencyKey:'pata-daily-financial-'+userDoc.id+'-'+today});emailSent=true;}catch(emailError){console.warn('[DAILY FINANCIAL EMAIL]',userDoc.id,emailError.message||emailError);}}
         const invalidTokens = [];
         for (const token of tokens) {
           try {
@@ -756,7 +758,7 @@ async function handleNotificationScheduler(request) {
           source: 'daily_reminder', read: false, readAt: null,
           createdAt: FieldValue.serverTimestamp(),
         }, { merge: true });
-        if (delivered > 0) sent += 1;
+        if (delivered > 0 || emailSent) sent += 1;
         else failed += 1;
       } catch (userError) {
         failed += 1;
@@ -3567,7 +3569,7 @@ function validateCotisationProviderPayment(providerResponse, payment, transId) {
 
 async function confirmCotisationPayment(transId) {
   const paymentRef = adminDb.collection('cotisationPayments').doc(String(transId));
-  return adminDb.runTransaction(async (transaction) => {
+  const confirmation = await adminDb.runTransaction(async (transaction) => {
     const paymentSnap = await transaction.get(paymentRef);
     if (!paymentSnap.exists) return { confirmed: false, missing: true };
     const payment = paymentSnap.data();
@@ -3625,8 +3627,20 @@ async function confirmCotisationPayment(transId) {
     }, { merge: true });
     transaction.update(groupRef, { membershipLockedCycle: payment.cycleKey, updatedAt: FieldValue.serverTimestamp() });
     transaction.update(paymentRef, { status: 'CONFIRMED', confirmedAt: FieldValue.serverTimestamp() });
-    return { confirmed: true, amount, totalCollected: nextTotal, targetAmount };
+    return { confirmed: true, amount, totalCollected: nextTotal, targetAmount, userId: payment.userId, groupId: payment.groupId, cycleKey: payment.cycleKey };
   });
+  if (confirmation.confirmed && !confirmation.duplicate) {
+    try {
+      const groupRef=adminDb.collection('cotisationGroups').doc(confirmation.groupId), cycleRef=groupRef.collection('cycles').doc(confirmation.cycleKey);
+      const [userSnap,groupSnap,cycleSnap,paymentSnap]=await Promise.all([adminDb.collection('users').doc(confirmation.userId).get(),groupRef.get(),cycleRef.get(),paymentRef.get()]);
+      const userData=userSnap.exists?userSnap.data():{}, groupData=groupSnap.exists?groupSnap.data():{}, contributionSnap=await cycleRef.collection('contributions').doc(confirmation.userId).get(), contribution=contributionSnap.data()||{}, payment=paymentSnap.data()||{};
+      const remainingAmount=Math.max(0,cotisationMoney(groupData.contributionAmount)-cotisationMoney(contribution.amount)), dueAt=cycleSnap.data()?.dueAt||'', dueDate=dueAt?new Date(dueAt+'T23:59:59'):null, daysRemaining=dueDate&&!Number.isNaN(dueDate.getTime())?Math.ceil((dueDate.getTime()-Date.now())/86400000):null;
+      const title='Ton versement de cotisation est confirmé', body='Ton versement de '+cotisationMoney(payment.amount).toLocaleString('fr-FR')+' FCFA pour '+(groupData.name||'ton groupe')+' a été confirmé. Il te reste '+remainingAmount.toLocaleString('fr-FR')+' FCFA à contribuer pour cette période.';
+      await adminDb.collection('users').doc(confirmation.userId).collection('notifications').doc('cotisation-paid-'+transId).set({title,body,target:'/cotisations',source:'cotisation',groupId:confirmation.groupId,read:false,readAt:null,createdAt:FieldValue.serverTimestamp()},{merge:true});
+      if(userData.email&&String(userData.email).includes('@')) await sendPataEmail({to:userData.email,subject:title,html:cotisationContributionPaidEmail({name:userData.displayName,groupName:groupData.name,amount:payment.amount,paidAmount:cotisationMoney(contribution.amount)+cotisationMoney(contribution.penaltyPaid),remainingAmount,contributionAmount:groupData.contributionAmount,dueLabel:dueAt,daysRemaining}),idempotencyKey:'pata-cotisation-paid-'+transId});
+    } catch(emailError){console.warn('[COTISATION PAYMENT EMAIL]',transId,emailError.message||emailError);}
+  }
+  return confirmation;
 }
 
 async function releaseCotisationReservation(groupId, userId, reservationId, reason = 'FAILED') {
@@ -3742,6 +3756,7 @@ async function handleCotisationsList(request) {
           displayName: member.displayName || 'Membre',
           isOwner: member.isOwner === true,
           turnOrder: group.orderConfirmedAt && member.turnOrder != null ? cotisationMoney(member.turnOrder) : null,
+          whatsappPhone: member.uid === uid || group.ownerId === uid ? String(member.whatsappPhone || '') : undefined,
           paid: principalPaid + penaltyPaid,
           principalPaid,
           penaltyPaid,
@@ -3769,7 +3784,7 @@ async function handleCotisationsList(request) {
         }
       }
       return {
-        id: groupRef.id, name: group.name, ownerId: group.ownerId, isOwner: group.ownerId === uid,
+        id: groupRef.id, name: group.name, ownerId: group.ownerId, isOwner: group.ownerId === uid, createdAt: serializeAdminValue(group.createdAt || null),
         contributionAmount, frequency: group.frequency, startDate: group.startDate, status: group.status || 'active',
         dueDay: group.dueDay || null, expectedMembers, graceDays: cotisationMoney(group.graceDays),
         lateFeeType: group.lateFeeType || 'none', lateFeeValue: cotisationMoney(group.lateFeeValue),
@@ -3804,6 +3819,7 @@ async function handleCotisationCreate(request) {
     const { uid } = await authenticate(request);
     const body = await request.json();
     const name = String(body.name || '').trim().slice(0, 90);
+    if (body.responsibilityAccepted !== true) return errorResponse('Tu dois lire et accepter les responsabilités du chef de groupe avant de créer une cotisation.', 400);
     const amount = Math.round(Number(body.contributionAmount));
     const expectedMembers = Math.floor(Number(body.expectedMembers));
     const frequency = ['daily', 'weekly', 'monthly'].includes(body.frequency) ? body.frequency : '';
@@ -3845,6 +3861,7 @@ async function handleCotisationCreate(request) {
         graceDays, lateFeeType, lateFeeValue,
         ownerId: uid, inviteToken, status: 'active', startedAt: null,
         orderConfirmedAt: null, orderConfirmedBy: null,
+        responsibilityAcceptedAt: FieldValue.serverTimestamp(), responsibilityAcceptedBy: uid,
         membershipLockedCycle: null,
         createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
       });
@@ -3933,7 +3950,7 @@ async function handleCotisationJoin(request) {
         orderConfirmedBy: null,
         updatedAt: FieldValue.serverTimestamp(),
       });
-      return { alreadyJoined: false, position, user };
+      return { alreadyJoined: false, position, user, memberCount: memberCount + 1 };
     });
     const ownerSnap = await ownerRef.get().catch(() => null);
     const ownerName = String(ownerSnap?.data()?.displayName || 'Chef du groupe');
@@ -3952,7 +3969,8 @@ async function handleCotisationJoin(request) {
             contributionAmount: group.contributionAmount,
             frequency: cotisationFrequencyLabel(group.frequency),
             position: 'À définir par le chef', expectedMembers: cotisationExpectedMembers(group, group.memberCount),
-            dueLabel,
+            joinedMembers: result.memberCount || group.memberCount, remainingMembers: Math.max(0, cotisationExpectedMembers(group, group.memberCount) - (result.memberCount || group.memberCount)),
+            dueLabel, groupUrl: '/cotisations',
           }),
           idempotencyKey: 'pata-cotisation-joined-' + groupRef.id + '-' + uid,
         });
@@ -3965,12 +3983,12 @@ async function handleCotisationJoin(request) {
       await sendPataEmail({
         to: ownerEmail,
         subject: 'Un nouveau membre a rejoint « ' + String(group.name || 'ta cotisation') + ' »',
-        html: cotisationJoinedEmail({
-          name: ownerName, groupName: group.name, ownerName,
-          contributionAmount: group.contributionAmount,
-          frequency: cotisationFrequencyLabel(group.frequency),
-          position: 'À définir par le chef', expectedMembers: cotisationExpectedMembers(group, group.memberCount),
-          dueLabel,
+        html: cotisationOwnerJoinedEmail({
+          ownerName, joinerName, groupName: group.name, contributionAmount: group.contributionAmount,
+          frequency: cotisationFrequencyLabel(group.frequency), joinedMembers: result.memberCount || group.memberCount,
+          expectedMembers: cotisationExpectedMembers(group, group.memberCount),
+          remainingMembers: Math.max(0, cotisationExpectedMembers(group, group.memberCount) - (result.memberCount || group.memberCount)),
+          dueLabel, groupUrl: '/cotisations',
         }),
         idempotencyKey: 'pata-cotisation-owner-joined-' + groupRef.id + '-' + uid,
       }).catch((emailError) => console.warn('[COTISATION OWNER EMAIL]', emailError.message || emailError));
@@ -4018,6 +4036,16 @@ async function handleCotisationInvitePreview(request) {
   } catch (error) {
     return errorResponse(error.message || 'Impossible de consulter cette invitation.', 500);
   }
+}
+
+
+async function handleCotisationContact(request) {
+ try { const {uid}=await authenticate(request), body=await request.json(), groupId=String(body.groupId||'').trim().slice(0,150), normalized=String(body.whatsappPhone||'').trim().replace(/[.\\-()\\s]/g,'');
+ if(!groupId||groupId.includes('/')||!/^\\+?[0-9]{8,15}$/.test(normalized))return errorResponse('Entre un numéro WhatsApp valide avec son indicatif si nécessaire.',400);
+ const memberRef=adminDb.collection('cotisationGroups').doc(groupId).collection('members').doc(uid), memberSnap=await memberRef.get();
+ if(!memberSnap.exists||memberSnap.data()?.active===false)return errorResponse('Tu ne fais pas partie de ce groupe.',403);
+ await memberRef.update({whatsappPhone:normalized,whatsappUpdatedAt:FieldValue.serverTimestamp()});return NextResponse.json({success:true,message:'Ton numéro WhatsApp a été enregistré.'});
+ }catch(error){return errorResponse(error.message||'Impossible d’enregistrer ton numéro WhatsApp.',400);}
 }
 
 async function handleCotisationReorder(request) {
@@ -4069,6 +4097,7 @@ async function handleCotisationStart(request) {
       if (!groupSnap.exists) throw new Error('Groupe introuvable.');
       const group = groupSnap.data();
       if (group.ownerId !== uid) throw new Error('Seul le chef du groupe peut lancer la cotisation.');
+      if (group.responsibilityAcceptedBy !== uid) throw new Error('Le chef doit accepter les responsabilités du groupe avant le lancement.');
       if (group.startedAt) throw new Error('Cette cotisation a déjà été lancée.');
       if (!group.orderConfirmedAt) throw new Error('Le chef doit enregistrer explicitement l’ordre des membres avant le lancement.');
       const expectedMembers = cotisationExpectedMembers(group, group.memberCount);
@@ -4076,6 +4105,7 @@ async function handleCotisationStart(request) {
       const membersSnap = await transaction.get(membersQuery);
       if (membersSnap.size < 2) throw new Error('Au moins deux personnes doivent avoir rejoint le groupe.');
       if (membersSnap.size !== expectedMembers) throw new Error('Il faut exactement ' + expectedMembers + ' participants avant de lancer ce groupe. Il en manque ' + Math.max(0, expectedMembers - membersSnap.size) + '.');
+      if (membersSnap.docs.some((doc) => !/^\\+?[0-9 ()-]{8,20}$/.test(String(doc.data()?.whatsappPhone || '')))) throw new Error('Chaque participant doit enregistrer son numéro WhatsApp avant le lancement.');
       const members = membersSnap.docs.map((doc) => ({ uid: doc.id, ...doc.data() })).sort((a, b) => Number(a.turnOrder) - Number(b.turnOrder));
       if (new Set(members.map((member) => Number(member.turnOrder))).size !== members.length || members.some((member, index) => Number(member.turnOrder) !== index + 1)) {
         throw new Error('Le chef doit enregistrer une position unique pour chaque participant avant le lancement.');
@@ -4418,7 +4448,7 @@ async function handleCotisationPay(request) {
     if (membersSnap.size < 2 || membersSnap.size !== expectedMembers) return errorResponse('Le groupe doit être complet et lancé avant les versements.', 409);
     const apiUser = process.env.FAPSHI_API_USER;
     const apiKey = process.env.FAPSHI_SECRET_KEY;
-    if (!apiUser || !apiKey) return errorResponse('Le paiement Fapshi n’est pas configuré.', 503);
+    if (!apiUser || !apiKey) return errorResponse('Le service de paiement est momentanément indisponible. Réessaie plus tard.', 503);
 
     // Réservation atomique : un seul lien Fapshi non terminé par membre et par cycle.
     const reservationId = randomBytes(18).toString('hex');
@@ -4466,7 +4496,7 @@ async function handleCotisationPay(request) {
       externalId: reservationId,
       redirect_url: (request.headers.get('origin') || baseUrl) + '/cotisations',
       webhook_url: baseUrl + '/api/fapshi/webhook',
-      phone, email: userData.email || '', name: userData.displayName || 'Membre',
+      email: userData.email || '', name: userData.displayName || 'Membre',
     };
     try {
       const response = await fetch('https://live.fapshi.com/initiate-pay', {
@@ -4488,7 +4518,7 @@ async function handleCotisationPay(request) {
         transId, reservationId, userId: uid, groupId, groupName: reservation.group.name || 'Cotisation',
         cycleKey: reservation.meta.cycleKey, cycleIndex: reservation.meta.cycleIndex, cycleStartDate: reservation.meta.startDate, dueAt: reservation.meta.dueAt,
         displayName: userData.displayName || 'Membre', amount, penaltyAmount: reservation.penaltyAmount,
-        fee: reservation.fee, grossAmount: reservation.grossAmount, phone, medium,
+        fee: reservation.fee, grossAmount: reservation.grossAmount,
         status: 'PENDING', checkoutUrl, createdAt: FieldValue.serverTimestamp(),
       });
       // Ne rattache le lien que si la réservation existe toujours : le webhook peut avoir confirmé très vite.
@@ -4546,7 +4576,8 @@ async function handleCotisationWithdrawalRequest(request) {
       if (collected < target) throw new Error('Tous les membres doivent avoir terminé leur cotisation avant le retrait.');
       if (!['READY', 'OPEN'].includes(cycle.status || 'OPEN')) throw new Error('Une demande de retrait est déjà en cours ou ce cycle est terminé.');
       const user = userSnap.data();
-      if (collected < 100 || collected > 500000) throw new Error('Le montant doit être compris entre 100 et 500 000 FCFA pour un retrait Fapshi.');
+      if (collected < 100 || collected > 500000) throw new Error('Le montant du retrait doit être compris entre 100 et 500 000 FCFA.');
+      if (!/^\\+?[0-9 ()-]{8,20}$/.test(String(memberSnap.data()?.whatsappPhone || ''))) throw new Error('Enregistre ton numéro WhatsApp dans les informations du groupe avant de demander le retrait.');
       transaction.create(requestRef, {
         withdrawalType: 'cotisation', userId: uid, email: user.email || '',
         displayName: user.displayName || beneficiary.displayName || 'Membre', phone, medium,
@@ -4639,6 +4670,7 @@ const ROUTES = {
   'cotisations/create': { POST: handleCotisationCreate },
   'cotisations/join': { POST: handleCotisationJoin },
   'cotisations/reorder': { POST: handleCotisationReorder },
+  'cotisations/contact': { POST: handleCotisationContact },
   'cotisations/start': { POST: handleCotisationStart },
   'cotisations/pay': { POST: handleCotisationPay },
   'cotisations/withdraw': { POST: handleCotisationWithdrawalRequest },

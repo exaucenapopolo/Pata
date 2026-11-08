@@ -13,15 +13,15 @@ export function LegalSummaryButton({ documentTitle }) {
     }
 
     const prompt = [
-      `Aide-moi à comprendre le document « ${documentTitle} » de Pata.`,
+      `Explique brièvement « ${documentTitle} » de Pata.`,
       "Lis le contenu ci-dessous et explique-le en français simple, sans inventer d’information.",
       "Commence par un paragraphe très court de 1 à 2 phrases qui débute par **En bref —**.",
-      "Présente ensuite au maximum 4 points importants : ce que l’utilisateur accepte, les frais ou obligations éventuels, les données concernées et les choix dont il dispose.",
+      "Donne au maximum 3 points essentiels : engagements, frais ou obligations, données et choix.",
       "Explique les mots compliqués. N’affiche pas un long rapport, ne répète pas le document et ne donne pas un avis juridique.",
-      "Termine en proposant d’expliquer une clause précise si l’utilisateur le souhaite.",
+      "Réponse courte : 120 mots maximum.",
       "",
       "CONTENU DU DOCUMENT :",
-      documentText.slice(0, 18000),
+      documentText.slice(0, 5000),
     ].join("\n\n");
 
     window.dispatchEvent(new CustomEvent('pata:assistant-open', {

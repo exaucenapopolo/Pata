@@ -1,6 +1,6 @@
 const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || 'https://www.pata-yam.site').replace(/\/$/, '');
 const FROM = process.env.RESEND_FROM_EMAIL || 'Pata <notifications@socialboosthorizon.com>';
-const SUPPORT_PHONE = '12424542961';
+const SUPPORT_PHONE = '14236752034';
 
 export function escapeEmailHtml(value = '') {
   return String(value).replace(/[&<>"']/g, (char) => ({
@@ -160,7 +160,7 @@ export function cotisationCreatedEmail({ name, groupName, contributionAmount, fr
   return renderPataEmail({ preheader: 'Ton groupe de cotisation est créé.', eyebrow: 'NOUVEAU GROUPE DE COTISATION', headline: 'Ton groupe est prêt à être organisé.', bodyHtml, ctaLabel: 'Gérer ma cotisation', ctaUrl: '/cotisations' });
 }
 
-export function cotisationJoinedEmail({ name, groupName, ownerName, contributionAmount, frequency, position, expectedMembers, dueLabel }) {
+export function cotisationJoinedEmail({ name, groupName, ownerName, contributionAmount, frequency, position, expectedMembers, joinedMembers, remainingMembers, dueLabel, groupUrl }) {
   const bodyHtml = `
     <p style="margin:0 0 14px;color:#334155;font-size:14px;line-height:1.75;">Bonjour ${escapeEmailHtml(name || '')}, ton adhésion au groupe <strong>${escapeEmailHtml(groupName || 'de cotisation')}</strong> a été enregistrée. Le chef du groupe est ${escapeEmailHtml(ownerName || 'l’organisateur')}.</p>
     ${cotisationDetailsTable([
@@ -169,11 +169,13 @@ export function cotisationJoinedEmail({ name, groupName, ownerName, contribution
       ['Contribution prévue', Number(contributionAmount || 0).toLocaleString('fr-FR') + ' FCFA'],
       ['Fréquence', frequency],
       ['Ta position actuelle', position ? String(position) : 'À confirmer par le chef'],
+      ['Participants déjà inscrits', String(joinedMembers ?? '—')],
+      ['Places encore disponibles', String(remainingMembers ?? '—')],
       ['Participants attendus', String(expectedMembers || 0)],
       ['Échéance prévue', dueLabel],
     ])}
-    <p style="margin:0;color:#475569;font-size:13px;line-height:1.75;">Le chef peut encore réorganiser les positions tant que le groupe n’a pas démarré. Les versements ne seront ouverts qu’une fois le nombre de participants requis atteint et le groupe lancé.</p>`;
-  return renderPataEmail({ preheader: 'Ton adhésion au groupe a été confirmée.', eyebrow: 'ADHÉSION CONFIRMÉE', headline: 'Tu as rejoint une cotisation.', bodyHtml, ctaLabel: 'Consulter le groupe', ctaUrl: '/cotisations' });
+    <p style="margin:0;color:#475569;font-size:13px;line-height:1.75;">Le chef peut encore organiser les positions tant que le groupe n’a pas démarré. Les versements commenceront lorsque toutes les places seront prises et que le chef aura lancé la cotisation. Tu peux retrouver les informations et les prochains versements dans ton espace Pata.</p>`;
+  return renderPataEmail({ preheader: 'Ton adhésion au groupe a été confirmée.', eyebrow: 'ADHÉSION CONFIRMÉE', headline: 'Tu as rejoint une cotisation.', bodyHtml, ctaLabel: 'Suivre ma cotisation', ctaUrl: groupUrl || '/cotisations' });
 }
 
 export function cotisationStartedEmail({ name, groupName, contributionAmount, frequency, position, beneficiaryName, turnAmount, dueLabel, expectedMembers }) {
@@ -189,7 +191,7 @@ export function cotisationStartedEmail({ name, groupName, contributionAmount, fr
       ['Date limite de paiement', dueLabel],
       ['Nombre de participants', String(expectedMembers || 0)],
     ])}
-    <p style="margin:0;color:#475569;font-size:13px;line-height:1.75;">Tu peux verser en plusieurs fois depuis ton espace Cotisations. Chaque paiement passe par Fapshi et n’est ajouté au total du groupe qu’après confirmation du prestataire.</p>`;
+    <p style="margin:0;color:#475569;font-size:13px;line-height:1.75;">Tu peux verser en plusieurs fois depuis ton espace Cotisations. Chaque paiement est vérifié avant d’être ajouté au total du groupe.</p>`;
   return renderPataEmail({ preheader: 'Les versements de ton groupe peuvent commencer.', eyebrow: 'COTISATION LANCÉE', headline: 'Le groupe a officiellement démarré.', bodyHtml, ctaLabel: 'Effectuer ma cotisation', ctaUrl: '/cotisations' });
 }
 
@@ -225,6 +227,19 @@ export function cotisationDueEmail({ name, groupName, contributionAmount, paidAm
   return renderPataEmail({ preheader: overdue ? 'La période de grâce de ta cotisation est terminée.' : 'La date limite de cotisation est arrivée.', eyebrow: 'RAPPEL DE COTISATION', headline: overdue ? 'Pense à régulariser ta contribution.' : 'La date de cotisation est arrivée.', bodyHtml, ctaLabel: 'Voir ma cotisation', ctaUrl: '/cotisations' });
 }
 
+
+export function cotisationOwnerJoinedEmail({ ownerName, joinerName, groupName, contributionAmount, frequency, joinedMembers, expectedMembers, remainingMembers, dueLabel, groupUrl }) {
+ const bodyHtml = `<p style="margin:0 0 14px;color:#334155;font-size:14px;line-height:1.75;">Bonjour ${escapeEmailHtml(ownerName || '')}, une nouvelle personne vient de rejoindre ton groupe <strong>${escapeEmailHtml(groupName || 'de cotisation')}</strong>. Voici le point actualisé pour préparer son lancement.</p>${cotisationDetailsTable([['Groupe',groupName],['Nouveau membre',joinerName || 'Nouveau participant'],['Contribution par personne',Number(contributionAmount || 0).toLocaleString('fr-FR')+' FCFA'],['Fréquence',frequency],['Participants inscrits',String(joinedMembers || 0)+' / '+String(expectedMembers || 0)],['Places restantes',String(remainingMembers || 0)],['Échéance prévue',dueLabel]])}<p style="margin:0;color:#475569;font-size:13px;line-height:1.75;">${remainingMembers > 0 ? 'Il reste encore '+remainingMembers+' place(s) à pourvoir. Tu peux inviter d’autres participants, consulter les coordonnées communiquées et vérifier les paramètres du groupe.' : 'Le groupe est complet. Tu peux vérifier les informations, définir les positions de passage et lancer la cotisation.'}</p>`;
+ return renderPataEmail({preheader:'Un nouveau membre a rejoint ton groupe.',eyebrow:'NOUVELLE ADHÉSION',headline:'Une nouvelle personne a rejoint ton groupe.',bodyHtml,ctaLabel:'Gérer mon groupe',ctaUrl:groupUrl || '/cotisations'});
+}
+export function cotisationContributionPaidEmail({name,groupName,amount,paidAmount,remainingAmount,contributionAmount,dueLabel,daysRemaining}) {
+ const bodyHtml = `<p style="margin:0 0 14px;color:#334155;font-size:14px;line-height:1.75;">Bonjour ${escapeEmailHtml(name || '')}, ton versement de ${Number(amount || 0).toLocaleString('fr-FR')} FCFA pour le groupe <strong>${escapeEmailHtml(groupName || '')}</strong> a été confirmé et ajouté à ta contribution.</p>${cotisationDetailsTable([['Groupe',groupName],['Versement confirmé',Number(amount || 0).toLocaleString('fr-FR')+' FCFA'],['Total déjà versé',Number(paidAmount || 0).toLocaleString('fr-FR')+' FCFA'],['Contribution attendue',Number(contributionAmount || 0).toLocaleString('fr-FR')+' FCFA'],['Reste à contribuer',Number(remainingAmount || 0).toLocaleString('fr-FR')+' FCFA'],['Date limite',dueLabel || 'Selon le calendrier du groupe'],['Temps restant',daysRemaining == null ? 'Non précisé' : (daysRemaining <= 0 ? 'Échéance atteinte' : daysRemaining+' jour(s)')]])}<p style="margin:0;color:#475569;font-size:13px;line-height:1.75;">Tu peux consulter l’état des contributions du groupe à tout moment depuis ton espace Pata.</p>`;
+ return renderPataEmail({preheader:'Ton versement de cotisation a été confirmé.',eyebrow:'VERSEMENT CONFIRMÉ',headline:'Ton paiement a bien été enregistré.',bodyHtml,ctaLabel:'Voir ma cotisation',ctaUrl:'/cotisations'});
+}
+export function financialReminderEmail({name,headline,message,category,amount,budgetAmount,targetUrl='/dashboard'}) {
+ const bodyHtml = `<p style="margin:0 0 14px;color:#334155;font-size:14px;line-height:1.75;">Bonjour ${escapeEmailHtml(name || '')}, ${escapeEmailHtml(message || '')}</p>${category ? cotisationDetailsTable([['Catégorie concernée',category],...(amount != null ? [['Dépenses constatées',Number(amount).toLocaleString('fr-FR')+' FCFA']] : []),...(budgetAmount != null ? [['Budget défini',Number(budgetAmount).toLocaleString('fr-FR')+' FCFA']] : [])]) : ''}<p style="margin:0;color:#475569;font-size:13px;line-height:1.75;">Retrouve les détails dans ton espace Pata pour comprendre la situation et décider de la suite.</p>`;
+ return renderPataEmail({preheader:headline || 'Un point sur tes finances.',eyebrow:'TON SUIVI FINANCIER',headline:headline || 'Un point mérite ton attention.',bodyHtml,ctaLabel:'Consulter mon espace',ctaUrl:targetUrl});
+}
 export function customAdminEmail({ name, headline, body, ctaUrl = '/dashboard', ctaLabel = 'Ouvrir Pata' }) {
   const paragraphs = String(body || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
     .map((line) => `<p style="margin:0 0 13px;color:#334155;font-size:14px;line-height:1.75;">${escapeEmailHtml(line.replaceAll('{nom}', name || ''))}</p>`).join('');

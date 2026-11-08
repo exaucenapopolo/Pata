@@ -61,15 +61,15 @@ export function MobileNav() {
         </section>
       )}
       {showMore && (
-        <section className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] left-3 right-3 z-[70] max-h-[70vh] overflow-y-auto rounded-3xl border border-slate-200 bg-white p-4 shadow-2xl lg:hidden">
+        <section className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom))] left-3 right-3 z-[70] max-h-[72vh] overflow-y-auto rounded-[28px] border border-slate-200 bg-white p-4 shadow-[0_24px_70px_rgba(15,23,42,0.22)] animate-in slide-in-from-bottom-3 fade-in duration-200 lg:hidden">
           <div className="mb-4 flex items-center justify-between"><div><h2 className="text-base font-bold text-slate-900">Tout Pata</h2><p className="mt-0.5 text-xs text-slate-500">Tes outils financiers au même endroit.</p></div><button type="button" onClick={() => setShowMore(false)} className="rounded-full bg-slate-100 p-2 text-slate-500" aria-label="Fermer"><X size={17}/></button></div>
-          <div className="space-y-1.5">
+          <div className="grid grid-cols-3 gap-2.5">
             {MORE_NAV.map((item) => {
               const Icon = item.icon;
               const active = isActive(item.href);
-              return <Link key={item.href} href={item.href} onClick={() => setShowMore(false)} className={cn('flex items-center gap-3 rounded-2xl border px-3 py-3 transition active:scale-[0.99]', active ? 'border-brand-200 bg-brand-50' : 'border-slate-100 bg-white hover:bg-slate-50')}>
-                <span className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', active ? 'bg-white text-brand-700' : 'bg-slate-100 text-slate-600')}><Icon size={18}/></span>
-                <span className="min-w-0 flex-1"><strong className="block text-sm text-slate-900">{item.label}</strong><span className="mt-0.5 block text-[11px] text-slate-500">{item.description}</span></span><span className="text-xs text-slate-400">›</span>
+              return <Link key={item.href} href={item.href} onClick={() => setShowMore(false)} className={cn('flex min-h-[104px] min-w-0 flex-col items-center justify-center gap-2 rounded-2xl border p-2 text-center transition active:scale-[0.96]', active ? 'border-brand-200 bg-brand-50' : 'border-slate-100 bg-slate-50/70 hover:bg-slate-50')}>
+                <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl', active ? 'bg-white text-brand-700 shadow-sm' : 'bg-white text-slate-600 shadow-sm')}><Icon size={18}/></span>
+                <span className="min-w-0"><strong className="block break-words text-[11px] leading-4 text-slate-900">{item.label}</strong><span className="mt-1 block text-[9px] leading-3 text-slate-500">{item.description}</span></span>
               </Link>;
             })}
           </div>
