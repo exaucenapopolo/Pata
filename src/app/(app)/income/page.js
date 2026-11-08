@@ -20,7 +20,7 @@ import { useExpenses } from '@/hooks/useExpenses';
 import { useProfile } from '@/hooks/useProfile';
 import { useBudgetRules } from '@/hooks/useBudgetRules';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
-import { createIncome, updateIncome, deleteIncome } from '@/lib/firestore/incomes';
+import { createIncome, deleteIncome } from '@/lib/firestore/incomes';
 import { upsertBudget } from '@/lib/firestore/budgets';
 import { computeBudgetBreakdown } from '@/lib/budgetRules';
 import { INCOME_CATEGORIES, EXPENSE_CATEGORIES } from '@/lib/constants';
@@ -44,7 +44,7 @@ const currentTime = () => {
   const d = new Date();
   return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 };
-const emptyIncomeForm = () => ({ id: null, amount: '', source: 'Salaire', categoryId: 'salary', note: '', date: todayIso(), time: currentTime(), locationLabel: '', latitude: null, longitude: null, locationAccuracy: null, paymentMethod: '', details: '' });
+const emptyIncomeForm = () => ({ amount: '', source: 'Salaire', categoryId: 'salary', note: '', date: todayIso(), time: currentTime(), locationLabel: '', latitude: null, longitude: null, locationAccuracy: null, paymentMethod: '', details: '' });
 
 const FREQUENCIES = [
   { id: 'daily', label: 'Par jour', multiplier: 30 },
@@ -327,27 +327,6 @@ export default function IncomePage() {
     setOpen(true);
   };
 
-  const openEditIncome = (income) => {
-    setForm({
-      id: income.id,
-      amount: String(income.amount || ''),
-      source: income.source || 'Revenu',
-      categoryId: income.categoryId || 'other_income',
-      note: income.note || '',
-      date: income.date || todayIso(),
-      time: income.time || '',
-      locationLabel: income.locationLabel || '',
-      latitude: income.latitude ?? null,
-      longitude: income.longitude ?? null,
-      locationAccuracy: income.locationAccuracy ?? null,
-      paymentMethod: income.paymentMethod || '',
-      details: income.details || '',
-    });
-    setError('');
-    setSelectedIncome(null);
-    setOpen(true);
-  };
-
   const onSubmit = async (e) => {
     e.preventDefault(); setError('');
     const amount = Number(form.amount);
@@ -361,8 +340,7 @@ export default function IncomePage() {
         locationLabel: form.locationLabel, latitude: form.latitude, longitude: form.longitude,
         locationAccuracy: form.locationAccuracy, paymentMethod: form.paymentMethod, details: form.details,
       };
-      if (form.id) await updateIncome(user.uid, form.id, payload);
-      else await createIncome(user.uid, payload);
+      await createIncome(user.uid, payload);
       setOpen(false);
       setForm(emptyIncomeForm());
     } catch (err) { setError(err.message || 'Impossible d’enregistrer ce revenu.'); } finally { setSaving(false); }
@@ -590,7 +568,6 @@ export default function IncomePage() {
                 <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2">
                   <span className="text-[11px] text-slate-500">{inc.isExhausted && inc.exhaustedDate ? `Épuisé le ${formatDate(inc.exhaustedDate)}` : `Disponible : ${formatCurrency(inc.remaining)}`}</span>
                   <span className="flex items-center gap-1">
-                    <button type="button" onClick={() => openEditIncome(inc)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Modifier ce revenu"><Pencil size={14}/></button>
                     <button type="button" onClick={() => setDeleteId(inc.id)} className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600" aria-label="Supprimer ce revenu"><Trash2 size={14}/></button>
                   </span>
                 </div>
@@ -667,16 +644,13 @@ export default function IncomePage() {
                 <div className="py-3 text-sm"><p className="text-slate-500">Note</p><p className="mt-1 whitespace-pre-wrap text-slate-800">{selectedIncome.note || 'Aucune note'}</p></div>
               </div>
               {selectedIncome.latitude != null && selectedIncome.longitude != null && <a href={'https://www.google.com/maps?q=' + selectedIncome.latitude + ',' + selectedIncome.longitude} target="_blank" rel="noreferrer" className="block rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-brand-800 hover:bg-brand-50">Voir la position sur la carte</a>}
-              <div className="grid grid-cols-2 gap-2">
-                <Button type="button" variant="outline" onClick={() => openEditIncome(selectedIncome)}><Pencil size={14}/> Modifier</Button>
-                <Button type="button" variant="outline" className="border-red-200 text-red-700 hover:bg-red-50" onClick={() => { setDeleteId(selectedIncome.id); setSelectedIncome(null); }}><Trash2 size={14}/> Supprimer</Button>
-              </div>
+              <Button type="button" variant="outline" className="w-full border-red-200 text-red-700 hover:bg-red-50" onClick={() => { setDeleteId(selectedIncome.id); setSelectedIncome(null); }}><Trash2 size={14}/> Supprimer ce revenu</Button>
             </div>
           );
         })()}
       </Modal>
 
-      <Modal open={open} onClose={() => setOpen(false)} title={form.id ? "Modifier le revenu" : "Nouveau revenu"}>
+      <Modal open={open} onClose={() => setOpen(false)} title="Nouveau revenu">
         <form onSubmit={onSubmit} className="space-y-3">
           <Input label="Montant (FCFA)" type="number" min="0" step="1" required value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
           <div>
@@ -690,7 +664,7 @@ export default function IncomePage() {
           <Input label="Note (facultatif)" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
           <OptionalTransactionFields value={form} onChange={(next) => setForm(next)} kind="income" />
           {error && <p className="text-sm text-red-600">{error}</p>}
-          <Button type="submit" className="w-full" disabled={saving}>{saving ? 'Enregistrement…' : form.id ? 'Enregistrer les modifications' : 'Ajouter le revenu'}</Button>
+          <Button type="submit" className="w-full" disabled={saving}>{saving ? 'Enregistrement…' : 'Ajouter le revenu'}</Button>
         </form>
       </Modal>
 
