@@ -27,7 +27,9 @@ service cloud.firestore {
         allow create: if false;
         allow update: if owner(userId)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'amount', 'source', 'categoryId', 'date', 'month', 'note'
+            'amount', 'source', 'categoryId', 'date', 'month', 'note', 'time',
+            'locationLabel', 'latitude', 'longitude', 'locationAccuracy',
+            'paymentMethod', 'details', 'updatedAt'
           ])
           && request.resource.data.amount is number
           && request.resource.data.amount > 0;
