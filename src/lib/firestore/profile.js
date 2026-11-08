@@ -5,18 +5,27 @@ const ref = (uid) => doc(db, 'users', uid);
 
 export async function ensureUserProfile(user) {
   if (!user) return null;
-  const snap = await getDoc(ref(user.uid));
-  if (snap.exists()) return { id: user.uid, ...snap.data(), created: false };
-  const data = {
-    email: user.email,
-    displayName: user.email?.split('@')[0] || 'Utilisateur',
-    currency: 'XAF',
-    currencyRates: { XAF: 1, EUR: 1 / 655.957, USD: 1 / 600 },
-    currencyRateUpdatedAt: new Date().toISOString(),
-    createdAt: serverTimestamp(),
+  const userRef = ref(user.uid);
+  const snap = await getDoc(userRef);
+  const existing = snap.exists() ? snap.data() || {} : {};
+  // An older auth activity hook could leave a skeletal user document before
+  // profile setup. Treat a document without createdAt as not initialized yet.
+  const created = !snap.exists() || !existing.createdAt;
+  const email = user.email || existing.email || '';
+  const defaults = {
+    email,
+    displayName: existing.displayName || email.split('@')[0] || 'Utilisateur',
+    currency: existing.currency || 'XAF',
+    currencyRates: existing.currencyRates || { XAF: 1, EUR: 1 / 655.957, USD: 1 / 600 },
+    currencyRateUpdatedAt: existing.currencyRateUpdatedAt || new Date().toISOString(),
+    ...(!existing.createdAt ? { createdAt: serverTimestamp() } : {}),
   };
-  await setDoc(ref(user.uid), data);
-  return { id: user.uid, ...data, created: true };
+  const patch = {};
+  Object.entries(defaults).forEach(([key, value]) => {
+    if (existing[key] === undefined || existing[key] === null || existing[key] === '') patch[key] = value;
+  });
+  if (Object.keys(patch).length) await setDoc(userRef, patch, { merge: true });
+  return { id: user.uid, ...existing, ...patch, created };
 }
 
 export async function getUserProfile(uid) {
