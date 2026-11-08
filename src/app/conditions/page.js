@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { LegalSummaryButton } from '@/components/legal/LegalSummaryButton';
 
 export const metadata = {
   title: 'Conditions d’utilisation — Pata',
@@ -42,15 +43,12 @@ export default function TermsPage() {
             <Link href="/dashboard" className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/15">
               <img src="/android-chrome-192x192.png" alt="" className="h-6 w-6 rounded-lg bg-white object-contain"/> Retour à Pata
             </Link>
-            <span className="rounded-full bg-white/15 px-3 py-1.5 text-[10px] font-semibold tracking-wide text-emerald-50">DOCUMENT OFFICIEL</span>
           </div>
           <p className="mt-8 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-100">Cadre d’utilisation</p>
           <h1 className="mt-2 max-w-2xl text-3xl font-bold tracking-tight sm:text-4xl">Conditions d’utilisation</h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-emerald-50">Les règles essentielles pour utiliser Pata, gérer tes informations financières et comprendre le fonctionnement du service.</p>
-          <div className="mt-6 flex flex-wrap items-center gap-2 text-[11px] text-emerald-100">
-            <span className="rounded-full border border-white/20 px-3 py-1.5">Mis à jour le 8 novembre 2026</span>
-            <span className="rounded-full border border-white/20 px-3 py-1.5">Éditeur : NAPOPOLO EXAUCE</span>
-          </div>
+          <p className="mt-5 text-[11px] text-emerald-100">Mis à jour le 8 novembre 2026 · Éditeur : NAPOPOLO EXAUCE</p>
+          <div className="mt-4"><LegalSummaryButton documentTitle="les conditions d’utilisation de Pata"/></div>
         </header>
 
         <div className="mt-5 grid gap-5 lg:grid-cols-[250px_minmax(0,1fr)]">
@@ -66,11 +64,7 @@ export default function TermsPage() {
             </nav>
           </aside>
 
-          <div className="space-y-3">
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs leading-6 text-amber-900">
-              Ces conditions décrivent le fonctionnement actuel de Pata. Elles constituent une information contractuelle de référence, mais doivent être relues par un professionnel du droit pour confirmer leur conformité aux règles applicables dans chaque pays où le service est proposé.
-            </div>
-
+          <div className="space-y-3" data-legal-document>
             <Section id="service" number="01" title="Objet et fonctionnement du service">
               <p>Pata est une application de gestion financière personnelle. Elle permet notamment d’enregistrer les revenus et les dépenses, de préparer des budgets, de suivre des objectifs d’épargne, de consulter des rapports, d’utiliser un portefeuille intégré et de solliciter une assistante intelligente.</p>
               <p>Pata aide l’utilisateur à organiser les informations qu’il saisit. Sauf mention explicite dans une fonctionnalité, l’application ne se connecte pas automatiquement aux comptes bancaires externes et ne vérifie pas à elle seule les opérations réalisées en dehors de Pata.</p>
