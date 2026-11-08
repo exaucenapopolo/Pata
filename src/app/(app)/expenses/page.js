@@ -441,6 +441,7 @@ export default function ExpensesPage() {
                 <div className="py-3 text-sm"><p className="text-slate-500">Note</p><p className="mt-1 whitespace-pre-wrap text-slate-800">{selectedExpense.note || 'Aucune note'}</p></div>
               </div>
               {selectedExpense.latitude != null && selectedExpense.longitude != null && <a href={'https://www.google.com/maps?q=' + selectedExpense.latitude + ',' + selectedExpense.longitude} target="_blank" rel="noreferrer" className="block rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-brand-800 hover:bg-brand-50">Voir la position sur la carte</a>}
+              <AssistantShortcut label="Analyser cette dépense avec Mč" prompt={`Analyse cette dépense dans Pata : ${selectedExpense.amount} FCFA, catégorie ${category?.label || selectedExpense.categoryId}, date ${selectedExpense.date || 'non précisée'}, lieu ${selectedExpense.locationLabel || 'non renseigné'}, note ${selectedExpense.note || 'aucune'}. Explique son impact sur mon budget et donne un conseil concret sans modifier mes données.`}/>
               <div className="grid grid-cols-2 gap-2">
                 <Button type="button" variant="outline" onClick={() => { setSelectedExpense(null); openEdit(selectedExpense); }}><Pencil size={14}/> Modifier</Button>
                 <Button type="button" variant="outline" onClick={() => { setDeleteId(selectedExpense.id); setSelectedExpense(null); }} className="border-red-200 text-red-700 hover:bg-red-50"><Trash2 size={14}/> Supprimer</Button>
