@@ -133,6 +133,7 @@ async function handleFapshiWebhook(request) {
           transaction.update(depositRef, { status: 'CONFIRMED', confirmedAt: FieldValue.serverTimestamp() });
         });
       } else if (cotisationDoc.exists) {
+        validateCotisationProviderPayment(verifyData, cotisationDoc.data(), transId);
         await confirmCotisationPayment(transId);
       }
     } else if (cotisationDoc.exists && ['FAILED', 'EXPIRED', 'CANCELLED', 'CANCELED'].includes(providerStatus)) {
@@ -177,6 +178,7 @@ async function handleFapshiStatus(request) {
           transaction.update(depositRef, { status: 'CONFIRMED', confirmedAt: FieldValue.serverTimestamp() });
         });
       } else {
+        validateCotisationProviderPayment(data, cotDoc.data(), transId);
         await confirmCotisationPayment(transId);
       }
       return NextResponse.json({ success: true, status: 'CONFIRMED' });
@@ -3476,6 +3478,31 @@ function cotisationFrequencyLabel(frequency) {
   return ({ daily: 'Chaque jour', weekly: 'Chaque semaine', monthly: 'Chaque mois' })[frequency] || 'Chaque mois';
 }
 
+function validateCotisationProviderPayment(providerResponse, payment, transId) {
+  const data = providerResponse?.data && typeof providerResponse.data === 'object'
+    ? providerResponse.data : providerResponse;
+  const providerTransId = data?.transId || data?.trans_id;
+  if (providerTransId && String(providerTransId) !== String(transId)) {
+    throw new Error('L’identifiant de transaction retourné par Fapshi ne correspond pas au paiement enregistré.');
+  }
+  const providerAmount = data?.amount;
+  if (providerAmount !== undefined && providerAmount !== null && providerAmount !== '') {
+    const amount = Number(providerAmount);
+    if (!Number.isSafeInteger(amount) || amount !== cotisationMoney(payment.grossAmount)) {
+      throw new Error('Le montant confirmé par Fapshi ne correspond pas au montant demandé. Le versement reste bloqué pour vérification.');
+    }
+  }
+  const externalId = data?.externalId || data?.external_id;
+  if (externalId && payment.reservationId && String(externalId) !== String(payment.reservationId)) {
+    throw new Error('La référence externe Fapshi ne correspond pas à cette réservation de cotisation.');
+  }
+  const providerUserId = data?.userId || data?.user_id;
+  if (providerUserId && String(providerUserId) !== String(payment.userId)) {
+    throw new Error('Le compte associé à la transaction Fapshi ne correspond pas au membre concerné.');
+  }
+  return data;
+}
+
 async function confirmCotisationPayment(transId) {
   const paymentRef = adminDb.collection('cotisationPayments').doc(String(transId));
   return adminDb.runTransaction(async (transaction) => {
@@ -4335,6 +4362,8 @@ async function handleCotisationPay(request) {
     const payload = {
       amount: reservation.grossAmount, currency: 'XAF',
       description: 'Cotisation Pata — ' + String(reservation.group.name || 'Groupe').slice(0, 60),
+      userId: uid,
+      externalId: reservationId,
       redirect_url: (request.headers.get('origin') || baseUrl) + '/cotisations',
       webhook_url: baseUrl + '/api/fapshi/webhook',
       phone, email: userData.email || '', name: userData.displayName || 'Membre',
