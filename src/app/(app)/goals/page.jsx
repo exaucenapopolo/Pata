@@ -568,8 +568,8 @@ function GoalCard({ goal, onOpen, onEdit, onAskWithdraw, onTogglePin, onDelete }
   let statusColor = '#3b82f6'; let statusLabel = 'En cours';
   if (isPiggybank) { statusColor = '#14b8a6'; statusLabel = 'Tirelire'; }
   else if (plan.notStarted) { statusColor = '#94a3b8'; statusLabel = 'Programmé'; }
+  else if (plan.isLate) { statusColor = '#ef4444'; statusLabel = plan.isReached ? 'Cible atteinte · frais dus' : 'En retard'; }
   else if (plan.isReached) { statusColor = '#10b981'; statusLabel = 'Atteint'; }
-  else if (plan.isLate) { statusColor = '#ef4444'; statusLabel = 'En retard'; }
 
   return (
     <Card
