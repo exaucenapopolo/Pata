@@ -58,8 +58,8 @@ export default function HomePage() {
         const credential = await register(email.trim(), password);
         await finishAccount(credential.user);
       } else {
-        await login(email.trim(), password);
-        router.replace('/dashboard');
+        const credential = await login(email.trim(), password);
+        await finishAccount(credential.user);
       }
     } catch (err) {
       const code = err.code || '';
