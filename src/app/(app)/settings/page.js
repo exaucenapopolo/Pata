@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Save, LogOut, Download, User, FileText, FileSpreadsheet, Bell } from 'lucide-react';
+import Link from 'next/link';
+import { Save, LogOut, Download, FileText, FileSpreadsheet, Bell, ShieldCheck, LockKeyhole, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -169,6 +170,14 @@ export default function SettingsPage() {
       <Card>
         <CardTitle className="mb-3">Profil</CardTitle>
         <form onSubmit={onSave} className="space-y-3">
+          <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+            <img src="/android-chrome-192x192.png" alt="Logo officiel de Pata" className="h-16 w-16 shrink-0 rounded-2xl bg-white object-contain p-1 shadow-sm" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-slate-900">Photo de profil</p>
+              <p className="mt-1 text-xs leading-5 text-slate-500">Le logo officiel de Pata est utilisé par défaut pour tous les comptes. Il est fixe et ne peut pas être remplacé par une photo personnelle.</p>
+            </div>
+            <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[10px] font-semibold text-slate-500">Par défaut</span>
+          </div>
           <Input
             label="Nom affiché"
             value={displayName}
@@ -217,11 +226,28 @@ export default function SettingsPage() {
       </Card>
 
       <Card>
+        <div className="mb-3 flex items-center gap-2">
+          <ShieldCheck size={18} className="text-brand-700"/>
+          <div><CardTitle>Confidentialité et documents juridiques</CardTitle><p className="mt-1 text-xs text-slate-500">Consulte les règles qui encadrent ton compte et tes données.</p></div>
+        </div>
+        <div className="space-y-2">
+          <Link href="/conditions" className="flex min-h-[62px] items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2.5 transition hover:border-brand-200 hover:bg-brand-50/40">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600"><FileText size={17}/></span>
+            <span className="min-w-0 flex-1"><strong className="block text-sm text-slate-800">Conditions d’utilisation</strong><span className="mt-0.5 block text-[11px] text-slate-500">Fonctionnement du service, compte et abonnements</span></span>
+            <ChevronRight size={17} className="text-slate-400"/>
+          </Link>
+          <Link href="/confidentialite" className="flex min-h-[62px] items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2.5 transition hover:border-brand-200 hover:bg-brand-50/40">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600"><LockKeyhole size={17}/></span>
+            <span className="min-w-0 flex-1"><strong className="block text-sm text-slate-800">Politique de confidentialité</strong><span className="mt-0.5 block text-[11px] text-slate-500">Données personnelles, localisation et assistante IA</span></span>
+            <ChevronRight size={17} className="text-slate-400"/>
+          </Link>
+        </div>
+      </Card>
+
+      <Card>
         <CardTitle className="mb-3">Compte</CardTitle>
         <div className="flex items-center gap-3 rounded-xl bg-slate-50 p-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-brand-100 text-brand-700">
-            <User size={18} />
-          </div>
+          <img src="/android-chrome-192x192.png" alt="Logo officiel de Pata" className="h-12 w-12 shrink-0 rounded-2xl bg-white object-contain p-1 shadow-sm" />
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold text-slate-800">
               {profile?.displayName || 'Utilisateur'}
