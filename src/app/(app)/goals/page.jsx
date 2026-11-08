@@ -75,7 +75,7 @@ function buildGoalAdvices(plan, balance, goalName) {
     const missedLabel = `${plan.missedPayments} échéance${plan.missedPayments > 1 ? 's' : ''} manquée${plan.missedPayments > 1 ? 's' : ''}`;
     advices.push({
       type: 'danger',
-      message: `${missedLabel} : des frais de retard de ${formatCurrency(plan.penalty)} sont dus. Ils représentent 15 % du montant cible par échéance manquée et seront déduits au retrait ou à la clôture.`,
+      message: `${missedLabel} : des ajustements liés aux échéances de ${formatCurrency(plan.penalty)} sont dus. Ils représentent 15 % du montant cible par échéance manquée et seront déduits au retrait ou à la clôture.`,
     });
   } else if (plan.totalDeposited >= plan.expectedAmount) {
     advices.push({ type: 'success', message: `Tu es à jour : ${formatCurrency(plan.totalDeposited)} versés. Continue comme ça.` });
@@ -106,8 +106,8 @@ function ConfirmWithdrawModal({ goal, actionType, onClose, onConfirm, busy }) {
     `Bonjour l'équipe Pata,\n\nJe souhaite ${isCancel ? 'annuler' : 'clôturer'} mon ${isPiggybank ? 'épargne libre' : 'objectif'} "${goal.name}".\n\n` +
     `- Total épargné : ${formatCurrency(plan.totalDeposited)}\n` +
     (plan.totalDebt > 0 ? `- Dettes : ${formatCurrency(plan.totalDebt)}\n` : '') +
-    (latePenalty > 0 ? `- Pénalités de retard (15%) : ${formatCurrency(latePenalty)}\n` : '') +
-    (cancelPenalty > 0 ? `- Frais d’annulation (10%) : ${formatCurrency(cancelPenalty)}\n` : '') +
+    (latePenalty > 0 ? `- Ajustement de régularité (15%) : ${formatCurrency(latePenalty)}\n` : '') +
+    (cancelPenalty > 0 ? `- Frais de clôture anticipée (10%) : ${formatCurrency(cancelPenalty)}\n` : '') +
     `- Net à recevoir : ${formatCurrency(netRefund)}\n\nMerci.`
   );
 
@@ -118,15 +118,15 @@ function ConfirmWithdrawModal({ goal, actionType, onClose, onConfirm, busy }) {
           <Info className="mt-0.5 shrink-0 text-slate-500" size={18} />
           <p className="text-sm text-slate-700">
             {isPiggybank ? "Ta demande sera vérifiée avant l’envoi de l’argent sur ton numéro Mobile Money."
-              : isCancel ? "L’annulation entraîne des frais de clôture de 10 %, auxquels s’ajoutent les éventuels frais de retard déjà dus. Le net sera vérifié avant l’envoi."
-              : "Les frais de retard déjà dus seront déduits du solde à retirer. Le net sera vérifié avant l’envoi."}
+              : isCancel ? "L’annulation entraîne des frais de clôture de 10 %, auxquels s’ajoutent les éventuels ajustements liés aux échéances déjà dus. Le net sera vérifié avant l’envoi."
+              : "Les ajustements liés aux échéances déjà dus seront déduits du solde à retirer. Le net sera vérifié avant l’envoi."}
           </p>
         </div>
         <div className="space-y-2 rounded-xl border border-slate-200 p-3">
           <div className="flex justify-between text-sm"><span className="text-slate-500">Total épargné</span><span className="font-medium text-slate-800">{formatCurrency(plan.totalDeposited)}</span></div>
           {plan.totalDebt > 0 && (<div className="flex justify-between text-sm text-red-600"><span>Dettes</span><span className="font-medium">- {formatCurrency(plan.totalDebt)}</span></div>)}
-          {latePenalty > 0 && (<div className="flex justify-between text-sm text-red-600"><span>Frais de retard (15%)</span><span className="font-medium">- {formatCurrency(latePenalty)}</span></div>)}
-          {cancelPenalty > 0 && (<div className="flex justify-between text-sm text-red-600"><span>Frais d’annulation (10%)</span><span className="font-medium">- {formatCurrency(cancelPenalty)}</span></div>)}
+          {latePenalty > 0 && (<div className="flex justify-between text-sm text-red-600"><span>Ajustement de régularité (15%)</span><span className="font-medium">- {formatCurrency(latePenalty)}</span></div>)}
+          {cancelPenalty > 0 && (<div className="flex justify-between text-sm text-red-600"><span>Frais de clôture anticipée (10%)</span><span className="font-medium">- {formatCurrency(cancelPenalty)}</span></div>)}
           <div className="mt-2 flex justify-between border-t border-slate-200 pt-2 text-base font-bold">
             <span className="text-slate-800">Net à recevoir</span><span className="text-brand-600">{formatCurrency(netRefund)}</span>
           </div>
@@ -306,7 +306,7 @@ function GoalDetail({ goal, onClose, onAskWithdraw }) {
         {showLoan && !plan.isReached && (
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-3.5">
             <h4 className="text-sm font-semibold text-amber-800 mb-1">Micro-prêt d'urgence</h4>
-            <p className="text-xs text-amber-700 mb-3">Emprunte pour éviter l'amende. 5% d'intérêts.</p>
+            <p className="text-xs text-amber-700 mb-3">Tu peux demander une avance pour respecter l’échéance. Des intérêts de 5 % s’appliquent.</p>
             <div className="flex gap-2 items-end"><Input label="Montant" type="number" min="1" value={amount} onChange={e => setAmount(e.target.value)} className="flex-1" /><Button onClick={() => handleAction('borrow', { amount: Number(amount) }, 'Prêt accordé.')} disabled={busy || !amount} className="bg-amber-600 hover:bg-amber-700">Emprunter</Button></div>
             <button onClick={() => setShowLoan(false)} className="text-xs text-amber-800 mt-3 hover:underline">Annuler</button>
           </div>
@@ -316,7 +316,7 @@ function GoalDetail({ goal, onClose, onAskWithdraw }) {
           {plan.isReached || isPiggybank ? (
             <Button onClick={() => { onClose(); onAskWithdraw(goal, isPiggybank ? 'cancel' : 'withdraw'); }} className="w-full" disabled={busy}><ArrowDownToLine size={16} /> {isPiggybank ? 'Casser la tirelire' : "Retirer l'épargne"}</Button>
           ) : (
-            <Button onClick={() => { onClose(); onAskWithdraw(goal, 'cancel'); }} variant="outline" className="w-full text-red-600 hover:bg-red-50" disabled={busy}><ShieldAlert size={16} /> Annuler (10% pénalité)</Button>
+            <Button onClick={() => { onClose(); onAskWithdraw(goal, 'cancel'); }} variant="outline" className="w-full text-red-600 hover:bg-red-50" disabled={busy}><ShieldAlert size={16} /> Clôturer (frais de 10 %)</Button>
           )}
         </div>
 
@@ -536,8 +536,8 @@ function GoalFormModal({ open, onClose, goal }) {
             <div className="rounded-xl border border-brand-100 bg-brand-50/60 p-3 text-sm"><span className="font-medium text-brand-800">Aperçu : </span><strong className="text-slate-800">{totalPayments} versements de {formatCurrency(amountPerPayment)}</strong></div>
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
               <p className="text-xs font-medium text-slate-700">Information sur les versements</p>
-              <p className="mt-1 text-xs leading-5 text-slate-600">Un versement manqué entraîne des frais de retard de 15 % du montant cible total de cette épargne.</p>
-              {Number(targetAmount) > 0 && <p className="mt-1 text-xs text-slate-600">Frais par échéance manquée : {formatCurrency(Math.round(Number(targetAmount) * GOAL_LATE_PENALTY_RATE))}</p>}
+              <p className="mt-1 text-xs leading-5 text-slate-600">Un versement manqué entraîne des ajustements liés aux échéances de 15 % du montant cible total de cette épargne.</p>
+              {Number(targetAmount) > 0 && <p className="mt-1 text-xs text-slate-600">Ajustement par échéance non respectée : {formatCurrency(Math.round(Number(targetAmount) * GOAL_LATE_PENALTY_RATE))}</p>}
             </div>
           </>
         )}
@@ -601,14 +601,14 @@ function GoalCard({ goal, onOpen, onEdit, onAskWithdraw, onTogglePin, onDelete }
           <div className="flex-1 space-y-1">
             <div className="flex justify-between text-sm"><span className="text-slate-500">Épargné</span><span className="font-semibold text-brand-600">{formatCurrency(plan.totalDeposited)}</span></div>
             {plan.totalDebt > 0 && (<div className="flex justify-between text-sm"><span className="text-red-500">Dettes</span><span className="font-semibold text-red-600">{formatCurrency(plan.totalDebt)}</span></div>)}
-            {plan.isLate && (<div className="flex justify-between text-sm"><span className="text-red-500">Amende</span><span className="font-semibold text-red-600">{formatCurrency(plan.penalty)}</span></div>)}
+            {plan.isLate && (<div className="flex justify-between text-sm"><span className="text-red-500">Ajustement de régularité</span><span className="font-semibold text-red-600">{formatCurrency(plan.penalty)}</span></div>)}
             <div className="flex justify-between text-xs pt-1 border-t border-slate-100"><span className="text-slate-400">Échéance</span><span className="font-medium text-slate-600">{formatDate(goal.deadline)}</span></div>
           </div>
         </div>
       )}
 
       <div className="mt-auto space-y-2">
-        <Button type="button" variant="outline" className="w-full" onClick={(event) => { event.stopPropagation(); const prompt = `Analyse mon épargne « ${goal.name} » dans Pata. Type : ${isPiggybank ? 'caisse / tirelire' : 'objectif daté'}. Montant épargné : ${plan.totalDeposited} FCFA. ${isPiggybank ? (goal.targetAmount ? `Cible : ${goal.targetAmount} FCFA.` : 'Aucune cible définie.') : `Cible : ${goal.targetAmount} FCFA. Échéance : ${goal.deadline || 'non précisée'}. Reste : ${plan.remaining} FCFA.`} Frais de retard actuels : ${plan.penalty || 0} FCFA. Donne-moi un bilan court et des conseils concrets sans modifier mes données.`; window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt } })); }}><MessageCircle size={15}/> Analyser avec Mč</Button>
+        <Button type="button" variant="outline" className="w-full" onClick={(event) => { event.stopPropagation(); const prompt = `Analyse mon épargne « ${goal.name} » dans Pata. Type : ${isPiggybank ? 'caisse / tirelire' : 'objectif daté'}. Montant épargné : ${plan.totalDeposited} FCFA. ${isPiggybank ? (goal.targetAmount ? `Cible : ${goal.targetAmount} FCFA.` : 'Aucune cible définie.') : `Cible : ${goal.targetAmount} FCFA. Échéance : ${goal.deadline || 'non précisée'}. Reste : ${plan.remaining} FCFA.`} Ajustements de régularité actuels : ${plan.penalty || 0} FCFA. Donne-moi un bilan court et des conseils concrets sans modifier mes données.`; window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt } })); }}><MessageCircle size={15}/> Analyser avec Mč</Button>
         <Button variant="outline" className="w-full" onClick={(event) => { event.stopPropagation(); onOpen(); }}><TrendingUp size={16} /> {isPiggybank ? 'Ouvrir la caisse' : 'Voir détails et verser'}</Button>
         {isPiggybank ? (
           <Button className="w-full bg-slate-900 text-white hover:bg-slate-800" onClick={(event) => { event.stopPropagation(); onAskWithdraw(goal, 'cancel'); }}><Unlock size={16} /> Casser la tirelire</Button>
