@@ -408,8 +408,8 @@ export default function CotisationsPage() {
                   {cycle.status === 'PENDING_REVIEW' && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800"><Clock3 size={15} className="mr-1 inline"/>La demande du bénéficiaire est en cours de vérification par l’administration.</div>}
                   {cycle.status === 'PAID' && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs leading-5 text-emerald-800"><CheckCircle2 size={15} className="mr-1 inline"/>Le retrait du bénéficiaire de ce tour a été confirmé.</div>}
                   {cycle.myRemaining === 0 && !cycle.canWithdraw && cycle.status === 'OPEN' && <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">Ta part de ce cycle est complète. Le groupe attend les autres membres.</p>}
-                </div>}
-              </div>
+                </div>
+              </div>}
             </article>;
           })}
       </section>
