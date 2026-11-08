@@ -2,7 +2,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, Trash2, Wallet, Pencil, Landmark, Calendar, Repeat, Clock3, MapPin } from 'lucide-react';
+import { Plus, Trash2, Wallet, Pencil, Landmark, Calendar, Repeat, Clock3, MapPin, FolderPlus, Info, BriefcaseBusiness } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -11,6 +11,9 @@ import { CategoryManager } from '@/components/ui/CategoryManager';
 import { CategoryImage } from '@/components/ui/CategoryImage';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAuth } from '@/hooks/useAuth';
+import { useProfile } from '@/hooks/useProfile';
+import { useProjects } from '@/hooks/useProjects';
+import { createProject } from '@/lib/firestore/projects';
 import { useExpenses } from '@/hooks/useExpenses';
 import { useIncomes } from '@/hooks/useIncomes';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
@@ -34,6 +37,8 @@ const emptyForm = () => ({
   id: null,
   amount: '',
   categoryId: 'food',
+  expenseType: 'consumption',
+  projectId: '',
   date: todayIso(),
   time: currentTime(),
   note: '',
@@ -49,7 +54,11 @@ const emptyForm = () => ({
 
 export default function ExpensesPage() {
   const { user } = useAuth();
+  const { profile } = useProfile();
+  const { projects } = useProjects();
   const { expenses, loading } = useExpenses();
+  const premiumDate = profile?.premiumUntil?.toDate ? profile.premiumUntil.toDate() : new Date(profile?.premiumUntil || 0);
+  const isPremium = Number.isFinite(premiumDate.getTime()) && premiumDate > new Date();
   const { incomes } = useIncomes();
   const { customCategories } = useCustomCategories('expense');
   
@@ -58,7 +67,13 @@ export default function ExpensesPage() {
   const [customEnd, setCustomEnd] = useState(todayIso());
   
   const [filterCategory, setFilterCategory] = useState('all');
+  const [filterType, setFilterType] = useState('all');
   const [form, setForm] = useState(emptyForm());
+  const [showTypeHelp, setShowTypeHelp] = useState(false);
+  const [projectModalOpen, setProjectModalOpen] = useState(false);
+  const [projectForm, setProjectForm] = useState({ name: '', description: '', targetAmount: '' });
+  const [projectSaving, setProjectSaving] = useState(false);
+  const [projectError, setProjectError] = useState('');
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -109,8 +124,9 @@ export default function ExpensesPage() {
     return expenses
       .filter((e) => e.date >= startDate && e.date <= endDate)
       .filter((e) => filterCategory === 'all' || e.categoryId === filterCategory)
+      .filter((e) => filterType === 'all' || (e.expenseType || 'consumption') === filterType)
       .sort((a, b) => (a.date < b.date ? 1 : -1));
-  }, [expenses, startDate, endDate, filterCategory]);
+  }, [expenses, startDate, endDate, filterCategory, filterType]);
 
   const grouped = useMemo(() => {
     const map = {};
@@ -122,6 +138,23 @@ export default function ExpensesPage() {
   }, [filtered]);
 
   const total = filtered.reduce((s, e) => s + (e.amount || 0), 0);
+  const typeTotals = useMemo(() => expenses
+    .filter((e) => e.date >= startDate && e.date <= endDate)
+    .reduce((totals, e) => {
+      const type = ['consumption', 'project', 'savings', 'investment'].includes(e.expenseType) ? e.expenseType : 'consumption';
+      totals[type] += Number(e.amount) || 0;
+      return totals;
+    }, { consumption: 0, project: 0, savings: 0, investment: 0 }), [expenses, startDate, endDate]);
+  const projectTotals = useMemo(() => projects.map((project) => {
+    const linkedExpenses = expenses.filter((item) => item.projectId === project.id);
+    const linkedIncomes = incomes.filter((item) => item.projectId === project.id);
+    return {
+      ...project,
+      spent: linkedExpenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
+      income: linkedIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
+    };
+  }), [projects, expenses, incomes]);
+  const eligibleIncomesForExpense = sortedIncomesForSelect.filter((income) => !income.projectId || income.projectId === (form.expenseType === 'project' ? form.projectId : ''));
 
   const openNew = () => {
     setForm(emptyForm());
@@ -134,6 +167,8 @@ export default function ExpensesPage() {
       id: exp.id,
       amount: String(exp.amount),
       categoryId: exp.categoryId,
+      expenseType: exp.expenseType || 'consumption',
+      projectId: exp.projectId || '',
       date: exp.date,
       time: exp.time || '',
       note: exp.note || '',
@@ -155,12 +190,15 @@ export default function ExpensesPage() {
     setError('');
     const amount = Number(form.amount);
     if (!amount || amount <= 0) return setError('Montant invalide.');
+    if (form.expenseType === 'project' && (!isPremium || !form.projectId)) return setError(isPremium ? 'Sélectionne un projet.' : 'La gestion des dépenses par projet nécessite Pata Premium.');
     
     setSaving(true);
     try {
       const payload = {
         amount,
         categoryId: form.categoryId,
+        expenseType: form.expenseType || 'consumption',
+        projectId: form.expenseType === 'project' ? form.projectId : '',
         date: form.date,
         note: form.note,
         incomeSourceId: form.incomeSourceId,
@@ -194,6 +232,27 @@ export default function ExpensesPage() {
       setError(err.message || 'Erreur lors de l\u2019enregistrement.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleCreateProject = async (event) => {
+    event.preventDefault();
+    setProjectError('');
+    if (!isPremium) return setProjectError('La création de projets est réservée à Pata Premium.');
+    if (!projectForm.name.trim()) return setProjectError('Donne un nom à ton projet.');
+    setProjectSaving(true);
+    try {
+      await createProject(user.uid, {
+        name: projectForm.name.trim(),
+        description: projectForm.description.trim(),
+        targetAmount: projectForm.targetAmount ? Number(projectForm.targetAmount) : null,
+      });
+      setProjectForm({ name: '', description: '', targetAmount: '' });
+      setProjectModalOpen(false);
+    } catch (err) {
+      setProjectError(err.message || 'Impossible de créer ce projet.');
+    } finally {
+      setProjectSaving(false);
     }
   };
 
@@ -248,7 +307,7 @@ export default function ExpensesPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Dépenses</h1>
           <p className="text-sm text-slate-500">
-            Total affiché : <span className="font-semibold text-slate-800">{formatCurrency(total)}</span>
+            Total des sorties affichées : <span className="font-semibold text-slate-800">{formatCurrency(total)}</span>
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -257,6 +316,35 @@ export default function ExpensesPage() {
             <Plus size={16} /> Nouvelle dépense
           </Button>
         </div>
+      </div>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div><h2 className="text-base font-bold text-slate-900">Projets de dépenses</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-slate-500">Regroupe les achats et travaux liés à un même objectif pour connaître les montants dépensés et les revenus réservés à ce projet.</p></div>
+          {isPremium ? <Button onClick={() => { setProjectError(''); setProjectModalOpen(true); }} variant="outline"><FolderPlus size={15}/> Créer un projet</Button> : <a href="/premium" className="inline-flex h-10 items-center rounded-xl border border-brand-200 px-3 text-xs font-semibold text-brand-700 hover:bg-brand-50">Découvrir cette fonction Premium</a>}
+        </div>
+        {projectTotals.length ? <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {projectTotals.map((project) => {
+            const target = Number(project.targetAmount) || 0;
+            const balance = project.income - project.spent;
+            const prompt = `Analyse mon projet « ${project.name} » dans Pata. Budget indicatif : ${target} FCFA. Revenus réservés : ${project.income} FCFA. Sorties liées : ${project.spent} FCFA. Solde affecté théorique : ${balance} FCFA. Explique la progression et les points à surveiller. Distingue ces sorties des dépenses courantes. Ne modifie aucune donnée.`;
+            return <article key={project.id} className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+              <div className="flex items-start justify-between gap-2"><div className="min-w-0"><h3 className="truncate text-sm font-bold text-slate-900">{project.name}</h3><p className="mt-1 line-clamp-2 text-xs text-slate-500">{project.description || 'Projet personnel'}</p></div><BriefcaseBusiness size={17} className="shrink-0 text-slate-400"/></div>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs"><div><span className="block text-slate-500">Sorties liées</span><strong>{formatCurrency(project.spent)}</strong></div><div><span className="block text-slate-500">Revenus réservés</span><strong>{formatCurrency(project.income)}</strong></div></div>
+              {target > 0 && <p className="mt-2 text-[11px] text-slate-500">Budget indicatif : {formatCurrency(target)}</p>}
+              <button type="button" onClick={() => window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt } }))} className="mt-3 inline-flex h-9 items-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-brand-700 hover:bg-brand-50">Analyser avec Mč</button>
+            </article>;
+          })}
+        </div> : <p className="mt-4 rounded-xl border border-dashed border-slate-200 px-3 py-4 text-xs text-slate-500">Aucun projet enregistré. Crée un projet Premium pour suivre les dépenses d’une construction, d’un équipement ou d’un achat important.</p>}
+      </section>
+
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          ['Dépenses courantes', typeTotals.consumption],
+          ['Projets', typeTotals.project],
+          ['Épargne', typeTotals.savings],
+          ['Investissements', typeTotals.investment],
+        ].map(([label, amount]) => <div key={label} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[11px] text-slate-500">{label}</p><p className="mt-1 text-sm font-bold text-slate-900">{formatCurrency(amount)}</p></div>)}
       </div>
 
       <div className="flex flex-wrap items-center gap-3 bg-white p-3 rounded-xl border border-slate-200">
@@ -281,6 +369,13 @@ export default function ExpensesPage() {
           </div>
         )}
 
+        <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm">
+          <option value="all">Toutes les natures</option>
+          <option value="consumption">Dépenses courantes</option>
+          <option value="project">Projets</option>
+          <option value="savings">Épargne</option>
+          <option value="investment">Investissements</option>
+        </select>
         <select
           value={filterCategory}
           onChange={(e) => setFilterCategory(e.target.value)}
@@ -325,6 +420,7 @@ export default function ExpensesPage() {
                         <CategoryImage categoryId={e.categoryId} image={cat?.image} size="md" />
                         <span className="min-w-0 flex-1">
                           <strong className="block truncate text-sm text-slate-800">{cat?.label || 'Autre'}</strong>
+                          <span className="mt-0.5 block text-[10px] font-semibold text-brand-700">{({ consumption: 'Dépense courante', project: 'Sortie de projet', savings: 'Épargne', investment: 'Investissement' })[e.expenseType || 'consumption']}{e.projectName ? ` · ${e.projectName}` : ''}</span>
                           <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-500">
                             {e.note && <span className="max-w-[160px] truncate">{e.note}</span>}
                             {e.time && <span className="inline-flex items-center gap-1"><Clock3 size={11}/>{e.time}</span>}
@@ -359,6 +455,32 @@ export default function ExpensesPage() {
           />
           
           <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">Nature de cette sortie d’argent</label>
+            <select value={form.expenseType || 'consumption'} onChange={(e) => setForm({ ...form, expenseType: e.target.value, projectId: e.target.value === 'project' ? form.projectId : '', incomeSourceId: 'all', incomeSourceName: 'Tous les revenus' })} className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm">
+              <option value="consumption">Dépense courante (consommation)</option>
+              <option value="project">Dépense liée à un projet</option>
+              <option value="savings">Versement d’épargne</option>
+              <option value="investment">Investissement</option>
+            </select>
+            <button type="button" onClick={() => setShowTypeHelp((value) => !value)} className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-brand-700 hover:underline"><Info size={13}/> Comprendre les différents types</button>
+            {showTypeHelp && <div className="mt-2 space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
+              <p><strong>Dépense courante :</strong> argent consommé pour le quotidien : nourriture, transport, loyer ou loisirs.</p>
+              <p><strong>Projet :</strong> argent utilisé pour une réalisation identifiée : construire une maison, acheter un téléphone ou un ordinateur.</p>
+              <p><strong>Épargne :</strong> argent mis de côté pour être conservé et utilisé plus tard. Il sort de ton argent disponible, mais ce n’est pas une consommation.</p>
+              <p><strong>Investissement :</strong> argent affecté à un actif ou à une activité dans l’espoir d’en tirer une valeur future. Ce n’est pas une dépense courante.</p>
+            </div>}
+            {form.expenseType === 'project' && <div className="mt-3">
+              <label className="mb-1 block text-sm font-medium text-slate-700">Projet concerné</label>
+              <select required value={form.projectId || ''} onChange={(e) => setForm({ ...form, projectId: e.target.value, incomeSourceId: 'all', incomeSourceName: 'Tous les revenus' })} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm">
+                <option value="">Choisir un projet</option>
+                {projects.filter((item) => item.status !== 'archived').map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+              </select>
+              {!isPremium && <p className="mt-1 text-xs text-amber-700">La création et l’association de projets nécessitent Pata Premium.</p>}
+              {isPremium && !projects.length && <p className="mt-1 text-xs text-slate-500">Crée d’abord un projet dans la rubrique ci-dessus.</p>}
+            </div>}
+          </div>
+
+          <div>
             <p className="mb-2 text-sm font-medium text-slate-700">Catégorie</p>
             <CategoryManager
               type="expense"
@@ -383,8 +505,8 @@ export default function ExpensesPage() {
               className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"
             >
               {/* 🟢 AFFICHAGE DU VRAI SOLDE TOTAL */}
-              <option value="all">Tous les revenus (Total: {formatCurrency(totalGlobalBalance)})</option>
-              {sortedIncomesForSelect.map((inc) => (
+              <option value="all">Toutes les sources disponibles ({formatCurrency(eligibleIncomesForExpense.reduce((sum, income) => sum + income.remaining, 0))})</option>
+              {eligibleIncomesForExpense.map((inc) => (
                 <option 
                   key={inc.id} 
                   value={inc.id}
@@ -417,6 +539,16 @@ export default function ExpensesPage() {
           <Button type="submit" className="w-full" disabled={saving}>
             {saving ? 'Enregistrement…' : form.id ? 'Mettre à jour' : 'Ajouter'}
           </Button>
+        </form>
+      </Modal>
+
+      <Modal open={projectModalOpen} onClose={() => setProjectModalOpen(false)} title="Créer un projet">
+        <form onSubmit={handleCreateProject} className="space-y-3">
+          <Input label="Nom du projet" required maxLength={100} value={projectForm.name} onChange={(e) => setProjectForm({ ...projectForm, name: e.target.value })} placeholder="Ex. Construction de ma maison"/>
+          <div><label className="mb-1 block text-sm font-medium text-slate-700">Description (facultatif)</label><textarea value={projectForm.description} onChange={(e) => setProjectForm({ ...projectForm, description: e.target.value })} maxLength={500} rows={3} className="w-full rounded-lg border border-slate-300 p-3 text-sm" placeholder="Décris ce que tu souhaites réaliser."/></div>
+          <Input label="Budget indicatif (FCFA, facultatif)" type="number" min="0" step="1" value={projectForm.targetAmount} onChange={(e) => setProjectForm({ ...projectForm, targetAmount: e.target.value })} placeholder="Ex. 2500000"/>
+          {projectError && <p className="rounded-lg bg-red-50 p-2 text-sm text-red-700">{projectError}</p>}
+          <Button type="submit" className="w-full" disabled={projectSaving}>{projectSaving ? 'Création…' : 'Créer le projet'}</Button>
         </form>
       </Modal>
 
