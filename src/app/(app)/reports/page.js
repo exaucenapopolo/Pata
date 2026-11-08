@@ -248,7 +248,7 @@ export default function ReportsPage() {
             </div>
             {weeklyReport.expenseChangePercent !== null && weeklyReport.expenseChangePercent !== undefined && (
               <span className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${weeklyReport.expenseChangePercent > 0 ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>
-                {weeklyReport.expenseChangePercent > 0 ? '+' : ''}{weeklyReport.expenseChangePercent} % de dépenses
+                {weeklyReport.expenseChangePercent > 0 ? '+' : ''}{weeklyReport.expenseChangePercent} % de sorties
               </span>
             )}
           </div>
@@ -266,7 +266,7 @@ export default function ReportsPage() {
           )}
           {Array.isArray(weeklyReport.categories) && weeklyReport.categories.length > 0 && (
             <div className="mt-3">
-              <p className="mb-2 text-xs font-semibold text-slate-700">Principales dépenses</p>
+              <p className="mb-2 text-xs font-semibold text-slate-700">Principales dépenses courantes</p>
               <div className="flex flex-wrap gap-2">{weeklyReport.categories.slice(0, 4).map((item) => <span key={item.categoryId} className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-700">{item.label} · {formatCurrency(item.amount)}</span>)}</div>
             </div>
           )}
