@@ -8,7 +8,7 @@ import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Check, MessageSquareText, X
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/hooks/useAuth';
-import { useProjects } from '@/hooks/useProjects';
+import { subscribeProjects } from '@/lib/firestore/projects';
 import { EXPENSE_CATEGORIES } from '@/lib/constants';
 import { parseMobileMoneySms } from '@/lib/sms/parseMobileMoneySms.mjs';
 const INCOME_CATEGORIES = [
@@ -26,13 +26,22 @@ async function hashTransaction(provider, transactionId) {
 
 export function SmsImportCoordinator() {
   const { user } = useAuth();
-  const { projects } = useProjects();
+  const [projects, setProjects] = useState([]);
   const [pending, setPending] = useState([]);
   const [choices, setChoices] = useState({});
   const [warnings, setWarnings] = useState({});
   const [workingId, setWorkingId] = useState('');
   const [notice, setNotice] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
+  const needsProjectOptions = pending.some((item) => choices[item.id]?.expenseType === 'project');
+
+  useEffect(() => {
+    if (!user || !needsProjectOptions) {
+      setProjects([]);
+      return undefined;
+    }
+    return subscribeProjects(user.uid, setProjects);
+  }, [user, needsProjectOptions]);
 
   const loadPending = useCallback(async () => {
     if (!user) return;
