@@ -7,6 +7,7 @@ on:
       - "package.json"
       - "capacitor.config.json"
       - "native/android/**"
+      - "public/android-version.json"
       - "src/app/api/sms-import/**"
       - "src/app/telecharger/**"
       - "src/components/SmsImport*.jsx"
@@ -154,12 +155,28 @@ jobs:
           ./gradlew --no-daemon assembleRelease
           cp app/build/outputs/apk/release/app-release.apk ../Pata-Android.apk
 
+      - name: Vérifier cryptographiquement la signature APK
+        if: ${{ (inputs.publish_release == 'true' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[PUBLISH_ANDROID_RELEASE]'))) && env.ANDROID_KEYSTORE_BASE64 != '' && env.ANDROID_KEYSTORE_PASSWORD != '' && env.ANDROID_KEY_ALIAS != '' && env.ANDROID_KEY_PASSWORD != '' }}
+        run: |
+          APK_SIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -n "$APK_SIGNER"
+          "$APK_SIGNER" verify --verbose --print-certs Pata-Android.apk
+
+      - name: Archiver l'APK release signée
+        if: ${{ (inputs.publish_release == 'true' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[PUBLISH_ANDROID_RELEASE]'))) && env.ANDROID_KEYSTORE_BASE64 != '' && env.ANDROID_KEYSTORE_PASSWORD != '' && env.ANDROID_KEY_ALIAS != '' && env.ANDROID_KEY_PASSWORD != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pata-android-release-signed
+          path: Pata-Android.apk
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Publier l'APK de distribution
         if: ${{ (inputs.publish_release == 'true' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[PUBLISH_ANDROID_RELEASE]'))) && env.ANDROID_KEYSTORE_BASE64 != '' && env.ANDROID_KEYSTORE_PASSWORD != '' && env.ANDROID_KEY_ALIAS != '' && env.ANDROID_KEY_PASSWORD != '' }}
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: android-v1.0.0
-          name: Pata Android 1.0.0
+          tag_name: android-v1.0.1
+          name: Pata Android 1.0.1
           target_commitish: main
           generate_release_notes: true
           overwrite_files: true
