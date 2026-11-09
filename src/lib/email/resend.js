@@ -77,9 +77,11 @@ export async function sendPataEmail({ to, subject, html, idempotencyKey }) {
   return { id: data.id || null };
 }
 
-export function welcomeEmail({ name }) {
+export function welcomeEmail({ name, referrerName }) {
   const displayName = name || 'et bienvenue';
+  const referralIntro = referrerName ? `<div style="margin:0 0 16px;padding:14px 16px;border:1px solid #dcebe2;border-radius:12px;background:#f3faf6;color:#244b39;font-size:13px;line-height:1.7;">Tu as rejoint Pata grâce à l’invitation de <strong>${escapeEmailHtml(referrerName)}</strong>. Tu peux activer ton premier mois de Pata Premium à <strong>1 250 FCFA au lieu de 2 500 FCFA</strong>. Cette offre est réservée à une première souscription admissible.</div>` : '';
   const bodyHtml = `
+    ${referralIntro}
     <p style="margin:0 0 16px;color:#334155;font-size:15px;line-height:1.75;">Ton espace Pata est prêt. Tu peux maintenant organiser ton argent et prendre de meilleures décisions à partir de tes propres données.</p>
     <div style="margin:18px 0;padding:17px 18px;background:#f6f9f7;border:1px solid #e5eee8;border-radius:12px;">
       <div style="font-size:14px;font-weight:700;color:#163b2d;margin-bottom:10px;">Pour bien commencer</div>
@@ -244,4 +246,24 @@ export function customAdminEmail({ name, headline, body, ctaUrl = '/dashboard', 
   const paragraphs = String(body || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
     .map((line) => `<p style="margin:0 0 13px;color:#334155;font-size:14px;line-height:1.75;">${escapeEmailHtml(line.replaceAll('{nom}', name || ''))}</p>`).join('');
   return renderPataEmail({ preheader: headline, eyebrow: 'MESSAGE PERSONNEL DE PATA', headline: headline || 'Un message pour toi', bodyHtml: paragraphs, ctaLabel, ctaUrl, signoff: 'Avec toute notre considération — L’équipe Pata' });
+}
+
+
+export function referralJoinedEmail({ referrerName, invitedName }) {
+  const bodyHtml = `
+    <p style="margin:0 0 15px;color:#334155;font-size:14px;line-height:1.75;">Bonjour ${escapeEmailHtml(referrerName || '')}, <strong>${escapeEmailHtml(invitedName || 'Une personne')}</strong> vient de créer un compte Pata avec ton lien de parrainage.</p>
+    <div style="margin:16px 0;padding:16px;border:1px solid #e5eee8;border-radius:12px;background:#f8faf9;">
+      <div style="color:#64748b;font-size:11px;font-weight:700;">BONUS DE PARRAINAGE EN ATTENTE</div>
+      <div style="margin-top:5px;color:#123d2c;font-size:26px;font-weight:700;">1 000 FCFA</div>
+      <p style="margin:8px 0 0;color:#475569;font-size:13px;line-height:1.7;">Ce bonus sera crédité dans ton solde de parrainage lorsque cette personne aura payé et activé un abonnement Pata Premium. La simple création du compte ne déclenche pas le paiement du bonus.</p>
+    </div>
+    <p style="margin:0;color:#475569;font-size:13px;line-height:1.7;">Tu peux déjà retrouver cette inscription et suivre son statut dans tes paramètres Pata.</p>`;
+  return renderPataEmail({
+    preheader: 'Une personne vient de rejoindre Pata grâce à ton invitation.',
+    eyebrow: 'PARRAINAGE PATA',
+    headline: 'Ton invitation a été utilisée.',
+    bodyHtml,
+    ctaLabel: 'Suivre mon parrainage',
+    ctaUrl: '/settings',
+  });
 }
