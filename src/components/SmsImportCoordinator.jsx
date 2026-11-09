@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { App } from '@capacitor/app';
-import { Capacitor, registerPlugin } from '@capacitor/core';
+import { Capacitor } from '@capacitor/core';
+import { PataSms } from '@/lib/sms/nativePlugin';
 import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Check, MessageSquareText, X } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
@@ -10,8 +11,6 @@ import { useAuth } from '@/hooks/useAuth';
 import { useIncomes } from '@/hooks/useIncomes';
 import { EXPENSE_CATEGORIES } from '@/lib/constants';
 import { parseMobileMoneySms } from '@/lib/sms/parseMobileMoneySms.mjs';
-
-const PataSms = registerPlugin('PataSms');
 const INCOME_CATEGORIES = [
   { id: 'salary', label: 'Salaire' },
   { id: 'business', label: 'Business / Freelance' },

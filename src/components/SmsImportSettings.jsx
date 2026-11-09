@@ -2,12 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Capacitor, registerPlugin } from '@capacitor/core';
+import { Capacitor } from '@capacitor/core';
+import { PataSms } from '@/lib/sms/nativePlugin';
 import { BatteryCharging, CheckCircle2, MessageSquareText, ShieldCheck, Smartphone } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/Button';
-
-const PataSms = registerPlugin('PataSms');
 
 export function SmsImportSettings() {
   const { user } = useAuth();
