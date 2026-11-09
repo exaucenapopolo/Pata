@@ -2302,29 +2302,6 @@ async function handleFundGoal(request) {
   } catch (error) { return errorResponse(error.message, 400); }
 }
 
-async function handleGoalBorrow(request) {
-  try {
-    const decoded = await authenticate(request);
-    const body = await request.json();
-    const { goalId, amount } = body;
-    if (!goalId || !amount || amount <= 0) return errorResponse('Montant invalide.');
-
-    const goalRef = adminDb.collection('users').doc(decoded.uid).collection('goals').doc(goalId);
-    const interest = Math.round(amount * 0.05);
-    const totalDebtToAdd = amount + interest;
-
-    await adminDb.runTransaction(async (t) => {
-      const goalDoc = await t.get(goalRef);
-      if (!goalDoc.exists) throw new Error('Objectif introuvable.');
-      const currentDebt = goalDoc.data().debtBalance || 0;
-      t.set(goalRef.collection('deposits').doc(), {
-        amount, date: getDoualaDateKey(), source: 'loan', createdAt: FieldValue.serverTimestamp(),
-      });
-      t.update(goalRef, { debtBalance: currentDebt + totalDebtToAdd });
-    });
-    return NextResponse.json({ success: true, borrowed: amount, interest, totalDebt: totalDebtToAdd });
-  } catch (error) { return errorResponse(error.message, 400); }
-}
 
 async function handleRepayLoan(request) {
   try {
@@ -3646,7 +3623,7 @@ async function handleFapshiPayoutWebhook(request) {
     if (!snapshot.exists) return NextResponse.json({ received: true });
     const data = { ...snapshot.data(), requestId: requestRef.id };
     const status = String(body.status || '').toUpperCase();
-    if (status === 'SUCCESSFUL' && data.status !== 'PAID') {
+    if (status === 'SUCCESSFUL' && !['PAID', 'FAILED', 'REJECTED'].includes(data.status)) {
       await requestRef.update({
         status: 'PAID', fapshiTransId: body.transId || data.fapshiTransId || null,
         financialTransId: body.financialTransId || null, paidAt: FieldValue.serverTimestamp(),
@@ -3662,7 +3639,7 @@ async function handleFapshiPayoutWebhook(request) {
         target, createdAt: FieldValue.serverTimestamp(),
       });
       await cotisationSendWithdrawalEmail(data, 'paid');
-    } else if (['FAILED', 'EXPIRED'].includes(status) && !['PAID', 'FAILED'].includes(data.status)) {
+    } else if (['FAILED', 'EXPIRED'].includes(status) && !['PAID', 'FAILED', 'REJECTED'].includes(data.status)) {
       await requestRef.update({
         status: 'FAILED',
         providerMessage: String(body.reason || 'Le retrait n’a pas pu être effectué.').slice(0, 300),
@@ -3714,9 +3691,11 @@ async function handleGoalWithdrawalRequest(request, actionType = 'withdraw') {
       const debt = Number(goal.debtBalance) || 0;
       const plan = computeGoalPlan({ ...goal, id: goalSnap.id }, deposits);
       if (actionType === 'withdraw' && goal.type !== 'piggybank' && !plan.isReached) throw new Error('Cet objectif n’a pas encore atteint son montant cible. Tu peux l’annuler si tu souhaites récupérer les fonds, avec les conditions affichées.');
-      const penalty = actionType === 'cancel' && goal.type !== 'piggybank' ? Math.round(totalDeposited * 0.10) : 0;
+      const latePenalty = goal.type === 'piggybank' ? 0 : Math.max(0, Math.round(Number(plan.penalty) || 0));
+      const cancellationPenalty = actionType === 'cancel' && goal.type !== 'piggybank'
+        ? Math.round(totalDeposited * 0.10) : 0;
       const platformFee = 0; // Aucun frais de retrait ajouté par Pata.
-      const amount = Math.floor(Math.max(0, totalDeposited - debt - penalty - platformFee));
+      const amount = Math.floor(Math.max(0, totalDeposited - debt - latePenalty - cancellationPenalty - platformFee));
       if (amount < 100) throw new Error('Le montant disponible est inférieur au minimum de retrait de 100 FCFA.');
       if (amount > 500000) throw new Error('Le retrait dépasse le plafond autorisé de 500 000 FCFA pour une seule opération. Contacte le support Pata pour organiser la suite sans risquer de bloquer ton épargne.');
       const userData = userSnap.data();
@@ -3732,7 +3711,8 @@ async function handleGoalWithdrawalRequest(request, actionType = 'withdraw') {
         actionType,
         grossAmount: totalDeposited,
         debtDeduction: debt,
-        cancellationPenalty: penalty,
+        latePenalty,
+        cancellationPenalty,
         platformFee,
         amount,
         currency: 'XAF',
@@ -3741,7 +3721,7 @@ async function handleGoalWithdrawalRequest(request, actionType = 'withdraw') {
         createdAt: FieldValue.serverTimestamp(),
       });
       transaction.update(goalRef, { withdrawalPending: true, withdrawalRequestId: requestRef.id, withdrawalStatus: 'PENDING_REVIEW' });
-      return { amount, grossAmount: totalDeposited, debt, penalty, platformFee, requestId: requestRef.id, goalName: goal.name || (goal.type === 'piggybank' ? 'Tirelire' : 'Objectif') };
+      return { amount, grossAmount: totalDeposited, debt, latePenalty, cancellationPenalty, platformFee, requestId: requestRef.id, goalName: goal.name || (goal.type === 'piggybank' ? 'Tirelire' : 'Objectif') };
     });
     const userForEmail = await userRef.get();
     await cotisationSendWithdrawalEmail({
