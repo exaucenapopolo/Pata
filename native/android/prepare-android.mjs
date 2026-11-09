@@ -14,6 +14,10 @@ fs.copyFileSync(
   path.join(root, 'public/android-chrome-512x512.png'),
   path.join(assetsDir, 'icon.png')
 );
+fs.copyFileSync(
+  path.join(root, 'public/android-chrome-512x512.png'),
+  path.join(assetsDir, 'splash.png')
+);
 execFileSync('npx', [
   'capacitor-assets', 'generate', '--android',
   '--iconBackgroundColor', '#075b43',
