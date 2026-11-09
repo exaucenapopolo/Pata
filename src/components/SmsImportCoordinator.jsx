@@ -71,30 +71,14 @@ export function SmsImportCoordinator() {
   const syncDeviceInbox = useCallback(async () => {
     if (!user || !Capacitor.isNativePlatform()) return;
     try {
+      // Les SMS reçus en arrière-plan sont envoyés par WorkManager directement
+      // au serveur ; on ne les remet plus en attente de confirmation manuelle ici.
+      await PataSms.retryPendingSync().catch(() => {});
       const native = await PataSms.getPendingSms();
-      const accepted = [];
-      for (const item of native.items || []) {
-        // Ne jamais rattacher les SMS locaux d'un ancien compte au compte actuellement connecté.
-        if (item.ownerUid && item.ownerUid !== user.uid) continue;
-        try {
-          const transactionHash = await stageParsed(item);
-          if (item.counterparty || item.balance != null) {
-            await PataSms.saveLocalHints({
-              transactionHash,
-              counterparty: item.counterparty || '',
-              balance: item.balance == null ? null : Number(item.balance),
-            });
-          }
-          accepted.push(item.transactionHash);
-        } catch (error) {
-          if (/Premium|abonnement|active d’abord/i.test(error.message || '')) {
-            setNotice('L’import SMS nécessite un abonnement Premium actif et l’option activée dans les paramètres.');
-          } else {
-            console.warn('[PATA SMS IMPORT]', error?.message || error);
-          }
-        }
+      const ownPending = (native.items || []).filter((item) => !item.ownerUid || item.ownerUid === user.uid);
+      if (ownPending.length) {
+        setNotice('Pata synchronise ' + ownPending.length + ' SMS reconnu(s) en arrière-plan. Les opérations sont enregistrées automatiquement dès que la connexion revient.');
       }
-      if (accepted.length) await PataSms.clearPendingSms({ transactionHashes: accepted });
 
       const shared = await PataSms.getSharedSms();
       if (shared?.text) {
