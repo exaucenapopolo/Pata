@@ -1151,6 +1151,7 @@ async function handleCotisationReferralPayment(request) {
     const userRef = adminDb.collection('users').doc(uid);
     const paymentRef = adminDb.collection('cotisationPayments').doc();
     transId = paymentRef.id;
+    const referralLedgerRef = userRef.collection('referralTransactions').doc('cotisation-' + transId);
     reservationId = randomBytes(18).toString('hex');
 
     const paymentData = await adminDb.runTransaction(async (transaction) => {
@@ -1189,6 +1190,18 @@ async function handleCotisationReferralPayment(request) {
         throw new Error('Cette majoration ferait dépasser la limite autorisée de retrait de 500 000 FCFA.');
       }
       transaction.update(userRef, { referralBalance: available - grossAmount });
+      transaction.create(referralLedgerRef, {
+        type: 'TRANSFER',
+        destination: 'cotisation',
+        amount: grossAmount,
+        contributionAmount: amount,
+        penaltyAmount,
+        groupId,
+        groupName: group.name || 'Cotisation',
+        status: 'PENDING',
+        sourcePaymentId: transId,
+        createdAt: FieldValue.serverTimestamp(),
+      });
       transaction.update(memberRef, {
         pendingPaymentId: reservationId,
         pendingPaymentAmount: amount + penaltyAmount,
@@ -1220,6 +1233,7 @@ async function handleCotisationReferralPayment(request) {
 
     const confirmation = await confirmCotisationPayment(transId);
     if (!confirmation.confirmed) throw new Error('Le versement n’a pas pu être confirmé. Le solde de parrainage sera restauré.');
+    await referralLedgerRef.update({ status: 'CONFIRMED', confirmedAt: FieldValue.serverTimestamp() });
     return NextResponse.json({ success: true, amount, paidFromReferralBalance: true, groupName: paymentData.groupName });
   } catch (error) {
     if (uid && transId && amountReserved > 0) {
@@ -1242,6 +1256,7 @@ async function handleCotisationReferralPayment(request) {
             }
             transaction.update(userRef, { referralBalance: (Number(userData.referralBalance) || 0) + amountReserved });
             transaction.update(paymentRef, { status: 'FAILED', failedAt: FieldValue.serverTimestamp() });
+            transaction.set(referralLedgerRef, { status: 'FAILED', processedAt: FieldValue.serverTimestamp() }, { merge: true });
           });
         }
       } catch (rollbackError) {
