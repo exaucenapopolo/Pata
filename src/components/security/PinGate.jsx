@@ -139,7 +139,7 @@ export function PinGate() {
       <p className="mt-5 text-center text-[10px] font-bold uppercase tracking-[.18em] text-[#0b5c46]">Protection Pata</p>
       <h1 className="mt-2 text-center text-xl font-bold text-slate-950">{resetMode ? 'Réinitialiser ton code' : 'Saisis ton code secret'}</h1>
       {!resetMode ? <>
-        <p className="mt-2 text-center text-sm leading-6 text-slate-500">Après 10 minutes ou plus passées hors de Pata, saisis ton code PIN pour reprendre l'accès à ton espace financier.</p>
+        <p className="mt-2 text-center text-sm leading-6 text-slate-500">Après 10 minutes ou plus passées hors de Pata, saisis ton code PIN pour reprendre l’accès à ton espace financier.</p>
         <form onSubmit={unlock} className="mt-5 space-y-3">
           <input autoFocus type="password" inputMode="numeric" autoComplete="one-time-code" maxLength={4} pattern="[0-9]{4}" value={pin} onChange={e=>setPin(e.target.value.replace(/\D/g,'').slice(0,4))} className="h-14 w-full rounded-xl border border-slate-200 text-center text-2xl font-bold tracking-[.7em] outline-none focus:border-[#0b5c46]" aria-label="Code secret à quatre chiffres" placeholder="••••"/>
           {error && <p role="alert" className="text-center text-xs text-red-600">{error}</p>}
