@@ -44,8 +44,8 @@ function validateParsedPayload(body = {}) {
   const amount = Math.round(Number(body.amount));
   const date = String(body.date || '');
   const time = String(body.time || '');
-  const rawCounterparty = String(body.counterparty || '').normalize('NFC').replace(/\\s+/g, ' ').trim().slice(0, 60);
-  const counterparty = /^\\p{L}[\\p{L}'’ .-]{0,59}$/u.test(rawCounterparty) ? rawCounterparty : null;
+  const rawCounterparty = String(body.counterparty || '').normalize('NFC').replace(/\s+/g, ' ').trim().slice(0, 60);
+  const counterparty = /^\p{L}[\p{L}'’ .-]{0,59}$/u.test(rawCounterparty) ? rawCounterparty : null;
   if (!PROVIDERS.has(provider)) throw new Error('Opérateur Mobile Money non reconnu.');
   if (!EVENT_TYPES.has(eventType)) throw new Error('Type de transaction non reconnu.');
   const expectedDirection = eventType === 'receive' ? 'income' : eventType === 'withdrawal' ? 'withdrawal' : 'expense';

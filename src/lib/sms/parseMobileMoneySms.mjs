@@ -81,8 +81,8 @@ function parseDateAndTime(text, receivedAt) {
 }
 
 function sanitizeCounterparty(candidate) {
-  const value = String(candidate || '').replace(/\\s+/g, ' ').replace(/^[\\s:,-]+|[\\s.;,:-]+$/g, '').trim();
-  if (!value || value.length > 60 || !/^\\p{L}[\\p{L}'’ .-]{0,59}$/u.test(value)) return null;
+  const value = String(candidate || '').replace(/\s+/g, ' ').replace(/^[\s:,-]+|[\s.;,:-]+$/g, '').trim();
+  if (!value || value.length > 60 || !/^\p{L}[\p{L}'’ .-]{0,59}$/u.test(value)) return null;
   const normalized = value.toLowerCase();
   if (/^(?:la somme|le montant|votre compte|votre solde|la transaction|un client|un marchand)$/.test(normalized)) return null;
   return value;
@@ -90,10 +90,10 @@ function sanitizeCounterparty(candidate) {
 
 function parseCounterparty(text) {
   const patterns = [
-    /(?:paiement\\s+r[eé]ussi|payment\\s+successful)[.!,:-]\\s*([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÿ'’ .-]{1,50})[.!,:-]\\s*(?:montant|transaction|somme)/i,
-    /(?:re[cç]u|received)\\s+(?:de|from)\\s+([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÿ'’ .-]{1,50})(?=[,.;]|$)/i,
-    /(?:envoy[eé]\\s+(?:[àa]|vers)|transfert\\s+vers|pay[eé]\\s+[àa]|auprès\\s+de|chez|sent\\s+to)\\s+([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÿ'’ .-]{1,50})(?=[,.;]|$)/i,
-    /\\bde\\s+([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÿ'’ .-]{1,50})(?=[,.;]|$)/i,
+    /(?:paiement\s+r[eé]ussi|payment\s+successful)[.!,:-]\s*([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÿ'’ .-]{1,50})[.!,:-]\s*(?:montant|transaction|somme)/i,
+    /(?:re[cç]u|received)\s+(?:de|from)\s+([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÿ'’ .-]{1,50})(?=[,.;]|$)/i,
+    /(?:envoy[eé]\s+(?:[àa]|vers)|transfert\s+vers|pay[eé]\s+[àa]|auprès\s+de|chez|sent\s+to)\s+([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÿ'’ .-]{1,50})(?=[,.;]|$)/i,
+    /\bde\s+([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÿ'’ .-]{1,50})(?=[,.;]|$)/i,
   ];
   for (const pattern of patterns) {
     const match = text.match(pattern);
