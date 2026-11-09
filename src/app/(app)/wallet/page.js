@@ -80,9 +80,9 @@ export default function WalletPage() {
   const onSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    const amountNum = Math.round(Number(amount));
-    if (!amountNum || amountNum < 100) {
-      return setError('Minimum : 100 FCFA.');
+    const amountNum = Number(amount);
+    if (!/^\d+$/.test(String(amount)) || !Number.isSafeInteger(amountNum) || amountNum < 100) {
+      return setError('Saisis un montant entier, sans virgule ni point, d’au moins 100 FCFA.');
     }
     setSubmitting(true);
     try {
@@ -131,9 +131,9 @@ export default function WalletPage() {
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">Montant (FCFA)</label>
             <input
-              type="number"
-              min="100"
-              step="100"
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]+"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"

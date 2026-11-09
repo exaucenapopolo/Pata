@@ -76,6 +76,7 @@ export default function ExpensesPage() {
   const [projectError, setProjectError] = useState('');
   const [projectActionId, setProjectActionId] = useState('');
   const [projectActionError, setProjectActionError] = useState('');
+  const [showCompletedProjects, setShowCompletedProjects] = useState(false);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -167,6 +168,9 @@ export default function ExpensesPage() {
       income: linkedIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
     };
   }), [projects, expenses, incomes]);
+  const activeProjects = projectTotals.filter((project) => project.status !== 'completed' && project.status !== 'archived');
+  const completedProjects = projectTotals.filter((project) => project.status === 'completed' || project.status === 'archived');
+  const displayedProjects = showCompletedProjects ? [...activeProjects, ...completedProjects] : activeProjects;
   const eligibleIncomesForExpense = sortedIncomesForSelect.filter((income) => !income.projectId || income.projectId === (form.expenseType === 'project' ? form.projectId : ''));
 
   const openNew = () => {
@@ -349,8 +353,15 @@ export default function ExpensesPage() {
           {isPremium ? <Button onClick={() => { setProjectError(''); setProjectModalOpen(true); }} variant="outline"><FolderPlus size={15}/> Créer un projet</Button> : <a href="/premium" className="inline-flex h-10 items-center rounded-xl border border-brand-200 px-3 text-xs font-semibold text-brand-700 hover:bg-brand-50">Découvrir cette fonction Premium</a>}
         </div>
         {projectActionError && <p role="alert" className="mt-3 rounded-lg bg-red-50 p-2 text-xs text-red-700">{projectActionError}</p>}
-        {projectTotals.length ? <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {projectTotals.map((project) => {
+        {projectTotals.length ? <>
+          {completedProjects.length > 0 && <div className="mt-4">
+            <button type="button" onClick={() => setShowCompletedProjects((current) => !current)} aria-expanded={showCompletedProjects}
+              className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition hover:border-brand-300 hover:text-brand-700">
+              {showCompletedProjects ? 'Masquer les projets terminés' : `Afficher les projets terminés et archivés (${completedProjects.length})`}
+            </button>
+          </div>}
+          {displayedProjects.length > 0 ? <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {displayedProjects.map((project) => {
             const target = Number(project.targetAmount) || 0;
             const balance = project.income - project.spent;
             const prompt = `Analyse mon projet « ${project.name} » dans Pata. Budget indicatif : ${target} FCFA. Revenus réservés : ${project.income} FCFA. Sorties liées : ${project.spent} FCFA. Solde affecté théorique : ${balance} FCFA. Explique la progression et les points à surveiller. Distingue ces sorties des dépenses courantes. Ne modifie aucune donnée.`;
@@ -361,7 +372,8 @@ export default function ExpensesPage() {
               <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt } }))} className="inline-flex h-9 items-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-brand-700 hover:bg-brand-50">Analyser avec Mč</button>{isPremium && project.status === 'active' && <button type="button" onClick={() => handleProjectStatusChange(project, 'completed')} disabled={projectActionId === project.id} className="inline-flex h-9 items-center rounded-lg border border-emerald-200 bg-white px-3 text-xs font-semibold text-emerald-700 disabled:opacity-50">{projectActionId === project.id ? 'Mise à jour…' : 'Marquer comme terminé'}</button>}{isPremium && project.status === 'completed' && <button type="button" onClick={() => handleProjectStatusChange(project, 'active')} disabled={projectActionId === project.id} className="inline-flex h-9 items-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 disabled:opacity-50">Réouvrir</button>}</div>
             </article>;
           })}
-        </div> : <p className="mt-4 rounded-xl border border-dashed border-slate-200 px-3 py-4 text-xs text-slate-500">Aucun projet enregistré. Crée un projet Premium pour suivre les dépenses d’une construction, d’un équipement ou d’un achat important.</p>}
+          </div> : <p className="mt-4 rounded-xl border border-dashed border-slate-200 px-3 py-4 text-xs text-slate-500">Aucun projet en cours. Les projets terminés restent accessibles depuis le bouton ci-dessus.</p>}
+        </> : <p className="mt-4 rounded-xl border border-dashed border-slate-200 px-3 py-4 text-xs text-slate-500">Aucun projet enregistré. Crée un projet Premium pour suivre les dépenses d’une construction, d’un équipement ou d’un achat important.</p>}
       </section>
 
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">

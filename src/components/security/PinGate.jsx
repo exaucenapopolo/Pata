@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { LockKeyhole, ShieldCheck, Mail } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { PinPad } from '@/components/security/PinPad';
@@ -104,11 +104,11 @@ export function PinGate() {
     return () => window.removeEventListener('pata:pin-updated', refreshPinStatus);
   }, [user]);
 
-  const unlock = async () => {
+  const unlock = useCallback(async () => {
     if (!user || pin.length !== 4 || busy) return;
     setBusy(true); setError('');
     try {
-      const result = await apiCall(user, 'security/pin/verify', { pin });
+      await apiCall(user, 'security/pin/verify', { pin });
       setEnabled(true);
       try { localStorage.removeItem(storageKey); } catch { /* stockage local indisponible */ }
       setLocked(false); setPin('');
@@ -116,7 +116,11 @@ export function PinGate() {
       setError(err.message || 'Code secret incorrect.');
       setPin('');
     } finally { setBusy(false); }
-  };
+  }, [user, pin, busy, storageKey]);
+
+  useEffect(() => {
+    if (locked && enabled && pin.length === 4 && !busy) void unlock();
+  }, [locked, enabled, pin, busy, unlock]);
 
   const requestReset = async () => {
     if (busy) return;
@@ -148,8 +152,8 @@ export function PinGate() {
   if (!locked || !enabled) return null;
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center overflow-y-auto bg-[#f5f8f6] dark:bg-[#101a16] px-4 py-6">
-      <section className="w-full max-w-[340px] rounded-[28px] border border-slate-200 bg-white px-5 py-6 shadow-xl dark:border-slate-700 dark:bg-[#18251f] sm:px-7">
+    <div className="fixed inset-0 z-[200] flex items-end justify-center overflow-y-auto bg-[#f5f8f6] px-0 pt-8 dark:bg-[#101a16] sm:items-center sm:px-4 sm:py-6">
+      <section className="w-full max-w-[420px] rounded-t-[32px] border border-slate-200 bg-white px-5 pb-[calc(28px+env(safe-area-inset-bottom))] pt-7 shadow-[0_-16px_60px_rgba(15,23,42,0.12)] dark:border-slate-700 dark:bg-[#18251f] sm:rounded-[28px] sm:px-7 sm:py-7">
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-50 text-brand-700">
           {resetMode ? <ShieldCheck size={22}/> : <LockKeyhole size={22}/>}
         </div>
@@ -159,7 +163,6 @@ export function PinGate() {
             <p className="mt-1.5 text-center text-xs text-slate-500 dark:text-slate-400">Déverrouille ton espace personnel.</p>
             <div className="mt-5"><PinPad value={pin} onChange={setPin} disabled={busy} label="Saisis ton code à 4 chiffres"/></div>
             {error && <p role="alert" className="mt-3 text-center text-xs text-red-600">{error}</p>}
-            <button type="button" onClick={unlock} disabled={busy || pin.length !== 4} className="mt-4 h-11 w-full rounded-xl bg-brand-700 text-sm font-bold text-white transition hover:bg-brand-800 disabled:opacity-40">{busy ? 'Vérification…' : 'Déverrouiller'}</button>
             <button type="button" onClick={() => { setResetMode(true); setError(''); }} className="mt-3 flex min-h-9 w-full items-center justify-center gap-1.5 text-xs font-semibold text-brand-700"><Mail size={14}/> Code oublié ?</button>
           </>
         ) : (
