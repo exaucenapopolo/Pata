@@ -101,7 +101,7 @@ export function SmsImportSettings() {
       // Dans ce cas, on en demande un nouveau puis on le remplace sur cet appareil.
       const needsDeviceLink = data.enabled === true && (
         status.hasDeviceToken !== true
-        || (status.userUid && status.userUid !== user.uid)
+        || status.userUid !== user.uid
         || tokenWasRejected
       );
 
