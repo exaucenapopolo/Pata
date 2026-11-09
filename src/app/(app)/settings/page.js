@@ -20,6 +20,7 @@ import { useAllBudgets } from '@/hooks/useAllBudgets';
 import { convertCurrencyAmount, formatCurrency, getPreferredCurrencyCode } from '@/lib/utils';
 import { NotificationSettings } from '@/components/NotificationSettings';
 import { PinSecuritySettings } from '@/components/security/PinSecuritySettings';
+import { ReferralsSettings } from '@/components/ReferralsSettings';
 
 export default function SettingsPage() {
   const { user, logout } = useAuth();
@@ -219,6 +220,9 @@ export default function SettingsPage() {
         <p className="mb-3 text-xs leading-5 text-slate-500">Active les rappels utiles de Pata sur cet appareil. Tu peux les désactiver à tout moment.</p>
         <NotificationSettings />
       </Card>
+
+      <PinSecuritySettings />
+      <ReferralsSettings />
 
       <Card>
         <div className="mb-3 flex items-center gap-2">
