@@ -1232,10 +1232,7 @@ async function handleCreateGoal(request) {
         frequencyDays: Math.max(1, Math.floor(Number(body.frequencyDays) || 7)),
         penaltyEnabled: true,
         penaltyRate: GOAL_LATE_PENALTY_RATE,
-        penaltyAmount: Math.round(targetAmount * GOAL_LATE_PENALTY_RATE),
-        penaltyPolicyStartedOn: new Intl.DateTimeFormat('en-CA', {
-          timeZone: 'Africa/Douala', year: 'numeric', month: '2-digit', day: '2-digit',
-        }).format(new Date()),
+        penaltyPolicyStartedOn: GOAL_PENALTY_EFFECTIVE_DATE,
       });
       if (type === 'piggybank' && optionalTarget !== null) record.targetAmount = optionalTarget;
       transaction.create(goalRef, record);
@@ -1514,13 +1511,9 @@ async function handleUpdateGoal(request) {
       }
       if (body.frequencyDays !== undefined) patch.frequencyDays = Math.max(1, Math.min(365, Math.floor(Number(body.frequencyDays) || 7)));
       if (current.type === 'goal') {
-        const effectiveTarget = body.targetAmount === undefined
-          ? Math.max(0, Number(current.targetAmount) || 0)
-          : Math.max(0, Math.round(Number(body.targetAmount)) || 0);
         patch.penaltyEnabled = true;
         patch.penaltyRate = GOAL_LATE_PENALTY_RATE;
-        patch.penaltyAmount = Math.round(effectiveTarget * GOAL_LATE_PENALTY_RATE);
-        patch.penaltyPolicyStartedOn = current.penaltyPolicyStartedOn || GOAL_PENALTY_EFFECTIVE_DATE;
+        patch.penaltyPolicyStartedOn = GOAL_PENALTY_EFFECTIVE_DATE;
       }
       if (body.pinned !== undefined) patch.pinned = body.pinned === true;
       const nextStart = String(body.startDate ?? current.startDate ?? '');
@@ -2040,7 +2033,7 @@ GUIDE PRATIQUE DES RUBRIQUES
 - Budgets : ouvrir « Budgets », choisir le mois et la source de revenu, puis toucher une catégorie pour voir les opérations, le montant prévu, le montant dépensé et le reste. Le bouton de modification permet de définir l’enveloppe; le bouton de conseil ouvre Mč avec les chiffres de cette catégorie.
 - Prévisions vitales : ouvrir « Revenus », accéder aux « Prévisions vitales », définir les besoins par catégorie et leur fréquence. L’analyse avec Mč explique le résultat; la transformation en revenu et budgets ne doit se faire que sur demande explicite.
 - Prévision de durée du capital : dans « Revenus », saisir le capital disponible et les dépenses prévues par jour, semaine ou mois. Pata estime la durée et la date de fin, puis peut envoyer ces chiffres à Mč pour une analyse complémentaire.
-- Objectifs : ouvrir « Objectifs », créer un objectif avec son nom, sa somme cible et, lorsque nécessaire, sa date limite. Les versements et la progression sont consultables dans cette rubrique. Les objectifs datés comportent une pénalité obligatoire de 15 % du montant cible total par échéance manquée (pas 15 % du versement attendu). Elle est calculée pour les échéances manquées à partir du 8 novembre 2026 et déduite du montant remboursé lors du retrait ou de la clôture. Une annulation anticipée d’un objectif daté entraîne aussi des frais distincts de 10 % du montant épargné. Les tirelires libres ne sont soumises ni aux frais de retard ni aux frais d’annulation. Ne présente jamais cette règle comme optionnelle ou modifiable dans les paramètres.
+- Objectifs : ouvrir « Objectifs », créer un objectif avec son nom, sa somme cible et, lorsque nécessaire, sa date limite. Les versements et la progression sont consultables dans cette rubrique. Les objectifs datés peuvent entraîner un ajustement de retard de 7 % du montant resté impayé à chaque échéance, uniquement pour les échéances à partir du 9 novembre 2026. Le montant est calculé sur le manque réel à la date prévue, et non sur la cible totale. Il est déduit du montant remboursé lors du retrait ou de la clôture. Les caisses et tirelires libres ne sont jamais concernées. Une annulation anticipée d’un objectif daté entraîne aussi des frais distincts de 10 % du montant épargné. Les tirelires libres ne sont soumises ni aux frais de retard ni aux frais d’annulation. Ne présente jamais cette règle comme optionnelle ou modifiable dans les paramètres.
 - Rapports : ouvrir « Rapports », choisir jour, semaine, mois, année ou dates personnalisées, puis consulter les revenus, dépenses, catégories, budgets, objectifs et portefeuille. Les boutons PDF et Excel servent à exporter le rapport.
 - Portefeuille : ouvrir « Portefeuille », saisir le montant à recharger et le numéro Mobile Money, puis suivre la confirmation. Le dernier numéro utilisé est conservé dans le profil pour le retrouver sur un autre appareil.
 - Premium : ouvrir « Premium », choisir la durée, vérifier le solde affiché et confirmer le paiement depuis le portefeuille. Le prix affiché est de 2 500 FCFA pour 30 jours; l’accès n’est prolongé qu’après confirmation.
@@ -2058,7 +2051,7 @@ Parle naturellement à l’utilisateur. Ajoute un conseil concret, proportionné
 
 RÈGLES NON NÉGOCIABLES
 - Ne propose jamais de modifier un revenu déjà enregistré : Pata permet seulement d’ajouter un autre revenu ou de supprimer l’entrée existante.
-- Pour les objectifs datés, la pénalité de retard est obligatoire : 15 % du montant cible total par échéance manquée depuis le 8 novembre 2026. Elle n’est pas un pourcentage du versement attendu, et ne s’applique pas aux tirelires libres.
+- Pour les objectifs datés, l'ajustement de retard est de 7 % du montant réellement resté impayé à chaque échéance, uniquement depuis le 9 novembre 2026. Il ne se calcule pas sur la cible totale et ne s'applique jamais aux caisses ou tirelires libres.
 1. Réponds toujours en français, directement, avec des explications concrètes et des calculs exacts. Ne salue pas à chaque message.
 2. Le dernier message s’inscrit dans une conversation : conserve les corrections, les précisions, les noms et les décisions des messages précédents. Une correction remplace l’information erronée; ne traite pas une correction comme une nouvelle opération.
 3. N’invente jamais de montant, date, revenu, catégorie, source, identifiant ou opération déjà faite. Utilise uniquement les informations fournies et les données Pata ci-dessous.
@@ -4734,7 +4727,6 @@ const ROUTES = {
   'subscription/pay-balance': { POST: handleSubscriptionPayWithBalance },
   'subscription/webhook':  { POST: handleSubscriptionWebhook },
   'wallet/fund-goal':      { POST: handleFundGoal },
-  'goals/borrow':          { POST: handleGoalBorrow },
   'goals/repay':           { POST: handleRepayLoan },
   'goals/withdraw':        { POST: (request) => handleGoalWithdrawalRequest(request, 'withdraw') },
   'goals/cancel':          { POST: (request) => handleGoalWithdrawalRequest(request, 'cancel') },
