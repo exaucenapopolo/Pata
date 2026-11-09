@@ -69,6 +69,12 @@ public class PataSmsSyncWorker extends Worker {
             JSONObject response = new JSONObject(text.length() == 0 ? "{}" : text.toString());
             if (status >= 200 && status < 300 && response.optBoolean("success", false)) {
                 PataSmsReceiver.removePending(getApplicationContext(), hash);
+                if (response.optBoolean("refused", false)) {
+                    PataSmsReceiver.recordDiagnostic(getApplicationContext(), "previously_refused",
+                        getInputData().getString("provider"),
+                        "Cette opération avait déjà été refusée dans Pata. Aucun nouvel enregistrement n'a été créé.");
+                    return Result.success();
+                }
                 if (response.optBoolean("requiresReview", false)) {
                     PataSmsReceiver.recordDiagnostic(getApplicationContext(), "awaiting_review",
                         getInputData().getString("provider"),
