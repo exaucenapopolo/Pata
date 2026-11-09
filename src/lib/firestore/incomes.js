@@ -30,3 +30,18 @@ export async function createIncome(uid, data) {
 export async function deleteIncome(uid, id) {
   await deleteDoc(doc(db, 'users', uid, 'incomes', id));
     }
+
+export async function updateIncome(uid, id, data) {
+  const user = auth.currentUser;
+  if (!user || user.uid !== uid) throw new Error('Session expirée. Reconnecte-toi puis réessaie.');
+  if (!id) throw new Error('Identifiant de revenu manquant.');
+  const token = await user.getIdToken();
+  const response = await fetch('/api/incomes/update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+    body: JSON.stringify({ ...data, incomeId: id }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de modifier ce revenu.');
+  return { id: result.id || id };
+}
