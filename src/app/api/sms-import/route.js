@@ -819,7 +819,7 @@ export async function POST(request) {
       return NextResponse.json({ success: true, operationId, target, notifications: notificationResult });
     }
 
-    return responseError('Action d’import SMS inconnue.'    return responseError('Action d’import SMS inconnue.', 400);
+    return responseError('Action d’import SMS inconnue.', 400);
   } catch (error) {
     const message = error.message || 'Import SMS impossible.';
     const status = /Premium|abonnement/i.test(message) ? 403

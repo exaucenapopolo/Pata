@@ -132,7 +132,7 @@ export function SmsImportCoordinator() {
 
   useEffect(() => { if (pending.length > 0) setModalOpen(true); }, [pending.length]);
 
-  const updateChoice =  const updateChoice = (id, patch) => setChoices((current) => ({ ...current, [id]: { ...(current[id] || {}), ...patch } }));
+  const updateChoice = (id, patch) => setChoices((current) => ({ ...current, [id]: { ...(current[id] || {}), ...patch } }));
 
   const confirm = async (item) => {
     setWorkingId(item.id);
