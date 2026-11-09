@@ -75,8 +75,8 @@ if (fs.existsSync(gradlePath)) {
     if (depth !== 0) throw new Error('Bloc dependencies Gradle mal formé.');
     gradle = gradle.slice(0, close - 1) + '\n' + dependency + '\n' + gradle.slice(close - 1);
   }
-  gradle = gradle.replace(/versionCode\s+\d+/, 'versionCode 3');
-  gradle = gradle.replace(/versionName\s+["'][^"']+["']/, 'versionName "1.0.2"');
+  gradle = gradle.replace(/versionCode\s+\d+/, 'versionCode 4');
+  gradle = gradle.replace(/versionName\s+["'][^"']+["']/, 'versionName "1.0.3"');
   fs.writeFileSync(gradlePath, gradle);
 }
-console.log('Pata Android 1.0.3 : icône officielle, réception SMS, diagnostic complet et synchronisation WorkManager configurés.');
+console.log('Pata Android 1.0.3 : icône officielle, file SMS protégée, retraits à confirmer, diagnostic et synchronisation WorkManager configurés.');

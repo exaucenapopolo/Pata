@@ -1,7 +1,7 @@
 {
-  "version": "1.0.2",
-  "versionCode": 3,
-  "downloadAvailable": true,
+  "version": "1.0.3",
+  "versionCode": 4,
+  "downloadAvailable": false,
   "apkUrl": "https://github.com/exaucenapopolo/Pata/releases/latest/download/Pata-Android.apk",
-  "releaseNotes": "Import Mobile Money en arrière-plan, parseur MTN MoMo et Orange Money plus tolérant, rejet des transactions en attente, diagnostic des SMS, notifications et icône Pata."
+  "releaseNotes": "Diagnostic SMS complet, rattachement automatique de l'appareil, file hors ligne protégée, retraits à confirmer et synchronisation Mobile Money renforcée."
 }
