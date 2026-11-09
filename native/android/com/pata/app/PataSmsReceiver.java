@@ -81,8 +81,16 @@ public class PataSmsReceiver extends BroadcastReceiver {
             parsed.put("receivedAt", receivedAt);
             parsed.put("status", "queued");
         } catch (Exception ignored) { }
-        if (!storeIfNew(context, parsed)) {
+        int queueResult = storeIfNew(context, parsed);
+        if (queueResult == 0) {
             recordDiagnostic(context, "duplicate", parsed.optString("provider"), "Transaction déjà mise en file.");
+            return;
+        }
+        if (queueResult < 0) {
+            recordDiagnostic(context, "queue_full", parsed.optString("provider"),
+                "La file locale contient déjà 200 SMS. Rien n'a été supprimé ; ouvre Pata et reconnecte Internet pour les synchroniser.");
+            showStatusNotification(context, "File SMS pleine",
+                "Pata a conservé les SMS déjà en attente. Ouvre l'application pour synchroniser les opérations.");
             return;
         }
 
@@ -121,7 +129,7 @@ public class PataSmsReceiver extends BroadcastReceiver {
             "pata-sms-" + parsed.optString("transactionHash"), ExistingWorkPolicy.KEEP, work);
     }
 
-    static boolean storeIfNew(Context context, JSONObject parsed) {
+    static int storeIfNew(Context context, JSONObject parsed) {
         synchronized (PataSmsReceiver.class) {
             SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
             JSONArray stored;
@@ -130,17 +138,13 @@ public class PataSmsReceiver extends BroadcastReceiver {
             String hash = parsed.optString("transactionHash");
             for (int i = 0; i < stored.length(); i++) {
                 JSONObject item = stored.optJSONObject(i);
-                if (item != null && hash.equals(item.optString("transactionHash"))) return false;
+                if (item != null && hash.equals(item.optString("transactionHash"))) return 0;
             }
+            // Ne supprime jamais les anciennes opérations si l'utilisateur reste longtemps hors ligne.
+            if (stored.length() >= 200) return -1;
             stored.put(parsed);
-            JSONArray limited = new JSONArray();
-            int start = Math.max(0, stored.length() - 50);
-            for (int i = start; i < stored.length(); i++) {
-                JSONObject item = stored.optJSONObject(i);
-                if (item != null) limited.put(item);
-            }
-            prefs.edit().putString(PENDING, limited.toString()).apply();
-            return true;
+            prefs.edit().putString(PENDING, stored.toString()).apply();
+            return 1;
         }
     }
 
