@@ -66,7 +66,7 @@ public final class PataMobileMoneyParser {
     }
 
     private static String detectProvider(String source, String sender) {
-        if (source.matches("(?s).*(orange\\s*(money|cash)|orange\\s*cm|omcm|orange-money).*")
+        if (source.matches("(?s).*(orange\\s*(money|cash)|orange\\s*cm|omcm|orange-money|\\bom\\b).*")
             || sender.equals("om") || sender.contains("orange")) return "orange_money";
         if (source.matches("(?s).*(\\bmtn\\b|momo|mobile\\s*money|yello\\s*money|yel'lo).*")) return "mtn_momo";
         return null;
@@ -75,8 +75,8 @@ public final class PataMobileMoneyParser {
     private static String detectEvent(String text) {
         if (Pattern.compile("\\b(retrait|retirer|withdrawal|withdraw|cash\\s*out|cashout)\\b").matcher(text).find()) return "withdrawal";
         if (Pattern.compile("(paiement|payment|marchand|merchant|achat\\s+(reussi|effectue)|bill\\s+paid|facture\\s+payee)").matcher(text).find()) return "payment";
-        if (Pattern.compile("(vous\\s+avez\\s+recu|transfert\\s+recu|recu\\s+de|compte.{0,25}credite|credit.{0,20}compte|depot\\s+(recu|effectue|confirme)|cash\\s*in|cashin|received|credited|incoming\\s+transfer)").matcher(text).find()) return "receive";
-        if (Pattern.compile("(vous\\s+avez\\s+envoye|transfert\\s+(effectue|envoye|confirme)|envoye\\s+(a|au|vers)|compte.{0,25}debite|debite.{0,20}compte|sent\\s+to|you\\s+sent|outgoing\\s+transfer)").matcher(text).find()) return "send";
+        if (Pattern.compile("(vous\\s+(avez\\s+recu|venez\\s+de\\s+recevoir)|transfert\\s+recu|recu\\s+de|reception\\s+de|compte.{0,25}credite|credit.{0,20}compte|depot\\s+(recu|effectue|confirme)|cash\\s*in|cashin|received|credited|incoming\\s+transfer)").matcher(text).find()) return "receive";
+        if (Pattern.compile("(vous\\s+avez\\s+envoye|transfert\\s+(effectue|envoye|confirme)|effectue\\s+(un\\s+)?transfert|envoye\\s+(a|au|vers)|compte.{0,25}debite|debite.{0,20}compte|debit|debited|sent\\s+to|you\\s+sent|outgoing\\s+transfer)").matcher(text).find()) return "send";
         return null;
     }
 
