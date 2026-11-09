@@ -1,4 +1,5 @@
 import './globals.css';
+import './theme-overrides.css';
 import { AppProviders } from './providers';
 import { PWARegister } from '@/components/PWARegister';
 

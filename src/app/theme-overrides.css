@@ -1,0 +1,72 @@
+/* Cross-page polish and dark-mode support for light surfaces expressed as utility or custom classes. */
+:root {
+  --pata-green: #075b43;
+  --pata-green-dark: #064b38;
+  --pata-bg: #f5f8f6;
+}
+main h1.text-2xl { font-size: 1.4rem; line-height: 1.85rem; }
+main h2.text-xl { font-size: 1.18rem; line-height: 1.6rem; }
+main .rounded-2xl.border, main .rounded-xl.border { border-color: #e2e9e5; }
+main .shadow-sm { box-shadow: 0 2px 10px rgba(13, 55, 39, .045); }
+main input:not([type="checkbox"]), main select, main textarea {
+  border-radius: .75rem;
+  line-height: 1.35rem;
+}
+@media (max-width: 639px) {
+  main h1.text-2xl { font-size: 1.3rem; line-height: 1.7rem; }
+  main h2.text-xl { font-size: 1.12rem; line-height: 1.5rem; }
+}
+
+/* These overrides intentionally cover component backgrounds, menu panels and custom pale brand surfaces. */
+html.dark [class*="bg-white"] { background-color: #18251f !important; }
+html.dark [class*="bg-[#f"], html.dark [class*="bg-[#e"] {
+  background-color: #1a2922 !important;
+}
+html.dark [class*="bg-[#edf5f0]"], html.dark [class*="bg-[#eaf5ef]"],
+html.dark [class*="bg-[#f2f7f4]"], html.dark [class*="bg-[#ecfdf5]"] {
+  background-color: #173329 !important;
+}
+html.dark [class*="bg-[#f5f8f6]"], html.dark [class*="bg-[#f3f6fb]"] {
+  background-color: #101a16 !important;
+}
+html.dark [class*="text-[#075b43]"], html.dark [class*="text-[#0b5c46]"],
+html.dark [class*="text-[#064b38]"] { color: #8ed6b3 !important; }
+html.dark [class*="border-[#e"]], html.dark [class*="border-[#f"] {
+  border-color: #30443a !important;
+}
+html.dark .bg-white\/95, html.dark .bg-white\/96 { background-color: rgba(24, 37, 31, .97) !important; }
+html.dark .text-slate-950 { color: #f3f7f4 !important; }
+html.dark .text-black { color: #f3f7f4 !important; }
+html.dark .hover\\:bg-white:hover, html.dark .hover\\:bg-slate-50:hover,
+html.dark .hover\\:bg-slate-100:hover { background-color: #22342b !important; }
+html.dark .pata-dashboard-hero { background-color: #075b43; }
+html.dark .pata-dashboard-hero .text-emerald-100,
+html.dark .pata-dashboard-hero .text-white { color: #f3faf5 !important; }
+html.dark .recharts-tooltip-wrapper > div { background-color: #18251f !important; border-color: #30443a !important; color: #edf5f0 !important; }
+html.dark [role="dialog"] header { background-color: #18251f !important; }
+
+/* Less common accent surfaces used by charts, empty states and quick actions. */
+html.dark .bg-violet-50, html.dark .bg-purple-50, html.dark .bg-indigo-50 {
+  background-color: #302b42 !important;
+}
+html.dark .text-violet-700, html.dark .text-purple-700, html.dark .text-indigo-700 {
+  color: #c7b6f1 !important;
+}
+html.dark .bg-orange-50, html.dark .bg-yellow-50 {
+  background-color: #3b3021 !important;
+}
+html.dark .text-orange-700, html.dark .text-yellow-700 {
+  color: #f1c78a !important;
+}
+html.dark .bg-pink-50 {
+  background-color: #3b2936 !important;
+}
+html.dark .text-pink-700 {
+  color: #e8afcb !important;
+}
+html.dark .bg-gray-50, html.dark .bg-neutral-50 {
+  background-color: #1a2922 !important;
+}
+html.dark .border-white\/70, html.dark .border-white\/80 {
+  border-color: #30443a !important;
+}

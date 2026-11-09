@@ -1,13 +1,12 @@
 'use client';
 
-import { Fragment, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useProfile } from '@/hooks/useProfile';
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter } from 'next/navigation';
-import { Card, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Check, Minus, ShieldCheck, Wallet, CalendarDays, ArrowRight } from 'lucide-react';
+import { Check, Minus, ShieldCheck, Wallet, ArrowRight, Crown, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 
 const PRICE = 2500;
@@ -65,6 +64,7 @@ export default function PremiumPage() {
   const [success, setSuccess] = useState(false);
   const [discountEligible, setDiscountEligible] = useState(false);
   const [checkingDiscount, setCheckingDiscount] = useState(true);
+  const [showAllBenefits, setShowAllBenefits] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -89,8 +89,8 @@ export default function PremiumPage() {
   const totalAmount = discountEligible ? 1250 + (months - 1) * PRICE : PRICE * months;
   const missingAmount = Math.max(0, totalAmount - balance);
   const now = new Date();
-  const premiumUntil = profile?.premiumUntil ? new Date(profile.premiumUntil) : null;
-  const isPremium = Boolean(premiumUntil && premiumUntil > now);
+  const premiumUntil = profile?.premiumUntil?.toDate ? profile.premiumUntil.toDate() : profile?.premiumUntil ? new Date(profile.premiumUntil) : null;
+  const isPremium = Boolean(premiumUntil && Number.isFinite(premiumUntil.getTime()) && premiumUntil > now);
   const daysLeft = isPremium ? Math.max(0, Math.ceil((premiumUntil.getTime() - now.getTime()) / 86400000)) : 0;
 
   const handlePayWithBalance = async () => {
@@ -116,126 +116,136 @@ export default function PremiumPage() {
   };
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 pb-10">
-      <header className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-7">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="max-w-2xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Offre Pata</p>
-            <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">Passe à Pata Premium</h1>
-            <p className="mt-2 text-sm leading-6 text-slate-600">Plus de marge pour suivre ton argent, préparer tes décisions et utiliser ton assistante financière au quotidien.</p>
-            <div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt: 'Résume-moi les avantages essentiels de Pata Premium par rapport à la version gratuite, en langage simple et en quelques points.' } }))} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">Résumer avec Mč</button><button type="button" onClick={() => window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt: 'Explique-moi concrètement chaque avantage de Pata Premium et donne-moi des exemples liés à la gestion de mon argent.' } }))} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">Plus d’explications</button></div>
-          </div>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-right">
-            <p className="text-xs font-medium text-slate-500">À partir de</p>
-            <p className="mt-1 text-3xl font-bold tracking-tight text-slate-950">{discountEligible ? '1 250' : '2 500'} <span className="text-base font-semibold text-slate-500">FCFA</span></p>
-            <p className="text-xs text-slate-500">pour le premier mois admissible</p>
-          </div>
-        </div>
-        {isPremium && (
-          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-            <div>
-              <p className="text-sm font-semibold text-emerald-900">Ton abonnement est actif</p>
-              <p className="mt-0.5 text-xs text-emerald-800">Il reste {daysLeft} jour(s), jusqu’au {premiumUntil.toLocaleDateString('fr-FR')}.</p>
-            </div>
-            <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-emerald-700">Premium actif</span>
-          </div>
-        )}
+    <div className="mx-auto max-w-4xl space-y-5 pb-10">
+      <header className="space-y-1">
+        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-brand-700">Les offres Pata</p>
+        <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">Ton abonnement</h1>
+        <p className="max-w-2xl text-sm leading-5 text-slate-500">Vois clairement le forfait que tu utilises et ce qui change avec Premium.</p>
       </header>
 
-      {discountEligible && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-5 text-emerald-900"><strong>Offre de parrainage activée.</strong> Ton premier mois coûte 1 250 FCFA au lieu de 2 500 FCFA. Les mois suivants restent au tarif normal.</div>}
-      {success && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">Paiement confirmé. Ton abonnement Premium vient d’être prolongé.</div>}
-      {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <div className="flex items-start gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700"><Crown size={19}/></span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">Forfait utilisé actuellement</p>
+            <h2 className="mt-1 text-lg font-bold text-slate-900">{isPremium ? 'Pata Premium' : 'Pata gratuit'}</h2>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              {isPremium
+                ? `Ton accès Premium est actif jusqu’au ${premiumUntil.toLocaleDateString('fr-FR')}.`
+                : 'Tu utilises la version gratuite. Les outils essentiels de gestion restent disponibles sans abonnement.'}
+            </p>
+          </div>
+          <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold ${isPremium ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-100 text-slate-700'}`}>{isPremium ? 'ACTIF' : 'GRATUIT'}</span>
+        </div>
+        {isPremium ? (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
+            <div><p className="text-xs font-semibold text-slate-800">{daysLeft} jour(s) restant(s)</p><p className="mt-0.5 text-[11px] text-slate-500">Tu peux prolonger ton accès avant son échéance.</p></div>
+            <span className="text-xs font-semibold text-emerald-700">Toutes les fonctions Premium sont accessibles</span>
+          </div>
+        ) : (
+          <div className="mt-4 grid grid-cols-2 gap-2.5 border-t border-slate-100 pt-3 sm:grid-cols-4">
+            <div className="rounded-xl bg-slate-50 p-3"><p className="text-lg font-bold text-slate-900">60</p><p className="mt-0.5 text-[10px] leading-4 text-slate-500">Dépenses par mois</p></div>
+            <div className="rounded-xl bg-slate-50 p-3"><p className="text-lg font-bold text-slate-900">2</p><p className="mt-0.5 text-[10px] leading-4 text-slate-500">Revenus par mois</p></div>
+            <div className="rounded-xl bg-slate-50 p-3"><p className="text-lg font-bold text-slate-900">2</p><p className="mt-0.5 text-[10px] leading-4 text-slate-500">Budgets par mois</p></div>
+            <div className="rounded-xl bg-slate-50 p-3"><p className="text-lg font-bold text-slate-900">3</p><p className="mt-0.5 text-[10px] leading-4 text-slate-500">Messages Mč par jour</p></div>
+          </div>
+        )}
+      </section>
 
-      <Card>
-        <div className="grid gap-5 md:grid-cols-[1fr_300px] md:items-center">
+      {!isPremium && (
+        <section className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 sm:p-5">
+          <div className="flex items-start gap-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-emerald-700"><Sparkles size={18}/></span>
+            <div className="min-w-0">
+              <h2 className="text-sm font-bold text-emerald-950">Ce que Premium change concrètement</h2>
+              <p className="mt-1 text-xs leading-5 text-emerald-900/80">Tu conserves les mêmes outils, avec plus de capacité pour les utiliser et organiser tes finances.</p>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-xl bg-white/85 p-3">
+              <Check size={16} className="text-emerald-700"/>
+              <p className="mt-2 text-xs font-semibold text-slate-800">Plus de capacité</p>
+              <p className="mt-1 text-[11px] leading-4 text-slate-500">Davantage de dépenses, revenus, budgets et objectifs à gérer.</p>
+            </div>
+            <div className="rounded-xl bg-white/85 p-3">
+              <Check size={16} className="text-emerald-700"/>
+              <p className="mt-2 text-xs font-semibold text-slate-800">Mč, plus disponible</p>
+              <p className="mt-1 text-[11px] leading-4 text-slate-500">Une utilisation élargie de l’assistante pour tes questions et analyses.</p>
+            </div>
+            <div className="rounded-xl bg-white/85 p-3">
+              <Check size={16} className="text-emerald-700"/>
+              <p className="mt-2 text-xs font-semibold text-slate-800">Gestion de projets</p>
+              <p className="mt-1 text-[11px] leading-4 text-slate-500">Crée des projets, réserve des revenus et suis les dépenses associées.</p>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {checkingDiscount && <p className="text-xs text-slate-400">Vérification de ton éventuelle offre de parrainage…</p>}
+      {discountEligible && !isPremium && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-3 text-xs leading-5 text-emerald-900">
+          <strong>Ton offre de parrainage est disponible.</strong> Le premier mois revient à 1 250 FCFA au lieu de 2 500 FCFA.
+        </div>
+      )}
+      {success && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-3 text-xs font-semibold text-emerald-800">Paiement confirmé. Ton accès Premium a été prolongé.</p>}
+      {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-3 text-xs text-red-700">{error}</p>}
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div><p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">Pata Premium</p><h2 className="mt-1 text-lg font-bold text-slate-900">{isPremium ? 'Prolonge ton abonnement' : 'Passe à Premium'}</h2><p className="mt-1 text-xs leading-5 text-slate-500">2 500 FCFA par mois, sans engagement obligatoire.</p></div>
+          <div className="text-right"><p className="text-2xl font-bold tracking-tight text-slate-900">{discountEligible ? '1 250' : '2 500'}</p><p className="text-[10px] text-slate-500">FCFA / premier mois{discountEligible ? ' admissible' : ''}</p></div>
+        </div>
+        <div className="mt-4 grid gap-4 md:grid-cols-[1fr_280px] md:items-end">
           <div>
-            <CardTitle>Choisis la durée de ton abonnement</CardTitle>
-            <p className="mt-1 text-sm text-slate-500">Chaque mois ajoute 30 jours à ton accès. Si tu es déjà Premium, la durée restante est conservée.</p>
-            <label className="mt-4 block text-xs font-semibold text-slate-600" htmlFor="premium-months">Durée</label>
-            <select id="premium-months" value={months} onChange={(event) => setMonths(Number(event.target.value))} className="mt-1 h-11 w-full max-w-sm rounded-lg border border-slate-300 bg-white px-3 text-sm">
+            <label className="mb-1.5 block text-xs font-semibold text-slate-700" htmlFor="premium-months">Durée souhaitée</label>
+            <select id="premium-months" value={months} onChange={(event) => setMonths(Number(event.target.value))} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800">
               <option value={1}>1 mois — {discountEligible ? '1 250' : '2 500'} FCFA</option>
               <option value={3}>3 mois — {discountEligible ? '6 250' : '7 500'} FCFA</option>
               <option value={6}>6 mois — {discountEligible ? '13 750' : '15 000'} FCFA</option>
               <option value={12}>12 mois — {discountEligible ? '28 750' : '30 000'} FCFA</option>
             </select>
+            <p className="mt-2 text-[11px] leading-4 text-slate-500">Chaque mois ajoute 30 jours. Si ton accès est déjà actif, les jours restants sont conservés.</p>
           </div>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <div className="flex justify-between text-sm"><span className="text-slate-500">Solde Pata</span><strong className="text-slate-900">{formatCurrency(balance)}</strong></div>
-            <div className="mt-2 flex justify-between border-t border-slate-200 pt-2 text-sm"><span className="text-slate-500">Total à payer</span><strong className="text-slate-900">{formatCurrency(totalAmount)}</strong></div>
-            {missingAmount > 0 && <p className="mt-2 text-xs text-amber-700">Il manque {formatCurrency(missingAmount)} sur ton portefeuille.</p>}
-            <Button onClick={handlePayWithBalance} disabled={loading || balance < totalAmount} className="mt-4 w-full">
-              <Wallet size={16} /> {loading ? 'Paiement en cours…' : 'Payer avec mon solde'}
+          <div className="rounded-xl bg-slate-50 p-3.5">
+            <div className="flex items-center justify-between gap-3"><span className="text-xs text-slate-500">Solde Pata</span><strong className="text-xs text-slate-800">{formatCurrency(balance)}</strong></div>
+            <div className="mt-2 flex items-center justify-between gap-3 border-t border-slate-200 pt-2"><span className="text-xs text-slate-500">Total à payer</span><strong className="text-sm text-slate-900">{formatCurrency(totalAmount)}</strong></div>
+            {missingAmount > 0 && <p className="mt-2 text-[11px] leading-4 text-amber-700">Il manque {formatCurrency(missingAmount)} sur ton portefeuille.</p>}
+            <Button onClick={handlePayWithBalance} disabled={loading || balance < totalAmount} className="mt-3 w-full">
+              <Wallet size={15}/>{loading ? 'Paiement en cours…' : isPremium ? 'Prolonger Premium' : 'Activer Premium'}
             </Button>
-            {missingAmount > 0 && <Link href="/wallet" className="mt-3 flex items-center justify-center gap-1 text-sm font-semibold text-brand-700 hover:underline">Recharger mon portefeuille <ArrowRight size={14} /></Link>}
+            {missingAmount > 0 && <Link href="/wallet" className="mt-2.5 flex items-center justify-center gap-1 text-xs font-semibold text-brand-700 hover:underline">Recharger mon portefeuille <ArrowRight size={13}/></Link>}
           </div>
         </div>
-      </Card>
+      </section>
 
-      <Card>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <CardTitle>Ce que Premium t’apporte</CardTitle>
-            <p className="mt-1 text-xs text-slate-500">Compare précisément les deux formules.</p>
-          </div>
-          <span className="text-xs font-medium text-slate-500">Gratuit ou 2 500 FCFA / mois</span>
-        </div>
-        <div className="mt-4 hidden overflow-x-auto rounded-xl border border-slate-200 sm:block">
-          <table className="w-full min-w-[650px] border-collapse text-left text-sm">
-            <thead className="bg-slate-50">
-              <tr>
-                <th className="px-4 py-3 font-semibold text-slate-700">Fonctionnalité</th>
-                <th className="px-4 py-3 font-semibold text-slate-600">Gratuit</th>
-                <th className="bg-slate-100 px-4 py-3 font-semibold text-slate-900">Premium</th>
-              </tr>
-            </thead>
-            <tbody>
-              {BENEFITS.map((group) => (
-                <Fragment key={group.group}>
-                  <tr key={`${group.group}-heading`}><th colSpan={3} className="border-t border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-slate-500">{group.group}</th></tr>
-                  {group.items.map(([label, free, premium]) => (
-                    <tr key={label} className="border-t border-slate-100">
-                      <td className="px-4 py-3 text-slate-700">{label}</td>
-                      <td className="px-4 py-3"><Value value={free} /></td>
-                      <td className="bg-emerald-50/40 px-4 py-3"><Value value={premium} /></td>
-                    </tr>
-                  ))}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="mt-4 space-y-4 sm:hidden">
-          {BENEFITS.map((group) => (
-            <section key={`mobile-${group.group}`} className="space-y-2">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{group.group}</h3>
-              {group.items.map(([label, free, premium]) => (
-                <div key={`mobile-${label}`} className="rounded-lg border border-slate-200 p-3">
-                  <p className="text-sm font-semibold text-slate-800">{label}</p>
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    <div><p className="text-[10px] uppercase tracking-wide text-slate-400">Gratuit</p><Value value={free} /></div>
-                    <div><p className="text-[10px] uppercase tracking-wide text-slate-400">Premium</p><Value value={premium} /></div>
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+        <button type="button" onClick={() => setShowAllBenefits((value) => !value)} aria-expanded={showAllBenefits} className="flex min-h-14 w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-slate-50 sm:px-5">
+          <span><strong className="block text-sm text-slate-800">Voir le détail des fonctionnalités</strong><span className="mt-0.5 block text-[11px] text-slate-500">Comparaison complète entre Gratuit et Premium</span></span>
+          {showAllBenefits ? <ChevronUp size={18} className="text-slate-500"/> : <ChevronDown size={18} className="text-slate-500"/>}
+        </button>
+        {showAllBenefits && (
+          <div className="space-y-5 border-t border-slate-100 p-4 sm:p-5">
+            {BENEFITS.map((group) => (
+              <section key={group.group} className="space-y-2.5">
+                <h3 className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">{group.group}</h3>
+                {group.items.map(([label, free, premium]) => (
+                  <div key={label} className="grid grid-cols-[1.2fr_1fr_1fr] items-start gap-2 border-b border-slate-100 py-2.5 last:border-0">
+                    <p className="text-xs leading-4 text-slate-700">{label}</p>
+                    <div><p className="mb-1 text-[9px] font-bold uppercase tracking-wide text-slate-400">Gratuit</p><Value value={free}/></div>
+                    <div><p className="mb-1 text-[9px] font-bold uppercase tracking-wide text-brand-700">Premium</p><Value value={premium}/></div>
                   </div>
-                </div>
-              ))}
-            </section>
-          ))}
-        </div>
-        <p className="mt-3 text-[11px] leading-5 text-slate-500">* Les fonctions d’intelligence artificielle restent soumises à leur disponibilité et aux règles de sécurité de Pata. Premium permet une utilisation plus large, sans garantir une disponibilité illimitée.</p>
-      </Card>
+                ))}
+              </section>
+            ))}
+            <p className="text-[10px] leading-4 text-slate-500">Les fonctions d’intelligence artificielle restent soumises à leur disponibilité et aux règles de sécurité de Pata. Premium permet une utilisation plus large, sans garantir une disponibilité illimitée.</p>
+          </div>
+        )}
+      </section>
 
-
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <div className="flex items-center gap-2 text-slate-700"><ShieldCheck size={17} /><p className="text-sm font-semibold">Paiement contrôlé</p></div>
-          <p className="mt-2 text-xs leading-5 text-slate-500">Le solde est vérifié et débité côté serveur. L’accès n’est prolongé qu’après confirmation du paiement.</p>
-        </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <div className="flex items-center gap-2 text-slate-700"><CalendarDays size={17} /><p className="text-sm font-semibold">Suivi de l’échéance</p></div>
-          <p className="mt-2 text-xs leading-5 text-slate-500">La date de fin apparaît ici et dans les échanges avec Mč lorsque tu lui demandes l’état de ton abonnement.</p>
-        </div>
+      <div className="flex items-start gap-2.5 rounded-xl bg-slate-50 px-3.5 py-3">
+        <ShieldCheck size={16} className="mt-0.5 shrink-0 text-brand-700"/>
+        <p className="text-[11px] leading-5 text-slate-500">Le paiement est vérifié côté serveur. Ton accès n’est prolongé qu’après confirmation. Tu peux continuer à utiliser gratuitement les fonctions essentielles de Pata.</p>
       </div>
-      <p className="text-center text-xs text-slate-500">Tu peux continuer à utiliser gratuitement les principales fonctions de Pata sans t’abonner.</p>
     </div>
   );
 }

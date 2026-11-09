@@ -4,8 +4,8 @@
   "description": "Ton espace personnel pour suivre tes revenus, maîtriser tes dépenses et organiser ton épargne.",
   "start_url": "/dashboard",
   "display": "standalone",
-  "background_color": "#f3f6fb",
-  "theme_color": "#092b4e",
+  "background_color": "#f5f8f6",
+  "theme_color": "#075b43",
   "orientation": "any",
   "icons": [
     {

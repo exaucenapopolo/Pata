@@ -25,7 +25,7 @@ export function Sidebar() {
     <aside className="sticky top-0 hidden h-[100dvh] w-[248px] shrink-0 flex-col border-r border-slate-200/90 bg-white lg:flex">
       <Link href="/dashboard" className="flex h-[72px] items-center gap-3 border-b border-slate-100 px-6">
         <img src="/android-chrome-192x192.png" alt="" className="h-10 w-10 rounded-xl object-cover" />
-        <span className="text-[24px] font-bold tracking-[-0.055em] text-[#092b4e]">pata</span>
+        <span className="text-[24px] font-bold tracking-[-0.055em] text-[#075b43]">pata</span>
       </Link>
       <nav aria-label="Navigation principale" className="flex-1 space-y-1 overflow-y-auto px-3 py-5">
         {NAV.map((item) => {
@@ -46,7 +46,7 @@ export function Sidebar() {
         })}
       </nav>
       <div className="border-t border-slate-100 p-4">
-        <div className="rounded-2xl bg-[#f2f7f4] p-3">
+        <div className="rounded-2xl bg-[#edf5f0] p-3">
           <p className="text-xs font-semibold text-slate-800">Tes finances, en clair.</p>
           <p className="mt-1 text-[10px] leading-4 text-slate-500">Revenus, dépenses et épargne réunis dans un seul espace.</p>
         </div>
