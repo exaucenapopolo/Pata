@@ -96,8 +96,12 @@ export function SmsImportSettings() {
       let status = await PataSms.getStatus();
       applyNativeStatus(status);
       const currentDiagnostic = readDiagnostic(status.lastSmsDiagnosticJson);
+      const normalizedDiagnosticMessage = String(currentDiagnostic?.message || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[’]/g, "'");
       const tokenWasRejected = currentDiagnostic?.status === 'server_rejected'
-        && /cet appareil n'est plus autorise/i.test(String(currentDiagnostic.message || '').normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
+        && /cet appareil n'est plus autorise/i.test(normalizedDiagnosticMessage);
 
       // Un jeton peut être présent localement tout en ayant été révoqué côté serveur.
       // Dans ce cas, on en demande un nouveau puis on le remplace sur cet appareil.
