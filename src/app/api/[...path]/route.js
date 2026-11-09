@@ -826,6 +826,7 @@ async function handlePinResetConfirm(request) {
 function normalizeReferralPhone(value) {
   let digits = String(value || '').replace(/\D/g, '');
   if (digits.startsWith('00237')) digits = digits.slice(2);
+  if (digits.startsWith('237') && digits.length === 12) digits = digits.slice(3);
   return digits;
 }
 
