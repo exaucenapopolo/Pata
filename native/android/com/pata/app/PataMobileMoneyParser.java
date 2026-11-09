@@ -16,6 +16,10 @@ public final class PataMobileMoneyParser {
         "(\\bechec\\b|\\bfailed\\b|\\brefuse\\b|\\bannule\\b|not completed|transaction rejetee|operation non aboutie)",
         Pattern.CASE_INSENSITIVE
     );
+    private static final Pattern PENDING = Pattern.compile(
+        "(en cours de traitement|transaction en cours|operation en cours|\\bpending\\b|\\bprocessing\\b|transaction initiated|en attente de confirmation)",
+        Pattern.CASE_INSENSITIVE
+    );
 
     private PataMobileMoneyParser() {}
 
@@ -24,7 +28,7 @@ public final class PataMobileMoneyParser {
         String body = rawBody.replaceAll("\\s+", " ").trim();
         String normalized = normalize(body);
         String source = normalize(String.valueOf(sender) + " " + body);
-        if (FAILURE.matcher(normalized).find()) return null;
+        if (FAILURE.matcher(normalized).find() || PENDING.matcher(normalized).find()) return null;
 
         String provider = detectProvider(source, normalize(sender));
         String event = detectEvent(normalized);
