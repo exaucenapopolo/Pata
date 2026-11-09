@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { LockKeyhole, ShieldCheck, Mail } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -25,14 +25,20 @@ export function PinSecuritySettings() {
   const [resetSent, setResetSent] = useState(false);
   const [code, setCode] = useState('');
 
-  const refresh = async () => {
-    if (!user) return;
+  const refresh = useCallback(async () => {
+    if (!user) { setLoading(false); return; }
     setLoading(true);
-    try { const data=await call(user,'security/pin/status'); setEnabled(data.enabled===true); }
-    catch (err) { setError(err.message); }
-    finally { setLoading(false); }
-  };
-  useEffect(()=>{refresh();},[user]);
+    try {
+      const data = await call(user, 'security/pin/status');
+      setEnabled(data.enabled === true);
+    } catch (err) {
+      setError(err.message || 'Impossible de vérifier le code secret.');
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
+
+  useEffect(() => { refresh(); }, [refresh]);
 
   const savePin = async (event) => {
     event.preventDefault(); setError(''); setMessage('');
