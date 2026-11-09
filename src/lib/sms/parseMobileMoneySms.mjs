@@ -87,7 +87,7 @@ function parseAmount(text) {
     'ig'
   );
   const withoutBalance = text.replace(balancePattern, ' ');
-  const currency = '(?:FCFA|F\\s*\\.?\\s*CFA|XAF|CFA)';
+
   const authoritative = [
     new RegExp('\\b(?:une\\s+)?transaction\\s+de\\s+' + number + '\\s*' + currency + '\\b', 'ig'),
     new RegExp('\\bmontant\\s+(?:(?:de\\s+)?(?:la\\s+)?)?transaction\\s*[:#\\-]?\\s*' + number + '\\s*' + currency + '\\b', 'ig'),
@@ -109,8 +109,6 @@ function parseAmount(text) {
   for (const [pattern, group] of [[currencyLast, 1], [currencyFirst, 1]]) {
     let match;
     while ((match = pattern.exec(withoutBalance)) !== null) {
-      const nearContext = withoutBalance.slice(Math.max(0, match.index - 55), match.index);
-      if (/(?:frais|fees?|remise|reduction|réduction|commission|recompense|récompense|reward|discount|bonus|solde|balance)/i.test(nearContext)) continue;
       const amountContext = withoutBalance.slice(Math.max(0, match.index - 55), match.index);
       if (/(?:frais|fees?|remise|reduction|réduction|commission|recompense|récompense|reward|discount|bonus|solde|balance)/i.test(amountContext)) continue;
       const amount = parseMoney(match[group]);
