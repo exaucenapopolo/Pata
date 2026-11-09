@@ -40,7 +40,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "npm"
 
       - name: Installer Java
         uses: actions/setup-java@v4
@@ -53,6 +52,9 @@ jobs:
 
       - name: Tester les parseurs SMS
         run: npm run test:sms
+
+      - name: Vérifier la compilation Next.js de la PWA
+        run: npm run build
 
       - name: Générer le projet Android Capacitor
         run: |
