@@ -109,14 +109,14 @@ jobs:
           '''
 
           # Déclarer la clé avant buildTypes, au niveau du bloc android.
-          if not re.search(r"^\\s*signingConfigs\\s*\\{", content, re.MULTILINE):
-              build_types = re.search(r"^\\s*buildTypes\\s*\\{", content, re.MULTILINE)
+          if not re.search(r"^\s*signingConfigs\s*\{", content, re.MULTILINE):
+              build_types = re.search(r"^\s*buildTypes\s*\{", content, re.MULTILINE)
               if not build_types:
                   raise SystemExit("Bloc android.buildTypes introuvable dans android/app/build.gradle")
-              content = content[:build_types.start()] + signing + "\\n" + content[build_types.start():]
+              content = content[:build_types.start()] + signing + "\n" + content[build_types.start():]
 
           # Ajouter signingConfig uniquement dans buildTypes.release (et pas dans signingConfigs.release).
-          build_types = re.search(r"\\bbuildTypes\\s*\\{", content)
+          build_types = re.search(r"\bbuildTypes\s*\{", content)
           if not build_types:
               raise SystemExit("Bloc android.buildTypes introuvable")
           build_open = content.find("{", build_types.start())
@@ -132,14 +132,14 @@ jobs:
               raise SystemExit("Bloc android.buildTypes mal formé")
 
           build_block = content[build_open + 1:build_close - 1]
-          release_block = re.search(r"\\brelease\\s*\\{", build_block)
+          release_block = re.search(r"\brelease\s*\{", build_block)
           if not release_block:
               raise SystemExit("Bloc android.buildTypes.release introuvable")
           release_open = build_open + 1 + release_block.end() - 1
           release_body_start = release_open + 1
           body_preview = content[release_body_start:build_close]
-          if not re.search(r"^\\s*signingConfig\\s+signingConfigs\\.release\\b", body_preview, re.MULTILINE):
-              content = content[:release_body_start] + "\\n            signingConfig signingConfigs.release" + content[release_body_start:]
+          if not re.search(r"^\s*signingConfig\s+signingConfigs\.release\b", body_preview, re.MULTILINE):
+              content = content[:release_body_start] + "\n            signingConfig signingConfigs.release" + content[release_body_start:]
 
           path.write_text(content)
           PY
