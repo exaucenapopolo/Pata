@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Save, LogOut, Download, FileText, FileSpreadsheet, Bell, ShieldCheck, LockKeyhole, ChevronRight, UserRound, Crown, Sun, Moon, Gift } from 'lucide-react';
+import { Save, LogOut, Download, FileText, FileSpreadsheet, Bell, ShieldCheck, LockKeyhole, ChevronRight, UserRound, Crown, Sun, Moon, Gift, MessageSquareText } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -20,6 +20,7 @@ import { convertCurrencyAmount, getPreferredCurrencyCode } from '@/lib/utils';
 import { NotificationSettings } from '@/components/NotificationSettings';
 import { PinSecuritySettings } from '@/components/security/PinSecuritySettings';
 import { ReferralsSettings } from '@/components/ReferralsSettings';
+import { SmsImportSettings } from '@/components/SmsImportSettings';
 
 export default function SettingsPage() {
   const { user, logout } = useAuth();
@@ -198,6 +199,7 @@ export default function SettingsPage() {
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white divide-y divide-slate-100">
           <SettingRow icon={LockKeyhole} title="Code secret" description="Verrouille l’accès à ton espace personnel" value="PIN à 4 chiffres" onClick={() => setActivePanel('security')} />
           <SettingRow icon={Bell} title="Notifications" description="Alertes et rappels sur cet appareil" onClick={() => setActivePanel('notifications')} />
+          <SettingRow icon={MessageSquareText} title="Import SMS Mobile Money" description="Détecter les opérations MTN MoMo et Orange Money" onClick={() => setActivePanel('smsImport')} />
         </div>
       </section>
 
@@ -220,6 +222,7 @@ export default function SettingsPage() {
         subscription: 'Mon abonnement',
         security: 'Code secret',
         notifications: 'Notifications',
+        smsImport: 'Import SMS Mobile Money',
         appearance: 'Apparence de Pata',
         exports: 'Exporter mes données',
         referrals: 'Parrainage',
@@ -272,6 +275,7 @@ export default function SettingsPage() {
         )}
 
         {activePanel === 'security' && <PinSecuritySettings />}
+        {activePanel === 'smsImport' && <SmsImportSettings />}
         {activePanel === 'notifications' && (
           <div className="space-y-3">
             <p className="text-xs leading-5 text-slate-500">Configure les alertes système de Pata pour cet appareil. Tu peux aussi tester leur réception.</p>

@@ -11,6 +11,8 @@ import { NotificationNudge } from '@/components/NotificationNudge';
 import { PushMessageListener } from '@/components/PushMessageListener';
 import { PinGate } from '@/components/security/PinGate';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { SmsImportCoordinator } from '@/components/SmsImportCoordinator';
+import { AndroidUpdateChecker } from '@/components/AndroidUpdateChecker';
 
 export default function AppLayout({ children }) {
   const { loading, user } = useAuthGuard();
@@ -26,6 +28,8 @@ export default function AppLayout({ children }) {
       <Sidebar />
       <div className="flex min-h-[100dvh] min-w-0 flex-1 flex-col lg:h-full lg:overflow-hidden">
         <Header />
+        <AndroidUpdateChecker />
+        <SmsImportCoordinator />
         <PremiumReminder />  {/* 🟢 Bandeau d'alerte */}
         <NotificationNudge />
         <PushMessageListener />
