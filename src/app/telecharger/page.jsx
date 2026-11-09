@@ -1,7 +1,5 @@
-'use client';
-
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { AndroidDownloadCard } from '@/components/AndroidDownloadCard';
 
 export const metadata = {
   title: 'Télécharger Pata Android',
@@ -9,13 +7,6 @@ export const metadata = {
 };
 
 export default function TelechargerPage() {
-  const [release, setRelease] = useState(null);
-  useEffect(() => {
-    fetch('/android-version.json', { cache: 'no-store' })
-      .then((response) => response.ok ? response.json() : null)
-      .then((data) => { if (data) setRelease(data); })
-      .catch(() => {});
-  }, []);
   return (
     <main className="min-h-[100dvh] bg-[#f5f8f6] px-4 py-10 text-slate-900 sm:py-16">
       <div className="mx-auto max-w-2xl">
@@ -28,8 +19,8 @@ export default function TelechargerPage() {
           <p className="mt-3 text-sm leading-6 text-slate-600">L’application Android conserve les fonctionnalités de Pata et ajoute la détection locale des confirmations Mobile Money, avec un écran de vérification avant chaque enregistrement.</p>
           <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4">
             <h2 className="text-sm font-bold text-amber-950">Téléchargement de la version Android</h2>
-            <p className="mt-2 text-sm leading-6 text-amber-900">La version signée n’est pas encore publiée. Le lien sera activé après la compilation et la configuration de la signature de distribution.</p>
-            <button type="button" disabled className="mt-4 flex min-h-12 w-full items-center justify-center rounded-xl bg-slate-200 px-4 text-sm font-semibold text-slate-500">APK bientôt disponible</button>
+            <p className="mt-2 text-sm leading-6 text-amber-900">La disponibilité est vérifiée automatiquement. Une version signée sera proposée ici dès sa publication.</p>
+            <AndroidDownloadCard />
           </div>
           <div className="mt-7 space-y-4">
             <h2 className="text-base font-bold">Installation de l’APK</h2>

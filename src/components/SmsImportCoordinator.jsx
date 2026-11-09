@@ -33,6 +33,7 @@ export function SmsImportCoordinator() {
   const [warnings, setWarnings] = useState({});
   const [workingId, setWorkingId] = useState('');
   const [notice, setNotice] = useState('');
+  const [modalOpen, setModalOpen] = useState(false);
 
   const loadPending = useCallback(async () => {
     if (!user) return;
@@ -123,6 +124,8 @@ export function SmsImportCoordinator() {
     };
   }, [user, syncDeviceInbox]);
 
+  useEffect(() => { if (pending.length > 0) setModalOpen(true); }, [pending.length]);
+
   const updateChoice = (id, patch) => setChoices((current) => ({ ...current, [id]: { ...(current[id] || {}), ...patch } }));
 
   const confirm = async (item) => {
@@ -187,7 +190,7 @@ export function SmsImportCoordinator() {
 
   return (
     <>
-      <Modal open={pending.length > 0} onClose={() => setPending((current) => current.slice(1))} title="Opération Mobile Money détectée" className="max-w-xl">
+      <Modal open={pending.length > 0 && modalOpen} onClose={() => setModalOpen(false)} title="Opération Mobile Money détectée" className="max-w-xl">
         <div className="space-y-4">
           <p className="text-xs leading-5 text-slate-600">Vérifie chaque opération détectée avant son enregistrement. Le SMS original reste sur le téléphone.</p>
           {pending.map((item) => {
@@ -235,10 +238,10 @@ export function SmsImportCoordinator() {
             );
           })}
           {notice && <p role="status" className="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-700">{notice}</p>}
-          <button type="button" onClick={() => { setPending([]); loadPending().catch(() => {}); }} className="text-xs font-semibold text-slate-500 underline underline-offset-2">Fermer pour le moment</button>
+          <button type="button" onClick={() => setModalOpen(false)} className="text-xs font-semibold text-slate-500 underline underline-offset-2">Fermer pour le moment</button>
         </div>
       </Modal>
-      {pending.length > 0 && <button type="button" onClick={() => loadPending().catch(() => {})} className="fixed bottom-24 right-3 z-40 flex items-center gap-2 rounded-full bg-[#075b43] px-4 py-3 text-xs font-semibold text-white shadow-lg lg:bottom-6">
+      {pending.length > 0 && <button type="button" onClick={() => setModalOpen(true)} className="fixed bottom-24 right-3 z-40 flex items-center gap-2 rounded-full bg-[#075b43] px-4 py-3 text-xs font-semibold text-white shadow-lg lg:bottom-6">
         <MessageSquareText size={15}/> {pending.length} import{pending.length > 1 ? 's' : ''} à confirmer
       </button>}
       {notice && pending.length === 0 && <div role="status" className="fixed bottom-24 left-3 right-3 z-[80] flex items-start gap-2 rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-700 shadow-lg lg:bottom-6 lg:left-auto lg:max-w-sm">
