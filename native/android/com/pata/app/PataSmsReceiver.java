@@ -74,6 +74,8 @@ public class PataSmsReceiver extends BroadcastReceiver {
         String eventType;
         String direction;
         int amount;
+        Integer balance;
+        String counterparty;
         String date;
         String time;
     }
@@ -108,6 +110,8 @@ public class PataSmsReceiver extends BroadcastReceiver {
         result.eventType = eventType;
         result.direction = "receive".equals(eventType) ? "income" : "withdrawal".equals(eventType) ? "withdrawal" : "expense";
         result.amount = amount;
+        result.counterparty = findCounterparty(text);
+        result.balance = findBalance(text);
         Calendar calendar = Calendar.getInstance();
         calendar.setTimeInMillis(timestamp > 0 ? timestamp : System.currentTimeMillis());
 
@@ -182,6 +186,37 @@ public class PataSmsReceiver extends BroadcastReceiver {
         return null;
     }
 
+    private static String findCounterparty(String text) {
+        Pattern[] patterns = new Pattern[] {
+            Pattern.compile("(?:paiement\\\\s+reussi|payment\\\\s+successful)[.!,:-]\\\\s*([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÿ'’ .-]{1,50})[.!,:-]\\\\s*(?:montant|transaction|somme)", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("(?:recu|received)\\\\s+(?:de|from)\\\\s+([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÿ'’ .-]{1,50})(?=[,.;]|$)", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("(?:envoye\\\\s+(?:a|vers)|transfert\\\\s+vers|paye\\\\s+a|aupres\\\\s+de|chez|sent\\\\s+to)\\\\s+([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÿ'’ .-]{1,50})(?=[,.;]|$)", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("\\\\bde\\\\s+([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÿ'’ .-]{1,50})(?=[,.;]|$)", Pattern.CASE_INSENSITIVE)
+        };
+        for (Pattern pattern : patterns) {
+            Matcher matcher = pattern.matcher(text);
+            if (!matcher.find()) continue;
+            String value = matcher.group(1).replaceAll("^[\\\\s:,-]+|[\\\\s.;,:-]+$", "").trim().replaceAll("\\\\s+", " ");
+            if (value.length() < 2 || value.length() > 60 || !value.matches("[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’ .-]{0,59}")) continue;
+            String lower = value.toLowerCase(Locale.ROOT);
+            if (lower.matches("(la somme|le montant|votre compte|votre solde|la transaction|un client|un marchand)")) continue;
+            return value;
+        }
+        return null;
+    }
+
+    private static Integer findBalance(String text) {
+        Matcher matcher = Pattern.compile("(?:nouveau\\\\s+)?solde(?:\\\\s+disponible)?\\\\s*[:\\\\-]?\\\\s*([0-9][0-9\\\\s.,]{0,20})\\\\s*(?:FCFA|XAF|F\\\\s*\\\\.\\\\s*CFA|F\\\\s*CFA|CFA)\\\\b", Pattern.CASE_INSENSITIVE).matcher(text);
+        if (!matcher.find()) return null;
+        String digits = matcher.group(1).replaceAll("[^0-9]", "");
+        try {
+            long value = Long.parseLong(digits);
+            return value >= 0 && value <= 1_000_000_000L ? (int) value : null;
+        } catch (Exception error) {
+            return null;
+        }
+    }
+
     private static String hash(String value) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -213,6 +248,8 @@ public class PataSmsReceiver extends BroadcastReceiver {
                 item.put("amount", parsed.amount);
                 item.put("date", parsed.date);
                 item.put("time", parsed.time);
+                if (parsed.counterparty != null) item.put("counterparty", parsed.counterparty);
+                if (parsed.balance != null) item.put("balance", parsed.balance);
                 item.put("ownerUid", prefs.getString("user_uid", ""));
                 existing.put(item);
                 JSONArray limited = new JSONArray();

@@ -44,6 +44,8 @@ function validateParsedPayload(body = {}) {
   const amount = Math.round(Number(body.amount));
   const date = String(body.date || '');
   const time = String(body.time || '');
+  const rawCounterparty = String(body.counterparty || '').normalize('NFC').replace(/\\s+/g, ' ').trim().slice(0, 60);
+  const counterparty = /^\\p{L}[\\p{L}'’ .-]{0,59}$/u.test(rawCounterparty) ? rawCounterparty : null;
   if (!PROVIDERS.has(provider)) throw new Error('Opérateur Mobile Money non reconnu.');
   if (!EVENT_TYPES.has(eventType)) throw new Error('Type de transaction non reconnu.');
   const expectedDirection = eventType === 'receive' ? 'income' : eventType === 'withdrawal' ? 'withdrawal' : 'expense';
@@ -52,7 +54,7 @@ function validateParsedPayload(body = {}) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
     throw new Error('Date ou heure de transaction invalide.');
   }
-  return { provider, eventType, direction, amount, date, time };
+  return { provider, eventType, direction, amount, date, time, counterparty };
 }
 
 async function getUserAndPremium(uid) {
@@ -77,8 +79,8 @@ export async function GET(request) {
         return right - left;
       })
       .slice(0, 20)
-      .map(({ id, provider, eventType, direction, amount, date, time, createdAt }) => ({
-        id, provider, eventType, direction, amount, date, time,
+      .map(({ id, provider, eventType, direction, amount, date, time, counterparty, createdAt }) => ({
+        id, provider, eventType, direction, amount, date, time, counterparty,
         createdAt: createdAt?.toDate ? createdAt.toDate().toISOString() : null,
       }));
     return NextResponse.json({

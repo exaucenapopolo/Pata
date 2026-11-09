@@ -53,7 +53,7 @@ export function SmsImportCoordinator() {
       body: JSON.stringify({
         action: 'stage', source: sourceMode, provider: parsed.provider, transactionHash,
         amount: parsed.amount, eventType: parsed.eventType, direction: parsed.direction,
-        date: parsed.date, time: parsed.time,
+        date: parsed.date, time: parsed.time, counterparty: parsed.counterparty || null,
       }),
     });
     const result = await response.json().catch(() => ({}));
@@ -209,6 +209,7 @@ export function SmsImportCoordinator() {
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label} · {item.eventType === 'withdrawal' ? 'Retrait' : incoming ? 'Réception' : item.eventType === 'payment' ? 'Paiement' : 'Envoi'}</p>
                     <p className="mt-1 text-xl font-bold tracking-tight text-slate-900">{money.format(item.amount)} FCFA</p>
                     <p className="mt-1 text-[10px] text-slate-500">{item.date} à {item.time}</p>
+                    {item.counterparty && <p className="mt-1 text-xs font-medium text-slate-700">Contrepartie : {item.counterparty}</p>}
                   </div>
                 </div>
                 {item.direction === 'withdrawal' && <label className="mt-3 flex items-start gap-2 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900">

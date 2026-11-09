@@ -71,3 +71,19 @@ test('normalise une date explicite et une heure', () => {
   assert.equal(result.date, '2026-11-08');
   assert.equal(result.time, '19:45');
 });
+
+test('extrait le nom du marchand sans conserver de numéro ou de téléphone', () => {
+  const result = parseMobileMoneySms(
+    'Orange Money : Paiement réussi. ARNO. Montant transaction : 4500 FCFA, ID : MP180329.1942.A015.',
+    { receivedAt }
+  );
+  assert.equal(result.counterparty, 'ARNO');
+});
+
+test('ignore un numéro de téléphone comme contrepartie', () => {
+  const result = parseMobileMoneySms(
+    'MTN MoMo : Vous avez reçu 25 000 FCFA de 6XXXXXXXX. Transaction ID: 123456789012.',
+    { receivedAt }
+  );
+  assert.equal(result.counterparty, null);
+});

@@ -80,6 +80,29 @@ function parseDateAndTime(text, receivedAt) {
   return { date, time };
 }
 
+function sanitizeCounterparty(candidate) {
+  const value = String(candidate || '').replace(/\\s+/g, ' ').replace(/^[\\s:,-]+|[\\s.;,:-]+$/g, '').trim();
+  if (!value || value.length > 60 || !/^\\p{L}[\\p{L}'’ .-]{0,59}$/u.test(value)) return null;
+  const normalized = value.toLowerCase();
+  if (/^(?:la somme|le montant|votre compte|votre solde|la transaction|un client|un marchand)$/.test(normalized)) return null;
+  return value;
+}
+
+function parseCounterparty(text) {
+  const patterns = [
+    /(?:paiement\\s+r[eé]ussi|payment\\s+successful)[.!,:-]\\s*([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÿ'’ .-]{1,50})[.!,:-]\\s*(?:montant|transaction|somme)/i,
+    /(?:re[cç]u|received)\\s+(?:de|from)\\s+([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÿ'’ .-]{1,50})(?=[,.;]|$)/i,
+    /(?:envoy[eé]\\s+(?:[àa]|vers)|transfert\\s+vers|pay[eé]\\s+[àa]|auprès\\s+de|chez|sent\\s+to)\\s+([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÿ'’ .-]{1,50})(?=[,.;]|$)/i,
+    /\\bde\\s+([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÿ'’ .-]{1,50})(?=[,.;]|$)/i,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    const value = sanitizeCounterparty(match?.[1]);
+    if (value) return value;
+  }
+  return null;
+}
+
 function parseBalance(text) {
   const match = text.match(/(?:nouveau\s+)?solde(?:\s+disponible)?\s*[:\-]?\s*([0-9][0-9\s.,]{0,20})\s*(?:FCFA|XAF|F\s*\.\s*CFA|F\s*CFA|CFA)\b/i);
   if (!match) return null;
@@ -117,6 +140,6 @@ export function parseMobileMoneySms(rawText, { sender = '', receivedAt = new Dat
     direction,
     date,
     time,
-    balance: parseBalance(text),
+    counterparty: parseCounterparty(text),\n    balance: parseBalance(text),
   };
 }
