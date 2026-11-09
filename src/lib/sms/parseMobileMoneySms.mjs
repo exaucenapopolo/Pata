@@ -140,6 +140,7 @@ export function parseMobileMoneySms(rawText, { sender = '', receivedAt = new Dat
     direction,
     date,
     time,
-    counterparty: parseCounterparty(text),\n    balance: parseBalance(text),
+    counterparty: parseCounterparty(text),
+    balance: parseBalance(text),
   };
 }
