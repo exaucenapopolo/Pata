@@ -79,4 +79,4 @@ if (fs.existsSync(gradlePath)) {
   gradle = gradle.replace(/versionName\s+["'][^"']+["']/, 'versionName "1.0.1"');
   fs.writeFileSync(gradlePath, gradle);
 }
-console.log('Pata : icônes PWA, réception SMS, analyse tolérante et synchronisation WorkManager configurées.');
+console.log('Pata Android 1.0.1 : icône officielle, réception SMS, analyse tolérante et synchronisation WorkManager configurées.');
