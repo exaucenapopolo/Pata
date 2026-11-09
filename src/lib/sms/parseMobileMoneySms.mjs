@@ -78,11 +78,15 @@ function firstPositiveAmount(source, pattern, amountGroup = 1) {
 }
 
 function parseAmount(text) {
-  const withoutBalance = text.replace(
-    /(?:nouveau\s+)?solde(?:\s+disponible)?\s*[:\-]?\s*[0-9][0-9\s\u00a0.,']{0,22}\s*(?:FCFA|F\s*\.?\s*CFA|XAF|CFA)?/ig,
-    ' '
+  const number = "([0-9]+(?:(?:[\\s\\u00a0][0-9]{3})|(?:[.,][0-9]{3}))*(?:[.,]00)?)";
+  const currency = CURRENCY;
+  // Le solde peut être écrit « 758 XAF » ou « XAF 758 ».
+  // On l'écarte avant toute recherche de montant transactionnel.
+  const balancePattern = new RegExp(
+    '(?:nouveau\\s+)?solde(?:\\s+disponible)?\\s*[:\\-]?\\s*(?:' + currency + '\\s*)?' + number + '\\s*(?:' + currency + ')?',
+    'ig'
   );
-  const number = "([0-9][0-9\\s\\u00a0.,']{0,22})";
+  const withoutBalance = text.replace(balancePattern, ' ');
   const currency = '(?:FCFA|F\\s*\\.?\\s*CFA|XAF|CFA)';
   const authoritative = [
     new RegExp('\\b(?:une\\s+)?transaction\\s+de\\s+' + number + '\\s*' + currency + '\\b', 'ig'),
@@ -107,6 +111,8 @@ function parseAmount(text) {
     while ((match = pattern.exec(withoutBalance)) !== null) {
       const nearContext = withoutBalance.slice(Math.max(0, match.index - 55), match.index);
       if (/(?:frais|fees?|remise|reduction|réduction|commission|recompense|récompense|reward|discount|bonus|solde|balance)/i.test(nearContext)) continue;
+      const amountContext = withoutBalance.slice(Math.max(0, match.index - 55), match.index);
+      if (/(?:frais|fees?|remise|reduction|réduction|commission|recompense|récompense|reward|discount|bonus|solde|balance)/i.test(amountContext)) continue;
       const amount = parseMoney(match[group]);
       if (amount != null) return amount;
       if (match[0].length === 0) pattern.lastIndex += 1;

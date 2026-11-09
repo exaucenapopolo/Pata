@@ -95,10 +95,10 @@ public final class PataMobileMoneyParser {
     }
 
     private static Integer detectAmount(String text) {
+        String number = "([0-9]+(?:(?:[\\s\\u00a0][0-9]{3})|(?:[.,][0-9]{3}))*(?:[.,]00)?)";
         String withoutBalance = text.replaceAll(
-            "(nouveau\\s+)?solde(\\s+disponible)?\\s*[:\\-]?\\s*[0-9][0-9\\s.,']{0,22}\\s*(?:" + CURRENCY + ")?", " "
+            "(nouveau\\s+)?solde(\\s+disponible)?\\s*[:\\-]?\\s*(?:" + CURRENCY + "\\s*)?" + number + "\\s*(?:" + CURRENCY + ")?", " "
         );
-        String number = "([0-9][0-9\\s.,']{0,22})";
         Pattern[] authoritative = new Pattern[] {
             Pattern.compile("\\b(?:une\\s+)?transaction\\s+de\\s+" + number + "\\s*(?:" + CURRENCY + ")\\b", Pattern.CASE_INSENSITIVE),
             Pattern.compile("\\bmontant\\s+(?:(?:de\\s+)?(?:la\\s+)?)?transaction\\s*[:#\\-]?\\s*" + number + "\\s*(?:" + CURRENCY + ")\\b", Pattern.CASE_INSENSITIVE),
@@ -126,6 +126,8 @@ public final class PataMobileMoneyParser {
         Pattern currencyFirst = Pattern.compile("(?:" + CURRENCY + ")\\s*[:#\\-]?\\s*" + number, Pattern.CASE_INSENSITIVE);
         matcher = currencyFirst.matcher(withoutBalance);
         while (matcher.find()) {
+            String context = withoutBalance.substring(Math.max(0, matcher.start() - 55), matcher.start());
+            if (Pattern.compile("(frais|fees?|remise|reduction|commission|recompense|reward|discount|bonus|solde|balance)").matcher(context).find()) continue;
             Integer amount = parseMoney(matcher.group(1));
             if (amount != null) return amount;
         }
