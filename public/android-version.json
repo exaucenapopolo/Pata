@@ -1,7 +1,7 @@
 {
-  "version": "1.0.7",
-  "versionCode": 8,
+  "version": "1.0.8",
+  "versionCode": 9,
   "downloadAvailable": true,
   "apkUrl": "https://github.com/exaucenapopolo/Pata/releases/latest/download/Pata-Android.apk",
-  "releaseNotes": "Détection MTN MoMo et Orange Money (réceptions, transferts, paiements et retraits), classement des sorties avant comptabilisation, anti-doublon des reçus à plusieurs SMS, notifications système et diffusion administrateur corrigée."
+  "releaseNotes": "Montants Mobile Money fiabilisés pour MTN et Orange, priorité au montant principal du SMS, projets terminés repliés, recharges entières dès 100 FCFA et code secret vérifié automatiquement."
 }
