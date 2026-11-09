@@ -541,11 +541,14 @@ export async function POST(request) {
       const providerName = item.provider === 'mtn_momo' ? 'MTN Mobile Money' : 'Orange Money';
       const note = (item.eventType === 'receive' ? 'Réception ' : item.eventType === 'withdrawal' ? 'Retrait ' : item.eventType === 'payment' ? 'Paiement ' : 'Envoi ') + providerName;
       const endpoint = operationType === 'expense' ? '/api/expenses/add' : '/api/incomes/add';
+      const isCashWithdrawal = item.eventType === 'withdrawal';
       const payload = operationType === 'expense'
         ? {
-            amount: item.amount, categoryId, date: item.date, time: item.time, note,
+            amount: item.amount, categoryId, date: item.date, time: item.time,
+            note: isCashWithdrawal ? note + ' (retrait d’espèces)' : note,
             paymentMethod: item.provider, expenseType: 'consumption',
-            incomeSourceId, incomeSourceName: incomeSourceId === 'all' ? 'Tous les revenus' : '',
+            incomeSourceId: isCashWithdrawal ? 'external' : incomeSourceId,
+            incomeSourceName: isCashWithdrawal ? 'Solde Mobile Money' : incomeSourceId === 'all' ? 'Tous les revenus' : '',
             confirmBudgetOverrun, smsImportId,
           }
         : {
@@ -556,15 +559,46 @@ export async function POST(request) {
       let operationResponse;
       let operationResult;
       try {
-        operationResponse = await fetch(new URL(endpoint, request.url), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: request.headers.get('authorization') || '' },
-          body: JSON.stringify(payload), cache: 'no-store',
-        });
-        operationResult = await operationResponse.json().catch(() => ({}));
+        if (isCashWithdrawal) {
+          // Un retrait est déjà sorti du portefeuille Mobile Money :
+          // lorsqu'il est explicitement classé comme dépense, il est financé
+          // par ce portefeuille externe, sans exiger un revenu fictif dans Pata.
+          operationResult = await createExpenseForUser(uid, payload, {
+            idempotencyKey: smsImportId,
+            externalFunding: true,
+          });
+          if (operationResult.confirmationRequired) {
+            await ref.update({ status: 'PENDING', processingAt: FieldValue.delete() });
+            return NextResponse.json({
+              success: false,
+              confirmationRequired: true,
+              message: operationResult.message || 'Cette dépense dépasse un budget. Confirme une seconde fois pour continuer.',
+              warnings: operationResult.warnings || [],
+            });
+          }
+          operationResponse = {
+            ok: operationResult.success === true,
+            status: operationResult.success === true ? 200 : 400,
+          };
+          operationResult = {
+            ...operationResult,
+            id: operationResult.expenseId || operationResult.expenseIds?.[0] || null,
+          };
+        } else {
+          operationResponse = await fetch(new URL(endpoint, request.url), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: request.headers.get('authorization') || '' },
+            body: JSON.stringify(payload), cache: 'no-store',
+          });
+          operationResult = await operationResponse.json().catch(() => ({}));
+        }
       } catch (error) {
-        await ref.update({ status: 'PENDING', lastError: 'NETWORK', processingAt: FieldValue.delete() });
-        return responseError('Connexion interrompue. Réessaie : la clé anti-doublon protégera cette opération.', 503);
+        await ref.update({
+          status: 'PENDING',
+          lastError: String(error.message || 'NETWORK').slice(0, 180),
+          processingAt: FieldValue.delete(),
+        });
+        return responseError(error.message || 'Connexion interrompue. Réessaie : la clé anti-doublon protège cette opération.', 503);
       }
 
       if (operationResult.confirmationRequired) {
