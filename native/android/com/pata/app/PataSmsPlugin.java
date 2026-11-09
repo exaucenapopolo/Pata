@@ -112,14 +112,17 @@ public class PataSmsPlugin extends Plugin {
         boolean hasPermission = ContextCompat.checkSelfPermission(getContext(), Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED;
         boolean validPremium = premiumUntil > System.currentTimeMillis();
         SharedPreferences prefs = getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        String previousUid = prefs.getString("user_uid", "");
+        boolean sameAccount = previousUid.isEmpty() || previousUid.equals(userUid);
         SharedPreferences.Editor editor = prefs.edit()
             .putBoolean("enabled", false)
             .putLong("premium_until", premiumUntil)
             .putString("user_uid", userUid);
+        if (!sameAccount) editor.remove("device_token");
         if (suppliedDeviceToken != null && !suppliedDeviceToken.isEmpty()) editor.putString("device_token", suppliedDeviceToken);
         if (!enabled) editor.remove("device_token");
         boolean hasDeviceToken = (suppliedDeviceToken != null && !suppliedDeviceToken.isEmpty())
-            || !prefs.getString("device_token", "").isEmpty();
+            || (sameAccount && !prefs.getString("device_token", "").isEmpty());
         boolean actualEnabled = enabled && hasPermission && validPremium && !userUid.isEmpty() && hasDeviceToken;
         editor.putBoolean("enabled", actualEnabled).apply();
         JSObject result = new JSObject();
