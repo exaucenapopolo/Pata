@@ -30,7 +30,7 @@ export function PinGate() {
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
 
-  const storageKey = user ? 'pata-pin-unlocked:' + user.uid : '';
+  const storageKey = user ? 'pata-pin-last-background:' + user.uid : '';
 
   useEffect(() => {
     let active = true;
@@ -39,14 +39,49 @@ export function PinGate() {
     apiCall(user, 'security/pin/status').then((data) => {
       if (!active) return;
       setEnabled(data.enabled === true);
-      let opened = false;
-      try { opened = sessionStorage.getItem(storageKey) === '1'; } catch { /* session indisponible */ }
-      setLocked(data.enabled === true && !opened);
+      let lastBackgroundAt = 0;
+      try {
+        lastBackgroundAt = Number(localStorage.getItem(storageKey) || 0);
+        localStorage.removeItem(storageKey);
+      } catch { /* stockage local indisponible */ }
+      const inactiveForTenMinutes = lastBackgroundAt > 0 && Date.now() - lastBackgroundAt >= 10 * 60 * 1000;
+      setLocked(data.enabled === true && inactiveForTenMinutes);
     }).catch((err) => {
       if (active) { setError(err.message || 'Vérification de sécurité indisponible.'); setLocked(false); }
     }).finally(() => { if (active) setChecking(false); });
     return () => { active = false; };
   }, [user, storageKey]);
+
+  useEffect(() => {
+    if (!user || !enabled) return undefined;
+    const markBackground = () => {
+      if (document.visibilityState === 'hidden') {
+        try {
+          if (!localStorage.getItem(storageKey)) localStorage.setItem(storageKey, String(Date.now()));
+        } catch { /* stockage local indisponible */ }
+      }
+    };
+    const checkReturn = () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const lastBackgroundAt = Number(localStorage.getItem(storageKey) || 0);
+        localStorage.removeItem(storageKey);
+        if (lastBackgroundAt > 0 && Date.now() - lastBackgroundAt >= 10 * 60 * 1000) {
+          setPin('');
+          setError('');
+          setLocked(true);
+        }
+      } catch { /* stockage local indisponible */ }
+    };
+    document.addEventListener('visibilitychange', markBackground);
+    document.addEventListener('visibilitychange', checkReturn);
+    window.addEventListener('pagehide', markBackground);
+    return () => {
+      document.removeEventListener('visibilitychange', markBackground);
+      document.removeEventListener('visibilitychange', checkReturn);
+      window.removeEventListener('pagehide', markBackground);
+    };
+  }, [user, enabled, storageKey]);
 
   const unlock = async (event) => {
     event.preventDefault();
@@ -55,7 +90,7 @@ export function PinGate() {
     try {
       const result = await apiCall(user, 'security/pin/verify', { pin });
       if (!result.enabled) { setEnabled(false); setLocked(false); return; }
-      try { sessionStorage.setItem(storageKey, '1'); } catch { /* la session restera verrouillée après rechargement */ }
+      try { localStorage.removeItem(storageKey); } catch { /* stockage local indisponible */ }
       setLocked(false); setPin('');
     } catch (err) { setError(err.message || 'Code secret incorrect.'); setPin(''); }
     finally { setBusy(false); }
@@ -74,7 +109,7 @@ export function PinGate() {
     setBusy(true); setError('');
     try {
       await apiCall(user, 'security/pin/reset/confirm', { code, pin: newPin });
-      try { sessionStorage.setItem(storageKey, '1'); } catch { /* stockage indisponible */ }
+      try { localStorage.removeItem(storageKey); } catch { /* stockage local indisponible */ }
       setEnabled(true); setLocked(false); setResetMode(false); setResetSent(false);
       setCode(''); setNewPin(''); setConfirmPin('');
     } catch (err) { setError(err.message || 'Réinitialisation impossible.'); }
@@ -90,7 +125,7 @@ export function PinGate() {
       <p className="mt-5 text-center text-[10px] font-bold uppercase tracking-[.18em] text-[#0b5c46]">Protection Pata</p>
       <h1 className="mt-2 text-center text-xl font-bold text-slate-950">{resetMode ? 'Réinitialiser ton code' : 'Saisis ton code secret'}</h1>
       {!resetMode ? <>
-        <p className="mt-2 text-center text-sm leading-6 text-slate-500">Entre ton code PIN à 4 chiffres pour accéder à ton espace financier sur cet appareil.</p>
+        <p className="mt-2 text-center text-sm leading-6 text-slate-500">Après 10 minutes ou plus passées hors de Pata, saisis ton code PIN pour reprendre l'accès à ton espace financier.</p>
         <form onSubmit={unlock} className="mt-5 space-y-3">
           <input autoFocus type="password" inputMode="numeric" autoComplete="one-time-code" maxLength={4} pattern="[0-9]{4}" value={pin} onChange={e=>setPin(e.target.value.replace(/\D/g,'').slice(0,4))} className="h-14 w-full rounded-xl border border-slate-200 text-center text-2xl font-bold tracking-[.7em] outline-none focus:border-[#0b5c46]" aria-label="Code secret à quatre chiffres" placeholder="••••"/>
           {error && <p role="alert" className="text-center text-xs text-red-600">{error}</p>}
