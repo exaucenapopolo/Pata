@@ -42,6 +42,7 @@ export function PinSecuritySettings() {
     try {
       await call(user,'security/pin/set',{pin,currentPin});
       setEnabled(true); setPin(''); setConfirmPin(''); setCurrentPin('');
+      window.dispatchEvent(new Event('pata:pin-updated'));
       try { localStorage.removeItem('pata-pin-last-background:'+user.uid); } catch { /* stockage local indisponible */ }
       setMessage('Ton code secret est enregistré. Il sera demandé uniquement après au moins 10 minutes passées hors de Pata.');
     } catch(err) { setError(err.message); }
@@ -61,6 +62,7 @@ export function PinSecuritySettings() {
     try {
       await call(user,'security/pin/reset/confirm',{code,pin});
       setEnabled(true); setCode(''); setPin(''); setConfirmPin(''); setCurrentPin(''); setResetSent(false);
+      window.dispatchEvent(new Event('pata:pin-updated'));
       try { localStorage.removeItem('pata-pin-last-background:'+user.uid); } catch { /* stockage local indisponible */ }
       setMessage('Ton nouveau code secret est enregistré.');
     } catch(err) { setError(err.message); }
@@ -68,7 +70,7 @@ export function PinSecuritySettings() {
   };
 
   return <section className="rounded-2xl border border-slate-200 bg-white p-4">
-    <div className="flex items-start gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#edf5f0] text-[#0b5c46]"><LockKeyhole size={19}/></span><div><h3 className="text-sm font-bold text-slate-900">Code secret à 4 chiffres</h3><p className="mt-1 text-xs leading-5 text-slate-500">Ajoute un verrou lorsque tu ouvres Pata sur cet appareil. Il évite qu’une personne qui prend ton téléphone consulte directement ton espace. Ce code complète le mot de passe de ton compte.</p></div></div>
+    <div className="flex items-start gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#edf5f0] text-[#0b5c46]"><LockKeyhole size={19}/></span><div><h3 className="text-sm font-bold text-slate-900">Code secret à 4 chiffres</h3><p className="mt-1 text-xs leading-5 text-slate-500">Ajoute un code secret à 4 chiffres. Il est demandé une seule fois lorsque tu reviens dans Pata après au moins 10 minutes passées hors de l’application, pas à chaque opération.</p></div></div>
     {loading ? <p className="mt-4 text-xs text-slate-400">Vérification…</p> : <>
       <p className="mt-3 flex items-center gap-2 text-xs font-semibold">{enabled?<><ShieldCheck size={15} className="text-emerald-700"/> Protection activée</>:<span className="text-slate-500">Aucun code secret configuré</span>}</p>
       <form onSubmit={resetSent?confirmReset:savePin} className="mt-4 space-y-3">
