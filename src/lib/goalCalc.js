@@ -1,6 +1,5 @@
-export const GOAL_LATE_PENALTY_RATE = 0.15;
-export const GOAL_PENALTY_EFFECTIVE_DATE = '2026-11-08';
-export const LOAN_INTEREST_RATE = 0.05; // 5%
+export const GOAL_LATE_PENALTY_RATE = 0.07;
+export const GOAL_PENALTY_EFFECTIVE_DATE = '2026-11-09';
 
 export function computeGoalPlan(goal, deposits = [], today = new Date()) {
   if (!goal) return null;
@@ -75,40 +74,55 @@ export function computeGoalPlan(goal, deposits = [], today = new Date()) {
   const todayKey = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Africa/Douala', year: 'numeric', month: '2-digit', day: '2-digit',
   }).format(today);
-  const penaltyEffectiveDate = String(goal.penaltyPolicyStartedOn || GOAL_PENALTY_EFFECTIVE_DATE).slice(0, 10);
+  // La nouvelle règle s'applique à partir du 9 novembre 2026 au plus tôt.
+  // Chaque échéance est évaluée séparément : les versements sont affectés d'abord
+  // aux échéances les plus anciennes, puis 7 % est calculé uniquement sur le
+  // montant qui reste impayé à la date de l'échéance concernée.
+  const storedEffectiveDate = String(goal.penaltyPolicyStartedOn || GOAL_PENALTY_EFFECTIVE_DATE).slice(0, 10);
+  const penaltyEffectiveDate = storedEffectiveDate > GOAL_PENALTY_EFFECTIVE_DATE
+    ? storedEffectiveDate : GOAL_PENALTY_EFFECTIVE_DATE;
   const orderedDeposits = deposits
     .map((deposit) => ({
       date: String(deposit.date || (deposit.createdAt?.toDate ? deposit.createdAt.toDate().toISOString().slice(0, 10) : '')).slice(0, 10),
       amount: Math.max(0, Number(deposit.amount) || 0),
     }))
-    .filter((deposit) => /^\d{4}-\d{2}-\d{2}$/.test(deposit.date) && deposit.amount > 0)
+    .filter((deposit) => /^\\d{4}-\\d{2}-\\d{2}$/.test(deposit.date) && deposit.amount > 0)
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  // Une échéance manquée reste comptée même si l'utilisateur rattrape ensuite
-  // ses versements. Les dépôts effectués après une échéance ne l'effacent pas.
-  // La règle de 15 % commence à la date d'entrée en vigueur, sans recalculer
-  // rétroactivement les retards antérieurs à cette date.
-  let cumulativeDepositedByDueDate = 0;
+  const unpaidInstallments = [];
   let depositIndex = 0;
   let missedPayments = 0;
+  let missedAmount = 0;
+  let penalty = 0;
   for (let installment = 1; installment <= paymentsDue; installment += 1) {
     const scheduled = new Date(startMs + installment * frequencyDays * msPerDay);
     const dueDate = scheduled.getTime() > deadline.getTime() ? deadline : scheduled;
     const dueDateKey = dueDate.toISOString().slice(0, 10);
+    const installmentAmount = Math.max(0, Math.min(amountPerPayment, targetAmount - amountPerPayment * (installment - 1)));
+    const currentInstallment = { remaining: installmentAmount };
+    unpaidInstallments.push(currentInstallment);
+
     while (depositIndex < orderedDeposits.length && orderedDeposits[depositIndex].date <= dueDateKey) {
-      cumulativeDepositedByDueDate += orderedDeposits[depositIndex].amount;
+      let available = orderedDeposits[depositIndex].amount;
+      for (const unpaid of unpaidInstallments) {
+        if (available <= 0) break;
+        const applied = Math.min(unpaid.remaining, available);
+        unpaid.remaining -= applied;
+        available -= applied;
+      }
       depositIndex += 1;
     }
-    if (dueDateKey < penaltyEffectiveDate || dueDateKey >= todayKey) continue;
-    const cumulativeRequired = Math.min(targetAmount, amountPerPayment * installment);
-    if (cumulativeDepositedByDueDate < cumulativeRequired) missedPayments += 1;
-  }
 
-  // Frais obligatoires : 15 % du montant cible total par échéance manquée.
-  // Ce calcul est fixe pour tous les comptes et ne dépend d'aucun réglage utilisateur.
+    if (dueDateKey < penaltyEffectiveDate || dueDateKey >= todayKey) continue;
+    const missedForThisDueDate = Math.max(0, Math.round(currentInstallment.remaining));
+    if (missedForThisDueDate > 0) {
+      missedPayments += 1;
+      missedAmount += missedForThisDueDate;
+      penalty += Math.round(missedForThisDueDate * GOAL_LATE_PENALTY_RATE);
+    }
+  }
   const penaltyEnabled = true;
-  const unitPenalty = Math.round(targetAmount * GOAL_LATE_PENALTY_RATE);
-  const penalty = missedPayments * unitPenalty;
+  const unitPenalty = missedPayments ? Math.round((missedAmount / missedPayments) * GOAL_LATE_PENALTY_RATE) : 0;
 
   // Calcul de la prochaine date de paiement (pour l'afficher)
   let nextPaymentDate = null;
@@ -147,6 +161,7 @@ export function computeGoalPlan(goal, deposits = [], today = new Date()) {
     expectedAmount,
     shortfall,
     missedPayments,
+    missedAmount,
     unitPenalty,
     penaltyEnabled,
     penalty,
