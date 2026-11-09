@@ -447,49 +447,148 @@ async function handleSubscriptionPayWithBalance(request) {
 async function handleSubscriptionWebhook(request) {
   try {
     const body = await request.json();
-    const transId = body.transId;
+    const transId = String(body.transId || '').trim();
     if (!transId) return NextResponse.json({ received: true });
 
     const paymentRef = adminDb.collection('subscriptionPayments').doc(transId);
     const paymentDoc = await paymentRef.get();
-    if (!paymentDoc.exists || paymentDoc.data().status === 'CONFIRMED') return NextResponse.json({ received: true });
+    if (!paymentDoc.exists || paymentDoc.data()?.status === 'CONFIRMED') return NextResponse.json({ received: true });
 
     const API_USER = process.env.FAPSHI_API_USER;
     const SECRET_KEY = process.env.FAPSHI_SECRET_KEY;
-    const verifyRes = await fetch(`https://live.fapshi.com/payment-status/${transId}`, { headers: { apiuser: API_USER, apikey: SECRET_KEY } });
-    const verifyData = await verifyRes.json();
-    const realStatus = (verifyData.status || '').toUpperCase();
+    const verifyRes = await fetch(`https://live.fapshi.com/payment-status/${encodeURIComponent(transId)}`, {
+      headers: { apiuser: API_USER, apikey: SECRET_KEY },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(12000),
+    });
+    const verifyData = await verifyRes.json().catch(() => ({}));
+    const realStatus = String(verifyData.status || '').toUpperCase();
 
     if (realStatus !== 'SUCCESSFUL') {
       if (['FAILED', 'EXPIRED', 'CANCELED', 'REVERSED'].includes(realStatus)) {
-        await paymentRef.update({ status: 'FAILED' });
+        await paymentRef.update({ status: 'FAILED', failedAt: FieldValue.serverTimestamp() });
+        const pending = paymentDoc.data() || {};
+        if (pending.referralReservationKey) {
+          await releaseReferralDiscount(pending.userId, pending.referralReservationKey).catch(() => {});
+        }
       }
       return NextResponse.json({ received: true });
     }
 
-    const payment = paymentDoc.data();
+    const payment = paymentDoc.data() || {};
+    if (verifyData.amount !== undefined && verifyData.amount !== null && verifyData.amount !== '') {
+      const verifiedAmount = Math.round(Number(verifyData.amount));
+      if (!Number.isSafeInteger(verifiedAmount) || verifiedAmount !== Number(payment.amount)) {
+        console.error('[PATA PREMIUM WEBHOOK] Amount mismatch', transId);
+        return NextResponse.json({ received: true, verificationPending: true });
+      }
+    }
+
     const userRef = adminDb.collection('users').doc(payment.userId);
-    const userDoc = await userRef.get();
-    const userData = userDoc.exists ? userDoc.data() : {};
+    const referralRef = adminDb.collection('referrals').doc(payment.userId);
+    const result = await adminDb.runTransaction(async (transaction) => {
+      const [freshPayment, userSnap, referralSnap] = await Promise.all([
+        transaction.get(paymentRef),
+        transaction.get(userRef),
+        transaction.get(referralRef),
+      ]);
+      if (!freshPayment.exists || freshPayment.data()?.status === 'CONFIRMED') return { confirmed: true, duplicate: true };
+      if (freshPayment.data()?.status !== 'PENDING') return { confirmed: false };
+      if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
+      const userData = userSnap.data() || {};
+      const now = new Date();
+      const currentPremiumValue = userData.premiumUntil;
+      const currentPremiumUntil = currentPremiumValue?.toDate ? currentPremiumValue.toDate() : new Date(currentPremiumValue || 0);
+      const baseDate = currentPremiumUntil > now ? currentPremiumUntil : now;
+      const newExpiration = new Date(baseDate.getTime() + Number(payment.months || 1) * 30 * 24 * 60 * 60 * 1000);
 
-    const now = new Date();
-    const currentPremiumUntil = userData.premiumUntil ? new Date(userData.premiumUntil) : null;
-    const baseDate = currentPremiumUntil && currentPremiumUntil > now ? currentPremiumUntil : now;
-    const newExpiration = new Date(baseDate.getTime() + payment.months * 30 * 24 * 60 * 60 * 1000);
+      let reward = null;
+      const referral = referralSnap.exists ? referralSnap.data() || {} : {};
+      const shouldReward = referral.status === 'PENDING_PREMIUM' && referral.referrerUid && referral.referrerUid !== payment.userId;
+      let referrerRef = null;
+      let referrerSnap = null;
+      let ledgerRef = null;
+      let ledgerSnap = null;
+      if (shouldReward) {
+        referrerRef = adminDb.collection('users').doc(referral.referrerUid);
+        ledgerRef = referrerRef.collection('referralTransactions').doc('invite-' + payment.userId);
+        [referrerSnap, ledgerSnap] = await Promise.all([
+          transaction.get(referrerRef),
+          transaction.get(ledgerRef),
+        ]);
+      }
 
-    await userRef.update({
-      premiumUntil: newExpiration.toISOString(),
-      lastPaymentDate: now.toISOString(),
-      lastPaymentAmount: payment.amount,
-      lastPaymentMethod: 'fapshi',
+      transaction.update(userRef, {
+        premiumUntil: newExpiration.toISOString(),
+        lastPaymentDate: now.toISOString(),
+        lastPaymentAmount: payment.amount,
+        lastPaymentMethod: 'fapshi',
+        ...(shouldReward ? { referralDiscountUsed: true } : {}),
+      });
+      transaction.update(paymentRef, {
+        status: 'CONFIRMED',
+        confirmedAt: FieldValue.serverTimestamp(),
+      });
+
+      if (shouldReward) {
+        const rewardAmount = 1000;
+        if (referrerSnap?.exists && !ledgerSnap?.exists) {
+          const referrerData = referrerSnap.data() || {};
+          transaction.update(referrerRef, { referralBalance: (Number(referrerData.referralBalance) || 0) + rewardAmount });
+          transaction.create(ledgerRef, {
+            type: 'REWARD',
+            amount: rewardAmount,
+            invitedUid: payment.userId,
+            invitedName: userData.displayName || payment.email || 'Filleul',
+            status: 'CONFIRMED',
+            sourcePaymentId: transId,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+          reward = {
+            referrerUid: referral.referrerUid,
+            invitedName: userData.displayName || payment.email || 'Filleul',
+          };
+        }
+        const referralUpdate = {
+          status: 'REWARDED',
+          discountUsed: true,
+          rewardedAmount: rewardAmount,
+          premiumPaymentId: transId,
+          rewardedAt: FieldValue.serverTimestamp(),
+          discountReservationKey: FieldValue.delete(),
+          discountReservedUntil: FieldValue.delete(),
+          updatedAt: FieldValue.serverTimestamp(),
+        };
+        transaction.set(referralRef, referralUpdate, { merge: true });
+        transaction.set(
+          adminDb.collection('users').doc(referral.referrerUid).collection('referrals').doc(payment.userId),
+          referralUpdate,
+          { merge: true }
+        );
+      }
+      return { confirmed: true, newExpiration: newExpiration.toISOString(), reward };
     });
 
-    await paymentRef.update({ status: 'CONFIRMED', confirmedAt: FieldValue.serverTimestamp() });
+    if (result.reward) {
+      try {
+        const referrerDoc = await adminDb.collection('users').doc(result.reward.referrerUid).get();
+        const referrer = referrerDoc.exists ? referrerDoc.data() || {} : {};
+        if (referrer.email) {
+          await sendPataEmail({
+            to: referrer.email,
+            subject: 'Ton bonus de parrainage Pata est disponible',
+            html: referralRewardActivatedEmail({ referrerName: referrer.displayName, invitedName: result.reward.invitedName }),
+            idempotencyKey: 'pata-referral-reward-' + payment.userId,
+          });
+        }
+      } catch (emailError) { console.warn('[PATA REFERRAL REWARD EMAIL]', emailError.message || emailError); }
+    }
     return NextResponse.json({ received: true });
-  } catch (error) { return NextResponse.json({ received: true }); }
+  } catch (error) {
+    console.error('[PATA PREMIUM WEBHOOK]', error.message || error);
+    return NextResponse.json({ received: true });
+  }
 }
-
-
 async function handleNotificationsInbox(request) {
   try {
     const { uid } = await authenticate(request);
