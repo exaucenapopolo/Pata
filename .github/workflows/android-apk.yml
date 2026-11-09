@@ -12,6 +12,7 @@ on:
       - "src/components/SmsImport*.jsx"
       - "src/components/AndroidUpdateChecker.jsx"
       - "src/lib/sms/**"
+      - "src/lib/sms/nativePlugin.js"
       - ".github/workflows/android-apk.yml"
   workflow_dispatch:
     inputs:

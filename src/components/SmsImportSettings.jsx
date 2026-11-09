@@ -37,6 +37,7 @@ export function SmsImportSettings() {
         setBatteryExempt(status.ignoringBatteryOptimizations === true);
         const nativeConfig = await PataSms.setConfiguration({
           enabled: data.enabled === true,
+          uid: user.uid,
           premiumUntilMillis: data.premiumUntil ? new Date(data.premiumUntil).getTime() : 0,
         });
         setEnabled(data.enabled === true && nativeConfig.enabled === true);
@@ -82,6 +83,7 @@ export function SmsImportSettings() {
       setPremiumUntil(data.premiumUntil || premiumUntil);
       const nativeConfig = await PataSms.setConfiguration({
         enabled: nextEnabled,
+        uid: user.uid,
         premiumUntilMillis: data.premiumUntil ? new Date(data.premiumUntil).getTime() : 0,
       });
       setEnabled(nextEnabled && nativeConfig.enabled === true);

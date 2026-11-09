@@ -67,6 +67,8 @@ export function SmsImportCoordinator() {
       const native = await PataSms.getPendingSms();
       const accepted = [];
       for (const item of native.items || []) {
+        // Ne jamais rattacher les SMS locaux d'un ancien compte au compte actuellement connecté.
+        if (item.ownerUid && item.ownerUid !== user.uid) continue;
         try {
           await stageParsed(item);
           accepted.push(item.transactionHash);

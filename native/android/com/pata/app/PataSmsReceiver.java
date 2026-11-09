@@ -213,6 +213,7 @@ public class PataSmsReceiver extends BroadcastReceiver {
                 item.put("amount", parsed.amount);
                 item.put("date", parsed.date);
                 item.put("time", parsed.time);
+                item.put("ownerUid", prefs.getString("user_uid", ""));
                 existing.put(item);
                 JSONArray limited = new JSONArray();
                 int start = Math.max(0, existing.length() - 30);

@@ -91,6 +91,7 @@ public class PataSmsPlugin extends Plugin {
         result.put("ignoringBatteryOptimizations", ignoringBattery);
         result.put("enabled", prefs.getBoolean("enabled", false));
         result.put("premiumUntilMillis", prefs.getLong("premium_until", 0L));
+        result.put("userUid", prefs.getString("user_uid", ""));
         call.resolve(result);
     }
 
@@ -98,12 +99,14 @@ public class PataSmsPlugin extends Plugin {
     public void setConfiguration(PluginCall call) {
         boolean enabled = call.getBoolean("enabled", false);
         long premiumUntil = call.getLong("premiumUntilMillis", 0L);
+        String userUid = call.getString("uid", "");
         boolean hasPermission = ContextCompat.checkSelfPermission(getContext(), Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED;
         boolean validPremium = premiumUntil > System.currentTimeMillis();
         boolean actualEnabled = enabled && hasPermission && validPremium;
         getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean("enabled", actualEnabled)
             .putLong("premium_until", premiumUntil)
+            .putString("user_uid", userUid)
             .apply();
         JSObject result = new JSObject();
         result.put("enabled", actualEnabled);
