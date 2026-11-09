@@ -8,7 +8,7 @@ import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Check, MessageSquareText, X
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/hooks/useAuth';
-import { useIncomes } from '@/hooks/useIncomes';
+import { subscribeIncomes } from '@/lib/firestore/incomes';
 import { EXPENSE_CATEGORIES } from '@/lib/constants';
 import { parseMobileMoneySms } from '@/lib/sms/parseMobileMoneySms.mjs';
 const INCOME_CATEGORIES = [
@@ -26,7 +26,7 @@ async function hashTransaction(provider, transactionId) {
 
 export function SmsImportCoordinator() {
   const { user } = useAuth();
-  const { incomes } = useIncomes();
+  const [incomes, setIncomes] = useState([]);
   const [pending, setPending] = useState([]);
   const [choices, setChoices] = useState({});
   const [warnings, setWarnings] = useState({});
@@ -147,6 +147,14 @@ export function SmsImportCoordinator() {
   }, [user, syncDeviceInbox]);
 
   useEffect(() => { if (pending.length > 0) setModalOpen(true); }, [pending.length]);
+
+  useEffect(() => {
+    if (!user || !Capacitor.isNativePlatform()) {
+      setIncomes([]);
+      return undefined;
+    }
+    return subscribeIncomes(user.uid, setIncomes);
+  }, [user]);
 
   const updateChoice = (id, patch) => setChoices((current) => ({ ...current, [id]: { ...(current[id] || {}), ...patch } }));
 
