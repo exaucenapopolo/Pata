@@ -822,6 +822,338 @@ async function handlePinResetConfirm(request) {
   }
 }
 
+
+function normalizeReferralPhone(value) {
+  let digits = String(value || '').replace(/\\D/g, '');
+  if (digits.startsWith('00237')) digits = digits.slice(2);
+  return digits;
+}
+
+async function handleReferralStatus(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const userRef = adminDb.collection('users').doc(uid);
+    const codeCollection = adminDb.collection('referralCodes');
+    let profileSnap = await userRef.get();
+    if (!profileSnap.exists) return errorResponse('Profil utilisateur introuvable.', 404);
+    let profile = profileSnap.data() || {};
+    let referralCode = String(profile.referralCode || '').trim().toUpperCase();
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const code = referralCode || randomBytes(6).toString('hex').toUpperCase();
+      const codeRef = codeCollection.doc(code);
+      try {
+        const assigned = await adminDb.runTransaction(async (transaction) => {
+          const [freshProfile, codeSnap] = await Promise.all([
+            transaction.get(userRef),
+            transaction.get(codeRef),
+          ]);
+          const savedCode = String(freshProfile.data()?.referralCode || '').trim().toUpperCase();
+          if (savedCode) {
+            if (!codeSnap.exists) transaction.create(codeRef, { referrerUid: uid, createdAt: FieldValue.serverTimestamp() });
+            else if (codeSnap.data()?.referrerUid !== uid) throw new Error('Ton code de parrainage est déjà associé à un autre compte.');
+            return savedCode;
+          }
+          if (codeSnap.exists) throw new Error('CODE_COLLISION');
+          transaction.create(codeRef, { referrerUid: uid, createdAt: FieldValue.serverTimestamp() });
+          transaction.set(userRef, { referralCode: code, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+          return code;
+        });
+        referralCode = assigned;
+        break;
+      } catch (error) {
+        if (error.message === 'CODE_COLLISION' && !profile.referralCode) continue;
+        throw error;
+      }
+    }
+    if (!referralCode) return errorResponse('Impossible de créer ton lien de parrainage. Réessaie.', 500);
+
+    const [freshProfile, referralSnap, historySnap] = await Promise.all([
+      userRef.get(),
+      adminDb.collection('referrals').doc(uid).get(),
+      userRef.collection('referrals').orderBy('createdAt', 'desc').limit(50).get(),
+    ]);
+    const data = freshProfile.data() || {};
+    const ownReferral = referralSnap.exists ? referralSnap.data() || {} : {};
+    const reservationActive = Number(ownReferral.discountReservedUntil || 0) > Date.now();
+    const referrals = historySnap.docs.map((document) => ({ id: document.id, ...document.data() }));
+    return NextResponse.json({
+      success: true,
+      referralCode,
+      referralLink: getPataAppUrl(request) + '/register?ref=' + encodeURIComponent(referralCode),
+      referralBalance: Math.max(0, Number(data.referralBalance) || 0),
+      discountEligible: ownReferral.status === 'PENDING_PREMIUM' && ownReferral.discountUsed !== true && !reservationActive,
+      discountPending: ownReferral.status === 'PENDING_PREMIUM',
+      referrals,
+    });
+  } catch (error) {
+    console.error('[PATA REFERRAL STATUS]', error.message || error);
+    return errorResponse(error.message || 'Impossible de charger ton parrainage.', 500);
+  }
+}
+
+async function handleReferralAttribute(request) {
+  try {
+    const decoded = await authenticate(request);
+    const uid = decoded.uid;
+    const body = await request.json();
+    const code = String(body.code || '').trim().toUpperCase();
+    if (!/^[A-F0-9]{12}$/.test(code)) return errorResponse('Lien de parrainage invalide.', 400);
+
+    const inviteeAuth = await adminAuth.getUser(uid);
+    const createdAt = inviteeAuth.metadata?.creationTime ? new Date(inviteeAuth.metadata.creationTime).getTime() : 0;
+    if (!createdAt || !Number.isFinite(createdAt) || Date.now() - createdAt > 24 * 60 * 60 * 1000) {
+      return errorResponse('Le parrainage est réservé aux comptes créés depuis moins de 24 heures.', 403);
+    }
+
+    const inviteeRef = adminDb.collection('users').doc(uid);
+    const referralRef = adminDb.collection('referrals').doc(uid);
+    const codeRef = adminDb.collection('referralCodes').doc(code);
+    const [initialProfileSnap, initialCodeSnap] = await Promise.all([inviteeRef.get(), codeRef.get()]);
+    if (!initialCodeSnap.exists) return errorResponse('Ce lien de parrainage n’existe pas ou n’est plus valide.', 404);
+    const referrerUid = String(initialCodeSnap.data()?.referrerUid || '');
+    if (!referrerUid || referrerUid === uid) return errorResponse('Tu ne peux pas utiliser ton propre lien de parrainage.', 400);
+    const referrerRef = adminDb.collection('users').doc(referrerUid);
+    const [referrerProfileSnap, referrerAuth] = await Promise.all([
+      referrerRef.get(),
+      adminAuth.getUser(referrerUid),
+    ]);
+    if (!referrerProfileSnap.exists) return errorResponse('Le compte de la personne qui t’a invité n’est plus disponible.', 404);
+    const inviteeProfile = initialProfileSnap.exists ? initialProfileSnap.data() || {} : {};
+    const referrerProfile = referrerProfileSnap.data() || {};
+    const inviteeEmail = String(inviteeAuth.email || inviteeProfile.email || decoded.email || '').trim().toLowerCase();
+    const referrerEmail = String(referrerAuth.email || referrerProfile.email || '').trim().toLowerCase();
+    const inviteePhone = normalizeReferralPhone(inviteeAuth.phoneNumber || inviteeProfile.phone || '');
+    const referrerPhone = normalizeReferralPhone(referrerAuth.phoneNumber || referrerProfile.phone || '');
+    if (inviteeEmail && referrerEmail && inviteeEmail === referrerEmail) return errorResponse('Le parrain et le filleul doivent utiliser des comptes distincts.', 400);
+    if (inviteePhone && referrerPhone && inviteePhone === referrerPhone) return errorResponse('Un même numéro de téléphone ne peut pas servir au parrain et au filleul.', 400);
+
+    await adminDb.runTransaction(async (transaction) => {
+      const [freshCode, freshInvitee, existingReferral, freshReferrer] = await Promise.all([
+        transaction.get(codeRef),
+        transaction.get(inviteeRef),
+        transaction.get(referralRef),
+        transaction.get(referrerRef),
+      ]);
+      if (!freshCode.exists || freshCode.data()?.referrerUid !== referrerUid) throw new Error('Ce lien de parrainage n’est plus valide.');
+      if (!freshReferrer.exists) throw new Error('Le compte du parrain est introuvable.');
+      if (existingReferral.exists || freshInvitee.data()?.referredByUid) throw new Error('Un parrain a déjà été associé à ce compte. Cette attribution ne peut pas être modifiée.');
+      const currentEmail = String(freshInvitee.data()?.email || inviteeEmail).trim().toLowerCase();
+      const currentReferrerEmail = String(freshReferrer.data()?.email || referrerEmail).trim().toLowerCase();
+      const currentPhone = normalizeReferralPhone(freshInvitee.data()?.phone || inviteeAuth.phoneNumber || '');
+      const currentReferrerPhone = normalizeReferralPhone(freshReferrer.data()?.phone || referrerAuth.phoneNumber || '');
+      if (currentEmail && currentReferrerEmail && currentEmail === currentReferrerEmail) throw new Error('Le parrain et le filleul doivent utiliser des comptes distincts.');
+      if (currentPhone && currentReferrerPhone && currentPhone === currentReferrerPhone) throw new Error('Un même numéro de téléphone ne peut pas servir au parrain et au filleul.');
+      const invitedName = String(freshInvitee.data()?.displayName || inviteeAuth.displayName || inviteeEmail.split('@')[0] || 'Nouveau membre').slice(0, 100);
+      const referralData = {
+        referrerUid,
+        invitedUid: uid,
+        invitedName,
+        invitedEmail: inviteeEmail,
+        referralCode: code,
+        status: 'PENDING_PREMIUM',
+        rewardAmount: 1000,
+        discountAmount: 1250,
+        discountUsed: false,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+      transaction.create(referralRef, referralData);
+      transaction.create(referrerRef.collection('referrals').doc(uid), referralData);
+      transaction.set(inviteeRef, {
+        referredByUid: referrerUid,
+        referralDiscountUsed: false,
+        referralCodeUsed: code,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+    });
+
+    try {
+      const invitedName = String(inviteeProfile.displayName || inviteeAuth.displayName || inviteeEmail.split('@')[0] || 'Nouveau membre').slice(0, 100);
+      await sendPataEmail({
+        to: referrerEmail,
+        subject: 'Une personne vient de rejoindre Pata grâce à toi',
+        html: referralJoinedEmail({ referrerName: referrerProfile.displayName, invitedName }),
+        idempotencyKey: 'pata-referral-joined-' + uid,
+      });
+    } catch (emailError) { console.warn('[PATA REFERRAL JOINED EMAIL]', emailError.message || emailError); }
+
+    return NextResponse.json({ success: true, attributed: true, discountEligible: true });
+  } catch (error) {
+    const status = /déjà|même numéro|ne peux pas|moins de 24 heures|invalide/i.test(error.message || '') ? 400 : 500;
+    return errorResponse(error.message || 'Impossible d’enregistrer cette invitation.', status);
+  }
+}
+
+async function handleReferralTransfer(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const destination = String(body.destination || '');
+    const amount = Math.round(Number(body.amount));
+    const goalId = String(body.goalId || '').trim();
+    if (!['wallet', 'goal'].includes(destination)) return errorResponse('Choisis un portefeuille ou une épargne.', 400);
+    if (!Number.isSafeInteger(amount) || amount < 100 || amount > 1_000_000_000) return errorResponse('Montant de transfert invalide.', 400);
+    if (destination === 'goal' && (!goalId || goalId.includes('/'))) return errorResponse('Choisis une épargne valide.', 400);
+
+    const userRef = adminDb.collection('users').doc(uid);
+    const goalRef = destination === 'goal' ? userRef.collection('goals').doc(goalId) : null;
+    const ledgerRef = userRef.collection('referralTransactions').doc();
+    await adminDb.runTransaction(async (transaction) => {
+      const userSnap = await transaction.get(userRef);
+      const goalSnap = goalRef ? await transaction.get(goalRef) : null;
+      if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
+      if (goalRef && (!goalSnap || !goalSnap.exists || goalSnap.data()?.closed)) throw new Error('Cette épargne n’existe plus ou n’est plus active.');
+      const userData = userSnap.data() || {};
+      const referralBalance = Math.max(0, Number(userData.referralBalance) || 0);
+      if (referralBalance < amount) throw new Error('Ton solde de parrainage est insuffisant.');
+      transaction.update(userRef, {
+        referralBalance: referralBalance - amount,
+        ...(destination === 'wallet' ? { balance: (Number(userData.balance) || 0) + amount } : {}),
+      });
+      if (goalRef) {
+        transaction.create(goalRef.collection('deposits').doc(), {
+          amount,
+          date: getDoualaDateKey(),
+          source: 'referral_reward',
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      }
+      transaction.create(ledgerRef, {
+        type: 'TRANSFER',
+        destination,
+        amount,
+        goalId: destination === 'goal' ? goalId : null,
+        status: 'CONFIRMED',
+        createdAt: FieldValue.serverTimestamp(),
+      });
+    });
+    return NextResponse.json({ success: true, amount, destination });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de transférer ce bonus.', 400);
+  }
+}
+
+async function handleCotisationReferralPayment(request) {
+  let uid = '';
+  let reservationId = '';
+  let amountReserved = 0;
+  let transId = '';
+  try {
+    const { uid: authenticatedUid } = await authenticate(request);
+    uid = authenticatedUid;
+    const body = await request.json();
+    const groupId = String(body.groupId || '').trim().slice(0, 150);
+    const amount = Math.round(Number(body.amount));
+    if (!groupId || groupId.includes('/')) return errorResponse('Groupe invalide.', 400);
+    if (!Number.isSafeInteger(amount) || amount < 100 || amount % 100 !== 0) return errorResponse('Le versement doit être d’au moins 100 FCFA et par multiples de 100.', 400);
+
+    const groupRef = adminDb.collection('cotisationGroups').doc(groupId);
+    const memberRef = groupRef.collection('members').doc(uid);
+    const userRef = adminDb.collection('users').doc(uid);
+    const paymentRef = adminDb.collection('cotisationPayments').doc();
+    transId = paymentRef.id;
+    reservationId = randomBytes(18).toString('hex');
+
+    const paymentData = await adminDb.runTransaction(async (transaction) => {
+      const [groupSnap, memberSnap, userSnap] = await Promise.all([
+        transaction.get(groupRef),
+        transaction.get(memberRef),
+        transaction.get(userRef),
+      ]);
+      if (!groupSnap.exists || !memberSnap.exists || !userSnap.exists) throw new Error('Tu ne fais pas partie de ce groupe.');
+      const group = groupSnap.data() || {};
+      const member = memberSnap.data() || {};
+      if (group.status !== 'active' || !group.startedAt) throw new Error('Cette cotisation n’accepte pas encore de versement.');
+      if (member.pendingPaymentId) throw new Error('Un paiement est déjà en attente pour cette période.');
+      const meta = await resolveCurrentCotisationCycleMeta(groupRef, group, cotisationToday(), transaction);
+      if (meta.notStarted) throw new Error('Les cotisations commencent le ' + meta.startDate + '.');
+      const cycleRef = groupRef.collection('cycles').doc(meta.cycleKey);
+      const contributionRef = cycleRef.collection('contributions').doc(uid);
+      const [cycleSnap, contributionSnap] = await Promise.all([
+        transaction.get(cycleRef),
+        transaction.get(contributionRef),
+      ]);
+      const cycle = cycleSnap.data() || {};
+      const contribution = contributionSnap.data() || {};
+      if (cycle.status && cycle.status !== 'OPEN') throw new Error('Cette période n’accepte plus de versement.');
+      const due = Math.max(0, cotisationMoney(group.contributionAmount) - cotisationMoney(contribution.amount));
+      if (!due || amount > due) throw new Error('Le montant dépasse le reste de ta part (' + due.toLocaleString('fr-FR') + ' FCFA).');
+      const penaltyAmount = due > 0 && !cotisationMoney(contribution.penaltyPaid) && cotisationIsLate(group, meta)
+        ? cotisationLateFee(group) : 0;
+      const grossAmount = amount + penaltyAmount;
+      const userData = userSnap.data() || {};
+      const available = Math.max(0, Number(userData.referralBalance) || 0);
+      if (available < grossAmount) throw new Error('Ton solde de parrainage est insuffisant pour ce versement et sa majoration éventuelle.');
+      const expectedMembers = cotisationExpectedMembers(group, group.memberCount);
+      const baseTarget = cotisationMoney(cycle.baseTargetAmount) || cotisationMoney(group.contributionAmount) * expectedMembers;
+      if (cotisationMoney(cycle.targetAmount || baseTarget) + penaltyAmount > 500000) {
+        throw new Error('Cette majoration ferait dépasser la limite autorisée de retrait de 500 000 FCFA.');
+      }
+      transaction.update(userRef, { referralBalance: available - grossAmount });
+      transaction.update(memberRef, {
+        pendingPaymentId: reservationId,
+        pendingPaymentAmount: amount + penaltyAmount,
+        pendingPaymentAt: FieldValue.serverTimestamp(),
+        pendingPaymentTransId: transId,
+      });
+      transaction.create(paymentRef, {
+        transId,
+        reservationId,
+        userId: uid,
+        groupId,
+        groupName: group.name || 'Cotisation',
+        cycleKey: meta.cycleKey,
+        cycleIndex: meta.cycleIndex,
+        cycleStartDate: meta.startDate,
+        dueAt: meta.dueAt,
+        displayName: userData.displayName || 'Membre',
+        amount,
+        penaltyAmount,
+        fee: 0,
+        grossAmount,
+        method: 'referral_balance',
+        status: 'PENDING',
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      amountReserved = grossAmount;
+      return { groupName: group.name || 'Cotisation', cycleKey: meta.cycleKey };
+    });
+
+    const confirmation = await confirmCotisationPayment(transId);
+    if (!confirmation.confirmed) throw new Error('Le versement n’a pas pu être confirmé. Le solde de parrainage sera restauré.');
+    return NextResponse.json({ success: true, amount, paidFromReferralBalance: true, groupName: paymentData.groupName });
+  } catch (error) {
+    if (uid && transId && amountReserved > 0) {
+      try {
+        const userRef = adminDb.collection('users').doc(uid);
+        const paymentRef = adminDb.collection('cotisationPayments').doc(transId);
+        const groupSnap = await paymentRef.get();
+        if (groupSnap.exists && groupSnap.data()?.status === 'PENDING') {
+          const payment = groupSnap.data();
+          const groupRef = adminDb.collection('cotisationGroups').doc(payment.groupId);
+          const memberRef = groupRef.collection('members').doc(uid);
+          await adminDb.runTransaction(async (transaction) => {
+            const [userSnap, memberSnap, freshPayment] = await Promise.all([
+              transaction.get(userRef), transaction.get(memberRef), transaction.get(paymentRef),
+            ]);
+            if (!freshPayment.exists || freshPayment.data()?.status !== 'PENDING') return;
+            const userData = userSnap.data() || {};
+            if (memberSnap.exists && memberSnap.data()?.pendingPaymentId === reservationId) {
+              transaction.update(memberRef, { pendingPaymentId: null, pendingPaymentAmount: 0, pendingPaymentAt: null, pendingPaymentTransId: null });
+            }
+            transaction.update(userRef, { referralBalance: (Number(userData.referralBalance) || 0) + amountReserved });
+            transaction.update(paymentRef, { status: 'FAILED', failedAt: FieldValue.serverTimestamp() });
+          });
+        }
+      } catch (rollbackError) {
+        console.error('[PATA REFERRAL COTISATION ROLLBACK]', rollbackError.message || rollbackError);
+      }
+    }
+    return errorResponse(error.message || 'Impossible de payer avec le solde de parrainage.', 400);
+  }
+}
+
 async function handleWelcomeEmail(request) {
   try {
     const decoded = await authenticate(request);
