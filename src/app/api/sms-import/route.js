@@ -131,10 +131,19 @@ async function createSmsIncome(uid, transactionHash, item, providerName) {
 }
 
 async function notifyAutomaticSmsTransaction(uid, profile, transaction) {
-  const title = transaction.direction === 'income' ? 'Nouveau revenu enregistré' : 'Nouvelle dépense enregistrée';
+  const requiresReview = transaction.requiresReview === true;
+  const eventLabel = transaction.eventType === 'withdrawal' ? 'retrait'
+    : transaction.eventType === 'payment' ? 'paiement' : 'transfert';
+  const title = requiresReview
+    ? (transaction.eventType === 'withdrawal' ? 'Retrait Mobile Money à vérifier' : 'Opération Mobile Money à classer')
+    : transaction.direction === 'income' ? 'Nouveau revenu enregistré' : 'Nouvelle dépense enregistrée';
   const kind = transaction.direction === 'income' ? 'revenu' : 'dépense';
   const amount = Number(transaction.amount).toLocaleString('fr-FR') + ' FCFA';
-  const body = 'Pata a enregistré automatiquement un ' + kind + ' de ' + amount + ' via ' + transaction.providerName + '.';
+  const body = requiresReview
+    ? 'Un ' + eventLabel + ' de ' + amount + ' via ' + transaction.providerName
+      + (transaction.counterparty ? ' · ' + transaction.counterparty : '')
+      + ' a été détecté. Il n’est pas encore comptabilisé : ouvre Pata pour choisir sa catégorie et sa nature.'
+    : 'Pata a enregistré automatiquement un ' + kind + ' de ' + amount + ' via ' + transaction.providerName + '.';
   const target = transaction.target;
   const notificationId = 'sms-' + transaction.transactionHash;
   const userRef = adminDb.collection('users').doc(uid);
@@ -229,7 +238,8 @@ async function notifyAutomaticSmsTransaction(uid, profile, transaction) {
   let emailSent = false;
   let emailStatus = 'no_email';
   if (email.includes('@')) {
-    const operationLabel = transaction.direction === 'income' ? 'Revenu reçu' : 'Dépense détectée';
+    const operationLabel = requiresReview ? 'Opération à classer'
+      : transaction.direction === 'income' ? 'Revenu reçu' : 'Dépense détectée';
     const safeName = escapeEmailHtml(displayName || 'Bonjour');
     const safeAmount = escapeEmailHtml(amount);
     const safeProvider = escapeEmailHtml(transaction.providerName);
@@ -245,7 +255,7 @@ async function notifyAutomaticSmsTransaction(uid, profile, transaction) {
       ['Heure', timeLabel],
       ['Catégorie proposée', categoryLabel],
       ['Correspondant / marchand', counterpartyLabel],
-      ['Statut', 'Enregistré automatiquement dans Pata'],
+      ['Statut', requiresReview ? 'En attente de classification — non comptabilisé' : 'Enregistré automatiquement dans Pata'],
     ];
     const detailsTable = '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;border:1px solid #e2e8f0;border-radius:12px;">' +
       rows.map(([label, value]) =>
@@ -258,13 +268,19 @@ async function notifyAutomaticSmsTransaction(uid, profile, transaction) {
     const html = renderPataEmail({
       eyebrow: 'SUIVI MOBILE MONEY',
       preheader: operationLabel + ' · ' + amount + ' · ' + transaction.providerName,
-      headline: operationLabel + ' enregistré(e) dans Pata',
+      headline: requiresReview ? 'Une opération attend ta classification' : operationLabel + ' enregistré(e) dans Pata',
       bodyHtml:
         '<p style="margin:0 0 16px;color:#334155;font-size:14px;line-height:1.75;">Bonjour ' + safeName +
-        ', une confirmation Mobile Money vient d’être reconnue sur ton téléphone et l’opération a été ajoutée automatiquement à ton compte Pata.</p>' +
+        (requiresReview
+          ? ', une opération Mobile Money vient d’être reconnue sur ton téléphone. Elle n’a pas été comptabilisée : ouvre Pata pour choisir sa nature et sa catégorie avant de la confirmer.</p>'
+          : ', une confirmation Mobile Money vient d’être reconnue sur ton téléphone et l’opération a été ajoutée automatiquement à ton compte Pata.</p>') +
         detailsTable +
-        '<p style="margin:16px 0 0;color:#475569;font-size:13px;line-height:1.7;">Ouvre Pata pour vérifier les informations. Tu pourras modifier la catégorie ou le libellé, ou supprimer l’opération si elle ne correspond pas à ton suivi.</p>',
-      ctaLabel: 'Consulter cette opération dans Pata',
+        '<p style="margin:16px 0 0;color:#475569;font-size:13px;line-height:1.7;">' +
+          (requiresReview
+            ? 'Ouvre Pata pour choisir la nature réelle de cette sortie (dépense courante, projet, épargne ou investissement), vérifier la catégorie, puis confirmer ou refuser l’opération.'
+            : 'Ouvre Pata pour vérifier les informations. Tu pourras modifier la catégorie ou le libellé, ou supprimer l’opération si elle ne correspond pas à ton suivi.') +
+        '</p>',
+      ctaLabel: requiresReview ? 'Classer cette opération' : 'Consulter cette opération dans Pata',
       ctaUrl: target,
       signoff: 'Merci d’utiliser Pata pour suivre tes finances.',
     });
@@ -315,13 +331,14 @@ async function handleAutomaticDeviceImport(body) {
     if (importSnap.exists && importSnap.data()?.status === 'REJECTED') {
       return { duplicate: true, refused: true, profile };
     }
-    if (parsed.direction === 'withdrawal') {
+    if (parsed.direction !== 'income') {
       const existing = importSnap.exists ? importSnap.data() : {};
       transaction.set(importRef, {
         ...parsed,
         status: 'PENDING',
         source: 'automatic',
         requiresReview: true,
+        suggestedCategoryId: inferExpenseCategory(parsed.counterparty, parsed.eventType),
         counterparty: parsed.counterparty || null,
         createdAt: existing.createdAt || FieldValue.serverTimestamp(),
         deviceReceivedAt: FieldValue.serverTimestamp(),
@@ -360,6 +377,47 @@ async function handleAutomaticDeviceImport(body) {
   }
   if (claim.requiresReview) {
     const providerName = parsed.provider === 'mtn_momo' ? 'MTN MoMo' : 'Orange Money';
+    const categoryId = inferExpenseCategory(parsed.counterparty, parsed.eventType);
+    const categoryLabels = {
+      internet: 'Télécom / Internet',
+      transport: 'Transport',
+      food: 'Nourriture',
+      health: 'Santé',
+      housing: 'Logement et factures',
+      contribution: 'Cotisation',
+      other: 'Autres dépenses',
+    };
+    const notificationResult = await notifyAutomaticSmsTransaction(uid, claim.profile, {
+      transactionHash: hash,
+      direction: 'expense',
+      requiresReview: true,
+      eventType: parsed.eventType,
+      amount: parsed.amount,
+      provider: parsed.provider,
+      providerName,
+      date: parsed.date,
+      time: parsed.time,
+      counterparty: parsed.counterparty || '',
+      categoryId,
+      categoryLabel: categoryLabels[categoryId] || 'Autres dépenses',
+      operationId: null,
+      target: '/dashboard',
+    });
+    await importRef.set({
+      notificationStatus: notificationResult,
+      notificationUpdatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    return NextResponse.json({
+      success: true,
+      duplicate: false,
+      requiresReview: true,
+      target: '/dashboard',
+      suggestedCategoryId: categoryId,
+      notifications: { ...notificationResult, requiresReview: true },
+    });
+  }
+
+  const providerName = parsed.provider === 'mtn_momo' ? 'MTN MoMo' : 'Orange Money';
     const notificationId = 'sms-review-' + hash;
     await adminDb.collection('users').doc(uid).collection('notifications').doc(notificationId).set({
       title: 'Retrait Mobile Money à vérifier',
@@ -492,9 +550,10 @@ export async function GET(request) {
         return right - left;
       })
       .slice(0, 20)
-      .map(({ id, provider, eventType, direction, amount, date, time, counterparty, source, createdAt }) => ({
+      .map(({ id, provider, eventType, direction, amount, date, time, counterparty, suggestedCategoryId, source, createdAt }) => ({
         id, provider, eventType, direction, amount, date, time,
         counterparty: counterparty || null,
+        suggestedCategoryId: suggestedCategoryId || null,
         source: source || 'sharesheet',
         createdAt: createdAt?.toDate ? createdAt.toDate().toISOString() : null,
       }));
@@ -579,7 +638,13 @@ export async function POST(request) {
         if (!isPremium(profile)) throw new Error('L’import SMS est réservé à Pata Premium.');
         if (sourceMode === 'automatic' && profile.smsImportEnabled !== true) throw new Error('Active d’abord l’import SMS dans les paramètres de Pata.');
         if (existingSnap.exists) return { duplicate: true, status: existingSnap.data()?.status || 'PENDING' };
-        transaction.create(ref, { ...parsed, status: 'PENDING', createdAt: FieldValue.serverTimestamp(), source: sourceMode });
+        transaction.create(ref, {
+          ...parsed,
+          suggestedCategoryId: parsed.direction === 'income' ? null : inferExpenseCategory(parsed.counterparty, parsed.eventType),
+          status: 'PENDING',
+          createdAt: FieldValue.serverTimestamp(),
+          source: sourceMode,
+        });
         return { duplicate: false, status: 'PENDING' };
       });
       return NextResponse.json({ success: true, ...result });
@@ -600,9 +665,18 @@ export async function POST(request) {
       const operationType = String(body.operationType || '');
       const categoryId = String(body.categoryId || '').trim().slice(0, 80);
       const incomeSourceId = String(body.incomeSourceId || 'all').trim().slice(0, 150);
+      const expenseType = String(body.expenseType || '').trim();
+      const projectId = String(body.projectId || '').trim().slice(0, 150);
       const confirmBudgetOverrun = body.confirmBudgetOverrun === true;
       if (!['income', 'expense'].includes(operationType)) return responseError('Type d’opération invalide.', 400);
       if (!categoryId) return responseError('Choisis une catégorie avant de confirmer.', 400);
+      if (operationType === 'expense' && !['consumption', 'project', 'savings', 'investment'].includes(expenseType)) {
+        return responseError('Choisis la nature réelle de cette sortie : dépense courante, projet, épargne ou investissement.', 400);
+      }
+      if (operationType === 'expense' && expenseType === 'project' && !projectId) {
+        return responseError('Choisis le projet concerné avant de confirmer.', 400);
+      }
+      if (projectId.includes('/')) return responseError('Projet invalide.', 400);
 
       const { userRef } = await getUserAndPremium(uid);
       const claim = await adminDb.runTransaction(async (transaction) => {
@@ -622,10 +696,15 @@ export async function POST(request) {
           throw new Error('Cette opération ne peut plus être confirmée.');
         }
         if (item.direction === 'income' && operationType !== 'income') throw new Error('Cette transaction est une réception : elle doit être enregistrée comme revenu.');
-        if (item.direction === 'expense' && operationType !== 'expense') throw new Error('Cette transaction est une sortie : elle doit être enregistrée comme dépense.');
-        if (item.direction === 'withdrawal' && operationType !== 'expense') throw new Error('Un retrait doit être explicitement classé comme dépense ou refusé.');
-        transaction.update(ref, { status: 'PROCESSING', categoryId, operationType, processingAt: FieldValue.serverTimestamp() });
-        return { duplicate: false, item };
+        if (item.direction !== 'income' && operationType !== 'expense') throw new Error('Cette transaction est une sortie : elle doit être enregistrée comme dépense.');
+        transaction.update(ref, {
+          status: 'PROCESSING',
+          categoryId,
+          operationType,
+          ...(operationType === 'expense' ? { expenseType, projectId: expenseType === 'project' ? projectId : null } : {}),
+          processingAt: FieldValue.serverTimestamp(),
+        });
+        return { duplicate: false, item, profile };
       });
 
       if (claim.duplicate) return NextResponse.json({ success: true, duplicate: true, operationId: claim.item.operationId || null });
@@ -633,30 +712,51 @@ export async function POST(request) {
       const item = claim.item;
       const smsImportId = 'sms_' + ref.id;
       const providerName = item.provider === 'mtn_momo' ? 'MTN Mobile Money' : 'Orange Money';
-      const note = (item.eventType === 'receive' ? 'Réception ' : item.eventType === 'withdrawal' ? 'Retrait ' : item.eventType === 'payment' ? 'Paiement ' : 'Envoi ') + providerName;
-      const endpoint = operationType === 'expense' ? '/api/expenses/add' : '/api/incomes/add';
+      const eventLabel = item.eventType === 'receive' ? 'Réception'
+        : item.eventType === 'withdrawal' ? 'Retrait'
+          : item.eventType === 'payment' ? 'Paiement' : 'Transfert';
+      const note = eventLabel + ' ' + providerName + (item.counterparty ? ' · ' + item.counterparty : '');
+      const isExpense = operationType === 'expense';
       const isCashWithdrawal = item.eventType === 'withdrawal';
-      const payload = operationType === 'expense'
+      const categoryLabels = {
+        salary: 'Salaire', business: 'Business / Freelance', gift: 'Don / Cadeau', other_income: 'Autres revenus',
+        food: 'Nourriture', transport: 'Transport', housing: 'Logement et factures',
+        internet: 'Télécom / Internet', health: 'Santé', leisure: 'Loisirs',
+        investment: 'Investissement', contribution: 'Cotisation', savings: 'Épargne', other: 'Autres dépenses',
+      };
+      const payload = isExpense
         ? {
-            amount: item.amount, categoryId, date: item.date, time: item.time,
+            amount: item.amount,
+            categoryId,
+            expenseType,
+            projectId: expenseType === 'project' ? projectId : '',
+            date: item.date,
+            time: item.time,
             note: isCashWithdrawal ? note + ' (retrait d’espèces)' : note,
-            paymentMethod: item.provider, expenseType: 'consumption',
-            incomeSourceId: isCashWithdrawal ? 'external' : incomeSourceId,
-            incomeSourceName: isCashWithdrawal ? 'Solde Mobile Money' : incomeSourceId === 'all' ? 'Tous les revenus' : '',
-            confirmBudgetOverrun, smsImportId,
+            paymentMethod: item.provider,
+            incomeSourceId: 'external',
+            incomeSourceName: 'Solde Mobile Money',
+            details: item.counterparty || '',
+            smsImportId,
+            confirmBudgetOverrun,
           }
         : {
-            amount: item.amount, categoryId, date: item.date, month: item.date.slice(0, 7),
-            time: item.time, source: providerName, note, paymentMethod: item.provider, smsImportId,
+            amount: item.amount,
+            categoryId,
+            date: item.date,
+            month: item.date.slice(0, 7),
+            time: item.time,
+            source: providerName,
+            note,
+            details: item.counterparty || '',
+            paymentMethod: item.provider,
+            smsImportId,
           };
 
       let operationResponse;
       let operationResult;
       try {
-        if (isCashWithdrawal) {
-          // Un retrait est déjà sorti du portefeuille Mobile Money :
-          // lorsqu'il est explicitement classé comme dépense, il est financé
-          // par ce portefeuille externe, sans exiger un revenu fictif dans Pata.
+        if (isExpense) {
           operationResult = await createExpenseForUser(uid, payload, {
             idempotencyKey: smsImportId,
             externalFunding: true,
@@ -679,7 +779,7 @@ export async function POST(request) {
             id: operationResult.expenseId || operationResult.expenseIds?.[0] || null,
           };
         } else {
-          operationResponse = await fetch(new URL(endpoint, request.url), {
+          operationResponse = await fetch(new URL('/api/incomes/add', request.url), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: request.headers.get('authorization') || '' },
             body: JSON.stringify(payload), cache: 'no-store',
@@ -710,14 +810,40 @@ export async function POST(request) {
       }
 
       const operationId = operationResult.id || null;
+      if (!operationId) {
+        await ref.update({ status: 'PENDING', processingAt: FieldValue.delete(), lastError: 'MISSING_OPERATION_ID' });
+        return responseError('Pata n’a pas retourné l’identifiant de l’opération. Actualise et réessaie.', 500);
+      }
+      const target = (isExpense ? '/expenses?highlight=' : '/income?highlight=') + encodeURIComponent(operationId);
       await ref.update({
-        status: 'CONFIRMED', operationType, categoryId, operationId,
+        status: 'CONFIRMED', operationType, categoryId, operationId, target,
+        ...(isExpense ? { expenseType, projectId: expenseType === 'project' ? projectId : null } : {}),
         confirmedAt: FieldValue.serverTimestamp(), lastError: FieldValue.delete(),
       });
-      return NextResponse.json({ success: true, operationId });
+
+      const notificationResult = await notifyAutomaticSmsTransaction(uid, claim.profile, {
+        transactionHash: ref.id,
+        direction: isExpense ? 'expense' : 'income',
+        eventType: item.eventType,
+        amount: item.amount,
+        provider: item.provider,
+        providerName,
+        date: item.date,
+        time: item.time,
+        counterparty: item.counterparty || '',
+        categoryId,
+        categoryLabel: categoryLabels[categoryId] || (isExpense ? 'Autres dépenses' : 'Autres revenus'),
+        operationId,
+        target,
+      }).catch((error) => {
+        console.warn('[PATA SMS CONFIRM NOTIFICATION]', uid, error.message || error);
+        return { inAppSent: false, notificationError: String(error.message || 'NOTIFICATION_FAILED').slice(0, 120) };
+      });
+      await ref.set({ notificationStatus: notificationResult, notificationUpdatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      return NextResponse.json({ success: true, operationId, target, notifications: notificationResult });
     }
 
-    return responseError('Action d’import SMS inconnue.', 400);
+    return responseError('Action d’import SMS inconnue.'    return responseError('Action d’import SMS inconnue.', 400);
   } catch (error) {
     const message = error.message || 'Import SMS impossible.';
     const status = /Premium|abonnement/i.test(message) ? 403
