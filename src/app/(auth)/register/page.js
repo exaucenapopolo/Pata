@@ -11,7 +11,7 @@ import { ensureUserProfile } from '@/lib/firestore/profile';
 function getSafeReturnTo() {
   if (typeof window === 'undefined') return '/dashboard';
   const value = new URLSearchParams(window.location.search).get('returnTo') || '';
-  return /^\\/cotisations\\?invite=[A-Za-z0-9_-]+$/.test(value) ? value : '/dashboard';
+  return /^\/cotisations\?invite=[A-Za-z0-9_-]+$/.test(value) ? value : '/dashboard';
 }
 
 function getReferralCode() {
