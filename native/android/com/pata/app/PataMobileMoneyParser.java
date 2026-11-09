@@ -85,23 +85,49 @@ public final class PataMobileMoneyParser {
         return null;
     }
 
+    private static Integer firstPositiveAmount(String text, Pattern pattern, int amountGroup) {
+        Matcher matcher = pattern.matcher(text);
+        while (matcher.find()) {
+            Integer parsed = parseMoney(matcher.group(amountGroup));
+            if (parsed != null) return parsed;
+        }
+        return null;
+    }
+
     private static Integer detectAmount(String text) {
         String withoutBalance = text.replaceAll(
             "(nouveau\\s+)?solde(\\s+disponible)?\\s*[:\\-]?\\s*[0-9][0-9\\s.,']{0,22}\\s*(?:" + CURRENCY + ")?", " "
         );
         String number = "([0-9][0-9\\s.,']{0,22})";
-        Pattern[] patterns = new Pattern[] {
-            Pattern.compile("(?:montant(?:\\s+(?:de\\s+la\\s+)?transaction)?|somme|amount)\\s*[:#\\-]?\\s*(?:de\\s*)?(?:" + CURRENCY + "\\s*)?" + number + "\\s*(?:" + CURRENCY + ")?", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("(?:recu|envoye|envoyer|paye|payee|debite|credite|credited|received|sent|effectue)\\s+(?:la\\s+somme\\s+de\\s+|un montant de\\s+|de\\s+)?(?:" + CURRENCY + "\\s*)?" + number + "\\s*(?:" + CURRENCY + ")?", Pattern.CASE_INSENSITIVE),
-            Pattern.compile(CURRENCY + "\\s*[:\\-]?\\s*" + number, Pattern.CASE_INSENSITIVE),
-            Pattern.compile(number + "\\s*" + CURRENCY + "\\b", Pattern.CASE_INSENSITIVE)
+        Pattern[] authoritative = new Pattern[] {
+            Pattern.compile("\\b(?:une\\s+)?transaction\\s+de\\s+" + number + "\\s*(?:" + CURRENCY + ")\\b", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("\\bmontant\\s+(?:(?:de\\s+)?(?:la\\s+)?)?transaction\\s*[:#\\-]?\\s*" + number + "\\s*(?:" + CURRENCY + ")\\b", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("\\b(?:votre\\s+)?paiement\\s+(?:de\\s+)?" + number + "\\s*(?:" + CURRENCY + ")\\b", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("\\b(?:vous\\s+avez\\s+(?:recu|envoye)|recu|envoye|retrait\\s+(?:reussi|effectue))\\s+(?:de\\s+)?" + number + "\\s*(?:" + CURRENCY + ")\\b", Pattern.CASE_INSENSITIVE)
         };
-        for (Pattern pattern : patterns) {
-            Matcher matcher = pattern.matcher(withoutBalance);
-            if (matcher.find()) {
-                Integer parsed = parseMoney(matcher.group(1));
-                if (parsed != null) return parsed;
-            }
+        for (Pattern pattern : authoritative) {
+            Integer amount = firstPositiveAmount(withoutBalance, pattern, 1);
+            if (amount != null) return amount;
+        }
+        Pattern labeled = Pattern.compile(
+            "\\b(?:montant|amount|somme|paiement|payment)\\s*(?:[:#\\-])?\\s*(?:de\\s+)?" + number + "\\s*(?:" + CURRENCY + ")\\b",
+            Pattern.CASE_INSENSITIVE
+        );
+        Integer labeledAmount = firstPositiveAmount(withoutBalance, labeled, 1);
+        if (labeledAmount != null) return labeledAmount;
+        Pattern currencyLast = Pattern.compile(number + "\\s*(?:" + CURRENCY + ")\\b", Pattern.CASE_INSENSITIVE);
+        Matcher matcher = currencyLast.matcher(withoutBalance);
+        while (matcher.find()) {
+            String context = withoutBalance.substring(Math.max(0, matcher.start() - 55), matcher.start());
+            if (Pattern.compile("(frais|fees?|remise|reduction|commission|recompense|reward|discount|bonus|solde|balance)").matcher(context).find()) continue;
+            Integer amount = parseMoney(matcher.group(1));
+            if (amount != null) return amount;
+        }
+        Pattern currencyFirst = Pattern.compile("(?:" + CURRENCY + ")\\s*[:#\\-]?\\s*" + number, Pattern.CASE_INSENSITIVE);
+        matcher = currencyFirst.matcher(withoutBalance);
+        while (matcher.find()) {
+            Integer amount = parseMoney(matcher.group(1));
+            if (amount != null) return amount;
         }
         return null;
     }
@@ -116,10 +142,16 @@ public final class PataMobileMoneyParser {
 
     private static Integer parseMoney(String value) {
         if (value == null) return null;
-        String compact = value.replaceAll("[\\s\\u00a0']", "").replaceAll("[.,]00$", "");
-        String digits = compact.replaceAll("[^0-9]", "");
+        String compact = value.replaceAll("[\\s\\u00a0']", "");
+        if (compact.isEmpty()) return null;
+        if (compact.matches("[0-9]+[.,][0-9]{1,2}")) {
+            if (compact.matches(".*[.,]00$")) compact = compact.replaceAll("[.,]00$", "");
+            else return null;
+        }
+        if (compact.matches("[0-9]{1,3}(?:[.,][0-9]{3})+")) compact = compact.replaceAll("[.,]", "");
+        else if (compact.matches(".*[.,].*")) return null;
         try {
-            long amount = Long.parseLong(digits);
+            long amount = Long.parseLong(compact);
             return amount > 0 && amount <= 1000000000L ? (int) amount : null;
         } catch (Exception error) {
             return null;

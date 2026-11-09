@@ -188,6 +188,25 @@ test('le second SMS ENEO est reconnu comme paiement avec le même identifiant', 
 });
 
 
+test('priorise le montant principal MTN malgré remises, frais, téléphone et autres nombres', () => {
+  const result = parseMobileMoneySms(
+    "Une transaction de 100 XAF effectuee par FAPSHI Inc  (237673669111) sur votre compte d'argent mobile s'est terminee avec succes a 2026-11-09 22:34:45. Le montant faisait l'objet d'une remise de 0 et de bons de reduction d'une valeur de 0. Message du destinataire du debit : 100 XAF paid to MULAFLOWR via FAPSHI. Votre nouveau solde : 758 XAF. Les frais s'elevaient a 0 XAF, les frais de fidelite a 0 et la recompense de fidelite a 0. Identifiant de transaction financiere : 19663115802. ID de transaction externe : 6af23c4af7c48741a85cf7594.",
+    { sender: 'MTN', receivedAt }
+  );
+  assert.equal(result?.amount, 100);
+  assert.equal(result?.direction, 'expense');
+  assert.equal(result?.transactionId, '19663115802');
+  assert.equal(result?.date, '2026-11-09');
+});
+
+test('ne transforme pas une fraction de frais en faux montant XAF entier', () => {
+  const result = parseMobileMoneySms(
+    'Orange Money : Transfert de 2 500 FCFA. Frais : 14.1 FCFA. Nouveau solde : 1 046.62 FCFA.',
+    { sender: 'OrangeMoney', receivedAt }
+  );
+  assert.equal(result?.amount, 2500);
+});
+
 test('extrait l’expéditeur d’une réception MTN FAPSHI après le montant', () => {
   const result = parseMobileMoneySms(
     "Vous avez recu 100 XAF de FAPSHI INC (237651020476) sur votre compte mobile money a 2026-11-09 20:35:14. Message de l'expediteur: From Social Boost Horizon via FAPSHI. Votre nouveau solde: 858 XAF. FRAIS: FCFA 0. Financial Transaction Id: 19661893907.",

@@ -53,9 +53,28 @@ function parseEventType(text) {
 
 function parseMoney(value) {
   if (value == null) return null;
-  const compact = String(value).replace(/[\s\u00a0']/g, '').replace(/[.,]00$/, '');
-  const amount = Number(compact.replace(/\D/g, ''));
+  let compact = String(value).replace(/[\s\u00a0']/g, '');
+  if (!compact) return null;
+  if (/^[0-9]+[.,][0-9]{1,2}$/.test(compact)) {
+    if (/[.,]00$/.test(compact)) compact = compact.replace(/[.,]00$/, '');
+    else return null;
+  }
+  if (/^[0-9]{1,3}(?:[.,][0-9]{3})+$/.test(compact)) compact = compact.replace(/[.,]/g, '');
+  else if (/[.,]/.test(compact)) return null;
+  const amount = Number(compact);
   return Number.isSafeInteger(amount) && amount > 0 && amount <= 1000000000 ? amount : null;
+}
+
+function firstPositiveAmount(source, pattern, amountGroup = 1) {
+  const flags = pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g';
+  const matcher = new RegExp(pattern.source, flags);
+  let match;
+  while ((match = matcher.exec(source)) !== null) {
+    const amount = parseMoney(match[amountGroup]);
+    if (amount != null) return amount;
+    if (match[0].length === 0) matcher.lastIndex += 1;
+  }
+  return null;
 }
 
 function parseAmount(text) {
@@ -64,20 +83,34 @@ function parseAmount(text) {
     ' '
   );
   const number = "([0-9][0-9\\s\\u00a0.,']{0,22})";
-  const labeled = new RegExp(
-    '(?:montant(?:\\s+(?:de\\s+la\\s+)?transaction)?|somme|amount|valeur)\\s*[:#\\-]?\\s*(?:de\\s*)?(?:' + CURRENCY + '\\s*)?' + number + '\\s*(?:' + CURRENCY + ')?',
-    'i'
-  );
-  const verb = new RegExp(
-    '(?:recu|envoye|envoyer|paye|payee|debite|credite|credited|received|sent|effectue)\\s+(?:la\\s+somme\\s+de\\s+|un montant de\\s+|de\\s+)?(?:' + CURRENCY + '\\s*)?' + number + '\\s*(?:' + CURRENCY + ')?',
-    'i'
-  );
-  const currencyFirst = new RegExp(CURRENCY + '\\s*[:\\-]?\\s*' + number, 'i');
-  const currencyLast = new RegExp(number + '\\s*' + CURRENCY + '\\b', 'i');
-  for (const pattern of [labeled, verb, currencyFirst, currencyLast]) {
-    const match = withoutBalance.match(pattern);
-    const amount = parseMoney(match && match[1]);
+  const currency = '(?:FCFA|F\\s*\\.?\\s*CFA|XAF|CFA)';
+  const authoritative = [
+    new RegExp('\\b(?:une\\s+)?transaction\\s+de\\s+' + number + '\\s*' + currency + '\\b', 'ig'),
+    new RegExp('\\bmontant\\s+(?:(?:de\\s+)?(?:la\\s+)?)?transaction\\s*[:#\\-]?\\s*' + number + '\\s*' + currency + '\\b', 'ig'),
+    new RegExp('\\b(?:votre\\s+)?paiement\\s+(?:de\\s+)?' + number + '\\s*' + currency + '\\b', 'ig'),
+    new RegExp('\\b(?:vous\\s+avez\\s+(?:recu|envoye)|recu|envoye|retrait\\s+(?:reussi|effectue))\\s+(?:de\\s+)?' + number + '\\s*' + currency + '\\b', 'ig'),
+  ];
+  for (const pattern of authoritative) {
+    const amount = firstPositiveAmount(withoutBalance, pattern);
     if (amount != null) return amount;
+  }
+  const labeled = new RegExp(
+    '\\b(?:montant|amount|somme|paiement|payment)\\s*(?:[:#\\-])?\\s*(?:de\\s+)?' + number + '\\s*' + currency + '\\b',
+    'ig'
+  );
+  const labeledAmount = firstPositiveAmount(withoutBalance, labeled);
+  if (labeledAmount != null) return labeledAmount;
+  const currencyLast = new RegExp(number + '\\s*' + currency + '\\b', 'ig');
+  const currencyFirst = new RegExp(currency + '\\s*[:#\\-]?\\s*' + number, 'ig');
+  for (const [pattern, group] of [[currencyLast, 1], [currencyFirst, 1]]) {
+    let match;
+    while ((match = pattern.exec(withoutBalance)) !== null) {
+      const nearContext = withoutBalance.slice(Math.max(0, match.index - 55), match.index);
+      if (/(?:frais|fees?|remise|reduction|réduction|commission|recompense|récompense|reward|discount|bonus|solde|balance)/i.test(nearContext)) continue;
+      const amount = parseMoney(match[group]);
+      if (amount != null) return amount;
+      if (match[0].length === 0) pattern.lastIndex += 1;
+    }
   }
   return null;
 }
