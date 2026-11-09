@@ -70,11 +70,15 @@ public class PataSmsSyncWorker extends Worker {
             if (status >= 200 && status < 300 && response.optBoolean("success", false)) {
                 PataSmsReceiver.removePending(getApplicationContext(), hash);
                 boolean duplicate = response.optBoolean("duplicate", false);
+                JSONObject notifications = response.optJSONObject("notifications");
+                boolean emailSent = notifications != null && notifications.optBoolean("emailSent", false);
+                int pushSent = notifications == null ? 0 : notifications.optInt("pushSent", 0);
                 PataSmsReceiver.recordDiagnostic(getApplicationContext(),
                     duplicate ? "already_registered" : "registered",
                     getInputData().getString("provider"),
                     duplicate ? "Transaction déjà enregistrée ; aucun doublon créé."
-                        : "Transaction enregistrée. Notification et e-mail envoyés.");
+                        : "Transaction enregistrée dans Pata. E-mail : " + (emailSent ? "envoyé" : notifications == null ? "statut inconnu" : notifications.optString("emailStatus", "non envoyé"))
+                            + " ; notification push : " + pushSent + " appareil(s).");
                 if (!duplicate) {
                     PataSmsReceiver.showProcessedNotification(getApplicationContext(),
                         getInputData().getString("direction"),
