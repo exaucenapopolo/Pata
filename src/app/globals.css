@@ -1,131 +1,34 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-:root {
-  color-scheme: light;
-  --pata-green: #075b43;
-  --pata-green-dark: #064b38;
-  --pata-bg: #f5f8f6;
+:root{color-scheme:light;--pata-navy:#092b4e;--pata-navy-strong:#06223d;--pata-green:#16865b;--pata-green-soft:#eaf7f0;--pata-bg:#f3f6fb;--pata-surface:#fff;--pata-border:#e3eaf1;--pata-muted:#64748b}
+html,body{min-height:100%}html{background:var(--pata-bg);-webkit-tap-highlight-color:transparent;scroll-behavior:smooth}
+body{margin:0;font-family:'Inter',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--pata-bg);color:#172536;overscroll-behavior-y:contain;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+button,a,input,select,textarea{touch-action:manipulation}button,a{-webkit-tap-highlight-color:transparent}input,select,textarea{font-size:16px}
+button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid rgba(36,87,127,.72);outline-offset:2px}
+main{min-width:0}main h1,main h2,main h3{letter-spacing:-.025em}::selection{background:#dceaf5;color:#092b4e}
+@keyframes pata-screen-in{from{opacity:.72;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pata-soft-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:767px){main{min-height:calc(100dvh - 68px)}main>div{animation:pata-screen-in 180ms ease-out both}button,[role=button],a{-webkit-touch-callout:none}}
+@supports(padding:max(0px)){body{padding-bottom:env(safe-area-inset-bottom)}}
+html.dark,html.dark body{background:#0b1625!important;color:#e5edf5!important;color-scheme:dark}
+html.dark .bg-white{background-color:#111f31!important}html.dark .bg-slate-50{background-color:#15253a!important}html.dark .bg-slate-100{background-color:#1d3048!important}
+html.dark .text-slate-900{color:#f4f7fb!important}html.dark .text-slate-800{color:#e6edf5!important}html.dark .text-slate-700{color:#cbd8e7!important}html.dark .text-slate-600{color:#b2c1d2!important}html.dark .text-slate-500{color:#93a6bb!important}
+html.dark .border-slate-100,html.dark .border-slate-200,html.dark .border-slate-300{border-color:#2a3e57!important}
+html.dark input,html.dark select,html.dark textarea{background-color:#101d2d!important;color:#f3f6fa!important;border-color:#354a64!important}
+html.dark input::placeholder,html.dark textarea::placeholder{color:#8da1b7!important}
+html.dark .hover\\:bg-slate-50:hover,html.dark .hover\\:bg-slate-100:hover{background-color:#1c3048!important}
+html.dark .bg-brand-50{background-color:#152e45!important}html.dark .text-brand-700,html.dark .text-brand-600{color:#8fc2e6!important}
+html.dark table td,html.dark table th{border-color:#2b3e55!important}html.dark .recharts-cartesian-grid line{stroke:#334b65!important}html.dark .recharts-text{fill:#cbd8e7!important}
+@media(max-width:639px){
+ main{min-height:calc(100dvh - 60px);padding-left:.75rem!important;padding-right:.75rem!important;padding-top:.75rem!important}
+ main .space-y-6>:not([hidden])~:not([hidden]){margin-top:1rem!important}main .space-y-5>:not([hidden])~:not([hidden]){margin-top:.85rem!important}main .space-y-4>:not([hidden])~:not([hidden]){margin-top:.7rem!important}main .space-y-3>:not([hidden])~:not([hidden]){margin-top:.55rem!important}
+ main .gap-4{gap:.75rem!important}main .gap-3{gap:.6rem!important}main .p-5{padding:.9rem!important}main .p-4{padding:.8rem!important}main .px-5{padding-left:.9rem!important;padding-right:.9rem!important}main .py-6{padding-top:.95rem!important;padding-bottom:.95rem!important}
+ main .mb-4{margin-bottom:.75rem!important}main .mb-3{margin-bottom:.6rem!important}
+ main h1.text-2xl{font-size:1.25rem!important;line-height:1.65rem!important}main h2.text-xl{font-size:1.1rem!important;line-height:1.5rem!important}main .text-3xl{font-size:1.5rem!important;line-height:1.9rem!important}main .text-4xl{font-size:1.7rem!important;line-height:2.05rem!important}
+ main .min-h-\\[112px\\]{min-height:88px!important}main .pata-dashboard-hero{padding:.95rem!important;border-radius:1.25rem!important}main .pata-dashboard-hero .mt-6{margin-top:.8rem!important;padding-top:.7rem!important}main .pata-dashboard-hero h1{font-size:1.15rem!important;line-height:1.45rem!important}main .pata-dashboard-hero .text-3xl{font-size:1.75rem!important;line-height:2rem!important}
+ main .pata-feature-carousel{border-radius:1rem!important}main .pata-feature-carousel .min-h-\\[104px\\]{min-height:90px!important}main .rounded-\\[28px\\]{border-radius:1.3rem!important}
+ main input:not([type=checkbox]),main select,main textarea{min-height:42px}
 }
-
-html, body { min-height: 100%; }
-html { background: var(--pata-bg); -webkit-tap-highlight-color: transparent; }
-body {
-  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: var(--pata-bg);
-  overscroll-behavior-y: contain;
-}
-button, a, input, select, textarea { touch-action: manipulation; }
-button, a { -webkit-tap-highlight-color: transparent; }
-input, select, textarea { font-size: 16px; }
-
-@media (max-width: 767px) {
-  main { min-height: calc(100dvh - 68px); }
-  main > div { animation: pata-screen-in 180ms ease-out both; }
-  button, [role='button'], a { -webkit-touch-callout: none; }
-}
-@keyframes pata-screen-in {
-  from { opacity: .72; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-@supports (padding: max(0px)) {
-  body { padding-bottom: env(safe-area-inset-bottom); }
-}
-
-/* Mode sombre : la hiérarchie visuelle reste lisible sans modifier les données. */
-html.dark, html.dark body { background: #0b1220 !important; color: #e5e7eb !important; color-scheme: dark; }
-html.dark .bg-white { background-color: #111c2d !important; }
-html.dark .bg-slate-50 { background-color: #142033 !important; }
-html.dark .bg-slate-100 { background-color: #1a2a40 !important; }
-html.dark .text-slate-900 { color: #f8fafc !important; }
-html.dark .text-slate-800 { color: #e2e8f0 !important; }
-html.dark .text-slate-700 { color: #cbd5e1 !important; }
-html.dark .text-slate-600 { color: #aebed2 !important; }
-html.dark .text-slate-500 { color: #94a3b8 !important; }
-html.dark .border-slate-100, html.dark .border-slate-200, html.dark .border-slate-300 { border-color: #293950 !important; }
-html.dark input, html.dark select, html.dark textarea { background-color: #101b2b !important; color: #f3f4f6 !important; border-color: #34445c !important; }
-html.dark input::placeholder, html.dark textarea::placeholder { color: #8c9bb0 !important; }
-html.dark .hover\:bg-slate-50:hover, html.dark .hover\:bg-slate-100:hover { background-color: #1c2a40 !important; }
-html.dark .bg-brand-50 { background-color: #172d3a !important; }
-html.dark .text-brand-700, html.dark .text-brand-600 { color: #6ee7b7 !important; }
-html.dark table td, html.dark table th { border-color: #2b3a50 !important; }
-html.dark .recharts-cartesian-grid line { stroke: #334155 !important; }
-html.dark .recharts-text { fill: #cbd5e1 !important; }
-
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
-}
-
-
-/* Compact native-app density on phones only. Desktop layout is untouched. */
-@media (max-width: 639px) {
-  main {
-    min-height: calc(100dvh - 60px);
-    padding-left: .75rem !important;
-    padding-right: .75rem !important;
-    padding-top: .75rem !important;
-  }
-  main > div.space-y-6 > :not([hidden]) ~ :not([hidden]) {
-    margin-top: .95rem !important;
-  }
-  main .space-y-6 > :not([hidden]) ~ :not([hidden]) { margin-top: .95rem !important; }
-  main .space-y-5 > :not([hidden]) ~ :not([hidden]) { margin-top: .8rem !important; }
-  main .space-y-4 > :not([hidden]) ~ :not([hidden]) { margin-top: .7rem !important; }
-  main .space-y-3 > :not([hidden]) ~ :not([hidden]) { margin-top: .55rem !important; }
-  main .gap-4 { gap: .7rem !important; }
-  main .gap-3 { gap: .55rem !important; }
-  main .p-5 { padding: .875rem !important; }
-  main .p-4 { padding: .75rem !important; }
-  main .px-5 { padding-left: .875rem !important; padding-right: .875rem !important; }
-  main .py-6 { padding-top: .9rem !important; padding-bottom: .9rem !important; }
-  main .mb-4 { margin-bottom: .7rem !important; }
-  main .mb-3 { margin-bottom: .55rem !important; }
-  main h1.text-2xl { font-size: 1.25rem !important; line-height: 1.6rem !important; }
-  main h2.text-xl { font-size: 1.125rem !important; line-height: 1.5rem !important; }
-  main .text-3xl { font-size: 1.5rem !important; line-height: 1.9rem !important; }
-  main .text-4xl { font-size: 1.7rem !important; line-height: 2rem !important; }
-  main .min-h-\[112px\] { min-height: 88px !important; }
-  main .pata-dashboard-hero {
-    padding: .95rem !important;
-    border-radius: 1.35rem !important;
-  }
-  main .pata-dashboard-hero .mt-6 {
-    margin-top: .8rem !important;
-    padding-top: .7rem !important;
-  }
-  main .pata-dashboard-hero h1 {
-    font-size: 1.15rem !important;
-    line-height: 1.45rem !important;
-  }
-  main .pata-dashboard-hero .text-3xl {
-    font-size: 1.75rem !important;
-    line-height: 2rem !important;
-  }
-  main .pata-feature-carousel {
-    border-radius: 1rem !important;
-  }
-  main .pata-feature-carousel .min-h-\[104px\] {
-    min-height: 90px !important;
-  }
-  main .rounded-\[28px\] { border-radius: 1.35rem !important; }
-}
-
-
-@keyframes pata-feature-enter {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.pata-feature-carousel [aria-live="polite"] {
-  animation: pata-feature-enter 220ms ease-out both;
-}
-
-/* Comfortable touch targets remain available even with denser spacing. */
-@media (max-width: 639px) {
-  main button:not(.pata-feature-carousel button), main a { -webkit-tap-highlight-color: transparent; }
-  main input:not([type="checkbox"]), main select { min-height: 42px; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .pata-feature-carousel * { transition: none !important; }
-}
+.pata-feature-carousel [aria-live=polite]{animation:pata-soft-in 220ms ease-out both}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}

@@ -172,7 +172,7 @@ export function NotificationInbox() {
   if (!user) return null;
 
   return (
-    <div className="fixed right-4 top-20 z-[80] sm:right-6">
+    <div className="relative z-[80] shrink-0">
       <button
         type="button"
         onClick={() => {
@@ -181,7 +181,7 @@ export function NotificationInbox() {
         }}
         aria-label={'Notifications non lues : ' + unreadCount}
         aria-expanded={open}
-        className="relative flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-lg transition hover:bg-slate-50"
+        className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 active:scale-[0.97]"
       >
         <Bell size={19} />
         {unreadCount > 0 && (
@@ -199,7 +199,7 @@ export function NotificationInbox() {
             onClick={() => setOpen(false)}
             className="fixed inset-0 z-[79] cursor-default bg-slate-950/10"
           />
-          <section className="absolute right-0 z-[80] mt-2 flex max-h-[min(75vh,620px)] w-[min(92vw,400px)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+          <section className="absolute right-0 top-12 z-[80] flex max-h-[min(78dvh,620px)] w-[min(92vw,400px)] flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_18px_48px_rgba(8,39,70,0.16)]">
             <header className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
               <div>
                 <h2 className="text-sm font-bold text-slate-900">Notifications</h2>

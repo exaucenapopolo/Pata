@@ -646,12 +646,22 @@ async function handleNotificationSubscription(request, remove = false) {
     if (token.length < 40 || token.length > 4096) return errorResponse('Jeton de notification invalide.', 400);
     const userRef = adminDb.collection('users').doc(uid);
     if (remove) {
-      await userRef.set({ pushTokens: FieldValue.arrayRemove(token), notificationsUpdatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      await userRef.set({
+        pushTokens: FieldValue.arrayRemove(token),
+        notificationsUpdatedAt: FieldValue.serverTimestamp(),
+        lastPushTokenRemovedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
       const fresh = await userRef.get();
       const remaining = Array.isArray(fresh.data()?.pushTokens) ? fresh.data().pushTokens : [];
       await userRef.set({ notificationsEnabled: remaining.length > 0 }, { merge: true });
     } else {
-      await userRef.set({ pushTokens: FieldValue.arrayUnion(token), notificationsEnabled: true, notificationsUpdatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      await userRef.set({
+        pushTokens: FieldValue.arrayUnion(token),
+        notificationsEnabled: true,
+        notificationsUpdatedAt: FieldValue.serverTimestamp(),
+        lastPushTokenSyncedAt: FieldValue.serverTimestamp(),
+        lastPushErrorCode: FieldValue.delete(),
+      }, { merge: true });
     }
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -1314,46 +1324,76 @@ async function handleNotificationTest(request) {
     tokenForCleanup = token;
     if (token.length < 40 || token.length > 4096) return errorResponse('Appareil non reconnu.', 400);
     const userRef = adminDb.collection('users').doc(uid);
-    const userSnap = await userRef.get();
-    const savedTokens = Array.isArray(userSnap.data()?.pushTokens) ? userSnap.data().pushTokens : [];
-    if (!savedTokens.includes(token)) {
-      await userRef.set({ pushTokens: FieldValue.arrayUnion(token), notificationsEnabled: true, notificationsUpdatedAt: FieldValue.serverTimestamp() }, { merge: true });
-    }
-    const tag = `pata-test-${Date.now()}`;
+    await userRef.set({
+      pushTokens: FieldValue.arrayUnion(token),
+      notificationsEnabled: true,
+      notificationsUpdatedAt: FieldValue.serverTimestamp(),
+      lastPushTestAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    const tag = 'pata-test-' + Date.now();
     const appUrl = getPataAppUrl(request);
     const messageId = await adminMessaging.send({
       token,
-      data: {
-        title: 'Pata — test réussi',
-        body: 'Les notifications sont bien reliées à cet appareil.',
-        url: '/settings',
-        tag,
-      },
-      webpush: {
-        headers: { TTL: '300', Urgency: 'high' },
-        fcmOptions: { link: new URL('/settings', appUrl).toString() },
-      },
+      data: { title: 'Pata — test réussi', body: 'Les notifications sont bien reliées à cet appareil.', url: '/settings', tag },
+      webpush: { headers: { TTL: '300', Urgency: 'high' }, fcmOptions: { link: new URL('/settings', appUrl).toString() } },
     });
+    await userRef.set({
+      lastPushAcceptedAt: FieldValue.serverTimestamp(),
+      lastPushErrorCode: FieldValue.delete(),
+      lastPushErrorAt: FieldValue.delete(),
+    }, { merge: true });
     console.info('[PATA PUSH TEST ACCEPTED]', { uid, messageId, tokenSuffix: token.slice(-8) });
     return NextResponse.json({ success: true, messageId });
   } catch (error) {
     const invalidToken = ['messaging/registration-token-not-registered', 'messaging/invalid-registration-token'].includes(error.code);
-    if (invalidToken && uidForCleanup && tokenForCleanup) {
-      try {
-        const userRef = adminDb.collection('users').doc(uidForCleanup);
-        await userRef.set({ pushTokens: FieldValue.arrayRemove(tokenForCleanup), notificationsUpdatedAt: FieldValue.serverTimestamp() }, { merge: true });
-        const fresh = await userRef.get();
-        const remaining = Array.isArray(fresh.data()?.pushTokens) ? fresh.data().pushTokens : [];
-        await userRef.set({ notificationsEnabled: remaining.length > 0 }, { merge: true });
-      } catch (cleanupError) {
-        console.warn('[PUSH TEST TOKEN CLEANUP]', cleanupError.code || cleanupError.message);
+    if (uidForCleanup) {
+      const userRef = adminDb.collection('users').doc(uidForCleanup);
+      if (invalidToken && tokenForCleanup) {
+        await userRef.set({
+          pushTokens: FieldValue.arrayRemove(tokenForCleanup),
+          lastPushErrorCode: error.code || 'messaging/invalid-registration-token',
+          lastPushErrorAt: FieldValue.serverTimestamp(),
+        }, { merge: true }).catch(() => {});
+        const fresh = await userRef.get().catch(() => null);
+        const remaining = Array.isArray(fresh?.data()?.pushTokens) ? fresh.data().pushTokens : [];
+        if (!remaining.length) await userRef.set({ notificationsEnabled: false }, { merge: true }).catch(() => {});
+      } else {
+        await userRef.set({
+          lastPushErrorCode: String(error.code || 'messaging/unknown-error').slice(0, 120),
+          lastPushErrorAt: FieldValue.serverTimestamp(),
+        }, { merge: true }).catch(() => {});
       }
     }
     const message = invalidToken
       ? 'Ce jeton est devenu obsolète et vient d’être supprimé. Dans les paramètres Pata, utilise « Réparer cet appareil » pour créer et enregistrer un nouveau jeton.'
-      : 'Le test de notification a échoué. Vérifie les autorisations et les paramètres de notification de cet appareil.';
+      : 'Le test de notification a échoué. Vérifie les autorisations et les paramètres de cet appareil.';
     console.error('[PUSH TEST]:', error.code || error.message);
     return errorResponse(message, 502);
+  }
+}
+
+async function handleNotificationStatus(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const snapshot = await adminDb.collection('users').doc(uid).get();
+    if (!snapshot.exists) return errorResponse('Profil utilisateur introuvable.', 404);
+    const profile = snapshot.data() || {};
+    const tokens = Array.isArray(profile.pushTokens)
+      ? [...new Set(profile.pushTokens.filter((token) => typeof token === 'string' && token.length > 20))]
+      : [];
+    const asIso = (value) => value?.toDate ? value.toDate().toISOString() : value instanceof Date ? value.toISOString() : typeof value === 'string' ? value : null;
+    return NextResponse.json({
+      success: true,
+      enabled: profile.notificationsEnabled === true && tokens.length > 0,
+      deviceCount: tokens.length,
+      lastPushAcceptedAt: asIso(profile.lastPushAcceptedAt),
+      lastPushTestAt: asIso(profile.lastPushTestAt),
+      lastPushErrorAt: asIso(profile.lastPushErrorAt),
+      lastPushErrorCode: String(profile.lastPushErrorCode || '').slice(0, 120) || null,
+      lastPushTokenSyncedAt: asIso(profile.lastPushTokenSyncedAt),
+    });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de vérifier les notifications.', 401);
   }
 }
 
@@ -1371,7 +1411,9 @@ async function handleNotificationScheduler(request) {
     let failed = 0;
     for (const userDoc of usersSnapshot.docs) {
       const userData = userDoc.data();
-      const tokens = Array.isArray(userData.pushTokens) ? [...new Set(userData.pushTokens.filter(Boolean))] : [];
+      const tokens = userData.notificationsEnabled === true && Array.isArray(userData.pushTokens)
+        ? [...new Set(userData.pushTokens.filter((token) => typeof token === 'string' && token.length > 20))]
+        : [];
       if (userData.notificationsDailyDate === today) { skipped += 1; continue; }
       try {
         const monthStart = `${month}-01`;
@@ -1476,7 +1518,18 @@ async function handleNotificationScheduler(request) {
           }
         }
         if (invalidTokens.length) await userDoc.ref.update({ pushTokens: FieldValue.arrayRemove(...invalidTokens) });
-        await userDoc.ref.update({ notificationsDailyDate: today, lastNotificationAt: FieldValue.serverTimestamp() });
+        await userDoc.ref.update({
+          notificationsDailyDate: today,
+          lastNotificationAt: FieldValue.serverTimestamp(),
+          ...(delivered > 0 ? {
+            lastPushAcceptedAt: FieldValue.serverTimestamp(),
+            lastPushErrorCode: FieldValue.delete(),
+            lastPushErrorAt: FieldValue.delete(),
+          } : tokens.length > 0 ? {
+            lastPushErrorCode: 'messaging/delivery-failed',
+            lastPushErrorAt: FieldValue.serverTimestamp(),
+          } : {}),
+        });
         await userDoc.ref.collection('notifications').doc(today).set({
           title, body, target, date: today, delivered,
           source: 'daily_reminder', read: false, readAt: null,
@@ -5448,6 +5501,7 @@ const ROUTES = {
   'notifications/subscribe': { POST: (request) => handleNotificationSubscription(request, false) },
   'notifications/unsubscribe': { POST: (request) => handleNotificationSubscription(request, true) },
   'notifications/test': { POST: handleNotificationTest },
+  'notifications/status': { GET: handleNotificationStatus },
   'notifications/inbox': { GET: handleNotificationsInbox },
   'notifications/read': { POST: handleNotificationRead },
   'notifications/scheduler': { GET: handleNotificationScheduler, POST: handleNotificationScheduler },

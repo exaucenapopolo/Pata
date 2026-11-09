@@ -187,7 +187,7 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <section className="pata-dashboard-hero relative overflow-hidden rounded-[28px] bg-gradient-to-br from-[#075b43] via-[#08674b] to-[#0c8060] p-5 text-white shadow-lg shadow-emerald-950/10 sm:p-7">
+      <section className="pata-dashboard-hero relative overflow-hidden rounded-[28px] bg-gradient-to-br from-[#082746] via-[#0a355e] to-[#104b78] p-5 text-white shadow-xl shadow-slate-950/10 sm:p-7">
         <div className="pointer-events-none absolute -right-12 -top-16 h-56 w-56 rounded-full border-[28px] border-white/5" />
         <div className="pointer-events-none absolute -bottom-20 right-24 h-40 w-40 rounded-full border-[20px] border-white/5" />
         <div className="relative flex flex-wrap items-start justify-between gap-4">

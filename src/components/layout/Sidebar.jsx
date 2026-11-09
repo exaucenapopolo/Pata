@@ -22,10 +22,10 @@ export function Sidebar() {
   const pathname = usePathname();
   let lastSection = '';
   return (
-    <aside className="sticky top-0 hidden h-[100dvh] w-[250px] shrink-0 flex-col border-r border-slate-200/80 bg-white lg:flex">
+    <aside className="sticky top-0 hidden h-[100dvh] w-[248px] shrink-0 flex-col border-r border-slate-200/90 bg-white lg:flex">
       <Link href="/dashboard" className="flex h-[72px] items-center gap-3 border-b border-slate-100 px-6">
         <img src="/android-chrome-192x192.png" alt="" className="h-10 w-10 rounded-xl object-cover" />
-        <span className="text-[30px] font-bold tracking-[-0.08em] text-[#075b43]">pata</span>
+        <span className="text-[24px] font-bold tracking-[-0.055em] text-[#092b4e]">pata</span>
       </Link>
       <nav aria-label="Navigation principale" className="flex-1 space-y-1 overflow-y-auto px-3 py-5">
         {NAV.map((item) => {
@@ -36,7 +36,7 @@ export function Sidebar() {
           return (
             <div key={item.href}>
               {showSection && <p className="px-3 pb-2 pt-4 text-[9px] font-bold tracking-[0.16em] text-slate-400">{item.section}</p>}
-              <Link href={item.href} aria-current={active ? 'page' : undefined} className={cn('group flex min-h-11 items-center gap-3 rounded-xl px-3 text-[13px] font-semibold transition', active ? 'bg-brand-50 text-brand-800' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900')}>
+              <Link href={item.href} aria-current={active ? 'page' : undefined} className={cn('group flex min-h-10 items-center gap-3 rounded-xl px-3 text-[13px] font-semibold transition-colors duration-150', active ? 'bg-brand-50 text-brand-800' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900')}>
                 <span className={cn('flex h-8 w-8 items-center justify-center rounded-lg transition', active ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-400 group-hover:text-slate-700')}><Icon size={17} strokeWidth={active ? 2.5 : 2}/></span>
                 {item.label}
                 {active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-brand-600"/>}

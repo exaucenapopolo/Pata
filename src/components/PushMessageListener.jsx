@@ -25,14 +25,15 @@ export function PushMessageListener() {
             icon: '/android-chrome-192x192.png',
             badge: '/android-chrome-192x192.png',
             tag: payload.data?.tag || 'pata-foreground',
+            renotify: false,
             data: { url: payload.data?.url || '/dashboard' },
           };
           void (async () => {
             try {
               const registration = await navigator.serviceWorker.getRegistration('/firebase-messaging/');
-              if (registration?.active) {
+              if (registration?.active && typeof registration.showNotification === 'function') {
                 await registration.showNotification(title, options);
-              } else {
+              } else if (Notification.permission === 'granted') {
                 new Notification(title, options);
               }
             } catch (error) {

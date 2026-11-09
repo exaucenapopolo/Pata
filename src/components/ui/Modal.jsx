@@ -38,15 +38,16 @@ export function Modal({ open, onClose, title, children, className }) {
       <section
         role="dialog"
         aria-modal="true"
+        aria-labelledby={title ? 'pata-dialog-title' : undefined}
         aria-label={title || 'Fenêtre de dialogue'}
         className={cn(
-          'flex max-h-full w-full max-w-md flex-col overflow-hidden rounded-t-[28px] border border-slate-200/80 bg-white shadow-2xl sm:max-h-[90dvh] sm:rounded-3xl',
+          'flex max-h-[calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-full max-w-md flex-col overflow-hidden rounded-t-[24px] border border-slate-200/90 bg-white shadow-[0_20px_60px_rgba(8,39,70,0.18)] sm:max-h-[90dvh] sm:rounded-3xl',
           className
         )}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="flex min-h-14 shrink-0 items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-5">
-          <h2 className="min-w-0 text-base font-bold tracking-tight text-slate-900 sm:text-lg">{title}</h2>
+          <h2 id="pata-dialog-title" className="min-w-0 text-sm font-bold tracking-tight text-slate-900 sm:text-base">{title}</h2>
           <button
             onClick={onClose}
             type="button"

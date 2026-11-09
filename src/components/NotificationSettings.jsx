@@ -52,11 +52,25 @@ export function NotificationSettings() {
   const [enabled, setEnabled] = useState(false);
   const [deviceToken, setDeviceToken] = useState('');
   const [testing, setTesting] = useState(false);
+  const [serverStatus, setServerStatus] = useState(null);
 
   useEffect(() => {
     let active = true;
     const syncCurrentDevice = async () => {
-      if (!user || typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted') {
+      if (!user) {
+        if (active) { setEnabled(false); setDeviceToken(''); setServerStatus(null); }
+        return;
+      }
+      try {
+        const idToken = await user.getIdToken();
+        const statusResponse = await fetch('/api/notifications/status', {
+          headers: { Authorization: 'Bearer ' + idToken },
+          cache: 'no-store',
+        });
+        const statusData = await statusResponse.json().catch(() => ({}));
+        if (active && statusResponse.ok && statusData.success) setServerStatus(statusData);
+      } catch { /* diagnostic optionnel */ }
+      if (typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted') {
         if (active) { setEnabled(false); setDeviceToken(''); }
         return;
       }
@@ -188,7 +202,14 @@ export function NotificationSettings() {
       });
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.error || 'Le test n’a pas pu être envoyé.');
-      setMessage(`Test transmis au service de notifications (référence ${String(result.messageId || '').slice(-8)}). L’affichage dépend encore des autorisations et réglages de cet appareil.`);
+      const statusToken = await user.getIdToken();
+      const statusResponse = await fetch('/api/notifications/status', {
+        headers: { Authorization: 'Bearer ' + statusToken },
+        cache: 'no-store',
+      });
+      const statusData = await statusResponse.json().catch(() => ({}));
+      if (statusResponse.ok && statusData.success) setServerStatus(statusData);
+      setMessage('Firebase a accepté le test. Vérifie l’écran du téléphone et les réglages du navigateur : l’acceptation par le serveur ne garantit pas à elle seule l’affichage sur l’appareil.');
     } catch (error) {
       setMessage(error.message || 'Le test a échoué.');
     } finally { setTesting(false); }
@@ -240,7 +261,24 @@ export function NotificationSettings() {
         </Button>
       </div>
       {message && <p role="status" className="text-xs text-slate-600">{message}</p>}
-      <p className="text-[11px] leading-5 text-slate-400">Reçois des rappels utiles et des alertes importantes pour suivre ton argent.</p>
+      {serverStatus && (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+          <p className="text-[11px] font-semibold text-slate-700">
+            {Number(serverStatus.deviceCount || 0)} appareil(aux) associé(s) à ton compte
+          </p>
+          {serverStatus.lastPushAcceptedAt && (
+            <p className="mt-1 text-[10px] leading-4 text-slate-500">
+              Dernier envoi accepté par Firebase : {new Date(serverStatus.lastPushAcceptedAt).toLocaleString('fr-FR')}
+            </p>
+          )}
+          {serverStatus.lastPushErrorCode && (
+            <p className="mt-1 break-words text-[10px] leading-4 text-amber-700">
+              Dernier problème signalé : {serverStatus.lastPushErrorCode}
+            </p>
+          )}
+        </div>
+      )}
+      <p className="text-[11px] leading-5 text-slate-400">Les alertes système peuvent apparaître même lorsque Pata est fermé, selon les autorisations du navigateur et les réglages de l’appareil.</p>
     </div>
   );
 }

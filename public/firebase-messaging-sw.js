@@ -2,7 +2,8 @@
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const rawTarget = event.notification.data?.url || '/dashboard';
-  const target = new URL(rawTarget, self.location.origin).href;
+  const requestedTarget = new URL(rawTarget, self.location.origin);
+  const target = requestedTarget.origin === self.location.origin ? requestedTarget.href : new URL('/dashboard', self.location.origin).href;
   event.waitUntil((async () => {
     const windows = await clients.matchAll({ type: 'window', includeUncontrolled: true });
     for (const client of windows) {

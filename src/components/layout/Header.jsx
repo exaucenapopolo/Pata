@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { Download, LogOut, Settings, X, User, HelpCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
+import { NotificationInbox } from '@/components/NotificationInbox';
 
 export function Header() {
   const { user, logout } = useAuth();
@@ -48,10 +49,10 @@ export function Header() {
 
   return (
     <>
-      <header className="sticky top-0 z-40 flex h-[68px] shrink-0 items-center justify-between border-b border-slate-200/80 bg-white/95 px-4 backdrop-blur-xl sm:px-6 lg:h-[72px] lg:px-8">
+      <header className="sticky top-0 z-40 flex h-[64px] shrink-0 items-center justify-between border-b border-slate-200/90 bg-white/95 px-3 backdrop-blur-xl sm:px-6 lg:h-[68px] lg:px-8">
         <div className="lg:hidden">
           <Link href="/dashboard" className="flex items-center gap-2" aria-label="Pata, accueil">
-            <img src="/android-chrome-192x192.png" alt="Pata" className="h-10 w-10 rounded-xl object-contain" />
+            <img src="/android-chrome-192x192.png" alt="Pata" className="h-9 w-9 rounded-xl object-contain" />
           </Link>
         </div>
         <div className="hidden min-w-0 lg:block">
@@ -59,6 +60,7 @@ export function Header() {
           <p className="mt-0.5 truncate text-sm font-semibold text-slate-900">Bonjour{profile && profile.displayName ? ', ' + profile.displayName.split(' ')[0] : ''}</p>
         </div>
         <div className="relative flex items-center gap-2">
+          <NotificationInbox />
           {!isInstalled && (installPrompt || isAppleMobile) && (
             <button type="button" onClick={installApp} className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-brand-200 bg-brand-50 px-3 text-xs font-semibold text-brand-800 transition hover:bg-brand-100" aria-label="Installer Pata">
               <Download size={15}/><span className="hidden sm:inline">Installer</span>
