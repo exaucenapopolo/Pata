@@ -1,7 +1,7 @@
 {
-  "version": "1.0.8",
-  "versionCode": 9,
+  "version": "1.0.9",
+  "versionCode": 10,
   "downloadAvailable": true,
   "apkUrl": "https://github.com/exaucenapopolo/Pata/releases/latest/download/Pata-Android.apk",
-  "releaseNotes": "Montants Mobile Money fiabilisés pour MTN et Orange, priorité au montant principal du SMS, projets terminés repliés, recharges entières dès 100 FCFA et code secret vérifié automatiquement."
+  "releaseNotes": "Notifications système natives Android via Firebase, diffusions PWA/Web Push préservées et import SMS Mobile Money conservé."
 }

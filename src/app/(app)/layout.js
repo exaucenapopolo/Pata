@@ -8,6 +8,7 @@ import { PremiumReminder } from '@/components/PremiumReminder'; // 🟢 Nouveau
 import { AssistantButton } from '@/components/ai/AssistantButton';
 import { SmartBackButton } from '@/components/layout/SmartBackButton';
 import { NotificationNudge } from '@/components/NotificationNudge';
+import { NativePushManager } from '@/components/NotificationSettings';
 import { PushMessageListener } from '@/components/PushMessageListener';
 import { PinGate } from '@/components/security/PinGate';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
@@ -31,6 +32,7 @@ export default function AppLayout({ children }) {
         <AndroidUpdateChecker />
         <SmsImportCoordinator />
         <PremiumReminder />  {/* 🟢 Bandeau d'alerte */}
+        <NativePushManager />
         <NotificationNudge />
         <PushMessageListener />
         <main className="mx-auto w-full max-w-[1500px] flex-1 min-w-0 px-3 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-3 sm:px-5 sm:pt-5 lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:px-8 lg:pb-8"><SmartBackButton />{children}</main>

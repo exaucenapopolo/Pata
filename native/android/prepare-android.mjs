@@ -7,6 +7,21 @@ const javaSource = path.join(root, 'native/android/com/pata/app');
 const javaTarget = path.join(root, 'android/app/src/main/java/com/pata/app');
 fs.mkdirSync(javaTarget, { recursive: true });
 
+// Firebase Android client configuration required by Capacitor Push Notifications.
+const firebaseConfigSource = path.join(root, 'native/android/google-services.json');
+const firebaseConfigTarget = path.join(root, 'android/app/google-services.json');
+if (!fs.existsSync(firebaseConfigSource)) {
+  throw new Error('native/android/google-services.json est obligatoire pour les notifications FCM Android.');
+}
+const firebaseConfig = JSON.parse(fs.readFileSync(firebaseConfigSource, 'utf8'));
+const androidClient = firebaseConfig.client?.find(
+  (client) => client.client_info?.android_client_info?.package_name === 'com.pata.app'
+);
+if (firebaseConfig.project_info?.project_id !== 'pata-af482' || !androidClient) {
+  throw new Error('La configuration Firebase ne correspond pas à Pata Android (com.pata.app / pata-af482).');
+}
+fs.copyFileSync(firebaseConfigSource, firebaseConfigTarget);
+
 // Reprend exactement l'icône configurée pour la PWA.
 const assetsDir = path.join(root, 'assets');
 fs.mkdirSync(assetsDir, { recursive: true });
@@ -97,8 +112,8 @@ if (fs.existsSync(gradlePath)) {
     if (depth !== 0) throw new Error('Bloc dependencies Gradle mal formé.');
     gradle = gradle.slice(0, close - 1) + '\n' + dependency + '\n' + gradle.slice(close - 1);
   }
-  gradle = gradle.replace(/versionCode\s+\d+/, 'versionCode 9');
-  gradle = gradle.replace(/versionName\s+["'][^"']+["']/, 'versionName "1.0.8"');
+  gradle = gradle.replace(/versionCode\s+\d+/, 'versionCode 10');
+  gradle = gradle.replace(/versionName\s+["'][^"']+["']/, 'versionName "1.0.9"');
   fs.writeFileSync(gradlePath, gradle);
 }
-console.log('Pata Android 1.0.8 : montants SMS fiabilisés, notifications locales SMS et synchronisation WorkManager configurées.');
+console.log('Pata Android 1.0.9 : import SMS préservé et notifications FCM natives activées.');

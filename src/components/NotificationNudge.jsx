@@ -1,99 +1,63 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Bell, X, Loader2 } from 'lucide-react';
-import { isSupported } from 'firebase/messaging';
-import { useAuth } from '@/hooks/useAuth';
-import { getDeviceMessagingToken } from '@/components/NotificationSettings';
+import { useRouter } from 'next/navigation';
+import { Bell, X } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
+import { PushNotifications } from '@capacitor/push-notifications';
 
 const COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function NotificationNudge() {
-  const { user } = useAuth();
+  const router = useRouter();
   const [visible, setVisible] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [feedback, setFeedback] = useState('');
 
   useEffect(() => {
-    if (!user || typeof window === 'undefined' || !('Notification' in window) || !('serviceWorker' in navigator)) return;
-    const vapidKey = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY;
-    if (!vapidKey) return;
-    const disabledKey = `pata-push-disabled:${user.uid}`;
-    try { if (localStorage.getItem(disabledKey) === '1') return; } catch { /* stockage local indisponible */ }
-
-    // Sur chaque appareil déjà autorisé, récupère le jeton FCM courant.
-    // Firebase peut renouveler un jeton après une mise à jour ou une réinstallation.
-    // La synchronisation silencieuse évite de conserver uniquement un ancien jeton côté serveur.
-    if (Notification.permission === 'granted') {
-      let active = true;
-      const synchronizeCurrentDevice = async () => {
-        try {
-          if (!(await isSupported())) return;
-          const token = await getDeviceMessagingToken(vapidKey);
-          if (!active || !token) return;
-          const idToken = await user.getIdToken();
-          const response = await fetch('/api/notifications/subscribe', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-            body: JSON.stringify({ token }),
-          });
-          if (!response.ok) throw new Error('Synchronisation du jeton FCM impossible.');
-        } catch (error) {
-          console.warn('[PATA PUSH TOKEN SYNC]', error?.message || error);
+    let active = true;
+    const check = async () => {
+      try {
+        if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android') {
+          const permission = await PushNotifications.checkPermissions();
+          if (!active || !['prompt', 'prompt-with-rationale'].includes(permission.receive)) return;
+        } else {
+          if (typeof window === 'undefined' || !('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
+          if (Notification.permission !== 'default' || !process.env.NEXT_PUBLIC_WEB_PUSH_VAPID_KEY) return;
         }
-      };
-      synchronizeCurrentDevice();
-      return () => { active = false; };
-    }
-
-    if (Notification.permission !== 'default') return;
-    try {
-      const key = `pata-notification-nudge:${user.uid}`;
-      const lastDismissed = Number(localStorage.getItem(key) || 0);
-      if (Date.now() - lastDismissed >= COOLDOWN_MS) setVisible(true);
-    } catch { setVisible(true); }
-  }, [user]);
+        const lastDismissed = Number(localStorage.getItem('pata-notification-nudge') || 0);
+        if (active && Date.now() - lastDismissed >= COOLDOWN_MS) setVisible(true);
+      } catch (error) {
+        console.warn('[PATA NOTIFICATION NUDGE]', error?.message || error);
+      }
+    };
+    void check();
+    return () => { active = false; };
+  }, []);
 
   const dismiss = () => {
-    try { localStorage.setItem(`pata-notification-nudge:${user?.uid || 'guest'}`, String(Date.now())); } catch { /* stockage local indisponible */ }
+    try { localStorage.setItem('pata-notification-nudge', String(Date.now())); } catch { /* stockage local indisponible */ }
     setVisible(false);
   };
 
-  const activate = async () => {
-    if (!user) return;
-    setBusy(true);
-    setFeedback('');
-    try {
-      const permission = await Notification.requestPermission();
-      if (permission !== 'granted') throw new Error('Les notifications ne sont pas autorisées sur cet appareil.');
-      const token = await getDeviceMessagingToken(process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY);
-      if (!token) throw new Error('Impossible de préparer les rappels sur cet appareil.');
-      const idToken = await user.getIdToken();
-      const response = await fetch('/api/notifications/subscribe', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ token }),
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok || !result.success) throw new Error(result.error || 'Activation impossible.');
-      try { localStorage.removeItem(`pata-push-disabled:${user.uid}`); } catch { /* stockage local indisponible */ }
-      setVisible(false);
-      setFeedback('Les rappels sont activés sur cet appareil.');
-    } catch (error) {
-      setFeedback(error.message || 'Activation impossible.');
-    } finally { setBusy(false); }
+  const openSettings = () => {
+    dismiss();
+    router.push('/settings');
   };
 
-  if (!visible && !feedback) return null;
+  if (!visible) return null;
   return (
     <div className="mx-4 mb-3 rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm sm:mx-6 dark:border-slate-700 dark:bg-slate-900">
-      {visible ? (
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="min-w-0 flex-1"><p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Ne manque aucun rappel important</p><p className="mt-0.5 text-xs leading-5 text-slate-500 dark:text-slate-400">Reçois les rappels utiles de Pata directement sur cet appareil.</p></div>
-          <button type="button" onClick={activate} disabled={busy} className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white disabled:opacity-60 dark:bg-white dark:text-slate-900">{busy ? <Loader2 size={14} className="animate-spin" /> : <Bell size={14} />} {busy ? 'Activation…' : 'Activer'}</button>
-          <button type="button" onClick={dismiss} aria-label="Plus tard" className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"><X size={15} /></button>
-          {feedback && <p role="status" className="w-full text-xs text-amber-700 dark:text-amber-300">{feedback}</p>}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">Active les notifications de Pata</p>
+          <p className="mt-0.5 text-xs leading-5 text-slate-500 dark:text-slate-400">Retrouve les réglages dans Paramètres pour recevoir les alertes système sur cet appareil.</p>
         </div>
-      ) : <p role="status" className="text-xs text-slate-600 dark:text-slate-300">{feedback}</p>}
+        <button type="button" onClick={openSettings} className="inline-flex min-h-9 items-center gap-2 rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white dark:bg-white dark:text-slate-900">
+          <Bell size={14} /> Configurer
+        </button>
+        <button type="button" onClick={dismiss} aria-label="Plus tard" className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+          <X size={15} />
+        </button>
+      </div>
     </div>
   );
 }
