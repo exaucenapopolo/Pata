@@ -69,8 +69,12 @@ async function handleFapshiCheckout(request) {
     const decoded = await authenticate(request);
     const uid = decoded.uid;
     const body = await request.json();
-    const amount = Math.round(Number(body.amount));
-    if (!amount || amount < 100) return errorResponse('Montant minimum : 100 FCFA.', 400);
+    const amount = Number(body.amount);
+    if (
+      (typeof body.amount === 'string' && !/^\d+$/.test(body.amount.trim()))
+      || !Number.isSafeInteger(amount)
+      || amount < 100
+    ) return errorResponse('Le montant doit être un nombre entier d’au moins 100 FCFA, sans virgule ni point.', 400);
 
     const API_USER = process.env.FAPSHI_API_USER;
     const SECRET_KEY = process.env.FAPSHI_SECRET_KEY;
@@ -4123,21 +4127,25 @@ async function handleAdminBroadcast(request) {
 
     const tokenOwners = new Map();
     const webPushTargets = [];
+    const pushRecipientPaths = new Set();
     for (const userDoc of recipientDocs) {
       const data = userDoc.data() || {};
-      if (!data.notificationsEnabled) continue;
+      // Le jeton ou l'abonnement enregistré est la preuve concrète d'inscription.
+      // notificationsEnabled n'est qu'un résumé susceptible d'être périmé.
       const tokens = Array.isArray(data.pushTokens)
         ? data.pushTokens.filter((token) => typeof token === 'string' && token.length > 20)
         : [];
       for (const token of tokens) {
         if (!tokenOwners.has(token)) tokenOwners.set(token, []);
         tokenOwners.get(token).push(userDoc.ref);
+        pushRecipientPaths.add(userDoc.ref.path);
       }
       {
         const subscriptions = await userDoc.ref.collection('webPushSubscriptions').get();
         for (const subscriptionDoc of subscriptions.docs) {
           const subscriptionData = subscriptionDoc.data() || {};
           if (subscriptionData.endpoint && subscriptionData.keys?.p256dh && subscriptionData.keys?.auth) {
+            pushRecipientPaths.add(userDoc.ref.path);
             webPushTargets.push({
               userRef: userDoc.ref,
               subscriptionRef: subscriptionDoc.ref,
@@ -4260,7 +4268,9 @@ async function handleAdminBroadcast(request) {
     const optedInDevices = optedTokens.length + webPushTargets.length;
     return NextResponse.json({
       success: true, notificationId, recipientMode, inAppDelivered,
-      optedInDevices, pushSent: totalPushSent, fcmPushSent: pushSent, webPushSent,
+      optedInDevices, pushRecipients: pushRecipientPaths.size,
+      recipientsWithoutPush: Math.max(0, inAppDelivered - pushRecipientPaths.size),
+      pushSent: totalPushSent, fcmPushSent: pushSent, webPushSent,
       pushFailed: totalPushFailed, fcmPushFailed: pushFailed, webPushFailed,
       pushMode: optedInDevices ? 'fcm-and-webpush' : 'in-app-only',
       invalidTokensRemoved: invalidTokens.length,
@@ -4268,8 +4278,8 @@ async function handleAdminBroadcast(request) {
       pushError: pushError || webPushError || null,
       pushFailureDetails: failureDetails.slice(0, 25),
       message: optedInDevices
-        ? 'Notification enregistrée dans Pata pour ' + inAppDelivered + ' compte(s). Envois acceptés : ' + totalPushSent + '/' + optedInDevices + ' appareil(s) (Firebase : ' + pushSent + ', Web Push : ' + webPushSent + '). Échecs : ' + totalPushFailed + '.'
-        : 'Notification enregistrée dans Pata pour ' + inAppDelivered + ' compte(s). Aucun appareil n’a encore activé les notifications système.',
+        ? 'Notification enregistrée dans Pata pour ' + inAppDelivered + ' compte(s). Comptes avec appareil inscrit : ' + pushRecipientPaths.size + '/' + inAppDelivered + '. Envois acceptés : ' + totalPushSent + '/' + optedInDevices + ' appareil(s) (Firebase : ' + pushSent + ', Web Push : ' + webPushSent + '). Échecs : ' + totalPushFailed + '.'
+        : 'Notification enregistrée dans Pata pour ' + inAppDelivered + ' compte(s). Aucun appareil distant n’est inscrit pour les notifications système.',
     });
   } catch (error) {
     console.error('[ADMIN BROADCAST]', error.code || error.message);
