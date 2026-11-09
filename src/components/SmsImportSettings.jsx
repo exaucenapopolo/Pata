@@ -38,7 +38,7 @@ export function SmsImportSettings() {
         setBatteryExempt(status.ignoringBatteryOptimizations === true);
         try { setDiagnostic(JSON.parse(status.lastSmsDiagnosticJson || '{}')); } catch { setDiagnostic(null); }
         let deviceToken = '';
-        if (data.enabled === true && status.hasDeviceToken !== true) {
+        if (data.enabled === true && (status.hasDeviceToken !== true || (status.userUid && status.userUid !== user.uid))) {
           const tokenResponse = await fetch('/api/sms-import', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
