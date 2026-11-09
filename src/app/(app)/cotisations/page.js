@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
+import { Modal } from '@/components/ui/Modal';
 import { Users, Plus, Copy, RefreshCw, Wallet, CalendarDays, ArrowDownToLine, Clock3, CheckCircle2, AlertCircle, ArrowUp, ArrowDown, PlayCircle, Save, Pin, ChevronDown, ChevronUp } from 'lucide-react';
 
 const currency = (value) => new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 }).format(Number(value) || 0) + ' FCFA';
@@ -306,7 +307,7 @@ export default function CotisationsPage() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5 pb-10">
+    <div className="mx-auto min-w-0 max-w-6xl space-y-5 overflow-x-hidden px-0.5 pb-10">
       <header className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-7">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-2xl">
@@ -355,7 +356,7 @@ export default function CotisationsPage() {
             const progress = cycle.targetAmount > 0 ? Math.min(100, Math.round((cycle.totalCollected / cycle.targetAmount) * 100)) : 0;
             const form = payForms[group.id] || {};
             const withdraw = withdrawForms[group.id] || {};
-            return <article id={'cotisation-' + group.id} key={group.id} className="scroll-mt-20 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+            return <article id={'cotisation-' + group.id} key={group.id} className="min-w-0 scroll-mt-20 overflow-hidden rounded-2xl border border-slate-200 bg-white">
               <div className="border-b border-slate-100 p-4 sm:p-5">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div><div className="flex items-center gap-2"><h3 className="text-base font-bold text-slate-950">{group.name}</h3>{group.isOwner && <span className="rounded-full bg-brand-50 px-2 py-1 text-[10px] font-semibold text-brand-700">Chef de groupe</span>}</div><p className="mt-1 text-xs text-slate-500">{currency(group.contributionAmount)} par membre · {frequencyLabels[group.frequency] || group.frequency} · Échéance {group.frequency === 'monthly' ? 'le ' + group.dueDay + ' du mois' : 'à chaque période'} · Début {group.startDate}</p><p className="mt-1 text-[11px] text-slate-500">Majoration : {group.lateFeeLabel} · Délai de grâce : {group.graceDays} jour(s)</p></div>
@@ -370,7 +371,8 @@ export default function CotisationsPage() {
                 <div className="mt-3"><div className="mb-1 flex justify-between text-[11px] text-slate-500"><span>Progression du cycle · {statusLabels[cycle.status] || cycle.status}</span><strong>{progress}%</strong></div><div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-brand-600 transition-all" style={{ width: progress + '%' }}/></div><p className="mt-1 text-[11px] text-slate-500">Reste à réunir : {currency(cycle.remainingTotal)} · Échéance de la période : {cycle.dueAt}</p></div>
               </div>
 
-              {expandedGroups[group.id] && <div className="grid min-w-0 gap-4 p-4 sm:p-5 lg:grid-cols-[1fr_0.85fr]">
+              {expandedGroups[group.id] && <Modal open onClose={() => setExpandedGroups((old) => ({ ...old, [group.id]: false }))} title={group.name + ' — Détails'} className="h-full max-h-full max-w-none rounded-t-3xl sm:h-auto sm:max-h-[90dvh] sm:max-w-4xl sm:rounded-3xl">
+              <div className="grid min-w-0 gap-4 overflow-x-hidden p-0.5 sm:p-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)]">
                 <div>
                   <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><h4 className="flex items-center gap-2 text-sm font-bold text-slate-900"><Users size={15}/> Ordre et suivi des membres</h4>{group.isOwner && !group.startedAt && <Button size="sm" variant="outline" onClick={() => saveMemberOrder(group)} disabled={busy === 'order-' + group.id || group.memberCount < 2}><Save size={13}/>{busy === 'order-' + group.id ? 'Enregistrement…' : 'Confirmer l’ordre choisi'}</Button>}</div>
                   <div className="min-w-0 space-y-2 rounded-xl"><div className="grid grid-cols-3 gap-2 px-1 text-[10px] font-semibold text-slate-500"><span>Membre</span><span className="text-right">Cotisé / reste</span><span className="text-right">Versements</span></div><div className="space-y-2">{group.members.map((member)=>{const currentOrder=orderDrafts[group.id]||group.members.map((item)=>item.uid),position=currentOrder.indexOf(member.uid)+1,displayedPosition=orderDrafts[group.id]?position:(member.turnOrder||'—');return <div key={member.uid} className="min-w-0 rounded-xl border border-slate-100 bg-white p-3"><div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2"><div className="flex min-w-0 items-center gap-2"><span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold">{displayedPosition}</span><span className="min-w-0 break-words text-xs font-semibold text-slate-800">{member.displayName}{member.isOwner?' · Chef':''}{member.uid===cycle.beneficiaryUid&&group.startedAt?' · Bénéficiaire':''}</span>{group.isOwner&&!group.startedAt&&<span className="flex shrink-0 gap-1"><button type="button" aria-label="Monter" onClick={()=>moveMember(group,member.uid,-1)} disabled={position===1} className="rounded border border-slate-200 p-1 disabled:opacity-30"><ArrowUp size={12}/></button><button type="button" aria-label="Descendre" onClick={()=>moveMember(group,member.uid,1)} disabled={position===group.memberCount} className="rounded border border-slate-200 p-1 disabled:opacity-30"><ArrowDown size={12}/></button></span>}</div><span className="text-right text-[11px] font-semibold text-slate-700">{currency(member.paid)}<br/><span className="font-normal text-slate-500">Reste {currency(member.remaining)}</span></span><span className="text-right text-xs text-slate-700">{member.installments||0}</span></div>{member.whatsappPhone&&group.isOwner&&<a className="mt-2 inline-block text-[11px] font-semibold text-emerald-700" href={'https://wa.me/'+member.whatsappPhone.replace(/[^0-9]/g,'')} target="_blank" rel="noreferrer">Contacter sur WhatsApp · {member.whatsappPhone}</a>}{member.uid===user?.uid&&<div className="mt-3 flex flex-col gap-2 sm:flex-row"><input value={whatsappForms[group.id]??member.whatsappPhone??''} onChange={(event)=>setWhatsappForms((old)=>({...old,[group.id]:event.target.value}))} placeholder="Ton numéro WhatsApp avec indicatif" className="h-10 min-w-0 flex-1 rounded-lg border border-slate-200 px-3 text-xs"/><Button size="sm" variant="outline" onClick={()=>saveWhatsApp(group)} disabled={busy==='whatsapp-'+group.id}>{busy==='whatsapp-'+group.id?'Enregistrement…':'Enregistrer mon WhatsApp'}</Button></div>}</div>;})}</div></div>
@@ -409,7 +411,8 @@ export default function CotisationsPage() {
                   {cycle.status === 'PAID' && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs leading-5 text-emerald-800"><CheckCircle2 size={15} className="mr-1 inline"/>Le retrait du bénéficiaire de ce tour a été confirmé.</div>}
                   {cycle.myRemaining === 0 && !cycle.canWithdraw && cycle.status === 'OPEN' && <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">Ta part de ce cycle est complète. Le groupe attend les autres membres.</p>}
                 </div>
-              </div>}
+              </div>
+            </Modal>}
             </article>;
           })}
       </section>
