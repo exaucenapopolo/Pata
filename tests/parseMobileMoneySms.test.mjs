@@ -69,5 +69,5 @@ test('normalise une date explicite et une heure', () => {
     { receivedAt }
   );
   assert.equal(result.date, '2026-11-08');
-  assert.equal(resultt.time, '19:45');
+  assert.equal(result.time, '19:45');
 });

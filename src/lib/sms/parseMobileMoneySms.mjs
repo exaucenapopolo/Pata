@@ -62,4 +62,61 @@ function parseDateAndTime(text, receivedAt) {
   if (dateMatch) {
     let year; let month; let day;
     if (dateMatch[1]) {
-      year = Number(dateMatch[1]); month = Number(dateMatch[2]); ]k
+      year = Number(dateMatch[1]); month = Number(dateMatch[2]); day = Number(dateMatch[3]);
+    } else {
+      day = Number(dateMatch[4]); month = Number(dateMatch[5]); year = Number(dateMatch[6]);
+      if (year < 100) year += year >= 70 ? 1900 : 2000;
+    }
+    const candidate = new Date(Date.UTC(year, month - 1, day));
+    if (candidate.getUTCFullYear() === year && candidate.getUTCMonth() === month - 1 && candidate.getUTCDate() === day) {
+      date = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+  const timeMatch = text.match(/\b([01]?\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?\b/);
+  const fallback = receivedAt instanceof Date ? receivedAt : new Date(receivedAt || Date.now());
+  const safeFallback = Number.isNaN(fallback.getTime()) ? new Date() : fallback;
+  if (!date) date = `${safeFallback.getFullYear()}-${String(safeFallback.getMonth() + 1).padStart(2, '0')}-${String(safeFallback.getDate()).padStart(2, '0')}`;
+  const time = timeMatch ? `${String(timeMatch[1]).padStart(2, '0')}:${timeMatch[2]}` : `${String(safeFallback.getHours()).padStart(2, '0')}:${String(safeFallback.getMinutes()).padStart(2, '0')}`;
+  return { date, time };
+}
+
+function parseBalance(text) {
+  const match = text.match(/(?:nouveau\s+)?solde(?:\s+disponible)?\s*[:\-]?\s*([0-9][0-9\s.,]{0,20})\s*(?:FCFA|XAF|F\s*\.\s*CFA|F\s*CFA|CFA)\b/i);
+  if (!match) return null;
+  const amount = Number(match[1].replace(/\D/g, ''));
+  return Number.isSafeInteger(amount) && amount >= 0 ? amount : null;
+}
+
+/**
+ * @returns {null | {
+ *  provider: 'mtn_momo'|'orange_money', transactionId: string, amount: number,
+ *  eventType: 'receive'|'send'|'payment'|'withdrawal', direction: 'income'|'expense'|'withdrawal',
+ *  date: string, time: string, balance: number|null
+ * }}
+ */
+export function parseMobileMoneySms(rawText, { sender = '', receivedAt = new Date() } = {}) {
+  if (typeof rawText !== 'string') return null;
+  const text = rawText.replace(/\s+/g, ' ').trim();
+  if (!text || FAILURE_RE.test(text)) return null;
+
+  const provider = parseProvider(text, sender);
+  const transactionId = parseTransactionId(text);
+  const amount = parseAmount(text);
+  const eventType = parseEventType(text);
+  if (!provider || !transactionId || !amount || !eventType) return null;
+
+  const direction = eventType === 'receive' ? 'income'
+    : eventType === 'withdrawal' ? 'withdrawal' : 'expense';
+  const { date, time } = parseDateAndTime(text, receivedAt);
+
+  return {
+    provider,
+    transactionId,
+    amount,
+    eventType,
+    direction,
+    date,
+    time,
+    balance: parseBalance(text),
+  };
+}

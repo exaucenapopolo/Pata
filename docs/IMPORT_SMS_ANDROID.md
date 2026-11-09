@@ -23,7 +23,7 @@ Références officielles :
 
 La solution de repli techniquement réaliste est un import volontaire par partage : dans l'application Messages, l'utilisateur partage un SMS de confirmation vers Pata. Pata analyse le texte sur l'appareil, ne transmet que les champs parsés, puis demande confirmation avant l'écriture. Cette approche ne nécessite ni `READ_SMS` ni `RECEIVE_SMS` et laisse le contrôle à l'utilisateur, mais elle n'est pas une détection automatique en arrière-plan.
 
-Pour une véritable réception automatique, il faut d'abord choisir un canal de distribution/installation qui peut légalement et techniquement autoriser la permission restreinte, ou transformer Pata en application SMS par défaut (ce qui implique une application de messagerie complïte et un périmètre fonctionnel beaucoup plus large).
+Pour une véritable réception automatique, il faut d'abord choisir un canal de distribution/installation qui peut légalement et techniquement autoriser la permission restreinte, ou transformer Pata en application SMS par défaut (ce qui implique une application de messagerie complète et un périmètre fonctionnel beaucoup plus large).
 
 ## Règles d'intégration serveur à respecter
 
@@ -37,4 +37,4 @@ Pour une véritable réception automatique, il faut d'abord choisir un canal de 
 
 ## Limite des modèles SMS
 
-Les textes des opérateurs changent selon le type de transaction, le canal marchand et les versions de service. Les exemples de test sont des cas de référence, pas une garantie d'exhaustivité. Avant d'activer un import en production, ajouter des exemples réels anonymisés pour les récus, envois, paiements et retraits des deux opérateurs, puis étendre les tests correspondants.
+Les textes des opérateurs changent selon le type de transaction, le canal marchand et les versions de service. Les exemples de test sont des cas de référence, pas une garantie d'exhaustivité. Avant d'activer un import en production, ajouter des exemples réels anonymisés pour les reçus, envois, paiements et retraits des deux opérateurs, puis étendre les tests correspondants.
