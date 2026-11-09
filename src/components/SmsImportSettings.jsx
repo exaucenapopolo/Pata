@@ -25,6 +25,8 @@ const DIAGNOSTIC_LABELS = {
   already_registered: 'Transaction déjà enregistrée : aucun doublon créé',
   awaiting_review: 'Retrait détecté : en attente de ta classification',
   server_rejected: 'Le serveur a refusé cet import',
+  queue_full: 'File locale pleine : les SMS déjà en attente ont été conservés',
+  previously_refused: 'Cette transaction avait déjà été refusée dans Pata',
   network_retry: 'Connexion indisponible : nouvelle tentative prévue',
 };
 
