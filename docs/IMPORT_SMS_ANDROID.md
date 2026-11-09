@@ -1,40 +1,66 @@
-# Import Mobile Money depuis les SMS — état technique et stratégie Android
+# Pata Android — import Mobile Money par SMS
 
-## Ce que le parseur fait aujourd'hui
+## Fichiers et architecture
 
-`src/lib/sms/parseMobileMoneySms.mjs` analyse localement les SMS MTN MoMo et Orange Money et retourne uniquement des champs structurés : opérateur, identifiant de transaction, montant, nature de l'opération, sens, date, heure et solde. Le texte brut n'est pas inclus dans le résultat et ne doit jamais être envoyé à une API.
+Le dépôt contient désormais la configuration Capacitor, le plugin Java natif, le récepteur SMS, l'intégration Android Sharesheet, les routes API d'import, les interfaces Premium et de confirmation, la page de téléchargement et le vérificateur de mise à jour.
 
-Les opérations prises en charge sont : réception, envoi, paiement et retrait. Un retrait est volontairement distingué d'une dépense : retirer de l'argent liquide n'est pas nécessairement une consommation. Les messages en échec, les fournisseurs non reconnus et les messages sans identifiant de transaction sont ignorés.
+Le projet Android est généré par Capacitor pendant le workflow CI, puis les classes Java et les déclarations de manifeste conservées sous native/android sont injectées. Cela évite de committer les fichiers Android générés et les caches Gradle.
 
-Tests unitaires : `node --test tests/parseMobileMoneySms.test.mjs`.
+## Flux automatique
 
-## Blocage avant l'APK avec réception SMS automatique
+1. Le récepteur Android reçoit SMS_RECEIVED uniquement lorsque RECEIVE_SMS a été accordée et que l'appareil possède une configuration Premium encore valide.
+2. Le texte SMS est analysé localement ; il n'est pas sauvegardé dans la file et n'est jamais transmis au serveur.
+3. Le serveur reçoit le fournisseur, le montant, le type, la direction, la date, l'heure et une empreinte SHA-256 de fournisseur + numéro de transaction.
+4. Le serveur vérifie le jeton Firebase, le profil Premium et l'activation de la fonction.
+5. À la reprise de Pata ou lorsque l'utilisateur ouvre la notification locale, le navigateur intégré synchronise la file avec la route /api/sms-import.
+6. L'utilisateur choisit la catégorie, la source de revenus si nécessaire, puis confirme ou refuse.
+7. La confirmation délègue aux routes /api/expenses/add ou /api/incomes/add. Les deux routes disposent d'une clé d'idempotence propre aux imports SMS.
 
-Le manifeste Android `RECEIVE_SMS` est une permission *hard restricted*. La documentation Android précise qu'elle doit être explicitement autorisée par l'installateur du paquet. Une installation APK ordinaire depuis un navigateur/site web ne permet pas de garantir cette autorisation. Play Protect classe également les APK installés depuis des sources Internet qui déclarent des permissions sensibles SMS parmi les applications à haut risque et peut bloquer leur installation.
+La file native et les opérations en attente ne contiennent que les champs parsés. Le SMS brut, le numéro de téléphone de l'expéditeur et le solde ne quittent pas le téléphone.
 
-En conséquence, ajouter simplement `RECEIVE_SMS` à un APK distribué sur `pata-yam.site` ne permet pas de promettre que la réception en arrière-plan fonctionnera sur les téléphones des utilisateurs. Ce dépôt ne doit pas publier un APK qui prétend offrir cette fonction sans canal d'installation capable d'autoriser réellement la permission.
+## Retraits
+
+Un retrait est distingué d'un paiement ou d'un envoi. Il est proposé à l'utilisateur, mais ne devient une dépense que s'il choisit explicitement de le comptabiliser comme tel.
+
+## Android Sharesheet
+
+L'application déclare ACTION_SEND avec text/plain. L'utilisateur peut partager un SMS depuis son application Messages vers Pata. Le texte est analysé par le parseur JavaScript local puis effacé de la mémoire de partage après traitement. La route serveur reçoit les mêmes champs parsés et la même empreinte. Le partage manuel fonctionne pour un compte Premium même si le récepteur automatique est désactivé ou indisponible.
+
+## Permission RECEIVE_SMS et installation depuis le site
+
+Android classe RECEIVE_SMS comme une permission dangereuse fortement restreinte (hard restricted). La documentation Android précise qu'elle ne peut être détenue que si l'installateur du paquet l'autorise. En plus, Google Play Protect indique que les applications installées depuis une source Internet et déclarant RECEIVE_SMS ou READ_SMS peuvent être bloquées à l'installation.
+
+Il faut donc tester le comportement sur les versions Android et les installateurs réellement ciblés. La demande runtime est intégrée, mais elle ne peut pas lever à elle seule une restriction de l'installateur. Le partage manuel reste le mode de repli.
 
 Références officielles :
+- https://developer.android.com/reference/android/Manifest.permission#RECEIVE_SMS
+- https://developers.google.com/android/play-protect/warning-dev-guidance
 
-- Android `Manifest.permission.RECEIVE_SMS` : https://developer.android.com/reference/android/Manifest.permission#RECEIVE_SMS
-- Google Play Protect — protections pour les applications installées depuis Internet : https://developers.google.com/android/play-protect/client-protections
+## Batterie et arrière-plan
 
-## Parcours compatible avec un APK téléchargé depuis le site
+L'écran Paramètres propose d'ouvrir les paramètres d'optimisation de batterie. Sur les appareils Tecno, Infinix et Xiaomi, l'utilisateur doit aussi autoriser Pata à fonctionner sans restriction dans les paramètres du fabricant, lorsque cette option est disponible.
 
-La solution de repli techniquement réaliste est un import volontaire par partage : dans l'application Messages, l'utilisateur partage un SMS de confirmation vers Pata. Pata analyse le texte sur l'appareil, ne transmet que les champs parsés, puis demande confirmation avant l'écriture. Cette approche ne nécessite ni `READ_SMS` ni `RECEIVE_SMS` et laisse le contrôle à l'utilisateur, mais elle n'est pas une détection automatique en arrière-plan.
+Le BroadcastReceiver ne tente pas de lancer une activité en arrière-plan ni d'envoyer des requêtes réseau sans jeton utilisateur. Il stocke localement les champs parsés et affiche une notification ; la synchronisation serveur a lieu lorsque l'application est au premier plan.
 
-Pour une véritable réception automatique, il faut d'abord choisir un canal de distribution/installation qui peut légalement et techniquement autoriser la permission restreinte, ou transformer Pata en application SMS par défaut (ce qui implique une application de messagerie complète et un périmètre fonctionnel beaucoup plus large).
+## Build et tests
 
-## Règles d'intégration serveur à respecter
+Prérequis : Node.js 20+, Java 17 et Android SDK.
 
-- Chaque endpoint doit vérifier le jeton Firebase Admin côté serveur et vérifier `premiumUntil` côté serveur.
-- L'identifiant de transaction doit être haché avant de servir de clé de déduplication ; ne pas le conserver en clair si ce n'est pas indispensable.
-- Ne jamais stocker ni transmettre le SMS brut, le numéro de téléphone de l'expéditeur ou le solde du portefeuille pour l'import.
-- Une dépense confirmée doit passer par `createExpenseForUser` pour conserver les règles d'allocation des revenus, les contrôles de solde et les budgets.
-- Un revenu confirmé doit passer par la logique serveur existante, avec une clé d'idempotence propre à l'import.
-- Un import doit rester en attente tant que l'utilisateur n'a pas choisi sa catégorie et confirmé. Un doublon doit retourner l'import existant, jamais créer une seconde opération.
-- Les retraits doivent rester en attente de classification ; ils ne doivent pas être comptabilisés automatiquement comme une consommation.
+- npm install
+- npm run test:sms
+- npx cap add android
+- node native/android/prepare-android.mjs
+- npx cap sync android
+- cd android && ./gradlew assembleDebug
 
-## Limite des modèles SMS
+Le workflow .github/workflows/android-apk.yml compile automatiquement une APK debug de vérification et l'archive comme artefact GitHub Actions.
 
-Les textes des opérateurs changent selon le type de transaction, le canal marchand et les versions de service. Les exemples de test sont des cas de référence, pas une garantie d'exhaustivité. Avant d'activer un import en production, ajouter des exemples réels anonymisés pour les reçus, envois, paiements et retraits des deux opérateurs, puis étendre les tests correspondants.
+## Signature de distribution
+
+Une APK de distribution exige une clé privée stable. Ne jamais mettre cette clé dans le dépôt public. Configure les secrets GitHub suivants :
+- ANDROID_KEYSTORE_BASE64
+- ANDROID_KEYSTORE_PASSWORD
+- ANDROID_KEY_ALIAS
+- ANDROID_KEY_PASSWORD
+
+Puis lance le workflow Android avec publish_release=true. Il compile l'APK release signée, crée la release GitHub et active le lien de téléchargement dans public/android-version.json. Sans ces secrets, seule l'APK debug de vérification est produite et la page /telecharger reste désactivée.

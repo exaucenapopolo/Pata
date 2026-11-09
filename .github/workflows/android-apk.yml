@@ -1,0 +1,134 @@
+name: Pata Android APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "package.json"
+      - "capacitor.config.ts"
+      - "native/android/**"
+      - "src/app/api/sms-import/**"
+      - "src/components/SmsImport*.jsx"
+      - "src/components/AndroidUpdateChecker.jsx"
+      - "src/lib/sms/**"
+      - ".github/workflows/android-apk.yml"
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "Publier une APK release signée (nécessite les secrets de signature)"
+        required: true
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Installer Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Installer Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Installer les dépendances
+        run: npm install --no-audit --no-fund
+
+      - name: Tester les parseurs SMS
+        run: npm run test:sms
+
+      - name: Générer le projet Android Capacitor
+        run: |
+          npx cap add android
+          node native/android/prepare-android.mjs
+          npx cap sync android
+
+      - name: Compiler l'APK de vérification
+        run: |
+          cd android
+          ./gradlew --no-daemon assembleDebug
+
+      - name: Publier l'APK de vérification
+        uses: actions/upload-artifact@v4
+        with:
+          name: pata-android-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Préparer la signature release
+        if: ${{ inputs.publish_release == 'true' && env.ANDROID_KEYSTORE_BASE64 != '' && env.ANDROID_KEYSTORE_PASSWORD != '' && env.ANDROID_KEY_ALIAS != '' && env.ANDROID_KEY_PASSWORD != '' }}
+        run: |
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/pata-release.jks
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("android/app/build.gradle")
+          content = path.read_text()
+          signing = '''
+              signingConfigs {
+                  release {
+                      storeFile file("pata-release.jks")
+                      storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                      keyAlias System.getenv("ANDROID_KEY_ALIAS")
+                      keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+                  }
+              }
+          '''
+          if "signingConfigs {" not in content:
+              content = content.replace("    buildTypes {", signing + "\n    buildTypes {", 1)
+          if "signingConfig signingConfigs.release" not in content:
+              content = content.replace("        release {", "        release {\n            signingConfig signingConfigs.release", 1)
+          path.write_text(content)
+          PY
+
+      - name: Compiler l'APK release signée
+        if: ${{ inputs.publish_release == 'true' && env.ANDROID_KEYSTORE_BASE64 != '' && env.ANDROID_KEYSTORE_PASSWORD != '' && env.ANDROID_KEY_ALIAS != '' && env.ANDROID_KEY_PASSWORD != '' }}
+        run: |
+          cd android
+          ./gradlew --no-daemon assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk ../Pata-Android.apk
+
+      - name: Publier l'APK de distribution
+        if: ${{ inputs.publish_release == 'true' && env.ANDROID_KEYSTORE_BASE64 != '' && env.ANDROID_KEYSTORE_PASSWORD != '' && env.ANDROID_KEY_ALIAS != '' && env.ANDROID_KEY_PASSWORD != '' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-v1.0.0
+          name: Pata Android 1.0.0
+          target_commitish: main
+          generate_release_notes: true
+          overwrite_files: true
+          files: Pata-Android.apk
+
+      - name: Activer le lien de téléchargement et le contrôle de version
+        if: ${{ inputs.publish_release == 'true' && env.ANDROID_KEYSTORE_BASE64 != '' && env.ANDROID_KEYSTORE_PASSWORD != '' && env.ANDROID_KEY_ALIAS != '' && env.ANDROID_KEY_PASSWORD != '' }}
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path("public/android-version.json")
+          data = json.loads(path.read_text())
+          data["downloadAvailable"] = True
+          path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/android-version.json
+          git commit -m "Publish Pata Android download metadata" || true
+          git push
