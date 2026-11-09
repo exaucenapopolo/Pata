@@ -241,6 +241,24 @@ async function handleAutomaticDeviceImport(body) {
       const saved = importSnap.data() || {};
       return { duplicate: true, profile, operationId: saved.operationId || null, direction: saved.direction, target: saved.target || '/dashboard' };
     }
+    if (importSnap.exists && importSnap.data()?.status === 'REJECTED') {
+      return { duplicate: true, refused: true, profile };
+    }
+    if (parsed.direction === 'withdrawal') {
+      const existing = importSnap.exists ? importSnap.data() : {};
+      transaction.set(importRef, {
+        ...parsed,
+        status: 'PENDING',
+        source: 'automatic',
+        requiresReview: true,
+        counterparty: parsed.counterparty || null,
+        createdAt: existing.createdAt || FieldValue.serverTimestamp(),
+        deviceReceivedAt: FieldValue.serverTimestamp(),
+        lastError: FieldValue.delete(),
+        processingAt: FieldValue.delete(),
+      }, { merge: true });
+      return { requiresReview: true, duplicate: existing.status === 'PENDING', profile };
+    }
     if (importSnap.exists && importSnap.data()?.status === 'PROCESSING') {
       const started = importSnap.data()?.processingAt?.toDate ? importSnap.data().processingAt.toDate().getTime() : 0;
       if (started && Date.now() - started < 120000) throw new Error('IMPORT_ALREADY_PROCESSING');
@@ -260,7 +278,22 @@ async function handleAutomaticDeviceImport(body) {
   });
 
   if (claim.duplicate) {
-    return NextResponse.json({ success: true, duplicate: true, operationId: claim.operationId, target: claim.target });
+    return NextResponse.json({
+      success: true,
+      duplicate: true,
+      refused: claim.refused === true,
+      requiresReview: claim.requiresReview === true,
+      operationId: claim.operationId || null,
+      target: claim.target || null,
+    });
+  }
+  if (claim.requiresReview) {
+    return NextResponse.json({
+      success: true,
+      duplicate: false,
+      requiresReview: true,
+      target: '/dashboard',
+    });
   }
 
   const providerName = parsed.provider === 'mtn_momo' ? 'MTN MoMo' : 'Orange Money';
@@ -337,7 +370,8 @@ export async function GET(request) {
   try {
     const { uid } = await authenticate(request);
     const { profile, premium, expiry } = await getUserAndPremium(uid);
-    const snapshot = await adminDb.collection('users').doc(uid).collection('smsImports').limit(100).get();
+    const snapshot = await adminDb.collection('users').doc(uid).collection('smsImports')
+      .orderBy('createdAt', 'desc').limit(100).get();
     const pending = snapshot.docs
       .map((doc) => ({ id: doc.id, ...doc.data() }))
       .filter((item) => item.status === 'PENDING')
@@ -347,8 +381,10 @@ export async function GET(request) {
         return right - left;
       })
       .slice(0, 20)
-      .map(({ id, provider, eventType, direction, amount, date, time, createdAt }) => ({
+      .map(({ id, provider, eventType, direction, amount, date, time, counterparty, source, createdAt }) => ({
         id, provider, eventType, direction, amount, date, time,
+        counterparty: counterparty || null,
+        source: source || 'sharesheet',
         createdAt: createdAt?.toDate ? createdAt.toDate().toISOString() : null,
       }));
     return NextResponse.json({
@@ -462,8 +498,7 @@ export async function POST(request) {
         const [userSnap, importSnap] = await Promise.all([transaction.get(userRef), transaction.get(ref)]);
         if (!userSnap.exists || !importSnap.exists) throw new Error('Import SMS introuvable.');
         const profile = userSnap.data() || {};
-        const automaticImport = importSnap.data()?.source !== 'sharesheet';
-        if (!isPremium(profile) || (automaticImport && profile.smsImportEnabled !== true)) throw new Error('Un abonnement Premium actif est nécessaire ; active la détection automatique pour les SMS reçus en arrière-plan.');
+        if (!isPremium(profile)) throw new Error('Un abonnement Pata Premium actif est nécessaire pour confirmer cet import SMS.');
         const item = importSnap.data() || {};
         if (item.status === 'CONFIRMED') return { duplicate: true, item };
         if (item.status === 'REJECTED') throw new Error('Cette opération a été refusée.');
