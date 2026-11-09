@@ -101,7 +101,7 @@ export function ReferralsSettings() {
     }
     if (destination === 'goal' && !goalId) return setError('Choisis l’épargne à alimenter.');
     if (destination === 'cotisation' && !groupId) return setError('Choisis le groupe de cotisation.');
-    if (destination === 'withdrawal' && (!/^6[0-9]{8}$/.test(phone.replace(/\\D/g, '').replace(/^237/, '')) || !['mtn', 'orange'].includes(network))) return setError('Entre un numéro MTN ou Orange Money camerounais valide.');
+    if (destination === 'withdrawal' && (!/^6[0-9]{8}$/.test(phone.replace(/\D/g, '').replace(/^237/, '')) || !['mtn', 'orange'].includes(network))) return setError('Entre un numéro MTN ou Orange Money camerounais valide.');
     if (destination === 'withdrawal' && numericAmount > 500000) return setError('Le retrait Mobile Money est limité à 500 000 FCFA par demande.');
     setBusy(true);
     try {
