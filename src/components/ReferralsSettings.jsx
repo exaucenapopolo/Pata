@@ -33,6 +33,8 @@ export function ReferralsSettings() {
   const [goalId, setGoalId] = useState('');
   const [groupId, setGroupId] = useState('');
   const [amount, setAmount] = useState('');
+  const [phone, setPhone] = useState('');
+  const [network, setNetwork] = useState('mtn');
 
   const activeGoals = useMemo(() => goals.filter((goal) => !goal.closed && !goal.withdrawnAt), [goals]);
   const referralBalance = Number(data?.referralBalance) || 0;
@@ -99,11 +101,16 @@ export function ReferralsSettings() {
     }
     if (destination === 'goal' && !goalId) return setError('Choisis l’épargne à alimenter.');
     if (destination === 'cotisation' && !groupId) return setError('Choisis le groupe de cotisation.');
+    if (destination === 'withdrawal' && (!/^6[0-9]{8}$/.test(phone.replace(/\\D/g, '').replace(/^237/, '')) || !['mtn', 'orange'].includes(network))) return setError('Entre un numéro MTN ou Orange Money camerounais valide.');
+    if (destination === 'withdrawal' && numericAmount > 500000) return setError('Le retrait Mobile Money est limité à 500 000 FCFA par demande.');
     setBusy(true);
     try {
       if (destination === 'cotisation') {
         await request(user, 'cotisations/pay-referral', 'POST', { groupId, amount: numericAmount });
         setNotice('Versement de cotisation confirmé depuis ton solde de parrainage.');
+      } else if (destination === 'withdrawal') {
+        await request(user, 'referrals/withdraw', 'POST', { amount: numericAmount, phone, network });
+        setNotice('Demande de retrait enregistrée. Le transfert Mobile Money sera effectué après vérification.');
       } else {
         await request(user, 'referrals/transfer', 'POST', {
           destination,
@@ -171,6 +178,7 @@ export function ReferralsSettings() {
                     <option value="wallet">Mon portefeuille Pata</option>
                     <option value="goal">Une épargne</option>
                     <option value="cotisation">Une cotisation</option>
+                    <option value="withdrawal">Retirer par Mobile Money</option>
                   </select>
                 </div>
                 <div>
@@ -180,6 +188,7 @@ export function ReferralsSettings() {
               </div>
               {destination === 'goal' && <div><label className="mb-1 block text-xs font-semibold text-slate-600">Épargne à alimenter</label><select value={goalId} onChange={(event) => setGoalId(event.target.value)} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"><option value="">Choisir une épargne</option>{activeGoals.map((goal) => <option key={goal.id} value={goal.id}>{goal.name}</option>)}</select></div>}
               {destination === 'cotisation' && <div><label className="mb-1 block text-xs font-semibold text-slate-600">Groupe de cotisation</label><select value={groupId} onChange={(event) => setGroupId(event.target.value)} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"><option value="">Choisir un groupe</option>{groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select><p className="mt-1 text-[11px] text-slate-500">Le paiement est limité au reste de ta part et suit les règles de la cotisation. Aucun frais du prestataire n’est appliqué à ce transfert interne.</p></div>}
+              {destination === 'withdrawal' && <div className="grid gap-2 sm:grid-cols-2"><div><label className="mb-1 block text-xs font-semibold text-slate-600">Numéro Mobile Money</label><input inputMode="numeric" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="6XXXXXXXX" className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm"/></div><div><label className="mb-1 block text-xs font-semibold text-slate-600">Réseau</label><select value={network} onChange={(event) => setNetwork(event.target.value)} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"><option value="mtn">MTN Mobile Money</option><option value="orange">Orange Money</option></select></div><p className="sm:col-span-2 text-[11px] leading-5 text-slate-500">La demande est vérifiée par l’administration avant le transfert. Le montant réservé est restitué si le retrait est refusé ou échoue.</p></div>}
               <button type="submit" disabled={busy || !amount || Number(amount) > referralBalance} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-xs font-semibold text-white disabled:opacity-50"><Wallet size={14}/>{busy ? 'Traitement…' : 'Confirmer le transfert'}</button>
             </form>
           ) : <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-500">Ton solde de parrainage est encore vide. Les bonus confirmés apparaîtront ici.</p>}
