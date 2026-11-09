@@ -201,7 +201,7 @@ test('priorise le montant principal MTN malgré remises, frais, téléphone et a
 
 test('ne transforme pas une fraction de frais en faux montant XAF entier', () => {
   const result = parseMobileMoneySms(
-    'Orange Money : Transfert de 2 500 FCFA. Frais : 14.1 FCFA. Nouveau solde : 1 046.62 FCFA.',
+    'Orange Money : Transfert effectué de 2 500 FCFA. Frais : 14.1 FCFA. Nouveau solde : 1 046.62 FCFA.',
     { sender: 'OrangeMoney', receivedAt }
   );
   assert.equal(result?.amount, 2500);

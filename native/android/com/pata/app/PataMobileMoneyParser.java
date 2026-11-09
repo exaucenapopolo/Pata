@@ -162,7 +162,7 @@ public final class PataMobileMoneyParser {
 
     private static String detectTransactionId(String text) {
         Pattern[] patterns = new Pattern[] {
-            Pattern.compile("(?:identifiant\\s+de\\s+transaction(?:\\s+financi[eè]re)?|transaction\\s*(?:id|n[°o]|no\\.?|numero|number)|id\\s*(?:de\\s*)?(?:transaction|operation)?|reference|ref\\.?|code\\s*(?:de\\s*)?(?:transaction|operation)|n[°o]\\s*(?:transaction|operation))\\s*[:#\\-]?\\s*([A-Z0-9][A-Z0-9._/-]{3,58})", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("\\b(?:identifiant\\s+de\\s+transaction(?:\\s+financi[eè]re)?|transaction\\s*(?:id|n[°o]|no\\.?|numero|number)|id\\s*(?:de\\s*)?(?:transaction|operation)?|reference|ref\\.?|code\\s*(?:de\\s*)?(?:transaction|operation)|n[°o]\\s*(?:transaction|operation))\\s*[:#\\-]?\\s*([A-Z0-9][A-Z0-9._/-]{3,58})", Pattern.CASE_INSENSITIVE),
             Pattern.compile("\\b((?:MP|BP|TX|OM|MTN)[A-Z0-9]{5,}(?:[.-][A-Z0-9]+){0,5})\\b", Pattern.CASE_INSENSITIVE)
         };
         for (Pattern pattern : patterns) {
