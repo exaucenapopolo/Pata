@@ -77,7 +77,7 @@ function deviceTokenMatches(deviceToken, storedHash) {
 }
 
 function inferExpenseCategory(counterparty, eventType) {
-  const value = String(counterparty || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase();
+  const value = String(counterparty || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   if (/(internet|data|forfait|airtime|credit|telephone|orange|mtn)/.test(value)) return 'internet';
   if (/(taxi|yango|uber|transport|bus|voyage|carburant|station)/.test(value)) return 'transport';
   if (/(restaurant|snack|supermarche|marche|boutique alimentaire|epicerie)/.test(value)) return 'food';
