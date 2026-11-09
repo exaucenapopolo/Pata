@@ -16,7 +16,7 @@ export default function TelechargerPage() {
         <section className="mt-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-9">
           <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#075b43]">Application Android</p>
           <h1 className="mt-2 text-3xl font-bold tracking-tight">Pata sur ton téléphone</h1>
-          <p className="mt-3 text-sm leading-6 text-slate-600">L’application Android conserve les fonctionnalités de Pata et ajoute la détection locale des confirmations Mobile Money, avec un écran de vérification avant chaque enregistrement.</p>
+          <p className="mt-3 text-sm leading-6 text-slate-600">L’application Android conserve les fonctionnalités de Pata et détecte localement les confirmations Mobile Money. Les opérations reconnues sont synchronisées et enregistrées automatiquement ; les retraits d’espèces restent en attente de ton accord. Si Android refuse l’accès SMS, tu peux partager les confirmations manuellement.</p>
           <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4">
             <h2 className="text-sm font-bold text-amber-950">Téléchargement de la version Android</h2>
             <p className="mt-2 text-sm leading-6 text-amber-900">La disponibilité est vérifiée automatiquement. Une version signée sera proposée ici dès sa publication.</p>
