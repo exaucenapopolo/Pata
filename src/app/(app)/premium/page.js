@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useProfile } from '@/hooks/useProfile';
 import { useAuth } from '@/hooks/useAuth';
@@ -63,9 +63,30 @@ export default function PremiumPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [discountEligible, setDiscountEligible] = useState(false);
+  const [checkingDiscount, setCheckingDiscount] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    const loadReferralOffer = async () => {
+      if (!user) { setDiscountEligible(false); setCheckingDiscount(false); return; }
+      try {
+        const token = await user.getIdToken();
+        const response = await fetch('/api/referrals/status', { headers: { Authorization: 'Bearer ' + token } });
+        const data = await response.json().catch(() => ({}));
+        if (active) setDiscountEligible(response.ok && data.discountEligible === true);
+      } catch {
+        if (active) setDiscountEligible(false);
+      } finally {
+        if (active) setCheckingDiscount(false);
+      }
+    };
+    loadReferralOffer();
+    return () => { active = false; };
+  }, [user]);
 
   const balance = Number(profile?.balance) || 0;
-  const totalAmount = PRICE * months;
+  const totalAmount = discountEligible ? 1250 + (months - 1) * PRICE : PRICE * months;
   const missingAmount = Math.max(0, totalAmount - balance);
   const now = new Date();
   const premiumUntil = profile?.premiumUntil ? new Date(profile.premiumUntil) : null;
@@ -106,8 +127,8 @@ export default function PremiumPage() {
           </div>
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-right">
             <p className="text-xs font-medium text-slate-500">À partir de</p>
-            <p className="mt-1 text-3xl font-bold tracking-tight text-slate-950">2 500 <span className="text-base font-semibold text-slate-500">FCFA</span></p>
-            <p className="text-xs text-slate-500">pour 30 jours</p>
+            <p className="mt-1 text-3xl font-bold tracking-tight text-slate-950">{discountEligible ? '1 250' : '2 500'} <span className="text-base font-semibold text-slate-500">FCFA</span></p>
+            <p className="text-xs text-slate-500">pour le premier mois admissible</p>
           </div>
         </div>
         {isPremium && (
@@ -121,6 +142,7 @@ export default function PremiumPage() {
         )}
       </header>
 
+      {discountEligible && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-5 text-emerald-900"><strong>Offre de parrainage activée.</strong> Ton premier mois coûte 1 250 FCFA au lieu de 2 500 FCFA. Les mois suivants restent au tarif normal.</div>}
       {success && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">Paiement confirmé. Ton abonnement Premium vient d’être prolongé.</div>}
       {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
 
@@ -131,10 +153,10 @@ export default function PremiumPage() {
             <p className="mt-1 text-sm text-slate-500">Chaque mois ajoute 30 jours à ton accès. Si tu es déjà Premium, la durée restante est conservée.</p>
             <label className="mt-4 block text-xs font-semibold text-slate-600" htmlFor="premium-months">Durée</label>
             <select id="premium-months" value={months} onChange={(event) => setMonths(Number(event.target.value))} className="mt-1 h-11 w-full max-w-sm rounded-lg border border-slate-300 bg-white px-3 text-sm">
-              <option value={1}>1 mois — 2 500 FCFA</option>
-              <option value={3}>3 mois — 7 500 FCFA</option>
-              <option value={6}>6 mois — 15 000 FCFA</option>
-              <option value={12}>12 mois — 30 000 FCFA</option>
+              <option value={1}>1 mois — {discountEligible ? '1 250' : '2 500'} FCFA</option>
+              <option value={3}>3 mois — {discountEligible ? '6 250' : '7 500'} FCFA</option>
+              <option value={6}>6 mois — {discountEligible ? '13 750' : '15 000'} FCFA</option>
+              <option value={12}>12 mois — {discountEligible ? '28 750' : '30 000'} FCFA</option>
             </select>
           </div>
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
