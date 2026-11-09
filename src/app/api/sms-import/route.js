@@ -151,7 +151,7 @@ export async function POST(request) {
         if (!userSnap.exists || !importSnap.exists) throw new Error('Import SMS introuvable.');
         const profile = userSnap.data() || {};
         const automaticImport = importSnap.data()?.source !== 'sharesheet';
-        if (!isPremium(profile) || (automaticImport && profile.smsImportEnabled !== true)) throw new Error('Un abonnement Premium actif est nécessaire ; active la détection automatique pour les SMS reçus en arrière-plan.
+        if (!isPremium(profile) || (automaticImport && profile.smsImportEnabled !== true)) throw new Error('Un abonnement Premium actif est nécessaire ; active la détection automatique pour les SMS reçus en arrière-plan.');
         const item = importSnap.data() || {};
         if (item.status === 'CONFIRMED') return { duplicate: true, item };
         if (item.status === 'REJECTED') throw new Error('Cette opération a été refusée.');
