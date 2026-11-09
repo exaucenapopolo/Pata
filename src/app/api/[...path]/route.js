@@ -824,7 +824,7 @@ async function handlePinResetConfirm(request) {
 
 
 function normalizeReferralPhone(value) {
-  let digits = String(value || '').replace(/\\D/g, '');
+  let digits = String(value || '').replace(/\D/g, '');
   if (digits.startsWith('00237')) digits = digits.slice(2);
   return digits;
 }
@@ -1068,7 +1068,7 @@ async function handleReferralWithdrawal(request) {
     const body = await request.json();
     const amount = Math.floor(Number(body.amount));
     const phoneRaw = String(body.phone || '').replace(/[^0-9+]/g, '');
-    let phone = phoneRaw.replace(/^\\+/, '');
+    let phone = phoneRaw.replace(/^\+/, '');
     if (phone.startsWith('237') && phone.length === 12) phone = phone.slice(3);
     const medium = body.network === 'orange' ? 'orange money' : body.network === 'mtn' ? 'mobile money' : '';
     if (!Number.isSafeInteger(amount) || amount < 100 || amount > 500000) return errorResponse('Le retrait doit être compris entre 100 et 500 000 FCFA.', 400);
