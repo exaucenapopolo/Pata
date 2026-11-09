@@ -91,9 +91,12 @@ jobs:
         run: |
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/pata-release.jks
           python3 - <<'PY'
+          import re
           from pathlib import Path
+
           path = Path("android/app/build.gradle")
           content = path.read_text()
+
           signing = '''
               signingConfigs {
                   release {
@@ -104,12 +107,45 @@ jobs:
                   }
               }
           '''
-          if "signingConfigs {" not in content:
-              content = content.replace("    buildTypes {", signing + "\n    buildTypes {", 1)
-          if "signingConfig signingConfigs.release" not in content:
-              content = content.replace("        release {", "        release {\n            signingConfig signingConfigs.release", 1)
+
+          # Déclarer la clé avant buildTypes, au niveau du bloc android.
+          if not re.search(r"^\\s*signingConfigs\\s*\\{", content, re.MULTILINE):
+              build_types = re.search(r"^\\s*buildTypes\\s*\\{", content, re.MULTILINE)
+              if not build_types:
+                  raise SystemExit("Bloc android.buildTypes introuvable dans android/app/build.gradle")
+              content = content[:build_types.start()] + signing + "\\n" + content[build_types.start():]
+
+          # Ajouter signingConfig uniquement dans buildTypes.release (et pas dans signingConfigs.release).
+          build_types = re.search(r"\\bbuildTypes\\s*\\{", content)
+          if not build_types:
+              raise SystemExit("Bloc android.buildTypes introuvable")
+          build_open = content.find("{", build_types.start())
+          depth = 1
+          build_close = build_open + 1
+          while build_close < len(content) and depth:
+              if content[build_close] == "{":
+                  depth += 1
+              elif content[build_close] == "}":
+                  depth -= 1
+              build_close += 1
+          if depth:
+              raise SystemExit("Bloc android.buildTypes mal formé")
+
+          build_block = content[build_open + 1:build_close - 1]
+          release_block = re.search(r"\\brelease\\s*\\{", build_block)
+          if not release_block:
+              raise SystemExit("Bloc android.buildTypes.release introuvable")
+          release_open = build_open + 1 + release_block.end() - 1
+          release_body_start = release_open + 1
+          body_preview = content[release_body_start:build_close]
+          if not re.search(r"^\\s*signingConfig\\s+signingConfigs\\.release\\b", body_preview, re.MULTILINE):
+              content = content[:release_body_start] + "\\n            signingConfig signingConfigs.release" + content[release_body_start:]
+
           path.write_text(content)
           PY
+          test -s android/app/pata-release.jks
+          keytool -list -keystore android/app/pata-release.jks -storetype JKS -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null
+          echo "Keystore Android validé et bloc buildTypes.release configuré."
 
       - name: Compiler l'APK release signée
         if: ${{ inputs.publish_release == 'true' && env.ANDROID_KEYSTORE_BASE64 != '' && env.ANDROID_KEYSTORE_PASSWORD != '' && env.ANDROID_KEY_ALIAS != '' && env.ANDROID_KEY_PASSWORD != '' }}
