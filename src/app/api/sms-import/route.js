@@ -288,11 +288,28 @@ async function handleAutomaticDeviceImport(body) {
     });
   }
   if (claim.requiresReview) {
+    const providerName = parsed.provider === 'mtn_momo' ? 'MTN MoMo' : 'Orange Money';
+    const notificationId = 'sms-review-' + hash;
+    await adminDb.collection('users').doc(uid).collection('notifications').doc(notificationId).set({
+      title: 'Retrait Mobile Money à vérifier',
+      body: 'Un retrait de ' + Number(parsed.amount).toLocaleString('fr-FR') + ' FCFA via ' + providerName
+        + ' a été détecté. Il attend ta classification et n’a pas été compté comme une dépense.',
+      target: '/dashboard',
+      source: 'sms_import',
+      operationType: 'withdrawal',
+      operationId: null,
+      provider: parsed.provider,
+      amount: parsed.amount,
+      read: false,
+      readAt: null,
+      createdAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
     return NextResponse.json({
       success: true,
       duplicate: false,
       requiresReview: true,
       target: '/dashboard',
+      notifications: { inAppSent: true, requiresReview: true },
     });
   }
 
