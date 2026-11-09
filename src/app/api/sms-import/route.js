@@ -4,6 +4,7 @@ import { adminAuth, adminDb, adminMessaging } from '@/lib/firebase/admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { createExpenseForUser } from '@/lib/ai/financialTools';
 import { sendPataEmail, renderPataEmail, escapeEmailHtml } from '@/lib/email/resend';
+import { sendPataWebPush, isExpiredWebPushError } from '@/lib/notifications/webPush';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -131,12 +132,14 @@ async function createSmsIncome(uid, transactionHash, item, providerName) {
 
 async function notifyAutomaticSmsTransaction(uid, profile, transaction) {
   const title = transaction.direction === 'income' ? 'Nouveau revenu enregistré' : 'Nouvelle dépense enregistrée';
-  const type = transaction.direction === 'income' ? 'revenu' : 'dépense';
+  const kind = transaction.direction === 'income' ? 'revenu' : 'dépense';
   const amount = Number(transaction.amount).toLocaleString('fr-FR') + ' FCFA';
-  const body = 'Pata a enregistré automatiquement un ' + type + ' de ' + amount + ' via ' + transaction.providerName + '.';
+  const body = 'Pata a enregistré automatiquement un ' + kind + ' de ' + amount + ' via ' + transaction.providerName + '.';
   const target = transaction.target;
   const notificationId = 'sms-' + transaction.transactionHash;
-  const notificationRef = adminDb.collection('users').doc(uid).collection('notifications').doc(notificationId);
+  const userRef = adminDb.collection('users').doc(uid);
+  const notificationRef = userRef.collection('notifications').doc(notificationId);
+
   await notificationRef.set({
     title, body, target, source: 'sms_import', operationType: transaction.direction,
     operationId: transaction.operationId, provider: transaction.provider,
@@ -144,29 +147,71 @@ async function notifyAutomaticSmsTransaction(uid, profile, transaction) {
     createdAt: FieldValue.serverTimestamp(),
   }, { merge: true });
 
-  let pushSent = 0;
-  let pushFailed = 0;
+  let fcmSent = 0;
+  let fcmFailed = 0;
   const tokens = profile.notificationsEnabled === true && Array.isArray(profile.pushTokens)
     ? [...new Set(profile.pushTokens.filter((token) => typeof token === 'string' && token.length > 20))]
     : [];
+  const appUrl = 'https://www.pata-yam.site';
   for (const token of tokens) {
     try {
       await adminMessaging.send({
         token,
-        data: { title, body, url: target, tag: notificationId },
-        android: { priority: 'high' },
-        webpush: { headers: { TTL: '86400' } },
+        notification: { title, body },
+        data: { title, body, url: target, tag: notificationId, source: 'sms_import' },
+        android: {
+          priority: 'high',
+          notification: { channelId: 'pata_general', icon: 'ic_stat_pata', color: '#0b5c46' },
+        },
+        webpush: {
+          headers: { TTL: '86400', Urgency: 'high' },
+          notification: {
+            title, body,
+            icon: appUrl + '/android-chrome-192x192.png',
+            badge: appUrl + '/android-chrome-192x192.png',
+            tag: notificationId,
+            renotify: false,
+          },
+          fcmOptions: { link: new URL(target, appUrl).toString() },
+        },
       });
-      pushSent += 1;
+      fcmSent += 1;
     } catch (error) {
-      pushFailed += 1;
-      console.warn('[PATA SMS PUSH]', uid, error.code || error.message);
+      fcmFailed += 1;
+      console.warn('[PATA SMS FCM PUSH]', uid, error.code || error.message);
       if (['messaging/registration-token-not-registered', 'messaging/invalid-registration-token'].includes(error.code)) {
-        await adminDb.collection('users').doc(uid).update({
-          pushTokens: FieldValue.arrayRemove(token),
-        }).catch(() => {});
+        await userRef.update({ pushTokens: FieldValue.arrayRemove(token) }).catch(() => {});
       }
     }
+  }
+
+  let webPushSent = 0;
+  let webPushFailed = 0;
+  const webPushSnapshot = profile.notificationsEnabled === true
+    ? await userRef.collection('webPushSubscriptions').get().catch((error) => {
+        console.warn('[PATA SMS WEB PUSH LOOKUP]', uid, error.message || error);
+        return null;
+      })
+    : null;
+  const webPushDocs = webPushSnapshot?.docs || [];
+  for (const subscriptionDoc of webPushDocs) {
+    const saved = subscriptionDoc.data() || {};
+    try {
+      await sendPataWebPush({
+        endpoint: saved.endpoint,
+        expirationTime: saved.expirationTime ?? null,
+        keys: saved.keys,
+      }, { title, body, url: target, tag: notificationId });
+      webPushSent += 1;
+    } catch (error) {
+      webPushFailed += 1;
+      console.warn('[PATA SMS WEB PUSH]', uid, error.statusCode || error.message);
+      if (isExpiredWebPushError(error)) await subscriptionDoc.ref.delete().catch(() => {});
+    }
+  }
+  if (webPushDocs.length) {
+    const count = await userRef.collection('webPushSubscriptions').count().get().catch(() => null);
+    await userRef.set({ webPushDeviceCount: Number(count?.data()?.count) || 0 }, { merge: true }).catch(() => {});
   }
 
   let email = typeof profile.email === 'string' ? profile.email : '';
@@ -185,18 +230,43 @@ async function notifyAutomaticSmsTransaction(uid, profile, transaction) {
   let emailStatus = 'no_email';
   if (email.includes('@')) {
     const operationLabel = transaction.direction === 'income' ? 'Revenu reçu' : 'Dépense détectée';
+    const safeName = escapeEmailHtml(displayName || 'Bonjour');
     const safeAmount = escapeEmailHtml(amount);
     const safeProvider = escapeEmailHtml(transaction.providerName);
-    const safeName = escapeEmailHtml(displayName || 'Bonjour');
+    const dateLabel = escapeEmailHtml(transaction.date || 'Date non précisée');
+    const timeLabel = escapeEmailHtml(transaction.time || 'Heure non précisée');
+    const categoryLabel = escapeEmailHtml(transaction.categoryLabel || (transaction.direction === 'income' ? 'Autres revenus' : 'Autres dépenses'));
+    const counterpartyLabel = escapeEmailHtml(transaction.counterparty || 'Non communiqué par l’opérateur');
+    const rows = [
+      ['Montant', safeAmount],
+      ['Type d’opération', operationLabel],
+      ['Opérateur', safeProvider],
+      ['Date', dateLabel],
+      ['Heure', timeLabel],
+      ['Catégorie proposée', categoryLabel],
+      ['Correspondant / marchand', counterpartyLabel],
+      ['Statut', 'Enregistré automatiquement dans Pata'],
+    ];
+    const detailsTable = '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;border:1px solid #e2e8f0;border-radius:12px;">' +
+      rows.map(([label, value]) =>
+        '<tr><td style="padding:11px 12px;border-bottom:1px solid #edf2f7;color:#64748b;font-size:12px;">' +
+        escapeEmailHtml(label) +
+        '</td><td style="padding:11px 12px;border-bottom:1px solid #edf2f7;text-align:right;color:#0f172a;font-size:13px;font-weight:700;">' +
+        value + '</td></tr>'
+      ).join('') + '</table>';
+
     const html = renderPataEmail({
       eyebrow: 'SUIVI MOBILE MONEY',
-      preheader: operationLabel + ' · ' + amount,
+      preheader: operationLabel + ' · ' + amount + ' · ' + transaction.providerName,
       headline: operationLabel + ' enregistré(e) dans Pata',
-      bodyHtml: '<p style="margin:0 0 14px;color:#334155;font-size:14px;line-height:1.75;">Bonjour ' + safeName + ', Pata vient d’enregistrer automatiquement cette opération à partir d’un SMS de confirmation reconnu.</p>' +
-        '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #e2e8f0;border-radius:12px;"><tr><td style="padding:12px;color:#64748b;font-size:12px;">Montant</td><td style="padding:12px;text-align:right;color:#0f172a;font-weight:700;">' + safeAmount + '</td></tr><tr><td style="padding:12px;color:#64748b;font-size:12px;">Opérateur</td><td style="padding:12px;text-align:right;color:#0f172a;font-weight:700;">' + safeProvider + '</td></tr></table>' +
-        '<p style="margin:14px 0 0;color:#475569;font-size:13px;line-height:1.7;">Tu peux ouvrir l’opération, vérifier sa catégorie, la modifier ou la supprimer directement dans Pata.</p>',
-      ctaLabel: 'Voir et modifier cette opération',
+      bodyHtml:
+        '<p style="margin:0 0 16px;color:#334155;font-size:14px;line-height:1.75;">Bonjour ' + safeName +
+        ', une confirmation Mobile Money vient d’être reconnue sur ton téléphone et l’opération a été ajoutée automatiquement à ton compte Pata.</p>' +
+        detailsTable +
+        '<p style="margin:16px 0 0;color:#475569;font-size:13px;line-height:1.7;">Ouvre Pata pour vérifier les informations. Tu pourras modifier la catégorie ou le libellé, ou supprimer l’opération si elle ne correspond pas à ton suivi.</p>',
+      ctaLabel: 'Consulter cette opération dans Pata',
       ctaUrl: target,
+      signoff: 'Merci d’utiliser Pata pour suivre tes finances.',
     });
     try {
       await sendPataEmail({
@@ -215,12 +285,13 @@ async function notifyAutomaticSmsTransaction(uid, profile, transaction) {
 
   return {
     inAppSent: true,
-    pushSent,
-    pushFailed,
-    emailSent,
-    emailStatus,
+    fcmSent, fcmFailed, webPushSent, webPushFailed,
+    pushSent: fcmSent + webPushSent,
+    pushFailed: fcmFailed + webPushFailed,
+    emailSent, emailStatus,
   };
 }
+
 
 async function handleAutomaticDeviceImport(body) {
   const uid = String(body.uid || '').trim().slice(0, 150);
