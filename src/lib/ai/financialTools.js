@@ -145,7 +145,7 @@ function getExpenseTypeForBudget(expense) {
     ? expense.expenseType : 'consumption';
 }
 
-export async function createExpenseForUser(uid, input, { countQuota = true, sourceOverride = null, idempotencyKey = null } = {}) {
+export async function createExpenseForUser(uid, input, { countQuota = true, sourceOverride = null, idempotencyKey = null, externalFunding = false, skipBudgetConfirmation = false } = {}) {
   const amount = asPositiveMoney(input.amount, 'Dépense');
   const categoryId = await assertExpenseCategory(uid, input.categoryId || input.category || 'other');
   const expenseType = cleanText(input.expenseType || 'consumption', 30);
@@ -199,14 +199,19 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
     const incomes = incomesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
     const expenses = expensesSnap.docs.map((doc) => doc.data());
     const balances = buildIncomeBalances(incomes, expenses);
-    const selectedSource = sourceOverride || resolveSource(
-      incomes, input.incomeSourceId, input.incomeSourceName,
-    );
+    const selectedSource = externalFunding
+      ? { id: 'external', source: 'Solde Mobile Money' }
+      : sourceOverride || resolveSource(incomes, input.incomeSourceId, input.incomeSourceName);
 
     const eligibleBalances = balances.filter((income) => !income.projectId || income.projectId === projectId);
 
     let allocations;
-    if (selectedSource.id === 'all') {
+    if (externalFunding) {
+      // Une dépense reconnue depuis le portefeuille Mobile Money peut précéder
+      // l'import de l'ancien solde dans Pata. Elle ne doit pas être rejetée
+      // uniquement parce qu'aucune source de revenu Pata n'est encore liée.
+      allocations = [{ income: { id: 'external', source: 'Solde Mobile Money' }, amount }];
+    } else if (selectedSource.id === 'all') {
       const available = eligibleBalances.reduce((sum, item) => sum + item.remaining, 0);
       if (amount > available) {
         throw new Error(`Fonds insuffisants : ${available.toLocaleString('fr-FR')} FCFA disponibles au total, contre ${amount.toLocaleString('fr-FR')} FCFA demandés.`);
@@ -264,7 +269,7 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
         });
       }
     }
-    if (warnings.length && input.confirmBudgetOverrun !== true) {
+    if (warnings.length && input.confirmBudgetOverrun !== true && !skipBudgetConfirmation) {
       const warningText = warnings.map((item) => {
         const label = item.incomeSourceId === 'all' ? 'tous les revenus' : (incomes.find((income) => income.id === item.incomeSourceId)?.source || 'ce revenu');
         return `${label} : budget ${item.allocated.toLocaleString('fr-FR')} FCFA, déjà dépensé ${item.alreadySpent.toLocaleString('fr-FR')} FCFA, après cette opération ${item.after.toLocaleString('fr-FR')} FCFA (dépassement ${item.excess.toLocaleString('fr-FR')} FCFA)`;
@@ -282,7 +287,10 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
 
     const created = [];
     allocations.forEach(({ income, amount: allocated }, index) => {
-      const expenseRef = expenseCollection.doc();
+      const smsImportId = cleanText(input.smsImportId, 80);
+      const expenseRef = externalFunding && smsImportId
+        ? expenseCollection.doc(smsImportId)
+        : expenseCollection.doc();
       transaction.create(expenseRef, {
         amount: allocated,
         categoryId,
@@ -293,11 +301,12 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
         expenseType,
         projectId: expenseType === 'project' ? projectId : null,
         projectName: expenseType === 'project' ? projectName : null,
+        ...(smsImportId ? { smsImportId } : {}),
         ...optionalMetadata,
         createdAt: FieldValue.serverTimestamp(),
         ...(input.automationId ? { automationId: input.automationId } : {}),
       });
-      created.push({ incomeSourceId: income.id, incomeSourceName: income.source || 'Revenu sans nom', amount: allocated });
+      created.push({ expenseId: expenseRef.id, incomeSourceId: income.id, incomeSourceName: income.source || 'Revenu sans nom', amount: allocated });
     });
 
     if (countQuota && !isPremium(userData)) {
@@ -309,7 +318,16 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
       ...(countQuota && !isPremium(userData) ? { monthlyStats: nextStats } : {}),
     }, { merge: true });
 
-    const result = { success: true, amount, date, categoryId, expenseType, projectId: expenseType === 'project' ? projectId : null, projectName: projectName || null, allocations: created, recordsCreated: created.length };
+    const result = {
+      success: true, amount, date, categoryId, expenseType,
+      projectId: expenseType === 'project' ? projectId : null,
+      projectName: projectName || null,
+      allocations: created,
+      recordsCreated: created.length,
+      expenseIds: created.map((item) => item.expenseId),
+      expenseId: created[0]?.expenseId || null,
+      ...(skipBudgetConfirmation && warnings.length ? { budgetWarnings: warnings } : {}),
+    };
     if (idempotencyRef) transaction.create(idempotencyRef, { result, createdAt: FieldValue.serverTimestamp() });
     return result;
   });
