@@ -69,6 +69,14 @@ public class PataSmsSyncWorker extends Worker {
             JSONObject response = new JSONObject(text.length() == 0 ? "{}" : text.toString());
             if (status >= 200 && status < 300 && response.optBoolean("success", false)) {
                 PataSmsReceiver.removePending(getApplicationContext(), hash);
+                if (response.optBoolean("requiresReview", false)) {
+                    PataSmsReceiver.recordDiagnostic(getApplicationContext(), "awaiting_review",
+                        getInputData().getString("provider"),
+                        "Retrait détecté et placé dans Pata pour vérification. Il n'a pas été compté automatiquement comme une dépense.");
+                    PataSmsReceiver.showStatusNotification(getApplicationContext(), "Retrait Mobile Money à vérifier",
+                        "Pata a détecté un retrait. Ouvre l'application pour décider comment le comptabiliser.");
+                    return Result.success();
+                }
                 boolean duplicate = response.optBoolean("duplicate", false);
                 JSONObject notifications = response.optJSONObject("notifications");
                 boolean emailSent = notifications != null && notifications.optBoolean("emailSent", false);
