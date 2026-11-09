@@ -17,6 +17,7 @@ export function SmsImportSettings() {
   const [permission, setPermission] = useState(false);
   const [batteryExempt, setBatteryExempt] = useState(false);
   const [premiumUntil, setPremiumUntil] = useState(null);
+  const [diagnostic, setDiagnostic] = useState(null);
   const [message, setMessage] = useState('');
   const isNative = Capacitor.isNativePlatform();
 
@@ -35,11 +36,29 @@ export function SmsImportSettings() {
         const status = await PataSms.getStatus();
         setPermission(status.receiveSmsGranted === true);
         setBatteryExempt(status.ignoringBatteryOptimizations === true);
+        try { setDiagnostic(JSON.parse(status.lastSmsDiagnosticJson || '{}')); } catch { setDiagnostic(null); }
+        let deviceToken = '';
+        if (data.enabled === true && status.hasDeviceToken !== true) {
+          const tokenResponse = await fetch('/api/sms-import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+            body: JSON.stringify({ action: 'device-token' }),
+          });
+          const tokenData = await tokenResponse.json().catch(() => ({}));
+          if (!tokenResponse.ok || !tokenData.success || !tokenData.deviceToken) {
+            throw new Error(tokenData.error || 'Impossible de relier cet appareil à la synchronisation automatique.');
+          }
+          deviceToken = tokenData.deviceToken;
+        }
         const nativeConfig = await PataSms.setConfiguration({
           enabled: data.enabled === true,
           uid: user.uid,
+          deviceToken,
           premiumUntilMillis: data.premiumUntil ? new Date(data.premiumUntil).getTime() : 0,
         });
+        if (data.enabled === true && nativeConfig.enabled === true) {
+          await PataSms.retryPendingSync().catch(() => {});
+        }
         setEnabled(data.enabled === true && nativeConfig.enabled === true);
       }
     } catch (error) {
@@ -84,13 +103,14 @@ export function SmsImportSettings() {
       const nativeConfig = await PataSms.setConfiguration({
         enabled: nextEnabled,
         uid: user.uid,
+        deviceToken: data.deviceToken || '',
         premiumUntilMillis: data.premiumUntil ? new Date(data.premiumUntil).getTime() : 0,
       });
       setEnabled(nextEnabled && nativeConfig.enabled === true);
       setMessage(nextEnabled && nativeConfig.enabled !== true
         ? 'Le réglage serveur est enregistré, mais Android n’a pas autorisé la réception automatique. Tu peux continuer à partager tes SMS avec Pata.'
         : nextEnabled
-          ? 'Import activé. Les SMS reconnus seront détectés sur cet appareil et présentés pour confirmation.'
+          ? 'Import automatique activé. Pata enregistrera les transactions reconnues même lorsque l’application est fermée, puis enverra une notification et un e-mail.'
           : 'Import SMS désactivé sur cet appareil.');
     } catch (error) {
       setMessage(error.message || 'Impossible d’activer l’import SMS.');
@@ -100,6 +120,7 @@ export function SmsImportSettings() {
       if (status) {
         setPermission(status.receiveSmsGranted === true);
         setBatteryExempt(status.ignoringBatteryOptimizations === true);
+        try { setDiagnostic(JSON.parse(status.lastSmsDiagnosticJson || '{}')); } catch { setDiagnostic(null); }
       }
     }
   };
@@ -155,6 +176,16 @@ export function SmsImportSettings() {
         </div>}
       </div>}
 
+      {isNative && diagnostic && <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+        <p className="text-xs font-semibold text-slate-800">Diagnostic de la dernière réception SMS</p>
+        <p className="mt-1 text-[11px] text-slate-600">
+          {diagnostic.receivedAt ? new Date(diagnostic.receivedAt).toLocaleString('fr-FR') : 'Aucun SMS reçu depuis cette installation'}
+          {diagnostic.provider ? ' · ' + (diagnostic.provider === 'mtn_momo' ? 'MTN MoMo' : 'Orange Money') : ''}
+        </p>
+        <p className="mt-1 text-[11px] leading-5 text-slate-600">{diagnostic.message || 'Les événements de réception seront affichés ici.'}</p>
+        <p className="mt-1 text-[10px] text-slate-500">{Number(diagnostic.pendingCount || 0) > 0 ? diagnostic.pendingCount + ' SMS en attente de synchronisation.' : ''}</p>
+        <Button type="button" size="sm" variant="outline" className="mt-2" onClick={async () => { await PataSms.retryPendingSync().catch(() => {}); await refresh(); }}>Actualiser le diagnostic</Button>
+      </div>}
       {message && <p role="status" className="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-700">{message}</p>}
       {enabled && permission && <p className="flex items-center gap-2 text-xs font-medium text-emerald-800"><CheckCircle2 size={15}/> Détection locale active sur cet appareil.</p>}
       {premiumUntil && <p className="text-[10px] text-slate-400">Premium jusqu’au {new Date(premiumUntil).toLocaleDateString('fr-FR')}.</p>}
