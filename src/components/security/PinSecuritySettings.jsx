@@ -42,8 +42,8 @@ export function PinSecuritySettings() {
     try {
       await call(user,'security/pin/set',{pin,currentPin});
       setEnabled(true); setPin(''); setConfirmPin(''); setCurrentPin('');
-      try { sessionStorage.setItem('pata-pin-unlocked:'+user.uid,'1'); } catch { /* session non disponible */ }
-      setMessage('Ton code secret est enregistré. Il sera demandé à l’ouverture de Pata sur cet appareil.');
+      try { localStorage.removeItem('pata-pin-last-background:'+user.uid); } catch { /* stockage local indisponible */ }
+      setMessage('Ton code secret est enregistré. Il sera demandé uniquement après au moins 10 minutes passées hors de Pata.');
     } catch(err) { setError(err.message); }
     finally { setSaving(false); }
   };
@@ -61,7 +61,7 @@ export function PinSecuritySettings() {
     try {
       await call(user,'security/pin/reset/confirm',{code,pin});
       setEnabled(true); setCode(''); setPin(''); setConfirmPin(''); setCurrentPin(''); setResetSent(false);
-      try { sessionStorage.setItem('pata-pin-unlocked:'+user.uid,'1'); } catch { /* session non disponible */ }
+      try { localStorage.removeItem('pata-pin-last-background:'+user.uid); } catch { /* stockage local indisponible */ }
       setMessage('Ton nouveau code secret est enregistré.');
     } catch(err) { setError(err.message); }
     finally { setSaving(false); }
