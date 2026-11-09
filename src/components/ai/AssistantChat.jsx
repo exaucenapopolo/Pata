@@ -451,7 +451,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
 
       setImageFile(null);
       const cleanMessages = [
-        ...messages.map((message) => ({ role: message.role, content: String(message.content || '') })),
+        ...messages.slice(-5).map((message) => ({ role: message.role, content: String(message.content || '').slice(-650) })),
         { role: 'user', content: text },
       ];
       const mode = hasAudio ? 'audio' : 'text';

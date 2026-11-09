@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { LockKeyhole, ShieldCheck, Mail } from 'lucide-react';
+import { PinPad } from '@/components/security/PinPad';
 import { useAuth } from '@/hooks/useAuth';
 
 async function call(user, path, body) {
@@ -50,7 +51,7 @@ export function PinSecuritySettings() {
       setEnabled(true); setPin(''); setConfirmPin(''); setCurrentPin('');
       window.dispatchEvent(new Event('pata:pin-updated'));
       try { localStorage.removeItem('pata-pin-last-background:'+user.uid); } catch { /* stockage local indisponible */ }
-      setMessage('Ton code secret est enregistré. Il sera demandé uniquement après au moins 10 minutes passées hors de Pata.');
+      setMessage('Ton code secret est enregistré.');
     } catch(err) { setError(err.message); }
     finally { setSaving(false); }
   };
@@ -76,13 +77,13 @@ export function PinSecuritySettings() {
   };
 
   return <section className="rounded-2xl border border-slate-200 bg-white p-4">
-    <div className="flex items-start gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#edf5f0] text-[#0b5c46]"><LockKeyhole size={19}/></span><div><h3 className="text-sm font-bold text-slate-900">Code secret à 4 chiffres</h3><p className="mt-1 text-xs leading-5 text-slate-500">Ajoute un code secret à 4 chiffres. Il est demandé une seule fois lorsque tu reviens dans Pata après au moins 10 minutes passées hors de l’application, pas à chaque opération.</p></div></div>
+    <div className="flex items-start gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#edf5f0] text-[#0b5c46] dark:bg-[#173329] dark:text-emerald-300"><LockKeyhole size={19}/></span><div><h3 className="text-sm font-bold text-slate-900">Code secret à 4 chiffres</h3><p className="mt-1 text-xs leading-5 text-slate-500">Protège l’accès à ton espace personnel avec un code à 4 chiffres.</p></div></div>
     {loading ? <p className="mt-4 text-xs text-slate-400">Vérification…</p> : <>
       <p className="mt-3 flex items-center gap-2 text-xs font-semibold">{enabled?<><ShieldCheck size={15} className="text-emerald-700"/> Protection activée</>:<span className="text-slate-500">Aucun code secret configuré</span>}</p>
       <form onSubmit={resetSent?confirmReset:savePin} className="mt-4 space-y-3">
-        {enabled && !resetSent && <input type="password" inputMode="numeric" maxLength={4} value={currentPin} onChange={e=>setCurrentPin(e.target.value.replace(/\D/g,'').slice(0,4))} placeholder="Code actuel (4 chiffres)" className="h-11 w-full rounded-xl border border-slate-200 px-3 text-center tracking-[.4em] outline-none focus:border-[#0b5c46]"/>}
-        {resetSent && <input inputMode="numeric" maxLength={6} value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,'').slice(0,6))} placeholder="Code de vérification reçu par e-mail" className="h-11 w-full rounded-xl border border-slate-200 px-3 text-center tracking-[.3em] outline-none focus:border-[#0b5c46]"/>}
-        <div className="grid gap-2 sm:grid-cols-2"><input type="password" inputMode="numeric" maxLength={4} value={pin} onChange={e=>setPin(e.target.value.replace(/\D/g,'').slice(0,4))} placeholder="Nouveau PIN (4 chiffres)" className="h-11 w-full rounded-xl border border-slate-200 px-3 text-center tracking-[.4em] outline-none focus:border-[#0b5c46]"/><input type="password" inputMode="numeric" maxLength={4} value={confirmPin} onChange={e=>setConfirmPin(e.target.value.replace(/\D/g,'').slice(0,4))} placeholder="Confirmer le PIN" className="h-11 w-full rounded-xl border border-slate-200 px-3 text-center tracking-[.4em] outline-none focus:border-[#0b5c46]"/></div>
+        {enabled && !resetSent && <PinPad value={currentPin} onChange={setCurrentPin} label="Code actuel" disabled={saving}/>
+        {resetSent && <input type="text" inputMode="numeric" autoComplete="off" autoCorrect="off" spellCheck={false} maxLength={6} value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,'').slice(0,6))} placeholder="Code reçu par e-mail" className="h-11 w-full rounded-xl border border-slate-200 px-3 text-center tracking-[.3em] outline-none focus:border-brand-500"/>}
+        <div className="grid gap-4 sm:grid-cols-2"><PinPad value={pin} onChange={setPin} label="Nouveau PIN" disabled={saving}/><PinPad value={confirmPin} onChange={setConfirmPin} label="Confirmer le PIN" disabled={saving}/></div>
         <div className="flex flex-wrap gap-2"><button disabled={saving || pin.length!==4 || confirmPin.length!==4 || (enabled&&!resetSent&&currentPin.length!==4) || (resetSent&&code.length!==6)} className="h-10 rounded-xl bg-[#0b5c46] px-4 text-xs font-bold text-white disabled:opacity-50">{saving?'Enregistrement…':enabled?'Enregistrer le nouveau PIN':'Activer mon code secret'}</button>{enabled&&!resetSent&&<button type="button" onClick={requestReset} disabled={saving} className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-600 disabled:opacity-50"><Mail size={14}/> Code oublié ?</button>}{resetSent&&<button type="button" onClick={()=>{setResetSent(false);setCode('');setError('');setMessage('');}} className="h-10 rounded-xl px-3 text-xs font-semibold text-slate-500">Annuler</button>}</div>
       </form>
       {message&&<p role="status" className="mt-3 text-xs leading-5 text-emerald-700">{message}</p>}

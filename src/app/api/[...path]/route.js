@@ -7,7 +7,7 @@ import { AI_TOOLS, createExpenseForUser, updateExpenseForUser, deleteExpenseForU
 import { generateAudioWithGemini } from '@/lib/ai/geminiTTS';
 import { chatWithGroqVision } from '@/lib/ai/groqVision';
 import { generateImageWithPollinations } from '@/lib/ai/pollinationsImage';
-import { buildUserContext } from '@/lib/ai/buildUserContext';
+import { classifyAIRequest, selectAIToolsForIntent, buildCompactAIContext } from '@/lib/ai/compactContext';
 import { computeGoalPlan, GOAL_LATE_PENALTY_RATE, GOAL_PENALTY_EFFECTIVE_DATE } from '@/lib/goalCalc';
 import {
   sendPataEmail, welcomeEmail, savingsCreatedEmail, customAdminEmail, pinResetEmail, referralJoinedEmail, referralRewardActivatedEmail,
@@ -2606,19 +2606,22 @@ async function handleAIChat(request) {
     const incomingMessages = Array.isArray(body.messages) ? body.messages : [];
     if (!incomingMessages.length) return errorResponse('Messages requis.', 400);
 
-    const history = incomingMessages.slice(-24).map((message) => {
+    const history = incomingMessages.slice(-6).map((message, index, list) => {
       const content = String(message.content || '');
-      // Le bouton des documents juridiques transmet le texte complet à résumer.
-      // Les messages normaux conservent leur limite courte pour maîtriser le contexte.
-      const contentLimit = content.includes('CONTENU DU DOCUMENT :') ? 20000 : 1800;
+      const isLast = index === list.length - 1;
+      const legalDocument = content.includes('CONTENU DU DOCUMENT :');
+      const contentLimit = legalDocument && isLast ? 6000 : isLast ? 1800 : 650;
       return {
         role: message.role === 'assistant' ? 'assistant' : 'user',
-        content: content.slice(0, contentLimit),
+        content: content.slice(-contentLimit),
       };
     }).filter((message) => message.content.trim());
     if (!history.length || history[history.length - 1].role !== 'user') {
       return errorResponse('Le dernier message utilisateur est manquant.', 400);
     }
+    const latestUserText = history[history.length - 1].content;
+    const intent = classifyAIRequest(latestUserText);
+    const requestTools = selectAIToolsForIntent(AI_TOOLS, intent, latestUserText);
 
     const quota = await reserveDailyAIQuota(uid);
     if (!quota.allowed) {
@@ -2627,105 +2630,107 @@ async function handleAIChat(request) {
     if (quota.reserved) reservedQuota = quota.date;
 
     const userRef = adminDb.collection('users').doc(uid);
-    const [userDoc, incomesSnap, expensesSnap, goalsSnap, budgetsSnap, automationsSnap, memorySnap, categoriesSnap, projectsSnap, cotisationMembershipsSnap] = await Promise.all([
+    const emptySnapshot = { docs: [] };
+    const [
+      userDoc, incomesSnap, expensesSnap, goalsSnap, budgetsSnap, automationsSnap,
+      memorySnap, categoriesSnap, projectsSnap, cotisationMembershipsSnap,
+    ] = await Promise.all([
       userRef.get(),
-      userRef.collection('incomes').orderBy('date', 'desc').limit(100).get(),
-      userRef.collection('expenses').orderBy('date', 'desc').limit(200).get(),
-      userRef.collection('goals').limit(20).get(),
-      userRef.collection('budgets').limit(50).get(),
-      userRef.collection('automations').limit(50).get(),
-      userRef.collection('ai_memory').doc('profile').get(),
-      userRef.collection('categories').limit(50).get(),
-      userRef.collection('projects').orderBy('createdAt', 'desc').limit(50).get(),
-      userRef.collection('cotisationMemberships').limit(50).get(),
+      intent.needsIncomes ? userRef.collection('incomes').orderBy('date', 'desc').limit(35).get() : Promise.resolve(emptySnapshot),
+      intent.needsExpenses ? userRef.collection('expenses').orderBy('date', 'desc').limit(50).get() : Promise.resolve(emptySnapshot),
+      intent.needsGoals ? userRef.collection('goals').limit(15).get() : Promise.resolve(emptySnapshot),
+      intent.needsBudgets ? userRef.collection('budgets').limit(25).get() : Promise.resolve(emptySnapshot),
+      intent.needsAutomations ? userRef.collection('automations').limit(15).get() : Promise.resolve(emptySnapshot),
+      intent.memory ? userRef.collection('ai_memory').doc('profile').get() : Promise.resolve(null),
+      intent.needsCategories ? userRef.collection('categories').limit(40).get() : Promise.resolve(emptySnapshot),
+      intent.needsProjects ? userRef.collection('projects').orderBy('createdAt', 'desc').limit(15).get() : Promise.resolve(emptySnapshot),
+      intent.cotisations ? userRef.collection('cotisationMemberships').limit(12).get() : Promise.resolve(emptySnapshot),
     ]);
 
-    const goalsWithDeposits = await Promise.all(goalsSnap.docs.map(async (goalDoc) => {
-      const depositsSnap = await goalDoc.ref.collection('deposits').get();
-      return { id: goalDoc.id, ...goalDoc.data(), deposits: depositsSnap.docs.map((depositDoc) => depositDoc.data()) };
-    }));
+    const goalsWithDeposits = intent.needsGoals
+      ? await Promise.all(goalsSnap.docs.map(async (goalDoc) => {
+          const depositsSnap = await goalDoc.ref.collection('deposits').limit(40).get();
+          return { id: goalDoc.id, ...goalDoc.data(), deposits: depositsSnap.docs.map((depositDoc) => depositDoc.data()) };
+        }))
+      : [];
 
-    const cotisations = await Promise.all(cotisationMembershipsSnap.docs.map(async (membershipDoc) => {
-      const membership = membershipDoc.data() || {};
-      const groupRef = adminDb.collection('cotisationGroups').doc(String(membership.groupId || membershipDoc.id));
-      const groupSnap = await groupRef.get();
-      if (!groupSnap.exists) return null;
-      const group = groupSnap.data() || {};
-      const membersSnap = await groupRef.collection('members').orderBy('turnOrder', 'asc').limit(50).get();
-      const members = membersSnap.docs
-        .map((memberDoc) => ({ uid: memberDoc.id, ...memberDoc.data() }))
-        .filter((member) => member.active !== false);
-      const hasAssignedOrder = Boolean(group.orderConfirmedAt) && members.length > 0 && members.every((member) => Number.isInteger(Number(member.turnOrder)) && Number(member.turnOrder) >= 1);
-      members.sort((a, b) => hasAssignedOrder
-        ? Number(a.turnOrder) - Number(b.turnOrder)
-        : String(a.displayName || '').localeCompare(String(b.displayName || ''), 'fr'));
-      const meta = await resolveCurrentCotisationCycleMeta(groupRef, group);
-      const cycleRef = groupRef.collection('cycles').doc(meta.cycleKey);
-      const [cycleSnap, contributionsSnap] = await Promise.all([
-        cycleRef.get(),
-        cycleRef.collection('contributions').limit(50).get(),
-      ]);
-      const contributionMap = new Map(contributionsSnap.docs.map((doc) => [doc.id, doc.data()]));
-      const turnMember = group.startedAt && members.length ? members[meta.cycleIndex % members.length] : null;
-      const myMember = members.find((member) => member.uid === uid);
-      const mine = contributionMap.get(uid) || {};
-      const myPaid = cotisationMoney(mine.amount);
-      const myPenaltyPaid = cotisationMoney(mine.penaltyPaid);
-      const memberContributions = members.map((member) => {
-        const value = contributionMap.get(member.uid) || {};
-        const principal = cotisationMoney(value.amount);
-        const penalty = cotisationMoney(value.penaltyPaid);
+    let cotisationData = [];
+    if (intent.cotisations) {
+      cotisationData = (await Promise.all(cotisationMembershipsSnap.docs.map(async (membershipDoc) => {
+        const membership = membershipDoc.data() || {};
+        const groupRef = adminDb.collection('cotisationGroups').doc(String(membership.groupId || membershipDoc.id));
+        const [groupSnap, membersSnap] = await Promise.all([
+          groupRef.get(),
+          groupRef.collection('members').limit(50).get(),
+        ]);
+        if (!groupSnap.exists) return null;
+        const group = groupSnap.data() || {};
+        let members = membersSnap.docs
+          .map((memberDoc) => ({ uid: memberDoc.id, ...memberDoc.data() }))
+          .filter((member) => member.active !== false);
+        const hasAssignedOrder = Boolean(group.orderConfirmedAt) && members.length > 0
+          && members.every((member) => Number.isInteger(Number(member.turnOrder)) && Number(member.turnOrder) >= 1);
+        members.sort((a, b) => hasAssignedOrder
+          ? Number(a.turnOrder) - Number(b.turnOrder)
+          : String(a.displayName || '').localeCompare(String(b.displayName || ''), 'fr'));
+        const meta = await resolveCurrentCotisationCycleMeta(groupRef, group);
+        const cycleRef = groupRef.collection('cycles').doc(meta.cycleKey);
+        const [cycleSnap, contributionsSnap] = await Promise.all([
+          cycleRef.get(),
+          cycleRef.collection('contributions').limit(50).get(),
+        ]);
+        const contributionMap = new Map(contributionsSnap.docs.map((doc) => [doc.id, doc.data()]));
+        const myMember = members.find((member) => member.uid === uid);
+        const mine = contributionMap.get(uid) || {};
+        const myPaid = cotisationMoney(mine.amount);
+        const myPenaltyPaid = cotisationMoney(mine.penaltyPaid);
+        const currentUserPenaltyDue = cotisationIsLate(group, meta)
+          && myPaid < cotisationMoney(group.contributionAmount) && !myPenaltyPaid
+          ? cotisationLateFee(group) : 0;
+        const turnMember = group.startedAt && members.length ? members[meta.cycleIndex % members.length] : null;
+        const memberContributions = members.map((member) => {
+          const value = contributionMap.get(member.uid) || {};
+          const principal = cotisationMoney(value.amount);
+          const penalty = cotisationMoney(value.penaltyPaid);
+          return {
+            position: Number(member.turnOrder) || null,
+            displayName: String(member.displayName || 'Membre'),
+            principalPaid: principal,
+            penaltyPaid: penalty,
+            remainingPrincipal: Math.max(0, cotisationMoney(group.contributionAmount) - principal),
+          };
+        });
+        const expectedMembers = cotisationExpectedMembers(group, members.length);
+        const baseTarget = cotisationMoney(cycleSnap.data()?.baseTargetAmount) || cotisationMoney(group.contributionAmount) * expectedMembers;
+        const totalCollected = cotisationMoney(cycleSnap.data()?.totalCollected);
+        const targetAmount = cotisationMoney(cycleSnap.data()?.targetAmount) || baseTarget;
         return {
-          position: Number(member.turnOrder) || null,
-          displayName: String(member.displayName || 'Membre'),
-          isOwner: member.uid === group.ownerId,
-          isMe: member.uid === uid,
-          principalPaid: principal,
-          penaltyPaid: penalty,
-          totalPaid: principal + penalty,
-          remainingPrincipal: Math.max(0, cotisationMoney(group.contributionAmount) - principal),
+          id: groupRef.id,
+          name: group.name || membership.name || 'Cotisation',
+          role: group.ownerId === uid ? 'Chef du groupe' : 'Membre',
+          status: group.status || 'active',
+          frequency: cotisationFrequencyLabel(group.frequency),
+          contributionAmount: cotisationMoney(group.contributionAmount),
+          expectedMembers,
+          memberCount: members.length,
+          dueAt: meta.dueAt,
+          graceDays: cotisationMoney(group.graceDays),
+          lateFeeLabel: cotisationPenaltyLabel(group),
+          lateFeeDue: currentUserPenaltyDue,
+          myPosition: Number(myMember?.turnOrder) || null,
+          myPrincipalPaid: myPaid,
+          myPenaltyPaid,
+          myRemaining: Math.max(0, cotisationMoney(group.contributionAmount) - myPaid),
+          currentBeneficiary: turnMember?.displayName || 'Non défini',
+          beneficiaryPosition: Number(turnMember?.turnOrder) || null,
+          basePot: baseTarget,
+          totalCollected,
+          remainingToCollect: Math.max(0, targetAmount - totalCollected),
+          cycleStatus: cycleSnap.data()?.status || (!group.startedAt ? 'NOT_STARTED' : 'OPEN'),
+          members: memberContributions,
         };
-      });
-      const expectedMembers = cotisationExpectedMembers(group, members.length);
-      const baseTarget = cotisationMoney(cycleSnap.data()?.baseTargetAmount) || cotisationMoney(group.contributionAmount) * expectedMembers;
-      const totalCollected = cotisationMoney(cycleSnap.data()?.totalCollected);
-      const targetAmount = cotisationMoney(cycleSnap.data()?.targetAmount) || baseTarget;
-      const status = !group.startedAt ? 'NOT_STARTED' : cycleSnap.data()?.status || (totalCollected >= targetAmount && targetAmount > 0 ? 'READY' : 'OPEN');
-      const reminderAfter = cotisationAddDays(meta.dueAt, cotisationMoney(group.graceDays));
-      const currentUserPenaltyDue = cotisationIsLate(group, meta) && myPaid < cotisationMoney(group.contributionAmount) && !myPenaltyPaid
-        ? cotisationLateFee(group) : 0;
-      return {
-        id: groupRef.id,
-        name: group.name || membership.name || 'Cotisation',
-        role: group.ownerId === uid ? 'Chef du groupe' : 'Membre',
-        status: group.status || 'active',
-        started: Boolean(group.startedAt),
-        frequency: cotisationFrequencyLabel(group.frequency),
-        contributionAmount: cotisationMoney(group.contributionAmount),
-        expectedMembers,
-        memberCount: members.length,
-        dueDay: group.dueDay || null,
-        dueAt: meta.dueAt,
-        graceDays: cotisationMoney(group.graceDays),
-        graceEndDate: reminderAfter,
-        lateFeeLabel: cotisationPenaltyLabel(group),
-        lateFeeDue: currentUserPenaltyDue,
-        myPosition: Number(myMember?.turnOrder) || null,
-        myPrincipalPaid: myPaid,
-        myPenaltyPaid,
-        myRemaining: Math.max(0, cotisationMoney(group.contributionAmount) - myPaid),
-        currentBeneficiary: turnMember?.displayName || 'Non défini',
-        beneficiaryPosition: Number(turnMember?.turnOrder) || null,
-        myTurnToReceive: turnMember?.uid === uid,
-        basePot: baseTarget,
-        totalCollected,
-        totalTargetWithLateFees: targetAmount,
-        remainingToCollect: Math.max(0, targetAmount - totalCollected),
-        cycleStatus: status,
-        members: memberContributions,
-      };
-    }));
-    const cotisationData = cotisations.filter(Boolean);
+      }))).filter(Boolean);
+    }
 
     const userData = {
       profile: userDoc.exists ? userDoc.data() : {},
@@ -2733,85 +2738,30 @@ async function handleAIChat(request) {
       expenses: expensesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
       goals: goalsWithDeposits,
       budgets: budgetsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+      automations: automationsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+      memories: Array.isArray(memorySnap?.data()?.facts) ? memorySnap.data().facts : [],
+      categories: categoriesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
       projects: projectsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
       cotisations: cotisationData,
-      automations: automationsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
-      memories: Array.isArray(memorySnap.data()?.facts) ? memorySnap.data().facts : [],
-      categories: categoriesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
-      now: new Date(),
     };
 
-    const userContext = buildUserContext(userData);
     const userName = userData.profile?.displayName?.split(' ')[0] || 'Utilisateur';
-    const systemPrompt = `Tu es Mč, l’assistante financière de Pata. Tu échanges avec ${userName}. Tu es spécialiste du budget personnel, du suivi des revenus et dépenses, de l’épargne et des automatisations.
+    const userContext = buildCompactAIContext(userData, intent);
+    const systemPrompt = `Tu es Mč, l’assistante de gestion financière de Pata. Tu échanges en français avec ${userName}.
+Réponds directement et naturellement. Pour une question simple, reste bref (1 à 3 phrases, environ 60 mots maximum). Ne transforme pas chaque demande en rapport et ne répète pas la question. Ne termine pas systématiquement par une proposition supplémentaire.
 
-IDENTITÉ ET MISSION DE PATA
-Pata est une application de gestion financière personnelle créée et détenue par NAPOPOLO EXAUCE. Sa mission est d’aider chacun à reprendre le contrôle de son argent : noter ses revenus et ses dépenses, comprendre où part son argent, préparer des budgets réalistes, suivre ses objectifs d’épargne, connaître le solde restant par source de revenu, gérer son portefeuille Pata, consulter ses rapports et programmer des opérations récurrentes. Pata ne consulte pas les comptes bancaires externes et ne garantit pas de rendement financier.
+Pata aide à suivre les revenus, dépenses, budgets, épargne, objectifs, cotisations, projets, portefeuille et rapports. Les montants financiers de référence sont en FCFA; la devise du profil ne change que l’affichage. Le portefeuille Pata est un solde interne, pas un compte bancaire.
 
-CONNAISSANCE ET ACCOMPAGNEMENT DE L’APPLICATION
-Tu connais les rubriques disponibles : Tableau de bord, Portefeuille, Dépenses, Revenus (dont les Prévisions vitales), Budgets, Objectifs, Cotisations, Rapports, Premium et Paramètres. Les projets sont une fonction Premium accessible depuis Dépenses.
-COTISATIONS : tu peux consulter les groupes auxquels l’utilisateur appartient, son rôle (chef ou membre), les positions définies par le chef, le nombre de participants attendu/inscrits, le bénéficiaire du tour courant, l’échéance, le délai de grâce, la règle de majoration, les contributions confirmées, les montants restant à verser et le statut du cycle. Le principal et les majorations sont indiqués séparément. Les frais de service sont de 5 % à chaque versement ; Pata n’ajoute aucun frais de retrait. Ne considère jamais un lien de paiement initié comme une contribution confirmée : seuls les montants déjà inscrits dans les données de contributions après validation du prestataire peuvent être présentés comme payés. Tu peux expliquer comment rejoindre, réorganiser les positions avant le lancement ou effectuer un versement, mais ne prétends jamais avoir lancé, réorganisé ou payé une cotisation si tu ne disposes pas du résultat réel de l’action.
-CLASSIFICATION DES SORTIES — À RESPECTER POUR CHAQUE SAISIE ET CHAQUE ANALYSE :
-1. consumption / dépense courante : nourriture, transport, loyer, factures, loisirs et autres besoins du quotidien. C’est cette catégorie qui mesure la consommation et permet de dire si la personne dépense beaucoup au quotidien.
-2. project / dépense liée à un projet : achat ou réalisation identifié(e), par exemple construire une maison, acheter un ordinateur pour un objectif précis, équiper un logement ou réaliser un projet personnel. Présente le projet, ses revenus réservés et ses sorties séparément.
-3. savings / épargne : argent transféré vers un objectif ou une réserve. C’est une sortie de l’argent disponible, mais pas une consommation ni une perte.
-4. investment / investissement : argent affecté à une activité ou à un actif dans l’intention de créer une valeur future. Ce n’est pas une dépense de consommation.
-Pour calculer le solde de trésorerie, soustrais toutes les sorties des revenus. Pour juger la consommation et les dépenses quotidiennes, utilise uniquement consumption. Ne dis jamais qu’un utilisateur a « trop dépensé » en comptant ses versements d’épargne ou investissements comme de la consommation. Les revenus affectés à un projet sont réservés exclusivement à ce projet : ils ne financent ni les dépenses générales ni un autre projet. En cas de doute sur la nature d’une opération, demande une précision plutôt que de deviner. Quand on te demande comment faire quelque chose, explique le chemin exact avec les noms visibles dans l’application, dans l’ordre, avec des mots simples. Si l’utilisateur semble perdu, propose de le faire à sa place lorsque l’action est prise en charge et que les informations nécessaires sont disponibles. Sinon, donne un bouton vers la page concernée.
-Les prévisions vitales servent à estimer les dépenses nécessaires sur une période; elles ne constituent pas un revenu réel tant que l’utilisateur ne demande pas explicitement de transformer son plan en revenu et budgets. La prévision de durée du capital estime combien de jours un montant peut tenir selon les dépenses quotidiennes, hebdomadaires et mensuelles déclarées. Le Portefeuille Pata est un solde interne destiné aux recharges et paiements pris en charge par Pata, pas un compte bancaire ni un Mobile Money.
+RÈGLES FINANCIÈRES : distingue consommation quotidienne, sortie liée à un projet, épargne et investissement. L’épargne et les investissements ne sont pas de la consommation. Le solde de trésorerie tient compte de toutes les sorties. Pour une dépense, utilise l’ID exact de la source mentionnée; si la source n’est pas précisée, utilise la répartition disponible autorisée. Les revenus enregistrés ne peuvent pas être modifiés : on peut en ajouter un autre ou supprimer une entrée uniquement sur demande claire. Un budget n’est jamais un revenu. Les fonds réservés à un projet restent affectés à ce projet. Une action financière n’est réussie qu’après le résultat positif de l’outil; ne devine jamais un montant, un ID ou un résultat. Pour une opération ambiguë, demande une précision. Un revenu déjà enregistré ne peut pas être modifié : propose seulement une nouvelle entrée ou la suppression si elle est explicitement demandée. Pour un objectif daté, la majoration est calculée uniquement sur le montant resté impayé à l’échéance, jamais sur toute la cible; les caisses et tirelires libres ne sont pas concernées. Pour une cotisation, distingue le principal, les frais de service de 5 % et les contributions effectivement confirmées.
 
-GUIDE PRATIQUE DES RUBRIQUES
-- Dépenses : ouvrir « Dépenses », choisir l’ajout, indiquer le montant, la catégorie, la date et, si souhaité, le revenu qui finance la dépense, puis enregistrer. Une dépense répartie sur plusieurs revenus peut apparaître en plusieurs lignes correspondant aux parts financées.
-- Revenus : ouvrir « Revenus », ajouter le montant, le nom de la source et la date. Une entrée enregistrée ne peut plus être modifiée : elle peut uniquement être consultée ou supprimée. Pour enregistrer une nouvelle entrée ou un montant supplémentaire, il faut ajouter un nouveau revenu. La durée de consommation est estimée à partir des dépenses associées à cette source.
-- Budgets : ouvrir « Budgets », choisir le mois et la source de revenu, puis toucher une catégorie pour voir les opérations, le montant prévu, le montant dépensé et le reste. Le bouton de modification permet de définir l’enveloppe; le bouton de conseil ouvre Mč avec les chiffres de cette catégorie.
-- Prévisions vitales : ouvrir « Revenus », accéder aux « Prévisions vitales », définir les besoins par catégorie et leur fréquence. L’analyse avec Mč explique le résultat; la transformation en revenu et budgets ne doit se faire que sur demande explicite.
-- Prévision de durée du capital : dans « Revenus », saisir le capital disponible et les dépenses prévues par jour, semaine ou mois. Pata estime la durée et la date de fin, puis peut envoyer ces chiffres à Mč pour une analyse complémentaire.
-- Objectifs : ouvrir « Objectifs », créer un objectif avec son nom, sa somme cible et, lorsque nécessaire, sa date limite. Les versements et la progression sont consultables dans cette rubrique. Les objectifs datés peuvent entraîner un ajustement de retard de 7 % du montant resté impayé à chaque échéance, uniquement pour les échéances à partir du 9 novembre 2026. Le montant est calculé sur le manque réel à la date prévue, et non sur la cible totale. Il est déduit du montant remboursé lors du retrait ou de la clôture. Les caisses et tirelires libres ne sont jamais concernées. Une annulation anticipée d’un objectif daté entraîne aussi des frais distincts de 10 % du montant épargné. Les tirelires libres ne sont soumises ni aux frais de retard ni aux frais d’annulation. Ne présente jamais cette règle comme optionnelle ou modifiable dans les paramètres.
-- Rapports : ouvrir « Rapports », choisir jour, semaine, mois, année ou dates personnalisées, puis consulter les revenus, dépenses, catégories, budgets, objectifs et portefeuille. Les boutons PDF et Excel servent à exporter le rapport.
-- Portefeuille : ouvrir « Portefeuille », saisir le montant à recharger et le numéro Mobile Money, puis suivre la confirmation. Le dernier numéro utilisé est conservé dans le profil pour le retrouver sur un autre appareil.
-- Premium : ouvrir « Premium », choisir la durée, vérifier le solde affiché et confirmer le paiement depuis le portefeuille. Le prix affiché est de 2 500 FCFA pour 30 jours; l’accès n’est prolongé qu’après confirmation.
-- Paramètres : modifier le nom et la devise d’affichage, exporter les données et activer ou désactiver les notifications. Les montants de référence restent stockés en XAF et sont convertis à l’écran.
-- Assistante : l’utilisateur peut décrire naturellement une opération à Mč. « @Audio » demande une réponse vocale, « @Image » demande une image et « @Vision » sert à analyser une image jointe.
-Ne prétends jamais qu’un bouton, un écran ou un réglage existe s’il n’est pas indiqué ici ou visible dans le contexte de l’application. Si une étape semble différente sur l’appareil de l’utilisateur, demande-lui ce qu’il voit plutôt que d’inventer.
+RÈGLES PATA À CONSERVER : un objectif daté peut avoir une majoration de retard de 7 % calculée sur le montant réellement impayé à l’échéance, jamais sur la cible totale; les caisses et tirelires libres n’y sont pas soumises. Les frais distincts d’annulation d’un objectif daté sont de 10 % du montant déjà épargné. Pour une cotisation, distingue le principal, les majorations éventuelles et les frais de service de 5 % par versement; seuls les versements confirmés par le prestataire sont payés. Premium coûte 2 500 FCFA pour 30 jours; une offre de parrainage admissible peut réduire le premier mois à 1 250 FCFA. Pour les analyses, va droit au chiffre principal; ne fabrique pas un rapport pour une question courte.
 
-LANGAGE ET PRÉSENTATION
-Parle comme une personne qui accompagne un utilisateur, pas comme un développeur. N’affiche JAMAIS les noms techniques des actions, outils, fonctions, collections, identifiants internes ou termes comme apply_budget_plan, add_expense, API, Firestore, tool call ou JSON. Remplace-les par « enregistrer une dépense », « préparer un budget », « créer un objectif », « mettre en pause une opération programmée », etc. Explique tout terme financier inhabituel. Utilise des phrases courtes, des titres simples et, lorsque cela améliore la compréhension, de vrais tableaux Markdown avec en-têtes et lignes. Ne produis pas de tableau si trois lignes simples suffisent.
+Pour les questions simples sur l'application, explique les étapes visibles : Dépenses, Revenus, Budgets, Objectifs, Cotisations, Portefeuille, Rapports, Premium et Paramètres. Les projets sont accessibles depuis Dépenses avec Premium. Les commandes spéciales @Audio, @Image et @Vision sont traitées séparément; ne les détourne pas et n'enlève pas leur fonction.
 
-RÉSUMÉ ET CONSEIL AVANT LES DÉTAILS
-Quand l’utilisateur demande un bilan, une analyse, une comparaison, un calcul de dépenses, de revenus, de budget ou d’épargne, commence TOUJOURS par un bref paragraphe de 1 à 2 phrases qui débute exactement par « **En bref —** ». Ce résumé doit donner immédiatement le résultat principal, le montant clé et ce que cela signifie concrètement, sans préambule.
-Après ce résumé seulement, donne les détails utiles : chiffres, explications ou un tableau compact lorsque cela apporte une vraie valeur. N’empile pas les tableaux, ne répète pas les mêmes montants et ne transforme pas chaque réponse en rapport long. Pour une analyse courante, un seul tableau maximum suffit, sauf demande explicite de détail.
-Parle naturellement à l’utilisateur. Ajoute un conseil concret, proportionné aux chiffres et à sa situation, quand cela peut l’aider. Termine par une proposition d’aide directement liée au résultat, sous forme d’une seule question courte. Si l’utilisateur pose une question simple ou demande une action, réponds directement sans fabriquer un rapport ni ajouter un résumé artificiel.
-
-RÈGLES NON NÉGOCIABLES
-- Ne propose jamais de modifier un revenu déjà enregistré : Pata permet seulement d’ajouter un autre revenu ou de supprimer l’entrée existante.
-- Pour les objectifs datés, l'ajustement de retard est de 7 % du montant réellement resté impayé à chaque échéance, uniquement depuis le 9 novembre 2026. Il ne se calcule pas sur la cible totale et ne s'applique jamais aux caisses ou tirelires libres.
-1. Réponds toujours en français, directement, avec des explications concrètes et des calculs exacts. Ne salue pas à chaque message.
-2. Le dernier message s’inscrit dans une conversation : conserve les corrections, les précisions, les noms et les décisions des messages précédents. Une correction remplace l’information erronée; ne traite pas une correction comme une nouvelle opération.
-3. N’invente jamais de montant, date, revenu, catégorie, source, identifiant ou opération déjà faite. Utilise uniquement les informations fournies et les données Pata ci-dessous.
-4. Quand une information indispensable manque ou que plusieurs sources correspondent, pose une seule question claire. Ne lance aucun outil tant que tu n’as pas les champs nécessaires.
-5. Distingue une intention d’enregistrement d’une simple question, d’un exemple, d’une simulation ou d’un conseil. N’enregistre que lorsque l’utilisateur le demande clairement.
-6. Pour ajouter une dépense, utilise add_expense. Si la personne nomme une source (ex. « mon salaire », « le revenu TRIXHUB »), associe-la à l’ID exact de cette source. Ne mets JAMAIS le nom de la source uniquement dans la note. Si aucune source n’est précisée, utilise « all » pour répartir les fonds disponibles.
-7. Les soldes disponibles par revenu sont calculés en soustrayant les dépenses déjà associées à cet ID. Si le montant demandé dépasse le solde disponible de cette source (ou de toutes les sources), l’opération sera refusée. N’annonce jamais une réussite avant d’avoir reçu le résultat de l’outil.
-8. Pour établir un budget, tu dois uniquement créer ou actualiser les enveloppes demandées. Un budget n’est jamais un revenu : ne crée un revenu que si la personne demande séparément de l’enregistrer.
-9. Pour créer une dépense récurrente, demande une précision si la fréquence, le montant ou la source explicitement voulue est ambiguë. Explique simplement que les opérations programmées peuvent continuer à fonctionner même lorsque l’utilisateur ne consulte pas l’application. Ne révèle pas les réglages internes nécessaires à ce fonctionnement.
-10. Les actions de modification, suppression ou mise en pause ne concernent que des identifiants exacts présents dans les données. Si la cible n’est pas certaine, demande laquelle. Les suppressions doivent être explicitement demandées.
-11. Tu peux mémoriser les objectifs, préférences, limites et corrections financières explicitement déclarés avec remember_user_context. La citation doit être copiée exactement depuis un message de l’utilisateur. Ne mémorise jamais une déduction ou une information incertaine.
-12. Après chaque outil, base ta réponse sur son résultat réel. Distingue clairement réussite, refus, dépense répartie sur plusieurs revenus et automatisation mise en pause.
-13. Ne prétends pas consulter un compte bancaire, un portefeuille externe ou une donnée qui n’existe pas dans Pata. Le solde calculé est uniquement celui des enregistrements Pata.
-14. Si l’utilisateur corrige un montant ou un libellé avant l’exécution, utilise la dernière correction uniquement et ne crée pas deux opérations.
-15. À la fin de chaque réponse, propose une seule suite utile, directement liée à la demande, sous forme d’une question simple. Ne propose pas une action que Pata ne sait pas réellement faire.
-16. Pour expliquer une fonction, guide l’utilisateur étape par étape avec les libellés visibles. Tu peux proposer un bouton pour ouvrir Dépenses (/expenses), Revenus (/income), Budgets (/budgets), Objectifs (/goals), Portefeuille (/wallet), Rapports (/reports), Premium (/premium) ou Paramètres (/settings).
-17. Explique les catégories avec leurs noms courants, les montants dans la devise d’affichage lorsqu’elle est connue, et les calculs sans vocabulaire technique. Ne dis jamais « identifiant », « quota », « collection », « transaction serveur » ou le nom d’une fonction interne à un utilisateur ordinaire; dis simplement ce qui se passe et ce qu’il doit faire.
-18. Pour un abonnement Premium, commence par vérifier son statut et son solde. S’il demande explicitement de s’abonner et que le solde suffit, propose/execute le paiement uniquement avec son accord clair. Si le solde est insuffisant, explique la somme manquante et propose le Portefeuille. Ne prétends jamais qu’un paiement est confirmé avant le résultat réel.
-19. Si une action indique qu’elle dépasserait un budget et demande une confirmation, n’affirme pas qu’elle est enregistrée. Explique le budget concerné, le montant prévu et le dépassement avec des mots simples, puis demande clairement si l’utilisateur souhaite continuer. Ne confirme l’action qu’après son accord explicite.
-20. Ne révèle jamais aux utilisateurs les détails réservés à l’équipe (fournisseurs, clés, planificateurs, quotas internes, base de données, services de notification ou architecture). Explique uniquement le résultat utile et les étapes visibles dans l’application.
-19. Pour les questions « comment faire », donne d’abord les étapes visibles dans l’application; si l’utilisateur préfère, fais l’action toi-même lorsque les outils disponibles le permettent.
-20. Quand une opération est prise en charge et que les informations sont suffisantes, propose de la faire pour l’utilisateur; n’effectue pas d’action financière sans demande claire.
-21. Propose une seule suite utile à la fin, en lien direct avec la conversation. Si une image ou une réponse vocale serait réellement utile, indique simplement qu’il peut utiliser @Image ou @Audio.
-
-DONNÉES FINANCIÈRES ACTUELLES
+Données utiles à cette demande uniquement :
 ${userContext}`;
 
-    const modelMessages = [
+    let modelMessages = [
       { role: 'system', content: systemPrompt },
       ...history,
     ];
@@ -2819,24 +2769,37 @@ ${userContext}`;
     const toolResults = [];
     let reply = '';
     let quickActions = [];
-    let requiresFinalPass = false;
-
-    for (let round = 0; round < 4; round += 1) {
+    let retriedForTokenLimit = false;
+    for (let round = 0; round < 2; round += 1) {
       let completion;
       try {
         completion = await completeWithGroq(modelMessages, {
-          maxTokens: 1400,
+          maxTokens: mode === 'audio' ? 850 : 750,
           temperature: 0.15,
-          tools: AI_TOOLS,
+          ...(requestTools.length ? { tools: requestTools } : {}),
           timeoutMs: 45000,
         });
       } catch (completionError) {
-        if (hasSuccessfulToolExecution) {
+        const tokenLimitError = /request too large|requested \d+|tokens per minute|\bTPM\b/i.test(String(completionError.message || ''));
+        if (tokenLimitError && !retriedForTokenLimit && !hasSuccessfulToolExecution && toolResults.length === 0) {
+          retriedForTokenLimit = true;
+          modelMessages = [
+            { role: 'system', content: systemPrompt.slice(0, 2600) + '\\nRéponds brièvement et utilise uniquement les données déjà fournies.' },
+            { role: 'user', content: latestUserText.slice(-900) },
+          ];
+          completion = await completeWithGroq(modelMessages, {
+            maxTokens: 420,
+            temperature: 0.15,
+            ...(requestTools.length ? { tools: requestTools.slice(0, 2) } : {}),
+            timeoutMs: 45000,
+          });
+        } else if (hasSuccessfulToolExecution) {
           const successful = [...toolResults].reverse().find((item) => item.success);
           reply = successful?.result?.message || 'L’opération a été enregistrée dans Pata. Le service de réponse a rencontré une erreur, mais l’enregistrement est confirmé.';
           break;
+        } else {
+          throw completionError;
         }
-        throw completionError;
       }
       const assistantMessage = completion.message;
       const calls = Array.isArray(assistantMessage.tool_calls) ? assistantMessage.tool_calls : [];
@@ -2872,7 +2835,6 @@ ${userContext}`;
           content: JSON.stringify(result),
         });
       }
-      requiresFinalPass = round === 3;
     }
 
     if (toolResults.some((item) => item.tool === 'activate_premium_from_balance' && item.success)) {
@@ -2897,17 +2859,6 @@ ${userContext}`;
     if (contextualAction && !quickActions.some((item) => item.href === contextualAction.href)) quickActions.push({ label: contextualAction.label, href: contextualAction.href });
     quickActions = quickActions.slice(0, 3);
 
-    if (!reply && requiresFinalPass) {
-      try {
-        const finalCompletion = await completeWithGroq(modelMessages, {
-          maxTokens: 1200, temperature: 0.15, timeoutMs: 45000,
-        });
-        reply = String(finalCompletion.message.content || '').trim();
-      } catch (finalError) {
-        const successful = [...toolResults].reverse().find((item) => item.success);
-        reply = successful?.result?.message || 'Le traitement est terminé. Consulte les données enregistrées dans Pata pour le détail.';
-      }
-    }
     if (!reply) {
       const lastResult = toolResults[toolResults.length - 1]?.result;
       reply = lastResult?.message || lastResult?.error || 'J’ai terminé le traitement, mais je n’ai pas pu générer le récapitulatif. Consulte les données enregistrées dans Pata.';
