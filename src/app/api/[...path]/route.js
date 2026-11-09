@@ -4133,7 +4133,7 @@ async function handleAdminBroadcast(request) {
         if (!tokenOwners.has(token)) tokenOwners.set(token, []);
         tokenOwners.get(token).push(userDoc.ref);
       }
-      if (Number(data.webPushDeviceCount) > 0) {
+      {
         const subscriptions = await userDoc.ref.collection('webPushSubscriptions').get();
         for (const subscriptionDoc of subscriptions.docs) {
           const subscriptionData = subscriptionDoc.data() || {};
@@ -4164,64 +4164,59 @@ async function handleAdminBroadcast(request) {
     let webPushError = '';
     const appUrl = getPataAppUrl(request);
 
-    try {
-      for (let offset = 0; offset < optedTokens.length; offset += 500) {
-        const chunk = optedTokens.slice(offset, offset + 500);
-        const result = await adminMessaging.sendEachForMulticast({
-          tokens: chunk,
-          notification: { title, body: message },
-          data: { title, body: message, url: path, tag, source: 'admin' },
-          android: {
-            priority: 'high',
-            notification: { channelId: 'pata_general', icon: 'ic_stat_pata', color: '#0b5c46' },
+    for (let offset = 0; offset < optedTokens.length; offset += 40) {
+      const chunk = optedTokens.slice(offset, offset + 40);
+      const results = await Promise.allSettled(chunk.map((token) => adminMessaging.send({
+        token,
+        notification: { title, body: message },
+        data: { title, body: message, url: path, tag, source: 'admin' },
+        android: {
+          priority: 'high',
+          notification: { channelId: 'pata_general', icon: 'ic_stat_pata', color: '#0b5c46' },
+        },
+        webpush: {
+          headers: { TTL: '86400', Urgency: 'high' },
+          notification: {
+            title, body: message,
+            icon: appUrl + '/android-chrome-192x192.png',
+            badge: appUrl + '/android-chrome-192x192.png',
+            tag, renotify: false,
           },
-          webpush: {
-            headers: { TTL: '86400', Urgency: 'high' },
-            notification: {
-              title,
-              body: message,
-              icon: appUrl + '/android-chrome-192x192.png',
-              badge: appUrl + '/android-chrome-192x192.png',
-              tag,
-              renotify: false,
-            },
-            fcmOptions: { link: new URL(path, appUrl).toString() },
-          },
-        });
-        pushSent += result.successCount;
-        pushFailed += result.failureCount;
-        result.responses.forEach((response, index) => {
-          if (response.success) return;
-          const token = chunk[index];
-          const code = response.error?.code || 'messaging/unknown-error';
-          failureDetails.push({ channel: 'fcm', tokenSuffix: token.slice(-8), code });
-          if (['messaging/registration-token-not-registered', 'messaging/invalid-registration-token'].includes(code)) invalidTokens.push(token);
+          fcmOptions: { link: new URL(path, appUrl).toString() },
+        },
+      })));
+      for (let index = 0; index < results.length; index += 1) {
+        const result = results[index];
+        if (result.status === 'fulfilled') { pushSent += 1; continue; }
+        pushFailed += 1;
+        const token = chunk[index];
+        const error = result.reason;
+        const code = error.code || 'messaging/unknown-error';
+        failureDetails.push({ channel: 'fcm', tokenSuffix: token.slice(-8), code });
+        console.warn('[ADMIN BROADCAST FCM]', code);
+        if (['messaging/registration-token-not-registered', 'messaging/invalid-registration-token'].includes(code)) invalidTokens.push(token);
+        else if (!pushError) pushError = error.message || 'Erreur du service Firebase.';
+      }
+    }
+
+    if (invalidTokens.length) {
+      const invalidSet = new Set(invalidTokens);
+      const ownerRefs = new Map();
+      for (const token of invalidTokens) for (const ref of tokenOwners.get(token) || []) ownerRefs.set(ref.path, ref);
+      for (const ref of ownerRefs.values()) {
+        await adminDb.runTransaction(async (transaction) => {
+          const snapshot = await transaction.get(ref);
+          if (!snapshot.exists) return;
+          const currentTokens = Array.isArray(snapshot.data()?.pushTokens) ? snapshot.data().pushTokens : [];
+          const remainingTokens = currentTokens.filter((token) => !invalidSet.has(token));
+          const webPushDeviceCount = Number(snapshot.data()?.webPushDeviceCount) || 0;
+          transaction.set(ref, {
+            pushTokens: remainingTokens,
+            notificationsEnabled: remainingTokens.length + webPushDeviceCount > 0,
+            notificationsUpdatedAt: FieldValue.serverTimestamp(),
+          }, { merge: true });
         });
       }
-      if (invalidTokens.length) {
-        const invalidSet = new Set(invalidTokens);
-        const ownerRefs = new Map();
-        for (const token of invalidTokens) {
-          for (const ref of tokenOwners.get(token) || []) ownerRefs.set(ref.path, ref);
-        }
-        for (const ref of ownerRefs.values()) {
-          await adminDb.runTransaction(async (transaction) => {
-            const snapshot = await transaction.get(ref);
-            if (!snapshot.exists) return;
-            const currentTokens = Array.isArray(snapshot.data()?.pushTokens) ? snapshot.data().pushTokens : [];
-            const remainingTokens = currentTokens.filter((token) => !invalidSet.has(token));
-            const webPushDeviceCount = Number(snapshot.data()?.webPushDeviceCount) || 0;
-            transaction.set(ref, {
-              pushTokens: remainingTokens,
-              notificationsEnabled: remainingTokens.length + webPushDeviceCount > 0,
-              notificationsUpdatedAt: FieldValue.serverTimestamp(),
-            }, { merge: true });
-          });
-        }
-      }
-    } catch (error) {
-      pushError = error.message || 'Erreur du service Firebase.';
-      console.error('[ADMIN BROADCAST FCM]', error.code || error.message);
     }
 
     for (let offset = 0; offset < webPushTargets.length; offset += 40) {

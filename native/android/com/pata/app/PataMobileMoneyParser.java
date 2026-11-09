@@ -11,7 +11,7 @@ import java.util.regex.Pattern;
 
 /** Parse les confirmations MTN MoMo et Orange Money sans conserver le SMS brut. */
 public final class PataMobileMoneyParser {
-    private static final String CURRENCY = "(?:FCFA|F\\s*\\.?\\s*CFA|XAF|CFA)";
+    private static final String CURRENCY = "(?:FCFA|F\\s*\\.?\\s*CFA|XAF|CFA|F)";
     private static final Pattern FAILURE = Pattern.compile(
         "(\\bechec\\b|\\bfailed\\b|\\brefuse\\b|\\bannule\\b|not completed|transaction rejetee|operation non aboutie)",
         Pattern.CASE_INSENSITIVE
@@ -72,7 +72,8 @@ public final class PataMobileMoneyParser {
     private static String detectProvider(String source, String sender) {
         if (source.matches("(?s).*(orange\\s*(money|cash)|orange\\s*cm|omcm|orange-money|\\bom\\b).*")
             || sender.equals("om") || sender.contains("orange")) return "orange_money";
-        if (source.matches("(?s).*(\\bmtn\\b|momo|mobile\\s*money|yello\\s*money|yel'lo).*")) return "mtn_momo";
+        if (source.matches("(?s).*(\\bmtn\\b|momo|mobile\\s*money|yello\\s*money|yel'lo).*")
+            || (source.matches("(?s).*fapshi\\s*inc.*") && source.matches("(?s).*compte d'argent mobile.*"))) return "mtn_momo";
         return null;
     }
 
@@ -80,7 +81,7 @@ public final class PataMobileMoneyParser {
         if (Pattern.compile("\\b(retrait|retirer|withdrawal|withdraw|cash\\s*out|cashout)\\b").matcher(text).find()) return "withdrawal";
         if (Pattern.compile("(paiement|payment|marchand|merchant|achat\\s+(reussi|effectue)|bill\\s+paid|facture\\s+payee)").matcher(text).find()) return "payment";
         if (Pattern.compile("(vous\\s+(avez\\s+recu|venez\\s+de\\s+recevoir)|transfert\\s+recu|recu\\s+de|reception\\s+de|compte.{0,25}credite|credit.{0,20}compte|depot\\s+(recu|effectue|confirme)|cash\\s*in|cashin|received|credited|incoming\\s+transfer)").matcher(text).find()) return "receive";
-        if (Pattern.compile("(vous\\s+avez\\s+envoye|transfert\\s+(effectue|envoye|confirme)|effectue\\s+(un\\s+)?transfert|envoye\\s+(a|au|vers)|compte.{0,25}debite|debite.{0,20}compte|debit|debited|sent\\s+to|you\\s+sent|outgoing\\s+transfer)").matcher(text).find()) return "send";
+        if (Pattern.compile("(vous\\s+avez\\s+envoye|transfert\\s+(?:de.{0,100}vers|effectue|envoye|confirme)|effectue\\s+(un\\s+)?transfert|envoye\\s+(a|au|vers)|compte.{0,25}debite|debite.{0,20}compte|debit|debited|sent\\s+to|paid\\s+to|you\\s+sent|outgoing\\s+transfer|transaction\\s+de.{0,80}effectuee?\\s+par)").matcher(text).find()) return "send";
         return null;
     }
 
@@ -127,7 +128,7 @@ public final class PataMobileMoneyParser {
 
     private static String detectTransactionId(String text) {
         Pattern[] patterns = new Pattern[] {
-            Pattern.compile("(?:transaction\\s*(?:id|n[°o]|no\\.?|numero|number)|id\\s*(?:de\\s*)?(?:transaction|operation)?|reference|ref\\.?|code\\s*(?:de\\s*)?(?:transaction|operation)|n[°o]\\s*(?:transaction|operation))\\s*[:#\\-]?\\s*([A-Z0-9][A-Z0-9._/-]{3,58})", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("(?:identifiant\\s+de\\s+transaction(?:\\s+financi[eè]re)?|transaction\\s*(?:id|n[°o]|no\\.?|numero|number)|id\\s*(?:de\\s*)?(?:transaction|operation)?|reference|ref\\.?|code\\s*(?:de\\s*)?(?:transaction|operation)|n[°o]\\s*(?:transaction|operation))\\s*[:#\\-]?\\s*([A-Z0-9][A-Z0-9._/-]{3,58})", Pattern.CASE_INSENSITIVE),
             Pattern.compile("\\b((?:MP|BP|TX|OM|MTN)[A-Z0-9]{5,}(?:[.-][A-Z0-9]+){0,5})\\b", Pattern.CASE_INSENSITIVE)
         };
         for (Pattern pattern : patterns) {
@@ -140,16 +141,23 @@ public final class PataMobileMoneyParser {
         return null;
     }
 
+
     private static String detectCounterparty(String text) {
         Pattern[] patterns = new Pattern[] {
-            Pattern.compile("(?:paiement\\s*(?:reussi|réussi|effectue|effectué)|payment\\s*(?:successful|completed))[.!,:-]\\s*([\\p{L}][\\p{L}' .-]{1,50})[.!,:-]\\s*(?:montant|transaction|somme)", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("(?:recu|reçu|received)\\s+(?:de|from)\\s+([\\p{L}][\\p{L}' .-]{1,50})(?=[,.;]|$)", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("(?:envoye?\\s+(?:a|au|vers)|transfert\\s+vers|paye?\\s+(?:a|au)|sent\\s+to)\\s+([\\p{L}][\\p{L}' .-]{1,50})(?=[,.;]|$)", Pattern.CASE_INSENSITIVE)
+            Pattern.compile("(?:paiement\\s*(?:reussi|effectue)|payment\\s*(?:successful|completed))[.!,:-]\\s*([\\p{L}][\\p{L}'’ .-]{1,50})[.!,:-]\\s*(?:montant|transaction|somme)", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("(?:paid\\s+to|paye?\\s+(?:a|au)|sent\\s+to)\\s+([\\p{L}][\\p{L}'’ _.-]{1,50}?)(?=\\s+via\\b|[,.;]|$)", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("transfert\\s+de\\s+\\d{8,15}\\s+[\\p{L}][\\p{L}'’ .-]{1,40}\\s+vers\\s+\\d{8,15}\\s+([\\p{L}][\\p{L}'’ .-]{1,50}?)(?=\\s+reussi|[,.;]|$)", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("depot\\s+effectue\\s+par\\s+\\d{8,15}\\s+([\\p{L}][\\p{L}'’ .-]{1,50}?)(?=\\s+to\\b|[,.;]|$)", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("paiement\\s+([\\p{L}][\\p{L}'’ .-]{1,40}?)\\s+reussi\\s+par\\b", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("paiement\\s+de\\s+[0-9][0-9\\s.,]*\\s*(?:fcfa|xaf|cfa)\\s+a\\s+([\\p{L}][\\p{L}'’ .-]{1,40}?)\\s+a\\s+ete\\s+effectue", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("(?:recu|received)\\s+(?:de|from)\\s+([\\p{L}][\\p{L}'’ .-]{1,50}?)(?=\\s*\\(|[,.;]|$)", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("effectuee?\\s+par\\s+([\\p{L}][\\p{L}'’ _.-]{1,50}?)(?=\\s*\\(|[,.;]|$)", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("(?:envoye?\\s+(?:a|au|vers)|transfert\\s+vers|sent\\s+to)\\s+([\\p{L}][\\p{L}'’ .-]{1,50}?)(?=[,.;]|$)", Pattern.CASE_INSENSITIVE)
         };
         for (Pattern pattern : patterns) {
             Matcher matcher = pattern.matcher(text);
             if (!matcher.find()) continue;
-            String value = matcher.group(1).trim().replaceAll("\\s+", " ");
+            String value = matcher.group(1).trim().replaceAll("_", " ").replaceAll("\\s+", " ");
             if (value.length() < 2 || value.length() > 60 || value.matches("[0-9X+* .-]+")) continue;
             if (value.matches("(?i)(la somme|le montant|votre compte|votre solde|la transaction|un client|un marchand)")) continue;
             return value;
@@ -157,9 +165,12 @@ public final class PataMobileMoneyParser {
         return null;
     }
 
+
     private static void applyDateAndTime(Calendar calendar, String text) {
         Matcher iso = Pattern.compile("\\b(\\d{4})[-/](\\d{1,2})[-/](\\d{1,2})\\b").matcher(text);
         Matcher local = Pattern.compile("\\b(\\d{1,2})[/-](\\d{1,2})[/-](\\d{2,4})\\b").matcher(text);
+        Matcher transaction = Pattern.compile("\\b[A-Z]{2}(\\d{2})(\\d{2})(\\d{2})[.](\\d{2})(\\d{2})[.][A-Z0-9]+\\b", Pattern.CASE_INSENSITIVE).matcher(text);
+        boolean hasTransactionStamp = transaction.find();
         try {
             if (iso.find()) {
                 calendar.set(Calendar.YEAR, Integer.parseInt(iso.group(1)));
@@ -171,12 +182,19 @@ public final class PataMobileMoneyParser {
                 calendar.set(Calendar.YEAR, year);
                 calendar.set(Calendar.MONTH, Integer.parseInt(local.group(2)) - 1);
                 calendar.set(Calendar.DAY_OF_MONTH, Integer.parseInt(local.group(1)));
+            } else if (hasTransactionStamp) {
+                calendar.set(Calendar.YEAR, 2000 + Integer.parseInt(transaction.group(1)));
+                calendar.set(Calendar.MONTH, Integer.parseInt(transaction.group(2)) - 1);
+                calendar.set(Calendar.DAY_OF_MONTH, Integer.parseInt(transaction.group(3)));
             }
         } catch (Exception ignored) { }
         Matcher time = Pattern.compile("\\b([01]?\\d|2[0-3]):([0-5]\\d)\\b").matcher(text);
         if (time.find()) {
             calendar.set(Calendar.HOUR_OF_DAY, Integer.parseInt(time.group(1)));
             calendar.set(Calendar.MINUTE, Integer.parseInt(time.group(2)));
+        } else if (hasTransactionStamp) {
+            calendar.set(Calendar.HOUR_OF_DAY, Integer.parseInt(transaction.group(4)));
+            calendar.set(Calendar.MINUTE, Integer.parseInt(transaction.group(5)));
         }
     }
 

@@ -109,3 +109,80 @@ test('ignore un numéro de téléphone comme contrepartie', () => {
   );
   assert.equal(result?.counterparty, null);
 });
+
+
+test('reconnaît un transfert sortant MTN FAPSHI et son bénéficiaire', () => {
+  const result = parseMobileMoneySms(
+    "Une transaction de 100 XAF effectuee par FAPSHI Inc (237673669111) sur votre compte d'argent mobile s'est terminee avec succes a 2026-11-09 20:28:07. Message du destinataire du debit : 100 XAF paid to MULAFLOWR via FAPSHI. Votre nouveau solde : 758 XAF. Identifiant de transaction financiere : 19661775298.",
+    { sender: 'MTN', receivedAt }
+  );
+  assert.equal(result?.provider, 'mtn_momo');
+  assert.equal(result?.eventType, 'send');
+  assert.equal(result?.direction, 'expense');
+  assert.equal(result?.amount, 100);
+  assert.equal(result?.counterparty, 'MULAFLOWR');
+  assert.equal(result?.transactionId, '19661775298');
+  assert.equal(result?.date, '2026-11-09');
+  assert.equal(result?.time, '20:28');
+});
+
+test('reconnaît les achats de forfaits MTN comme paiements sortants', () => {
+  const result = parseMobileMoneySms(
+    "Une transaction de 500 XAF effectuee par MTNC BUNDLES_FORFAITS (MTN_Bundles) sur votre compte d'argent mobile s'est terminee avec succes a 2026-11-05 15:52:03. Votre nouveau solde : 8977 XAF. Identifiant de transaction financiere : 19589589652.",
+    { sender: 'MTN', receivedAt }
+  );
+  assert.equal(result?.eventType, 'send');
+  assert.equal(result?.direction, 'expense');
+  assert.equal(result?.amount, 500);
+  assert.equal(result?.counterparty, 'MTNC BUNDLES FORFAITS');
+});
+
+test('extrait le bénéficiaire d’un transfert Orange avec deux numéros', () => {
+  const result = parseMobileMoneySms(
+    'Transfert de 691691622 NOABIOH DAZER vers 687059132 ASSIO reussi. ID transaction: PP261107.2047.B29063, Montant Transaction: 5050 FCFA, Frais: 14.1 FCFA, Commission: 0 FCFA, Montant Net: 5064.1 FCFA, Nouveau Solde: 1046.62 FCFA.',
+    { sender: 'OrangeMoney', receivedAt }
+  );
+  assert.equal(result?.eventType, 'send');
+  assert.equal(result?.direction, 'expense');
+  assert.equal(result?.amount, 5050);
+  assert.equal(result?.counterparty, 'ASSIO');
+  assert.equal(result?.transactionId, 'PP261107.2047.B29063');
+  assert.equal(result?.date, '2026-11-07');
+  assert.equal(result?.time, '20:47');
+});
+
+test('extrait l’expéditeur d’un dépôt Orange Money', () => {
+  const result = parseMobileMoneySms(
+    'Depot effectue par 693154437 ETS CHOPE to 691691622 NOABIOH DAZER. Informations detaillees: Montant de transaction : 2600 FCFA, ID transaction : CI261031.1911.B07608, Frais : 0 FCFA, Commission : 0 FCFA, Montant Net du Credit : 2600 FCFA, Nouveau Solde : 4124.92 FCFA.',
+    { sender: 'OrangeMoney', receivedAt }
+  );
+  assert.equal(result?.eventType, 'receive');
+  assert.equal(result?.direction, 'income');
+  assert.equal(result?.amount, 2600);
+  assert.equal(result?.counterparty, 'ETS CHOPE');
+  assert.equal(result?.transactionId, 'CI261031.1911.B07608');
+  assert.equal(result?.date, '2026-10-31');
+  assert.equal(result?.time, '19:11');
+});
+
+test('extrait le marchand ENEO depuis le premier SMS de paiement', () => {
+  const result = parseMobileMoneySms(
+    'Paiement ENEO reussi par MBOUMBOUO ISSOFA,237681144638: Transaction ID 19648122490, Recu No 000000096271356, Compteur No 014449382408. Energie kWh : 20.0 Prix:1000 F Paiement : 1000 F Frais : 100 F TVA : 0 F Dette : 0 F.',
+    { sender: 'MTN', receivedAt }
+  );
+  assert.equal(result?.eventType, 'payment');
+  assert.equal(result?.direction, 'expense');
+  assert.equal(result?.counterparty, 'ENEO');
+  assert.equal(result?.transactionId, '19648122490');
+});
+
+
+test('le second SMS ENEO est reconnu comme paiement avec le même identifiant', () => {
+  const result = parseMobileMoneySms(
+    'Votre paiement de 1000 XAF a ENEO a ete effectue le 2026-11-09 02:04:36. Votre nouveau solde: 3064 XAF. Frais: 100 XAF. Message: -. Transaction Id: 19648122490.',
+    { sender: 'MTN', receivedAt }
+  );
+  assert.equal(result?.eventType, 'payment');
+  assert.equal(result?.direction, 'expense');
+  assert.equal(result?.transactionId, '19648122490');
+});

@@ -4,7 +4,7 @@
  */
 const FAILURE_RE = /(?:\b[eé]chec\b|\bfailed\b|\brefus[eé]\b|\bannul[eé]\b|\bnot\s+completed\b|\btransaction\s+rejet[eé]e\b|\bop[eé]ration\s+non\s+aboutie\b)/i;
 const PENDING_RE = /(?:en\s+cours\s+de\s+traitement|transaction\s+en\s+cours|op[eé]ration\s+en\s+cours|pending|processing|transaction\s+initiated|en\s+attente\s+de\s+confirmation)/i;
-const CURRENCY = '(?:FCFA|F\\s*\\.?\\s*CFA|XAF|CFA)';
+const CURRENCY = '(?:FCFA|F\\s*\\.?\\s*CFA|XAF|CFA|F)';
 
 function normalize(value) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -24,13 +24,14 @@ function stableFallbackId(text, timestamp) {
 function parseProvider(text, sender) {
   const source = normalize(String(sender || '') + ' ' + text);
   if (/(orange\s*(?:money|cash)|orange\s*cm|orange-money|omcm|\bom\b)/i.test(source)) return 'orange_money';
-  if (/(mtn|momo|mobile\s*money|yello\s*money|yel'lo)/i.test(source)) return 'mtn_momo';
+  if (/(mtn|momo|mobile\s*money|yello\s*money|yel'lo)/i.test(source)
+    || (/fapshi\s*inc/i.test(source) && /compte d'argent mobile/i.test(source))) return 'mtn_momo';
   return null;
 }
 
 function parseTransactionId(text) {
   const patterns = [
-    /(?:transaction\s*(?:id|n[°o]|no\.?|num[eé]ro|number)|id\s*(?:de\s*)?(?:transaction|op[eé]ration)?|r[eé]f[eé]rence|reference|ref\.?|code\s*(?:de\s*)?(?:transaction|op[eé]ration)|n[°o]\s*(?:transaction|op[eé]ration))\s*[:#\-]?\s*([A-Z0-9][A-Z0-9._\/-]{3,58})/i,
+    /(?:identifiant\s+de\s+transaction(?:\s+financi[eè]re)?|transaction\s*(?:id|n[°o]|no\.?|num[eé]ro|number)|id\s*(?:de\s*)?(?:transaction|op[eé]ration)?|r[eé]f[eé]rence|reference|ref\.?|code\s*(?:de\s*)?(?:transaction|op[eé]ration)|n[°o]\s*(?:transaction|op[eé]ration))\s*[:#\-]?\s*([A-Z0-9][A-Z0-9._\/-]{3,58})/i,
     /\b((?:MP|BP|TX|OM|MTN)[A-Z0-9]{5,}(?:[.-][A-Z0-9]+){0,5})\b/i,
   ];
   for (const pattern of patterns) {
@@ -46,7 +47,7 @@ function parseEventType(text) {
   if (/\b(retrait|retirer|withdrawal|withdraw|cash\s*out|cashout)\b/.test(value)) return 'withdrawal';
   if (/(paiement|payment|marchand|merchant|achat\s+(reussi|effectue)|bill\s+paid|facture\s+payee)/.test(value)) return 'payment';
   if (/(vous\s+(avez\s+recu|venez\s+de\s+recevoir)|transfert\s+recu|recu\s+de|reception\s+de|compte.{0,25}credite|credit.{0,20}compte|depot\s+(recu|effectue|confirme)|cash\s*in|cashin|received|credited|incoming\s+transfer)/.test(value)) return 'receive';
-  if (/(vous\s+avez\s+envoye|transfert\s+(effectue|envoye|confirme)|effectue\s+(un\s+)?transfert|envoye\s+(a|au|vers)|compte.{0,25}debite|debite.{0,20}compte|debit|debited|sent\s+to|you\s+sent|outgoing\s+transfer)/.test(value)) return 'send';
+  if (/(vous\s+avez\s+envoye|transfert\s+(?:de.{0,100}vers|effectue|envoye|confirme)|effectue\s+(un\s+)?transfert|envoye\s+(a|au|vers)|compte.{0,25}debite|debite.{0,20}compte|debit|debited|sent\s+to|paid\s+to|you\s+sent|outgoing\s+transfer|transaction\s+de.{0,80}effectuee?\s+par)/.test(value)) return 'send';
   return null;
 }
 
@@ -83,6 +84,7 @@ function parseAmount(text) {
 
 function parseDateAndTime(text, receivedAt) {
   const dateMatch = text.match(/\b(\d{4})[-/](\d{1,2})[-/](\d{1,2})\b|\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b/);
+  const transactionStamp = text.match(/\b[A-Z]{2}(\d{2})(\d{2})(\d{2})[.](\d{2})(\d{2})[.][A-Z0-9]+\b/i);
   let date = null;
   if (dateMatch) {
     let year; let month; let day;
@@ -96,6 +98,14 @@ function parseDateAndTime(text, receivedAt) {
     if (candidate.getFullYear() === year && candidate.getMonth() === month - 1 && candidate.getDate() === day) {
       date = year + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0');
     }
+  } else if (transactionStamp) {
+    const year = 2000 + Number(transactionStamp[1]);
+    const month = Number(transactionStamp[2]);
+    const day = Number(transactionStamp[3]);
+    const candidate = new Date(year, month - 1, day);
+    if (candidate.getFullYear() === year && candidate.getMonth() === month - 1 && candidate.getDate() === day) {
+      date = year + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0');
+    }
   }
   const timeMatch = text.match(/\b([01]?\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?\b/);
   const fallback = receivedAt instanceof Date ? receivedAt : new Date(receivedAt || Date.now());
@@ -103,7 +113,9 @@ function parseDateAndTime(text, receivedAt) {
   if (!date) date = safeFallback.getFullYear() + '-' + String(safeFallback.getMonth() + 1).padStart(2, '0') + '-' + String(safeFallback.getDate()).padStart(2, '0');
   const time = timeMatch
     ? String(timeMatch[1]).padStart(2, '0') + ':' + timeMatch[2]
-    : String(safeFallback.getHours()).padStart(2, '0') + ':' + String(safeFallback.getMinutes()).padStart(2, '0');
+    : transactionStamp
+      ? transactionStamp[4] + ':' + transactionStamp[5]
+      : String(safeFallback.getHours()).padStart(2, '0') + ':' + String(safeFallback.getMinutes()).padStart(2, '0');
   return { date, time };
 }
 
@@ -118,13 +130,19 @@ function sanitizeCounterparty(candidate) {
 
 function parseCounterparty(text) {
   const patterns = [
-    /(?:paiement\s*(?:r[eé]ussi|effectu[eé])|payment\s*(?:successful|completed))[.!,:-]\s*([\p{L}][\p{L}'’ .-]{1,50})[.!,:-]\s*(?:montant|transaction|somme)/iu,
-    /(?:r[eé]cu|received)\s+(?:de|from)\s+([\p{L}][\p{L}'’ .-]{1,50})(?=[,.;]|$)/iu,
-    /(?:envoy[eé]?\s+(?:[àa]|au|vers)|transfert\s+vers|pay[eé]?\s+(?:[àa]|au)|auprès\s+de|chez|sent\s+to)\s+([\p{L}][\p{L}'’ .-]{1,50})(?=[,.;]|$)/iu,
+    /(?:paiement\s*(?:réussi|reussi|effectué|effectue)|payment\s*(?:successful|completed))[.!,:-]\s*([\p{L}][\p{L}'’ .-]{1,50})[.!,:-]\s*(?:montant|transaction|somme)/iu,
+    /(?:paid\s+to|pay[eé]?\s+(?:[àa]|au)|sent\s+to)\s+([\p{L}][\p{L}'’ _.-]{1,50}?)(?=\s+via\b|[,.;]|$)/iu,
+    /transfert\s+de\s+\d{8,15}\s+[\p{L}][\p{L}'’ .-]{1,40}\s+vers\s+\d{8,15}\s+([\p{L}][\p{L}'’ .-]{1,50}?)(?=\s+reussi|[,.;]|$)/iu,
+    /depot\s+effectu[eé]\s+par\s+\d{8,15}\s+([\p{L}][\p{L}'’ .-]{1,50}?)(?=\s+to\b|[,.;]|$)/iu,
+    /paiement\s+([\p{L}][\p{L}'’ .-]{1,40}?)\s+reussi\s+par\b/iu,
+    /paiement\s+de\s+[0-9][0-9\s.,]*\s*(?:fcfa|xaf|cfa)\s+a\s+([\p{L}][\p{L}'’ .-]{1,40}?)\s+a\s+ete\s+effectue/iu,
+    /(?:recu|received)\s+(?:de|from)\s+([\p{L}][\p{L}'’ .-]{1,50}?)(?=\s*\(|[,.;]|$)/iu,
+    /effectu[eé]e?\s+par\s+([\p{L}][\p{L}'’ _.-]{1,50}?)(?=\s*\(|[,.;]|$)/iu,
+    /(?:envoy[eé]?\s+(?:[àa]|au|vers)|transfert\s+vers|auprès\s+de|chez)\s+([\p{L}][\p{L}'’ .-]{1,50}?)(?=[,.;]|$)/iu,
   ];
   for (const pattern of patterns) {
     const match = text.match(pattern);
-    const value = sanitizeCounterparty(match && match[1]);
+    const value = sanitizeCounterparty(String(match && match[1] || '').replace(/_/g, ' '));
     if (value) return value;
   }
   return null;

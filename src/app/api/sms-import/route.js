@@ -83,7 +83,7 @@ function inferExpenseCategory(counterparty, eventType) {
   if (/(taxi|yango|uber|transport|bus|voyage|carburant|station)/.test(value)) return 'transport';
   if (/(restaurant|snack|supermarche|marche|boutique alimentaire|epicerie)/.test(value)) return 'food';
   if (/(pharmacie|hopital|clinique|sante|medical)/.test(value)) return 'health';
-  if (/(eneo|camwater|loyer|logement)/.test(value)) return 'housing';
+  if (/(eneo|camwater|electricite|electricity|water|eau|loyer|logement)/.test(value)) return 'housing';
   if (/(cotisation|tontine|association)/.test(value)) return 'contribution';
   return 'other';
 }
@@ -410,6 +410,7 @@ async function handleAutomaticDeviceImport(body) {
         paymentMethod: parsed.provider,
         incomeSourceId: 'external',
         incomeSourceName: 'Solde Mobile Money',
+        details: counterparty,
         smsImportId,
       }, {
         idempotencyKey: smsImportId,

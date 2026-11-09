@@ -97,8 +97,8 @@ if (fs.existsSync(gradlePath)) {
     if (depth !== 0) throw new Error('Bloc dependencies Gradle mal formé.');
     gradle = gradle.slice(0, close - 1) + '\n' + dependency + '\n' + gradle.slice(close - 1);
   }
-  gradle = gradle.replace(/versionCode\s+\d+/, 'versionCode 6');
-  gradle = gradle.replace(/versionName\s+["'][^"']+["']/, 'versionName "1.0.5"');
+  gradle = gradle.replace(/versionCode\s+\d+/, 'versionCode 7');
+  gradle = gradle.replace(/versionName\s+["'][^"']+["']/, 'versionName "1.0.6"');
   fs.writeFileSync(gradlePath, gradle);
 }
-console.log('Pata Android 1.0.5 : icône et canal Pata pour les notifications système, Web Push, import SMS et synchronisation WorkManager configurés.');
+console.log('Pata Android 1.0.6 : icône et canal Pata pour les notifications système, Web Push, import SMS et synchronisation WorkManager configurés.');

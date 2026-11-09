@@ -1,6 +1,6 @@
 {
-  "version": "1.0.5",
-  "versionCode": 6,
+  "version": "1.0.6",
+  "versionCode": 7,
   "downloadAvailable": true,
   "apkUrl": "https://github.com/exaucenapopolo/Pata/releases/latest/download/Pata-Android.apk",
   "releaseNotes": "Icône Pata et canal système dédiés aux notifications Android, Web Push pour les navigateurs compatibles, diffusion administrateur hors application, e-mails Mobile Money détaillés et page de téléchargement avec bouton Retour."
