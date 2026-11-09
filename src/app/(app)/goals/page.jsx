@@ -528,8 +528,7 @@ function GoalFormModal({ open, onClose, goal }) {
             <div className="rounded-xl border border-brand-100 bg-brand-50/60 p-3 text-sm"><span className="font-medium text-brand-800">Aperçu : </span><strong className="text-slate-800">{totalPayments} versements de {formatCurrency(amountPerPayment)}</strong></div>
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
               <p className="text-xs font-medium text-slate-700">Information sur les versements</p>
-              <p className="mt-1 text-xs leading-5 text-slate-600">Un versement manqué entraîne des ajustements liés aux échéances de 15 % du montant cible total de cette épargne.</p>
-              {Number(targetAmount) > 0 && <p className="mt-1 text-xs text-slate-600">Ajustement par échéance non respectée : {formatCurrency(Math.round(Number(targetAmount) * GOAL_LATE_PENALTY_RATE))}</p>}
+              <p className="mt-1 text-xs leading-5 text-slate-600">Pour un objectif daté, l’ajustement est calculé à hauteur de 7 % du montant qui reste réellement impayé à la date de chaque échéance manquée. Il ne s’applique pas à une caisse ou tirelire libre.</p>
             </div>
           </>
         )}
