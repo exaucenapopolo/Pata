@@ -8,6 +8,7 @@ on:
       - "capacitor.config.ts"
       - "native/android/**"
       - "src/app/api/sms-import/**"
+      - "src/app/telecharger/**"
       - "src/components/SmsImport*.jsx"
       - "src/components/AndroidUpdateChecker.jsx"
       - "src/lib/sms/**"
@@ -54,6 +55,15 @@ jobs:
         run: npm run test:sms
 
       - name: Vérifier la compilation Next.js de la PWA
+        env:
+          NEXT_PUBLIC_FIREBASE_API_KEY: "AIza00000000000000000000000000000000000"
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: "pata-build-check.firebaseapp.com"
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: "pata-build-check"
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: "pata-build-check.appspot.com"
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "1234567890"
+          NEXT_PUBLIC_FIREBASE_APP_ID: "1:1234567890:web:000000000000000000000000"
+          NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: "G-0000000000"
+          NEXT_PUBLIC_APP_URL: "https://www.pata-yam.site"
         run: npm run build
 
       - name: Générer le projet Android Capacitor
