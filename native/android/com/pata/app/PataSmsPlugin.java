@@ -93,6 +93,13 @@ public class PataSmsPlugin extends Plugin {
         result.put("enabled", prefs.getBoolean("enabled", false));
         result.put("premiumUntilMillis", prefs.getLong("premium_until", 0L));
         result.put("userUid", prefs.getString("user_uid", ""));
+        result.put("hasDeviceToken", !prefs.getString("device_token", "").isEmpty());
+        result.put("lastSmsDiagnosticJson", prefs.getString("last_sms_diagnostic", "{}"));
+        try {
+            result.put("pendingCount", new JSONArray(prefs.getString(PENDING, "[]")).length());
+        } catch (Exception ignored) {
+            result.put("pendingCount", 0);
+        }
         call.resolve(result);
     }
 
@@ -101,17 +108,24 @@ public class PataSmsPlugin extends Plugin {
         boolean enabled = call.getBoolean("enabled", false);
         long premiumUntil = call.getLong("premiumUntilMillis", 0L);
         String userUid = call.getString("uid", "");
+        String suppliedDeviceToken = call.getString("deviceToken", "");
         boolean hasPermission = ContextCompat.checkSelfPermission(getContext(), Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED;
         boolean validPremium = premiumUntil > System.currentTimeMillis();
-        boolean actualEnabled = enabled && hasPermission && validPremium;
-        getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putBoolean("enabled", actualEnabled)
+        SharedPreferences prefs = getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        SharedPreferences.Editor editor = prefs.edit()
+            .putBoolean("enabled", false)
             .putLong("premium_until", premiumUntil)
-            .putString("user_uid", userUid)
-            .apply();
+            .putString("user_uid", userUid);
+        if (suppliedDeviceToken != null && !suppliedDeviceToken.isEmpty()) editor.putString("device_token", suppliedDeviceToken);
+        if (!enabled) editor.remove("device_token");
+        boolean hasDeviceToken = (suppliedDeviceToken != null && !suppliedDeviceToken.isEmpty())
+            || !prefs.getString("device_token", "").isEmpty();
+        boolean actualEnabled = enabled && hasPermission && validPremium && !userUid.isEmpty() && hasDeviceToken;
+        editor.putBoolean("enabled", actualEnabled).apply();
         JSObject result = new JSObject();
         result.put("enabled", actualEnabled);
         result.put("receiveSmsGranted", hasPermission);
+        result.put("hasDeviceToken", hasDeviceToken);
         call.resolve(result);
     }
 
@@ -155,6 +169,28 @@ public class PataSmsPlugin extends Plugin {
         }
         prefs.edit().putString(PENDING, remaining.toString()).apply();
         call.resolve();
+    }
+
+    @PluginMethod
+    public void retryPendingSync(PluginCall call) {
+        SharedPreferences prefs = getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        String uid = prefs.getString("user_uid", "");
+        String token = prefs.getString("device_token", "");
+        if (uid.isEmpty() || token.isEmpty() || !prefs.getBoolean("enabled", false)) {
+            call.resolve(new JSObject().put("scheduled", 0));
+            return;
+        }
+        JSONArray stored;
+        try { stored = new JSONArray(prefs.getString(PENDING, "[]")); }
+        catch (Exception error) { stored = new JSONArray(); }
+        int scheduled = 0;
+        for (int index = 0; index < stored.length(); index++) {
+            JSONObject item = stored.optJSONObject(index);
+            if (item == null || !uid.equals(item.optString("ownerUid", uid))) continue;
+            PataSmsReceiver.enqueueSync(getContext(), item, uid, token);
+            scheduled += 1;
+        }
+        call.resolve(new JSObject().put("scheduled", scheduled));
     }
 
     @PluginMethod
