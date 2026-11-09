@@ -1,4 +1,4 @@
-/* Cross-page polish and dark-mode support for light surfaces expressed as utility or custom classes. */
+/* Shared Pata surfaces and responsive type scale. */
 :root {
   --pata-green: #075b43;
   --pata-green-dark: #064b38;
@@ -17,56 +17,59 @@ main input:not([type="checkbox"]), main select, main textarea {
   main h2.text-xl { font-size: 1.12rem; line-height: 1.5rem; }
 }
 
-/* These overrides intentionally cover component backgrounds, menu panels and custom pale brand surfaces. */
-html.dark [class*="bg-white"] { background-color: #18251f !important; }
-html.dark [class*="bg-[#f"], html.dark [class*="bg-[#e"] {
-  background-color: #1a2922 !important;
+/* Full dark appearance: application shell, cards, controls and navigation. */
+html.dark .pata-app-shell { background: #101a16 !important; color: #e6eee9; }
+html.dark .bg-white { background-color: #18251f !important; }
+html.dark [class~="bg-white/95"],
+html.dark [class~="bg-white/96"] { background-color: rgba(24, 37, 31, .97) !important; }
+html.dark .bg-slate-50 { background-color: #1a2922 !important; }
+html.dark .bg-slate-100 { background-color: #22342b !important; }
+html.dark .bg-slate-200 { background-color: #30443a !important; }
+html.dark .rounded-2xl.border,
+html.dark .rounded-xl.border { background-color: #18251f; border-color: #30443a !important; }
+html.dark .text-slate-950, html.dark .text-slate-900 { color: #f3f7f4 !important; }
+html.dark .text-slate-800 { color: #e2ebe5 !important; }
+html.dark .text-slate-700 { color: #c8d6cd !important; }
+html.dark .text-slate-600 { color: #afc0b5 !important; }
+html.dark .text-slate-500, html.dark .text-slate-400 { color: #91a498 !important; }
+html.dark .border-slate-50, html.dark .border-slate-100,
+html.dark .border-slate-200, html.dark .border-slate-300 { border-color: #30443a !important; }
+html.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+html.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-color: #30443a !important; }
+html.dark input, html.dark select, html.dark textarea {
+  background-color: #14221b !important; color: #f0f5f1 !important; border-color: #3a5144 !important;
 }
-html.dark [class*="bg-[#edf5f0]"], html.dark [class*="bg-[#eaf5ef]"],
-html.dark [class*="bg-[#f2f7f4]"], html.dark [class*="bg-[#ecfdf5]"] {
-  background-color: #173329 !important;
+html.dark input::placeholder, html.dark textarea::placeholder { color: #879b8d !important; }
+html.dark input:disabled { background-color: #1a2922 !important; color: #91a498 !important; }
+html.dark .bg-brand-50, html.dark .bg-emerald-50 { background-color: #173329 !important; }
+html.dark .bg-brand-100, html.dark .bg-emerald-100 { background-color: #204536 !important; }
+html.dark .text-brand-900, html.dark .text-brand-800, html.dark .text-brand-700,
+html.dark .text-brand-600, html.dark .text-emerald-900, html.dark .text-emerald-800,
+html.dark .text-emerald-700 { color: #8ed6b3 !important; }
+html.dark .bg-red-50, html.dark .bg-rose-50 { background-color: #3a2423 !important; }
+html.dark .text-red-700, html.dark .text-rose-700 { color: #f3a7a1 !important; }
+html.dark .bg-amber-50 { background-color: #3a3020 !important; }
+html.dark .text-amber-800, html.dark .text-amber-700 { color: #f0ca84 !important; }
+html.dark .bg-blue-50 { background-color: #203341 !important; }
+html.dark .text-blue-700 { color: #9bc8df !important; }
+html.dark .bg-violet-50, html.dark .bg-purple-50, html.dark .bg-indigo-50 { background-color: #302b42 !important; }
+html.dark .text-violet-700, html.dark .text-purple-700, html.dark .text-indigo-700 { color: #c7b6f1 !important; }
+html.dark .bg-orange-50, html.dark .bg-yellow-50 { background-color: #3b3021 !important; }
+html.dark .text-orange-700, html.dark .text-yellow-700 { color: #f1c78a !important; }
+html.dark .bg-pink-50 { background-color: #3b2936 !important; }
+html.dark .text-pink-700 { color: #e8afcb !important; }
+html.dark .bg-gray-50, html.dark .bg-neutral-50 { background-color: #1a2922 !important; }
+html.dark table, html.dark table td, html.dark table th { border-color: #30443a !important; }
+html.dark thead { background-color: #1e3028 !important; }
+html.dark .recharts-cartesian-grid line { stroke: #3a5144 !important; }
+html.dark .recharts-text { fill: #c8d6cd !important; }
+html.dark .shadow-sm, html.dark .shadow-md, html.dark .shadow-lg,
+html.dark .shadow-xl, html.dark .shadow-2xl { box-shadow: 0 8px 28px rgba(0, 0, 0, .24) !important; }
+html.dark .pata-dashboard-hero {
+  background-image: linear-gradient(135deg, #064b38, #075b43 58%, #0a7656) !important;
+  color: #f3faf5 !important;
 }
-html.dark [class*="bg-[#f5f8f6]"], html.dark [class*="bg-[#f3f6fb]"] {
-  background-color: #101a16 !important;
-}
-html.dark [class*="text-[#075b43]"], html.dark [class*="text-[#0b5c46]"],
-html.dark [class*="text-[#064b38]"] { color: #8ed6b3 !important; }
-html.dark [class*="border-[#e"]], html.dark [class*="border-[#f"] {
-  border-color: #30443a !important;
-}
-html.dark .bg-white\/95, html.dark .bg-white\/96 { background-color: rgba(24, 37, 31, .97) !important; }
-html.dark .text-slate-950 { color: #f3f7f4 !important; }
-html.dark .text-black { color: #f3f7f4 !important; }
-html.dark .hover\\:bg-white:hover, html.dark .hover\\:bg-slate-50:hover,
-html.dark .hover\\:bg-slate-100:hover { background-color: #22342b !important; }
-html.dark .pata-dashboard-hero { background-color: #075b43; }
-html.dark .pata-dashboard-hero .text-emerald-100,
-html.dark .pata-dashboard-hero .text-white { color: #f3faf5 !important; }
-html.dark .recharts-tooltip-wrapper > div { background-color: #18251f !important; border-color: #30443a !important; color: #edf5f0 !important; }
-html.dark [role="dialog"] header { background-color: #18251f !important; }
-
-/* Less common accent surfaces used by charts, empty states and quick actions. */
-html.dark .bg-violet-50, html.dark .bg-purple-50, html.dark .bg-indigo-50 {
-  background-color: #302b42 !important;
-}
-html.dark .text-violet-700, html.dark .text-purple-700, html.dark .text-indigo-700 {
-  color: #c7b6f1 !important;
-}
-html.dark .bg-orange-50, html.dark .bg-yellow-50 {
-  background-color: #3b3021 !important;
-}
-html.dark .text-orange-700, html.dark .text-yellow-700 {
-  color: #f1c78a !important;
-}
-html.dark .bg-pink-50 {
-  background-color: #3b2936 !important;
-}
-html.dark .text-pink-700 {
-  color: #e8afcb !important;
-}
-html.dark .bg-gray-50, html.dark .bg-neutral-50 {
-  background-color: #1a2922 !important;
-}
-html.dark .border-white\/70, html.dark .border-white\/80 {
-  border-color: #30443a !important;
-}
+html.dark .pata-dashboard-hero * { color: #f3faf5 !important; }
+html.dark [role="dialog"] { background-color: #18251f !important; border-color: #30443a !important; }
+html.dark .bg-green-50 { background-color: #173329 !important; }
+html.dark .text-green-700, html.dark .text-green-800 { color: #8ed6b3 !important; }

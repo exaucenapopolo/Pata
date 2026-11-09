@@ -16,7 +16,7 @@ export const metadata = {
     apple: [{ url: '/android-chrome-192x192.png', sizes: '192x192', type: 'image/png' }],
   },
   manifest: '/manifest.json',
-  themeColor: '#092b4e',
+  themeColor: '#075b43',
   appleWebApp: { capable: true, statusBarStyle: 'default', title: 'Pata' },
   formatDetection: { telephone: false },
 };
@@ -26,13 +26,13 @@ export const viewport = {
   initialScale: 1,
   userScalable: true,
   viewportFit: 'cover',
-  themeColor: '#092b4e',
+  themeColor: '#075b43',
 };
 
 export default function RootLayout({ children }) {
   return (
     <html lang="fr">
-      <body className="min-h-screen bg-[#f3f6fb] text-slate-900 antialiased">
+      <body className="min-h-screen bg-[#f5f8f6] text-slate-900 antialiased">
         <AppProviders>
           {children}
           <PWARegister />

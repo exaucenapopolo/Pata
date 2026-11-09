@@ -82,10 +82,6 @@ html.dark .bg-slate-50, html.dark [class*="bg-slate-50/"] {
 }
 html.dark .bg-slate-100 { background-color: #22342b !important; }
 html.dark .bg-slate-200 { background-color: #30443a !important; }
-html.dark [class*="bg-[#f3f6fb]"], html.dark [class*="bg-[#f5f8f6]"],
-html.dark [class*="bg-[#f8fafc]"], html.dark [class*="bg-[#f9fafb]"] {
-  background-color: var(--pata-dark-bg) !important;
-}
 html.dark .text-slate-950, html.dark .text-slate-900 { color: #f3f7f4 !important; }
 html.dark .text-slate-800 { color: #e2ebe5 !important; }
 html.dark .text-slate-700 { color: #c8d6cd !important; }

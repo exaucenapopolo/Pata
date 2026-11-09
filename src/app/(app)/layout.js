@@ -22,7 +22,7 @@ export default function AppLayout({ children }) {
   }
 
   return (
-    <div className="min-h-[100dvh] bg-[#f5f8f6] lg:flex lg:h-[100dvh] lg:overflow-hidden">
+    <div className="pata-app-shell min-h-[100dvh] bg-[#f5f8f6] lg:flex lg:h-[100dvh] lg:overflow-hidden">
       <Sidebar />
       <div className="flex min-h-[100dvh] min-w-0 flex-1 flex-col lg:h-full lg:overflow-hidden">
         <Header />
