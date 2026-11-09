@@ -81,6 +81,8 @@ public class PataSmsPlugin extends Plugin {
     public void getStatus(PluginCall call) {
         Context context = getContext();
         boolean receiveGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECEIVE_SMS) == PackageManager.PERMISSION_GRANTED;
+        boolean notificationsGranted = android.os.Build.VERSION.SDK_INT < 33
+            || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
         boolean ignoringBattery = true;
         if (android.os.Build.VERSION.SDK_INT >= 23) {
             PowerManager power = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
@@ -89,6 +91,7 @@ public class PataSmsPlugin extends Plugin {
         SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         JSObject result = new JSObject();
         result.put("receiveSmsGranted", receiveGranted);
+        result.put("notificationsGranted", notificationsGranted);
         result.put("ignoringBatteryOptimizations", ignoringBattery);
         result.put("enabled", prefs.getBoolean("enabled", false));
         result.put("premiumUntilMillis", prefs.getLong("premium_until", 0L));
@@ -128,6 +131,8 @@ public class PataSmsPlugin extends Plugin {
         JSObject result = new JSObject();
         result.put("enabled", actualEnabled);
         result.put("receiveSmsGranted", hasPermission);
+        result.put("notificationsGranted", android.os.Build.VERSION.SDK_INT < 33
+            || ContextCompat.checkSelfPermission(getContext(), Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED);
         result.put("hasDeviceToken", hasDeviceToken);
         call.resolve(result);
     }
