@@ -1,5 +1,5 @@
 // public/sw.js
-const CACHE_NAME = 'pata-cache-v3';
+const CACHE_NAME = 'pata-cache-v4';
 const urlsToCache = [
   '/',
   '/dashboard',
@@ -56,6 +56,7 @@ self.addEventListener('push', (event) => {
     tag: payload.tag || 'pata-notification',
     renotify: false,
     data: { url: payload.url || '/dashboard' },
+    ...(typeof payload.image === 'string' && payload.image.startsWith('https://') ? { image: payload.image } : {}),
   }));
 });
 

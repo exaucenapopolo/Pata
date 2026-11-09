@@ -45,6 +45,14 @@ export function isExpiredWebPushError(error) {
   return [404, 410].includes(Number(error?.statusCode || error?.status));
 }
 
+function getSafeImageUrl(value) {
+  if (!value) return '';
+  try {
+    const u = new URL(String(value).trim());
+    return u.protocol === 'https:' && !u.username && !u.password && String(value).length <= 2048 ? u.toString() : '';
+  } catch { return ''; }
+}
+
 export async function sendPataWebPush(subscriptionInput, notification) {
   const publicKey = process.env.NEXT_PUBLIC_WEB_PUSH_VAPID_KEY;
   const privateKey = process.env.WEB_PUSH_VAPID_PRIVATE_KEY;
@@ -70,6 +78,7 @@ export async function sendPataWebPush(subscriptionInput, notification) {
     tag,
     icon: APP_URL + '/android-chrome-192x192.png',
     badge: APP_URL + '/android-chrome-192x192.png',
+    ...(getSafeImageUrl(notification.imageUrl) ? { image: getSafeImageUrl(notification.imageUrl) } : {}),
   };
 
   return webPush.sendNotification(subscription, JSON.stringify(payload), {

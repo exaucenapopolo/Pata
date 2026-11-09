@@ -2,6 +2,7 @@ import './globals.css';
 import './theme-overrides.css';
 import { AppProviders } from './providers';
 import { PWARegister } from '@/components/PWARegister';
+import { PWAInstallButton } from '@/components/PWAInstallButton';
 
 export const metadata = {
   title: 'Pata — Gère ton argent',
@@ -36,6 +37,9 @@ export default function RootLayout({ children }) {
         <AppProviders>
           {children}
           <PWARegister />
+          <div className="pointer-events-none fixed inset-x-0 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-[90] flex justify-end px-4 sm:px-6 md:bottom-5">
+            <div className="pointer-events-auto"><PWAInstallButton /></div>
+          </div>
         </AppProviders>
       </body>
     </html>

@@ -4,6 +4,7 @@ import { adminAuth, adminDb, adminMessaging } from '@/lib/firebase/admin';
 import { FieldValue, FieldPath, AggregateField } from 'firebase-admin/firestore';
 import { completeWithGroq } from '@/lib/ai/groqClient';
 import { normalizeWebPushSubscription, webPushSubscriptionId, sendPataWebPush, isExpiredWebPushError } from '@/lib/notifications/webPush.mjs';
+import { dispatchPushNotification } from '@/lib/notifications/dispatcher.mjs';
 import { AI_TOOLS, createExpenseForUser, updateExpenseForUser, deleteExpenseForUser, executeAITool, runAutomationForUser, generateWeeklyReportForUser } from '@/lib/ai/financialTools';
 import { generateAudioWithGemini } from '@/lib/ai/geminiTTS';
 import { chatWithGroqVision } from '@/lib/ai/groqVision';
@@ -46,6 +47,37 @@ function getPataAppUrl(request) {
   const proto = request.headers.get('x-forwarded-proto') || 'https';
   if (host) return `${proto}://${host}`;
   return getBaseUrl(request);
+}
+
+
+function personalizeNotification(notification,userData={}) {
+ const firstName=String(userData.displayName||'').trim().split(' ').filter(Boolean)[0]?.slice(0,28)||'';
+ let title=String(notification.title||'Information Pata').trim().slice(0,80);
+ const body=String(notification.body||'Ouvre Pata pour consulter cette information.').trim().slice(0,220);
+ if(firstName&&!title.toLocaleLowerCase('fr-FR').startsWith(firstName.toLocaleLowerCase('fr-FR')))title=(firstName+', '+title.charAt(0).toLocaleLowerCase('fr-FR')+title.slice(1)).slice(0,80);
+ return {...notification,title,body};
+}
+function getSafeNotificationImageUrl(value) {
+ if(!value)return '';
+ try{const u=new URL(String(value).trim());if(u.protocol!=='https:'||u.username||u.password||String(value).length>2048)return '';return u.toString();}catch{return '';}
+}
+async function sendPataPushToUser(userRef,notification,appUrl,knownUserData=null) {
+ const snap=knownUserData?null:await userRef.get();const profile=knownUserData||(snap?.exists?snap.data():{})||{};
+ const copy=personalizeNotification(notification,profile);
+ const tokens=Array.isArray(profile.pushTokens)?[...new Set(profile.pushTokens.filter(t=>typeof t==='string'&&t.length>20))]:[];
+ const webPushTargets=[];let subscriptionsSnapshot=null;const knownCount=Math.max(0,Number(profile.webPushDeviceCount)||0);
+ if(knownCount>0||profile.notificationsEnabled===true){subscriptionsSnapshot=await userRef.collection('webPushSubscriptions').get();for(const doc of subscriptionsSnapshot.docs){const d=doc.data()||{};if(d.endpoint&&d.keys?.p256dh&&d.keys?.auth)webPushTargets.push({id:doc.id,ref:doc.ref,subscription:{endpoint:d.endpoint,expirationTime:d.expirationTime??null,keys:d.keys}});}}
+ const path=String(copy.url||copy.target||'/dashboard'),imageUrl=getSafeNotificationImageUrl(copy.imageUrl),tag=String(copy.tag||'pata-automatic').replace(/[^a-zA-Z0-9_-]/g,'-').slice(0,32);
+ const result=await dispatchPushNotification({tokens,subscriptions:webPushTargets,
+  sendFcm:token=>adminMessaging.send({token,notification:{title:copy.title,body:copy.body,...(imageUrl?{imageUrl}:{})},data:{title:copy.title,body:copy.body,url:path,tag,source:String(copy.source||'automatic'),...(imageUrl?{imageUrl}:{})},android:{priority:'high',notification:{channelId:'pata_general',icon:'ic_stat_pata',color:'#0b5c46',...(imageUrl?{imageUrl}:{})}},webpush:{headers:{TTL:'86400',Urgency:'high'},notification:{title:copy.title,body:copy.body,icon:appUrl+'/android-chrome-192x192.png',badge:appUrl+'/android-chrome-192x192.png',tag,renotify:false,...(imageUrl?{image:imageUrl}:{})},fcmOptions:{link:new URL(path,appUrl).toString()}}}),
+  sendWebPush:entry=>sendPataWebPush(entry.subscription,{title:copy.title,body:copy.body,url:path,tag,imageUrl})});
+ if(result.invalidTokens.length)await userRef.set({pushTokens:FieldValue.arrayRemove(...result.invalidTokens)},{merge:true}).catch(()=>{});
+ if(result.expiredSubscriptions.length)await Promise.all(result.expiredSubscriptions.map(x=>x.ref.delete().catch(()=>{})));
+ if(result.invalidTokens.length||result.expiredSubscriptions.length){const [fresh,count]=await Promise.all([userRef.get().catch(()=>null),userRef.collection('webPushSubscriptions').count().get().catch(()=>null)]);const remainingTokens=Array.isArray(fresh?.data()?.pushTokens)?fresh.data().pushTokens.filter(t=>typeof t==='string'&&t.length>20):[];const countValue=Number(count?.data()?.count);const webCount=Number.isFinite(countValue)?countValue:Math.max(0,(subscriptionsSnapshot?.size||knownCount)-result.expiredSubscriptions.length);await userRef.set({webPushDeviceCount:webCount,notificationsEnabled:remainingTokens.length+webCount>0,notificationsUpdatedAt:FieldValue.serverTimestamp()},{merge:true}).catch(()=>{});}
+ if(result.fcmSent+result.webPushSent>0)await userRef.set({lastPushAcceptedAt:FieldValue.serverTimestamp(),lastPushErrorCode:FieldValue.delete(),lastPushErrorAt:FieldValue.delete()},{merge:true}).catch(()=>{});
+ else if(result.attempted>0&&result.failed>0)await userRef.set({lastPushErrorCode:'push/delivery-failed',lastPushErrorAt:FieldValue.serverTimestamp()},{merge:true}).catch(()=>{});
+ for(const e of result.errors)console.warn('[PATA AUTOMATIC PUSH]',userRef.id,e.channel,e.code);
+ return result;
 }
 
 /* ═══════════════════ GESTION DES QUOTAS & SÉCURITÉ ═══════════════════ */
@@ -1490,14 +1522,12 @@ async function handleNotificationScheduler(request) {
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Douala', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
     const month = today.slice(0, 7);
     const usersSnapshot = await adminDb.collection('users').get();
+    const appUrl = getPataAppUrl(request);
     let sent = 0;
     let skipped = 0;
     let failed = 0;
     for (const userDoc of usersSnapshot.docs) {
       const userData = userDoc.data();
-      const tokens = userData.notificationsEnabled === true && Array.isArray(userData.pushTokens)
-        ? [...new Set(userData.pushTokens.filter((token) => typeof token === 'string' && token.length > 20))]
-        : [];
       if (userData.notificationsDailyDate === today) { skipped += 1; continue; }
       try {
         const monthStart = `${month}-01`;
@@ -1584,24 +1614,14 @@ async function handleNotificationScheduler(request) {
           body = reminders[(Number(today.slice(-2)) || 1) % reminders.length];
           target = '/expenses';
         }
+        const personalized = personalizeNotification({ title, body }, userData);
+        title = personalized.title;
+        body = personalized.body;
         let delivered = 0;
         let emailSent = false;
         if(userData.email&&String(userData.email).includes('@')){try{await sendPataEmail({to:userData.email,subject:title,html:financialReminderEmail({name:userData.displayName,headline:title,message:body,category:overBudget?({food:'Alimentation',transport:'Transport',housing:'Logement',internet:'Internet',health:'Santé',leisure:'Loisirs',investment:'Investissement',contribution:'Cotisations',savings:'Épargne',other:'Autres'}[overBudget.categoryId]||'Dépenses'):'',amount:overBudget?overBudget.spent:null,budgetAmount:overBudget?overBudget.allocated:null,targetUrl:target}),idempotencyKey:'pata-daily-financial-'+userDoc.id+'-'+today});emailSent=true;}catch(emailError){console.warn('[DAILY FINANCIAL EMAIL]',userDoc.id,emailError.message||emailError);}}
-        const invalidTokens = [];
-        for (const token of tokens) {
-          try {
-            await adminMessaging.send({
-              token,
-              data: { title, body, url: target, tag: `pata-${today}` },
-              webpush: { headers: { TTL: '86400' } },
-            });
-            delivered += 1;
-          } catch (sendError) {
-            if (['messaging/registration-token-not-registered', 'messaging/invalid-registration-token'].includes(sendError.code)) invalidTokens.push(token);
-            console.error(`[PUSH] ${userDoc.id}:`, sendError.code || sendError.message);
-          }
-        }
-        if (invalidTokens.length) await userDoc.ref.update({ pushTokens: FieldValue.arrayRemove(...invalidTokens) });
+        const pushResult = await sendPataPushToUser(userDoc.ref, { title, body, url: target, tag: 'pata-' + today, source: 'daily_reminder' }, appUrl, userData);
+        delivered = pushResult.fcmSent + pushResult.webPushSent;
         await userDoc.ref.update({
           notificationsDailyDate: today,
           lastNotificationAt: FieldValue.serverTimestamp(),
@@ -1609,7 +1629,7 @@ async function handleNotificationScheduler(request) {
             lastPushAcceptedAt: FieldValue.serverTimestamp(),
             lastPushErrorCode: FieldValue.delete(),
             lastPushErrorAt: FieldValue.delete(),
-          } : tokens.length > 0 ? {
+          } : pushResult.attempted > 0 ? {
             lastPushErrorCode: 'messaging/delivery-failed',
             lastPushErrorAt: FieldValue.serverTimestamp(),
           } : {}),
@@ -2615,9 +2635,6 @@ async function handleAutomationsScheduler(request) {
             if (weeklyReport.generated) {
               userResult.weeklyReportsGenerated += 1;
               const profileData = userDoc.data() || {};
-              const pushTokens = profileData.notificationsEnabled && Array.isArray(profileData.pushTokens)
-                ? [...new Set(profileData.pushTokens.filter((token) => typeof token === 'string' && token.length > 20))]
-                : [];
               if (profileData.email && String(profileData.email).includes('@')) {
                 try {
                   await sendPataEmail({
@@ -2634,29 +2651,18 @@ async function handleAutomationsScheduler(request) {
                 } catch (emailError) { console.warn('[WEEKLY REPORT EMAIL]', userDoc.id, emailError.message || emailError); }
               }
               const notificationId = `weekly-${weeklyReport.weekStart}`;
-                const title = 'Ton bilan hebdomadaire est disponible';
-                const body = 'Ton résumé de la semaine est prêt. Consulte tes revenus, tes dépenses et les tendances de ton budget dans Pata.';
-                await userDoc.ref.collection('notifications').doc(notificationId).set({
-                title, body, target: '/reports', source: 'weekly_report',
-                weekStart: weeklyReport.weekStart, weekEnd: weeklyReport.weekEnd,
+              const summaryIncome = Number(weeklyReport.totalIncome) || 0;
+              const summaryExpense = Number(weeklyReport.totalExpense) || 0;
+              const summaryPreview = summaryIncome || summaryExpense ? `Cette semaine : ${summaryIncome.toLocaleString('fr-FR')} FCFA de revenus et ${summaryExpense.toLocaleString('fr-FR')} FCFA de dépenses.` : 'Ton suivi de la semaine est prêt.';
+              const personalized = personalizeNotification({ title: 'Ton bilan hebdomadaire est disponible', body: summaryPreview + ' Ouvre Pata pour voir le détail et les conseils.', url: '/reports', tag: notificationId, source: 'weekly_report' }, profileData);
+              const { title, body } = personalized;
+              await userDoc.ref.collection('notifications').doc(notificationId).set({
+                title, body, target: '/reports', source: 'weekly_report', weekStart: weeklyReport.weekStart, weekEnd: weeklyReport.weekEnd,
                 read: false, readAt: null, createdAt: FieldValue.serverTimestamp(),
               }, { merge: true });
-              if (profileData.notificationsEnabled) {
-                for (const token of pushTokens) {
-                  try {
-                    await adminMessaging.send({
-                      token,
-                      data: { title, body, url: '/reports', tag: notificationId },
-                      webpush: { headers: { TTL: '604800' } },
-                    });
-                  } catch (pushError) {
-                    console.warn('[WEEKLY REPORT PUSH]', userDoc.id, pushError.code || pushError.message);
-                    if (['messaging/registration-token-not-registered', 'messaging/invalid-registration-token'].includes(pushError.code)) {
-                      await userDoc.ref.update({ pushTokens: FieldValue.arrayRemove(token) }).catch(() => {});
-                    }
-                  }
-                }
-              }
+              try { await sendPataPushToUser(userDoc.ref, personalized, getPataAppUrl(request), profileData); }
+              catch (pushError) { console.warn('[WEEKLY REPORT PUSH]', userDoc.id, pushError.code || pushError.message); }
+
             }
           } catch (reportError) {
             console.error(`[CRON] Rapport hebdomadaire non généré pour ${userDoc.id}:`, reportError.message);
@@ -4091,6 +4097,9 @@ async function handleAdminBroadcast(request) {
     const body = await request.json();
     const title = String(body.title || '').trim().slice(0, 80);
     const message = String(body.message || '').trim().slice(0, 220);
+    const rawImageUrl = String(body.imageUrl || '').trim();
+    const imageUrl = rawImageUrl ? getSafeNotificationImageUrl(rawImageUrl) : '';
+    if (rawImageUrl && !imageUrl) return errorResponse('Le lien de l’image doit être une URL HTTPS valide.', 400);
     const path = String(body.path || '/dashboard');
     const recipientMode = body.recipientMode === 'selected' ? 'selected' : 'all';
     const recipientIds = [...new Set((Array.isArray(body.recipientIds) ? body.recipientIds : [])
@@ -4119,7 +4128,7 @@ async function handleAdminBroadcast(request) {
       const group = recipientDocs.slice(offset, offset + 400);
       group.forEach((userDoc) => {
         const notificationRef = userDoc.ref.collection('notifications').doc(notificationId);
-        batch.set(notificationRef, { title, body: message, target: path, source: 'admin', read: false, readAt: null, createdAt: FieldValue.serverTimestamp() });
+        batch.set(notificationRef, { title, body: message, target: path, source: 'admin', ...(imageUrl ? { imageUrl } : {}), read: false, readAt: null, createdAt: FieldValue.serverTimestamp() });
       });
       await batch.commit();
       inAppDelivered += group.length;
@@ -4176,11 +4185,11 @@ async function handleAdminBroadcast(request) {
       const chunk = optedTokens.slice(offset, offset + 40);
       const results = await Promise.allSettled(chunk.map((token) => adminMessaging.send({
         token,
-        notification: { title, body: message },
-        data: { title, body: message, url: path, tag, source: 'admin' },
+        notification: { title, body: message, ...(imageUrl ? { imageUrl } : {}) },
+        data: { title, body: message, url: path, tag, imageUrl, source: 'admin' },
         android: {
           priority: 'high',
-          notification: { channelId: 'pata_general', icon: 'ic_stat_pata', color: '#0b5c46' },
+          notification: { channelId: 'pata_general', icon: 'ic_stat_pata', color: '#0b5c46', ...(imageUrl ? { imageUrl } : {}) },
         },
         webpush: {
           headers: { TTL: '86400', Urgency: 'high' },
@@ -4188,7 +4197,7 @@ async function handleAdminBroadcast(request) {
             title, body: message,
             icon: appUrl + '/android-chrome-192x192.png',
             badge: appUrl + '/android-chrome-192x192.png',
-            tag, renotify: false,
+            tag, renotify: false, ...(imageUrl ? { image: imageUrl } : {}),
           },
           fcmOptions: { link: new URL(path, appUrl).toString() },
         },
@@ -5266,11 +5275,10 @@ async function handleCotisationsScheduler(request) {
       let emailSent = false;
       let pushSent = 0;
       try {
-        await inAppRef.set({
-          title, body, target: '/cotisations', source: 'cotisation',
-          groupId: group.id, cycleKey: meta.cycleKey,
-          read: false, readAt: null, createdAt: FieldValue.serverTimestamp(),
-        }, { merge: true });
+        const userSnap = await userRef.get();
+        const userData = userSnap.exists ? userSnap.data() : {};
+        const personalized = personalizeNotification({ title, body, url: '/cotisations', tag: reminderId, source: 'cotisation' }, { displayName: userData.displayName || member.displayName || '' });
+        await inAppRef.set({ title: personalized.title, body: personalized.body, target: '/cotisations', source: 'cotisation', groupId: group.id, cycleKey: meta.cycleKey, read: false, readAt: null, createdAt: FieldValue.serverTimestamp() }, { merge: true });
 
         if (member.email && String(member.email).includes('@')) {
           await sendPataEmail({
@@ -5294,30 +5302,8 @@ async function handleCotisationsScheduler(request) {
           emailSent = true;
         }
 
-        const userSnap = await userRef.get();
-        const userData = userSnap.exists ? userSnap.data() : {};
-        if (userData.notificationsEnabled && Array.isArray(userData.pushTokens)) {
-          const tokens = [...new Set(userData.pushTokens.filter((token) => typeof token === 'string' && token.length > 20))];
-          const invalidTokens = [];
-          for (const token of tokens) {
-            try {
-              await adminMessaging.send({
-                token,
-                data: { title, body, url: '/cotisations', tag: reminderId },
-                webpush: { headers: { TTL: '86400', Urgency: 'high' }, fcmOptions: { link: appUrl + '/cotisations' } },
-              });
-              pushSent += 1;
-            } catch (pushError) {
-              if (['messaging/registration-token-not-registered', 'messaging/invalid-registration-token'].includes(pushError.code)) invalidTokens.push(token);
-              console.warn('[COTISATION REMINDER PUSH]', member.uid, pushError.code || pushError.message);
-            }
-          }
-          if (invalidTokens.length) {
-            await userRef.set({ pushTokens: FieldValue.arrayRemove(...invalidTokens) }, { merge: true });
-            const remaining = tokens.filter((token) => !invalidTokens.includes(token));
-            if (!remaining.length) await userRef.set({ notificationsEnabled: false }, { merge: true });
-          }
-        }
+        const pushResult = await sendPataPushToUser(userRef, personalized, appUrl, userData);
+        pushSent = pushResult.fcmSent + pushResult.webPushSent;
 
         await reminderRef.set({
           status: 'SENT',
@@ -5354,12 +5340,14 @@ async function handleCotisationsScheduler(request) {
         const claimed = await claimMessage(turnRef);
         if (claimed) {
           try {
-            await adminDb.collection('users').doc(beneficiary.uid).collection('notifications').doc('cotisation-turn-' + group.id + '-' + meta.cycleKey).set({
-              title: 'C’est ton tour de recevoir la cotisation',
-              body: 'Le groupe ' + group.name + ' t’a désigné comme bénéficiaire de cette période. Tu dois aussi verser ta propre contribution.',
-              target: '/cotisations', source: 'cotisation', read: false, readAt: null,
-              createdAt: FieldValue.serverTimestamp(),
-            }, { merge: true });
+            const beneficiaryUserRef = adminDb.collection('users').doc(beneficiary.uid);
+            const beneficiaryUserSnap = await beneficiaryUserRef.get();
+            const beneficiaryProfile = beneficiaryUserSnap.exists ? beneficiaryUserSnap.data() : {};
+            const turnNotificationId = 'cotisation-turn-' + group.id + '-' + meta.cycleKey;
+            const turnCopy = personalizeNotification({ title: 'C’est ton tour de recevoir la cotisation', body: 'Le groupe ' + group.name + ' t’a désigné comme bénéficiaire de cette période. Tu dois aussi verser ta propre contribution.', url: '/cotisations', tag: turnNotificationId, source: 'cotisation' }, { displayName: beneficiaryProfile.displayName || beneficiary.displayName || '' });
+            await beneficiaryUserRef.collection('notifications').doc(turnNotificationId).set({ title: turnCopy.title, body: turnCopy.body, target: '/cotisations', source: 'cotisation', read: false, readAt: null, createdAt: FieldValue.serverTimestamp() }, { merge: true });
+            const turnPush = await sendPataPushToUser(beneficiaryUserRef, turnCopy, appUrl, beneficiaryProfile);
+            totals.pushSent += turnPush.fcmSent + turnPush.webPushSent;
             let emailSent = false;
             if (beneficiary.email && String(beneficiary.email).includes('@')) {
               await sendPataEmail({

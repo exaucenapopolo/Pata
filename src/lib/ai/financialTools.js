@@ -802,7 +802,7 @@ export async function generateWeeklyReportForUser(uid, now = new Date()) {
     transaction.create(reportRef, report);
     return true;
   });
-  return { generated, weekStart, weekEnd };
+  return { generated, weekStart, weekEnd, totalIncome, totalExpense, net: totalIncome - totalExpense, expenseChangePercent };
 }
 
 export const AI_TOOLS = [

@@ -244,6 +244,9 @@ export function NotificationInbox() {
                       <span className="mt-1 block whitespace-pre-wrap break-words text-xs leading-5 text-slate-600">
                         {item.body || item.message || 'Ouvre Pata pour consulter cette information.'}
                       </span>
+                      {typeof item.imageUrl === 'string' && item.imageUrl.startsWith('https://') && (
+                        <img src={item.imageUrl} alt="Illustration de la notification" loading="lazy" className="mt-3 max-h-40 w-full rounded-lg border border-slate-100 object-cover" />
+                      )}
                       <span className="mt-2 block text-[10px] text-slate-400">
                         {formatDate(item.createdAt)} · {item.isRead ? 'Déjà lue' : 'Nouvelle notification'}
                       </span>

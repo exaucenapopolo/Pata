@@ -116,7 +116,7 @@ export default function AdminPage() {
   const [tab, setTab] = useState('overview'); const [overview, setOverview] = useState(null); const [users, setUsers] = useState([]); const [nextCursor, setNextCursor] = useState(null); const [questions, setQuestions] = useState(null); const [nextQuestionCursor, setNextQuestionCursor] = useState(null); const [savings, setSavings] = useState(null); const [nextSavingsCursor, setNextSavingsCursor] = useState(null); const [recipients, setRecipients] = useState([]); const [recipientSummary, setRecipientSummary] = useState(null); const [nextRecipientCursor, setNextRecipientCursor] = useState(null); const [selectedRecipientIds, setSelectedRecipientIds] = useState([]); const [recipientMode, setRecipientMode] = useState('all'); const [recipientSearch, setRecipientSearch] = useState(''); const [withdrawals, setWithdrawals] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null); const [userDetail, setUserDetail] = useState(null); const [search, setSearch] = useState(''); const [templateChoice, setTemplateChoice] = useState('');
   const [emailSubject, setEmailSubject] = useState(templates[0].subject); const [emailMessage, setEmailMessage] = useState(templates[0].body); const [emailResult, setEmailResult] = useState(''); const [emailCtaPath, setEmailCtaPath] = useState('/dashboard'); const [emailTemplateKey, setEmailTemplateKey] = useState('welcome');
-  const [broadcastTitle, setBroadcastTitle] = useState('Information Pata'); const [broadcastMessage, setBroadcastMessage] = useState(''); const [broadcastPath, setBroadcastPath] = useState('/dashboard'); const [broadcastResult, setBroadcastResult] = useState('');
+  const [broadcastTitle, setBroadcastTitle] = useState('Information Pata'); const [broadcastMessage, setBroadcastMessage] = useState(''); const [broadcastPath, setBroadcastPath] = useState('/dashboard'); const [broadcastImageUrl, setBroadcastImageUrl] = useState(''); const [broadcastResult, setBroadcastResult] = useState('');
 
   const api = useCallback(async (path, method = 'GET', body = null) => {
     if (!user) throw new Error('Connecte-toi à ton compte avant de continuer.');
@@ -189,11 +189,11 @@ export default function AdminPage() {
   const broadcast = async (event) => {
     event.preventDefault(); setBusy(true); setBroadcastResult(''); setError('');
     try {
-      const result = await api('admin/notifications/broadcast', 'POST', { title: broadcastTitle, message: broadcastMessage, path: broadcastPath, recipientMode, recipientIds: recipientMode === 'selected' ? selectedRecipientIds : [] });
+      const result = await api('admin/notifications/broadcast', 'POST', { title: broadcastTitle, message: broadcastMessage, path: broadcastPath, imageUrl: broadcastImageUrl.trim(), recipientMode, recipientIds: recipientMode === 'selected' ? selectedRecipientIds : [] });
       const codes = (result.pushFailureDetails || []).map((item) => item.code);
       const diagnostic = codes.length ? ' Codes retournés : ' + [...new Set(codes)].join(', ') + '.' : '';
       setBroadcastResult((result.message || 'Notification enregistrée.') + diagnostic);
-      setBroadcastMessage('');
+      setBroadcastMessage(''); setBroadcastImageUrl('');
     } catch (err) { setError(err.message); }
     finally { setBusy(false); }
   };
@@ -298,10 +298,12 @@ export default function AdminPage() {
         </div>}
         <label className="block text-sm font-medium">Titre<input maxLength={80} value={broadcastTitle} onChange={e=>setBroadcastTitle(e.target.value)} className="mt-1 h-11 w-full rounded-lg border border-slate-200 px-3 text-sm" required/></label>
         <label className="mt-3 block text-sm font-medium">Message<textarea maxLength={220} value={broadcastMessage} onChange={e=>setBroadcastMessage(e.target.value)} rows={4} className="mt-1 w-full rounded-lg border border-slate-200 p-3 text-sm" placeholder="Rédige un message clair et utile…" required/></label>
+        <label className="mt-3 block text-sm font-medium">Image facultative (lien HTTPS)<input type="url" value={broadcastImageUrl} onChange={e=>setBroadcastImageUrl(e.target.value)} className="mt-1 h-11 w-full rounded-lg border border-slate-200 px-3 text-sm" placeholder="https://exemple.com/illustration.jpg"/></label>
+        {broadcastImageUrl.trim().startsWith('https://') && <img src={broadcastImageUrl.trim()} alt="Aperçu de la notification" className="mt-2 max-h-44 w-full rounded-xl border border-slate-200 object-cover" />}
         <label className="mt-3 block text-sm font-medium">Page à ouvrir<input value={broadcastPath} onChange={e=>setBroadcastPath(e.target.value)} className="mt-1 h-11 w-full rounded-lg border border-slate-200 px-3 text-sm" placeholder="/dashboard"/></label>
         {broadcastResult&&<p className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">{broadcastResult}</p>}
         <button disabled={busy||(recipientMode==='selected'&&!selectedRecipientIds.length)} className="mt-4 inline-flex h-11 items-center gap-2 rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white disabled:opacity-50">{busy?<Loader2 className="animate-spin" size={16}/>:<Bell size={16}/>} Envoyer la notification</button>
-        <p className="mt-3 text-[11px] leading-5 text-slate-400">La notification reste dans la boîte jusqu’à ce que l’utilisateur la marque comme lue. Le push dépend des autorisations et de l’appareil.</p>
+        <p className="mt-3 text-[11px] leading-5 text-slate-400">La notification reste dans la boîte jusqu’à ce que l’utilisateur la marque comme lue. Le push dépend des autorisations et de l’appareil. L’image HTTPS est facultative et s’affiche selon les capacités du navigateur ou du système.</p>
       </form>
       <aside className="space-y-4"><div className="rounded-2xl border border-slate-200 bg-white p-4"><SectionTitle title="Notifications activées" detail="Compteur global des comptes inscrits."/><p className="text-3xl font-bold">{recipientSummary?recipientSummary.optedInUsers:'—'}</p><p className="mt-1 text-xs text-slate-500">sur {recipientSummary?recipientSummary.totalUsers:'—'} comptes Pata.</p><button type="button" onClick={()=>loadRecipients(false)} disabled={busy} className="mt-3 text-xs font-semibold underline">Actualiser les appareils inscrits</button></div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4"><SectionTitle title="Conseils d’envoi"/><div className="space-y-3 text-xs leading-5 text-slate-600"><p>Choisis un titre court et un message précis.</p><p>Un utilisateur peut désactiver les notifications depuis ses paramètres.</p></div></div>

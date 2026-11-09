@@ -10,7 +10,7 @@
     "test:sms": "node --test tests/parseMobileMoneySms.test.mjs",
     "cap:add:android": "npx cap add android",
     "cap:sync:android": "npx cap sync android",
-    "test:notifications": "node --test tests/webPush.test.mjs tests/nativePushConfig.test.mjs"
+    "test:notifications": "node --test tests/webPush.test.mjs tests/nativePushConfig.test.mjs tests/notificationDispatcher.test.mjs"
   },
   "dependencies": {
     "@capacitor/android": "6.2.1",

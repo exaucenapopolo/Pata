@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Save, LogOut, Download, FileText, FileSpreadsheet, Bell, ShieldCheck, LockKeyhole, ChevronRight, UserRound, Crown, Sun, Moon, Gift, MessageSquareText } from 'lucide-react';
+import { Save, LogOut, Download, FileText, FileSpreadsheet, Bell, ShieldCheck, LockKeyhole, ChevronRight, UserRound, Crown, Sun, Moon, Gift, MessageSquareText, Smartphone } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -207,6 +207,7 @@ export default function SettingsPage() {
         <h2 className="px-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Préférences et données</h2>
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white divide-y divide-slate-100">
           <SettingRow icon={theme === 'dark' ? Moon : Sun} title="Apparence de Pata" description="Choisis un thème clair ou sombre" value={theme === 'dark' ? 'Sombre' : 'Clair'} onClick={() => setActivePanel('appearance')} />
+          <SettingRow icon={Smartphone} title="Télécharger l’application Android" description="Installer la version mobile Pata (APK)" onClick={() => router.push('/telecharger')} />
           <SettingRow icon={Download} title="Exporter mes données" description="Télécharger tes opérations et tes bilans" onClick={() => setActivePanel('exports')} />
           <SettingRow icon={Gift} title="Parrainage" description="Ton lien, tes invitations et tes bonus" onClick={() => setActivePanel('referrals')} />
           <SettingRow icon={ShieldCheck} title="Confidentialité et documents" description="Conditions d’utilisation et politique de confidentialité" onClick={() => setActivePanel('legal')} />
