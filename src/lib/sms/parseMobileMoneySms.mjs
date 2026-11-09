@@ -30,7 +30,7 @@ function parseProvider(text, sender) {
 
 function parseTransactionId(text) {
   const patterns = [
-    /(?:transaction\s*(?:id|n[°o]|no\.?|num[eé]ro|number)|id\s*(?:de\s*)?(?:transaction|op[eé]ration)?|r[eé]f[eé]rence|reference|ref\.?|code\s*(?:de\s*)?(?:transaction|op[eé]ration)|n[°o]\s*(?:transaction|op[eé]ration)?)\s*[:#\-]?\s*([A-Z0-9][A-Z0-9._\/-]{3,58})/i,
+    /(?:transaction\s*(?:id|n[°o]|no\.?|num[eé]ro|number)|id\s*(?:de\s*)?(?:transaction|op[eé]ration)?|r[eé]f[eé]rence|reference|ref\.?|code\s*(?:de\s*)?(?:transaction|op[eé]ration)|n[°o]\s*(?:transaction|op[eé]ration))\s*[:#\-]?\s*([A-Z0-9][A-Z0-9._\/-]{3,58})/i,
     /\b((?:MP|BP|TX|OM|MTN)[A-Z0-9]{5,}(?:[.-][A-Z0-9]+){0,5})\b/i,
   ];
   for (const pattern of patterns) {
@@ -118,9 +118,9 @@ function sanitizeCounterparty(candidate) {
 
 function parseCounterparty(text) {
   const patterns = [
-    /(?:paiement\s*(?:reussi|effectue)|payment\s*(?:successful|completed))[.!,:-]\s*([\p{L}][\p{L}'’ .-]{1,50})[.!,:-]\s*(?:montant|transaction|somme)/iu,
-    /(?:recu|received)\s+(?:de|from)\s+([\p{L}][\p{L}'’ .-]{1,50})(?=[,.;]|$)/iu,
-    /(?:envoye?\s+(?:a|au|vers)|transfert\s+vers|paye?\s+(?:a|au)|aupres\s+de|chez|sent\s+to)\s+([\p{L}][\p{L}'’ .-]{1,50})(?=[,.;]|$)/iu,
+    /(?:paiement\s*(?:r[eé]ussi|effectu[eé])|payment\s*(?:successful|completed))[.!,:-]\s*([\p{L}][\p{L}'’ .-]{1,50})[.!,:-]\s*(?:montant|transaction|somme)/iu,
+    /(?:r[eé]cu|received)\s+(?:de|from)\s+([\p{L}][\p{L}'’ .-]{1,50})(?=[,.;]|$)/iu,
+    /(?:envoy[eé]?\s+(?:[àa]|au|vers)|transfert\s+vers|pay[eé]?\s+(?:[àa]|au)|auprès\s+de|chez|sent\s+to)\s+([\p{L}][\p{L}'’ .-]{1,50})(?=[,.;]|$)/iu,
   ];
   for (const pattern of patterns) {
     const match = text.match(pattern);

@@ -59,7 +59,7 @@ public final class PataMobileMoneyParser {
                 calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH) + 1, calendar.get(Calendar.DAY_OF_MONTH)));
             result.put("time", String.format(Locale.ROOT, "%02d:%02d",
                 calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE)));
-            String counterparty = detectCounterparty(normalized);
+            String counterparty = detectCounterparty(body);
             if (counterparty != null) result.put("counterparty", counterparty);
             Integer balance = detectBalance(normalized);
             if (balance != null) result.put("balance", balance);
@@ -127,7 +127,7 @@ public final class PataMobileMoneyParser {
 
     private static String detectTransactionId(String text) {
         Pattern[] patterns = new Pattern[] {
-            Pattern.compile("(?:transaction\\s*(?:id|n[°o]|no\\.?|numero|number)|id\\s*(?:de\\s*)?(?:transaction|operation)?|reference|ref\\.?|code\\s*(?:de\\s*)?(?:transaction|operation)|n[°o]\\s*(?:transaction|operation)?)\\s*[:#\\-]?\\s*([A-Z0-9][A-Z0-9._/-]{3,58})", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("(?:transaction\\s*(?:id|n[°o]|no\\.?|numero|number)|id\\s*(?:de\\s*)?(?:transaction|operation)?|reference|ref\\.?|code\\s*(?:de\\s*)?(?:transaction|operation)|n[°o]\\s*(?:transaction|operation))\\s*[:#\\-]?\\s*([A-Z0-9][A-Z0-9._/-]{3,58})", Pattern.CASE_INSENSITIVE),
             Pattern.compile("\\b((?:MP|BP|TX|OM|MTN)[A-Z0-9]{5,}(?:[.-][A-Z0-9]+){0,5})\\b", Pattern.CASE_INSENSITIVE)
         };
         for (Pattern pattern : patterns) {
@@ -142,7 +142,8 @@ public final class PataMobileMoneyParser {
 
     private static String detectCounterparty(String text) {
         Pattern[] patterns = new Pattern[] {
-            Pattern.compile("(?:recu|received)\\s+(?:de|from)\\s+([\\p{L}][\\p{L}' .-]{1,50})(?=[,.;]|$)", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("(?:paiement\\s*(?:reussi|réussi|effectue|effectué)|payment\\s*(?:successful|completed))[.!,:-]\\s*([\\p{L}][\\p{L}' .-]{1,50})[.!,:-]\\s*(?:montant|transaction|somme)", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("(?:recu|reçu|received)\\s+(?:de|from)\\s+([\\p{L}][\\p{L}' .-]{1,50})(?=[,.;]|$)", Pattern.CASE_INSENSITIVE),
             Pattern.compile("(?:envoye?\\s+(?:a|au|vers)|transfert\\s+vers|paye?\\s+(?:a|au)|sent\\s+to)\\s+([\\p{L}][\\p{L}' .-]{1,50})(?=[,.;]|$)", Pattern.CASE_INSENSITIVE)
         };
         for (Pattern pattern : patterns) {
