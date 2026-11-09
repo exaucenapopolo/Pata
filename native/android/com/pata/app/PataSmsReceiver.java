@@ -10,44 +10,48 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import androidx.core.content.ContextCompat;
 import android.os.Build;
 import android.provider.Telephony;
 import android.telephony.SmsMessage;
-
+import androidx.core.content.ContextCompat;
+import androidx.work.BackoffPolicy;
+import androidx.work.Constraints;
+import androidx.work.Data;
+import androidx.work.ExistingWorkPolicy;
+import androidx.work.NetworkType;
+import androidx.work.OneTimeWorkRequest;
+import androidx.work.WorkManager;
+import java.util.concurrent.TimeUnit;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.text.SimpleDateFormat;
-import java.util.Calendar;
-import java.util.Date;
-import java.util.Locale;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
 public class PataSmsReceiver extends BroadcastReceiver {
-    private static final String PREFS = "PataSms";
-    private static final String PENDING = "pending_sms";
+    static final String PREFS = "PataSms";
+    static final String PENDING = "pending_sms";
     private static final String CHANNEL = "pata_mobile_money";
 
     @Override
     public void onReceive(Context context, Intent intent) {
         if (intent == null || !Telephony.Sms.Intents.SMS_RECEIVED_ACTION.equals(intent.getAction())) return;
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECEIVE_SMS) != PackageManager.PERMISSION_GRANTED) return;
-
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECEIVE_SMS) != PackageManager.PERMISSION_GRANTED) {
+            recordDiagnostic(context, "permission_missing", null, "RECEIVE_SMS non accordée.");
+            return;
+        }
         SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        if (!prefs.getBoolean("enabled", false)) return;
+        if (!prefs.getBoolean("enabled", false)) {
+            recordDiagnostic(context, "disabled", null, "Import automatique désactivé.");
+            return;
+        }
         if (prefs.getLong("premium_until", 0L) <= System.currentTimeMillis()) {
             prefs.edit().putBoolean("enabled", false).apply();
+            recordDiagnostic(context, "premium_expired", null, "Abonnement Premium inactif.");
             return;
         }
 
         SmsMessage[] messages;
-        try {
-            messages = Telephony.Sms.Intents.getMessagesFromIntent(intent);
-        } catch (Exception error) {
+        try { messages = Telephony.Sms.Intents.getMessagesFromIntent(intent); }
+        catch (Exception error) {
+            recordDiagnostic(context, "sms_read_error", null, "Impossible de lire le SMS système.");
             return;
         }
         if (messages == null || messages.length == 0) return;
@@ -61,240 +65,155 @@ public class PataSmsReceiver extends BroadcastReceiver {
             body.append(message.getMessageBody() == null ? "" : message.getMessageBody()).append(' ');
             receivedAt = message.getTimestampMillis();
         }
+        if (body.length() == 0) return;
 
-        ParsedSms parsed = parse(sender, body.toString(), receivedAt);
-        if (parsed == null) return;
-        if (!storeIfNew(context, parsed)) return;
-        showNotification(context, parsed);
-    }
+        JSONObject parsed = PataMobileMoneyParser.parse(sender, body.toString(), receivedAt);
+        if (parsed == null) {
+            recordDiagnostic(context, "unrecognized", detectProvider(sender, body.toString()),
+                "SMS reçu mais format non reconnu. Aucun contenu brut n'a été conservé.");
+            return;
+        }
 
-    private static class ParsedSms {
-        String provider;
-        String transactionHash;
-        String eventType;
-        String direction;
-        int amount;
-        Integer balance;
-        String counterparty;
-        String date;
-        String time;
-    }
-
-    private ParsedSms parse(String sender, String body, long timestamp) {
-        if (body == null || body.trim().isEmpty()) return null;
-        String text = body.replaceAll("\\s+", " ").trim();
-        String source = (sender + " " + text).toLowerCase(Locale.ROOT);
-        if (Pattern.compile("(\\bechec\\b|\\bfailed\\b|\\brefuse\\b|\\bannule\\b|not completed|transaction rejected)", Pattern.CASE_INSENSITIVE).matcher(normalize(source)).find()) return null;
-
-        String provider;
-        if (source.matches("(?s).*(orange\\s*(money|cash)|\\bom\\b).*")) provider = "orange_money";
-        else if (source.matches("(?s).*(\\bmtn\\b|momo|mobile\\s*money).*")) provider = "mtn_momo";
-        else return null;
-
-        String normalized = normalize(text);
-        String eventType;
-        if (Pattern.compile("\\b(retrait|retire|withdrawal|cash\\s*out)\\b", Pattern.CASE_INSENSITIVE).matcher(normalized).find()) eventType = "withdrawal";
-        else if (Pattern.compile("(paiement\\s*reussi|payment\\s*successful|marchand|merchant|achat\\s*reussi)", Pattern.CASE_INSENSITIVE).matcher(normalized).find()) eventType = "payment";
-        else if (Pattern.compile("(vous avez recu|transfert recu|recu de|credite|cash in|received)", Pattern.CASE_INSENSITIVE).matcher(normalized).find()) eventType = "receive";
-        else if (Pattern.compile("(vous avez envoye|transfert effectue|transfert envoye|envoye a|transfert vers|debit|sent to)", Pattern.CASE_INSENSITIVE).matcher(normalized).find()) eventType = "send";
-        else return null;
-
-        String transactionId = findTransactionId(text);
-        if (transactionId == null) return null;
-        Integer amount = findAmount(text);
-        if (amount == null || amount <= 0) return null;
-
-        ParsedSms result = new ParsedSms();
-        result.provider = provider;
-        result.transactionHash = hash(provider + ":" + transactionId);
-        result.eventType = eventType;
-        result.direction = "receive".equals(eventType) ? "income" : "withdrawal".equals(eventType) ? "withdrawal" : "expense";
-        result.amount = amount;
-        result.counterparty = findCounterparty(text);
-        result.balance = findBalance(text);
-        Calendar calendar = Calendar.getInstance();
-        calendar.setTimeInMillis(timestamp > 0 ? timestamp : System.currentTimeMillis());
-
-        Matcher isoDate = Pattern.compile("\\b(\\d{4})[-/](\\d{1,2})[-/](\\d{1,2})\\b").matcher(text);
-        Matcher localDate = Pattern.compile("\\b(\\d{1,2})[/-](\\d{1,2})[/-](\\d{2,4})\\b").matcher(text);
+        String uid = prefs.getString("user_uid", "");
+        String deviceToken = prefs.getString("device_token", "");
         try {
-            if (isoDate.find()) {
-                calendar.set(Calendar.YEAR, Integer.parseInt(isoDate.group(1)));
-                calendar.set(Calendar.MONTH, Integer.parseInt(isoDate.group(2)) - 1);
-                calendar.set(Calendar.DAY_OF_MONTH, Integer.parseInt(isoDate.group(3)));
-            } else if (localDate.find()) {
-                int year = Integer.parseInt(localDate.group(3));
-                if (year < 100) year += year >= 70 ? 1900 : 2000;
-                calendar.set(Calendar.YEAR, year);
-                calendar.set(Calendar.MONTH, Integer.parseInt(localDate.group(2)) - 1);
-                calendar.set(Calendar.DAY_OF_MONTH, Integer.parseInt(localDate.group(1)));
-            }
-        } catch (Exception ignored) {
-            calendar.setTimeInMillis(timestamp > 0 ? timestamp : System.currentTimeMillis());
+            parsed.put("ownerUid", uid);
+            parsed.put("receivedAt", receivedAt);
+            parsed.put("status", "queued");
+        } catch (Exception ignored) { }
+        if (!storeIfNew(context, parsed)) {
+            recordDiagnostic(context, "duplicate", parsed.optString("provider"), "Transaction déjà mise en file.");
+            return;
         }
 
-        Matcher explicitTime = Pattern.compile("\\b([01]?\\d|2[0-3]):([0-5]\\d)\\b").matcher(text);
-        if (explicitTime.find()) {
-            calendar.set(Calendar.HOUR_OF_DAY, Integer.parseInt(explicitTime.group(1)));
-            calendar.set(Calendar.MINUTE, Integer.parseInt(explicitTime.group(2)));
+        if (uid.isEmpty() || deviceToken.isEmpty()) {
+            recordDiagnostic(context, "account_link_required", parsed.optString("provider"),
+                "SMS reconnu. Ouvre Paramètres > Import SMS pour relier cet appareil au compte.");
+            showStatusNotification(context, "SMS Mobile Money détecté",
+                "Ouvre Pata pour relier cet appareil et terminer l'enregistrement.");
+            return;
         }
-        result.date = new SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(calendar.getTime());
-        result.time = new SimpleDateFormat("HH:mm", Locale.ROOT).format(calendar.getTime());
-        return result;
+        enqueueSync(context, parsed, uid, deviceToken);
+        recordDiagnostic(context, "recognized_waiting_sync", parsed.optString("provider"),
+            "SMS reconnu ; synchronisation automatique programmée.");
     }
 
-    private static String normalize(String value) {
-        return value.toLowerCase(Locale.ROOT)
-            .replace('é', 'e').replace('è', 'e').replace('ê', 'e')
-            .replace('à', 'a').replace('â', 'a').replace('ù', 'u')
-            .replace('û', 'u').replace('ç', 'c');
+    static void enqueueSync(Context context, JSONObject parsed, String uid, String deviceToken) {
+        Data input = new Data.Builder()
+            .putString("uid", uid)
+            .putString("deviceToken", deviceToken)
+            .putString("transactionHash", parsed.optString("transactionHash"))
+            .putString("provider", parsed.optString("provider"))
+            .putString("eventType", parsed.optString("eventType"))
+            .putString("direction", parsed.optString("direction"))
+            .putInt("amount", parsed.optInt("amount", 0))
+            .putString("date", parsed.optString("date"))
+            .putString("time", parsed.optString("time"))
+            .putString("counterparty", parsed.optString("counterparty", ""))
+            .build();
+        Constraints constraints = new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build();
+        OneTimeWorkRequest work = new OneTimeWorkRequest.Builder(PataSmsSyncWorker.class)
+            .setInputData(input)
+            .setConstraints(constraints)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .build();
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            "pata-sms-" + parsed.optString("transactionHash"), ExistingWorkPolicy.KEEP, work);
     }
 
-    private static String findTransactionId(String text) {
-        Pattern[] patterns = new Pattern[] {
-            Pattern.compile("(?:transaction\\s*(?:id|no\\.?|n[°o]|number)|id\\s*(?:de\\s*)?(?:transaction|operation)?|reference)\\s*[:#-]?\\s*([A-Z0-9][A-Z0-9._/-]{4,48})", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("\\b(MP\\d{6,}(?:[.-][A-Z0-9]+){1,4})\\b", Pattern.CASE_INSENSITIVE)
-        };
-        for (Pattern pattern : patterns) {
-            Matcher matcher = pattern.matcher(text);
-            if (matcher.find()) {
-                String value = matcher.group(1).replaceAll("[.,;:)]+$", "").trim();
-                if (value.length() >= 5) return value;
-            }
-        }
-        return null;
-    }
-
-    private static Integer findAmount(String text) {
-        String currency = "(?:FCFA|XAF|F\\s*\\.\\s*CFA|F\\s*CFA|CFA)";
-        Pattern[] patterns = new Pattern[] {
-            Pattern.compile("(?:montant(?:\\s+de\\s+la)?\\s+transaction|montant|somme)\\s*[:\\-]?\\s*(?:de\\s*)?([0-9][0-9\\s.,]{0,20})\\s*" + currency + "\\b", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("(?:vous\\s+avez\\s+)?(?:re[cç]u|envoy[eé]|pay[eé]|retir[eé])\\s+(?:la\\s+somme\\s+de\\s+)?([0-9][0-9\\s.,]{0,20})\\s*" + currency + "\\b", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("([0-9][0-9\\s.,]{0,20})\\s*" + currency + "\\b", Pattern.CASE_INSENSITIVE)
-        };
-        for (Pattern pattern : patterns) {
-            Matcher matcher = pattern.matcher(text);
-            if (!matcher.find()) continue;
-            String digits = matcher.group(1).replaceAll("[^0-9]", "");
-            try {
-                long amount = Long.parseLong(digits);
-                if (amount > 0 && amount <= 1_000_000_000L) return (int) amount;
-            } catch (Exception ignored) {
-                // Continue with the next known amount format.
-            }
-        }
-        return null;
-    }
-
-    private static String findCounterparty(String text) {
-        Pattern[] patterns = new Pattern[] {
-            Pattern.compile("(?:paiement\\\\s+reussi|payment\\\\s+successful)[.!,:-]\\\\s*([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÿ'’ .-]{1,50})[.!,:-]\\\\s*(?:montant|transaction|somme)", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("(?:recu|received)\\\\s+(?:de|from)\\\\s+([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÿ'’ .-]{1,50})(?=[,.;]|$)", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("(?:envoye\\\\s+(?:a|vers)|transfert\\\\s+vers|paye\\\\s+a|aupres\\\\s+de|chez|sent\\\\s+to)\\\\s+([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÿ'’ .-]{1,50})(?=[,.;]|$)", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("\\\\bde\\\\s+([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÿ'’ .-]{1,50})(?=[,.;]|$)", Pattern.CASE_INSENSITIVE)
-        };
-        for (Pattern pattern : patterns) {
-            Matcher matcher = pattern.matcher(text);
-            if (!matcher.find()) continue;
-            String value = matcher.group(1).replaceAll("^[\\\\s:,-]+|[\\\\s.;,:-]+$", "").trim().replaceAll("\\\\s+", " ");
-            if (value.length() < 2 || value.length() > 60 || !value.matches("[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’ .-]{0,59}")) continue;
-            String lower = value.toLowerCase(Locale.ROOT);
-            if (lower.matches("(la somme|le montant|votre compte|votre solde|la transaction|un client|un marchand)")) continue;
-            return value;
-        }
-        return null;
-    }
-
-    private static Integer findBalance(String text) {
-        Matcher matcher = Pattern.compile("(?:nouveau\\\\s+)?solde(?:\\\\s+disponible)?\\\\s*[:\\\\-]?\\\\s*([0-9][0-9\\\\s.,]{0,20})\\\\s*(?:FCFA|XAF|F\\\\s*\\\\.\\\\s*CFA|F\\\\s*CFA|CFA)\\\\b", Pattern.CASE_INSENSITIVE).matcher(text);
-        if (!matcher.find()) return null;
-        String digits = matcher.group(1).replaceAll("[^0-9]", "");
-        try {
-            long value = Long.parseLong(digits);
-            return value >= 0 && value <= 1_000_000_000L ? (int) value : null;
-        } catch (Exception error) {
-            return null;
-        }
-    }
-
-    private static String hash(String value) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] bytes = digest.digest(value.getBytes(StandardCharsets.UTF_8));
-            StringBuilder result = new StringBuilder();
-            for (byte item : bytes) result.append(String.format(Locale.ROOT, "%02x", item & 0xff));
-            return result.toString();
-        } catch (Exception error) {
-            return "";
-        }
-    }
-
-    private boolean storeIfNew(Context context, ParsedSms parsed) {
+    static boolean storeIfNew(Context context, JSONObject parsed) {
         synchronized (PataSmsReceiver.class) {
             SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-            JSONArray existing;
-            try { existing = new JSONArray(prefs.getString(PENDING, "[]")); }
-            catch (Exception error) { existing = new JSONArray(); }
-            for (int index = 0; index < existing.length(); index++) {
-                JSONObject item = existing.optJSONObject(index);
-                if (item != null && parsed.transactionHash.equals(item.optString("transactionHash"))) return false;
+            JSONArray stored;
+            try { stored = new JSONArray(prefs.getString(PENDING, "[]")); }
+            catch (Exception error) { stored = new JSONArray(); }
+            String hash = parsed.optString("transactionHash");
+            for (int i = 0; i < stored.length(); i++) {
+                JSONObject item = stored.optJSONObject(i);
+                if (item != null && hash.equals(item.optString("transactionHash"))) return false;
             }
-            try {
-                JSONObject item = new JSONObject();
-                item.put("provider", parsed.provider);
-                item.put("transactionHash", parsed.transactionHash);
-                item.put("eventType", parsed.eventType);
-                item.put("direction", parsed.direction);
-                item.put("amount", parsed.amount);
-                item.put("date", parsed.date);
-                item.put("time", parsed.time);
-                if (parsed.counterparty != null) item.put("counterparty", parsed.counterparty);
-                if (parsed.balance != null) item.put("balance", parsed.balance);
-                item.put("ownerUid", prefs.getString("user_uid", ""));
-                existing.put(item);
-                JSONArray limited = new JSONArray();
-                int start = Math.max(0, existing.length() - 30);
-                for (int index = start; index < existing.length(); index++) limited.put(existing.getJSONObject(index));
-                prefs.edit().putString(PENDING, limited.toString()).apply();
-                return true;
-            } catch (Exception error) {
-                return false;
+            stored.put(parsed);
+            JSONArray limited = new JSONArray();
+            int start = Math.max(0, stored.length() - 50);
+            for (int i = start; i < stored.length(); i++) {
+                JSONObject item = stored.optJSONObject(i);
+                if (item != null) limited.put(item);
             }
+            prefs.edit().putString(PENDING, limited.toString()).apply();
+            return true;
         }
     }
 
-    private void showNotification(Context context, ParsedSms parsed) {
-        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return;
+    static void removePending(Context context, String hash) {
+        synchronized (PataSmsReceiver.class) {
+            SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            JSONArray stored;
+            try { stored = new JSONArray(prefs.getString(PENDING, "[]")); }
+            catch (Exception error) { stored = new JSONArray(); }
+            JSONArray remaining = new JSONArray();
+            for (int i = 0; i < stored.length(); i++) {
+                JSONObject item = stored.optJSONObject(i);
+                if (item != null && !hash.equals(item.optString("transactionHash"))) remaining.put(item);
+            }
+            prefs.edit().putString(PENDING, remaining.toString()).apply();
+        }
+    }
+
+    static void recordDiagnostic(Context context, String status, String provider, String message) {
+        try {
+            SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            JSONObject data = new JSONObject();
+            data.put("status", status);
+            data.put("provider", provider == null ? "" : provider);
+            data.put("message", message == null ? "" : message);
+            data.put("receivedAt", System.currentTimeMillis());
+            data.put("pendingCount", new JSONArray(prefs.getString(PENDING, "[]")).length());
+            prefs.edit().putString("last_sms_diagnostic", data.toString()).apply();
+        } catch (Exception ignored) { }
+    }
+
+    static void showProcessedNotification(Context context, String direction, int amount, String provider, String target) {
+        String title = "income".equals(direction) ? "Nouveau revenu enregistré" : "Nouvelle dépense enregistrée";
+        String operator = "mtn_momo".equals(provider) ? "MTN MoMo" : "Orange Money";
+        String value = String.format(java.util.Locale.FRANCE, "%,d FCFA", amount).replace(',', ' ');
+        showNotification(context, title, value + " · " + operator + " · Touchez pour ouvrir Pata.", target);
+    }
+
+    static void showStatusNotification(Context context, String title, String body) {
+        showNotification(context, title, body, "/settings");
+    }
+
+    private static void showNotification(Context context, String title, String body, String target) {
+        if (Build.VERSION.SDK_INT >= 33
+            && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return;
         NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         if (manager == null) return;
         if (Build.VERSION.SDK_INT >= 26) {
-            NotificationChannel channel = new NotificationChannel(CHANNEL, "Import Mobile Money", NotificationManager.IMPORTANCE_DEFAULT);
-            channel.setDescription("Transactions Mobile Money détectées par Pata");
+            NotificationChannel channel = new NotificationChannel(CHANNEL, "Transactions Mobile Money", NotificationManager.IMPORTANCE_DEFAULT);
+            channel.setDescription("Transactions reconnues et enregistrées automatiquement par Pata.");
             manager.createNotificationChannel(channel);
         }
-
         Intent open = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
         if (open == null) return;
         open.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        open.putExtra("pata_open_sms_import", true);
-        PendingIntent pendingIntent = PendingIntent.getActivity(
-            context, (int) (System.currentTimeMillis() & 0x7fffffff), open,
-            PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0)
-        );
+        open.putExtra("pata_notification_target", target == null ? "/dashboard" : target);
+        PendingIntent pending = PendingIntent.getActivity(context, (int) (System.currentTimeMillis() & 0x7fffffff), open,
+            PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0));
+        Notification.Builder builder = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(context, CHANNEL) : new Notification.Builder(context);
+        manager.notify((int) (System.currentTimeMillis() & 0x7fffffff),
+            builder.setSmallIcon(android.R.drawable.stat_notify_chat).setContentTitle(title)
+                .setContentText(body).setAutoCancel(true).setContentIntent(pending).build());
+    }
 
-        String type = "income".equals(parsed.direction) ? "Revenu" : "withdrawal".equals(parsed.direction) ? "Retrait" : "Dépense";
-        String provider = "mtn_momo".equals(parsed.provider) ? "MTN MoMo" : "Orange Money";
-        String amount = String.format(Locale.FRANCE, "%,d FCFA", parsed.amount).replace(',', ' ');
-        Notification.Builder builder = Build.VERSION.SDK_INT >= 26
-            ? new Notification.Builder(context, CHANNEL)
-            : new Notification.Builder(context);
-        Notification notification = builder
-            .setSmallIcon(android.R.drawable.stat_notify_chat)
-            .setContentTitle(type + " de " + amount + " détecté")
-            .setContentText(provider + " — ouvre Pata pour vérifier et confirmer")
-            .setAutoCancel(true)
-            .setContentIntent(pendingIntent)
-            .build();
-        manager.notify((parsed.transactionHash.hashCode() & 0x7fffffff), notification);
+    private static String detectProvider(String sender, String body) {
+        String source = normalize(sender + " " + body);
+        if (source.contains("orange") || source.contains("omcm")) return "orange_money";
+        if (source.contains("mtn") || source.contains("momo")) return "mtn_momo";
+        return "";
+    }
+
+    private static String normalize(String value) {
+        return java.text.Normalizer.normalize(value == null ? "" : value, java.text.Normalizer.Form.NFD)
+            .replaceAll("\\p{M}+", "").toLowerCase(java.util.Locale.ROOT);
     }
 }
