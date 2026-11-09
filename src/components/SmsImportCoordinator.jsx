@@ -43,7 +43,7 @@ export function SmsImportCoordinator() {
     setPending(result.pending || []);
   }, [user]);
 
-  const stageParsed = useCallback(async (parsed) => {
+  const stageParsed = useCallback(async (parsed, sourceMode = 'automatic') => {
     if (!user || !parsed) return false;
     const transactionHash = parsed.transactionHash || await hashTransaction(parsed.provider, parsed.transactionId);
     const token = await user.getIdToken();
@@ -51,7 +51,7 @@ export function SmsImportCoordinator() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
       body: JSON.stringify({
-        action: 'stage', provider: parsed.provider, transactionHash,
+        action: 'stage', source: sourceMode, provider: parsed.provider, transactionHash,
         amount: parsed.amount, eventType: parsed.eventType, direction: parsed.direction,
         date: parsed.date, time: parsed.time,
       }),
@@ -85,7 +85,7 @@ export function SmsImportCoordinator() {
         const parsed = parseMobileMoneySms(shared.text);
         if (parsed) {
           try {
-            await stageParsed(parsed);
+            await stageParsed(parsed, 'sharesheet');
             await PataSms.clearSharedSms();
             setNotice('SMS partagé analysé sur cet appareil. Vérifie les informations puis confirme l’opération.');
           } catch (error) {

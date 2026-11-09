@@ -1,3 +1,6 @@
+'use client';
+
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 
 export const metadata = {
@@ -6,6 +9,13 @@ export const metadata = {
 };
 
 export default function TelechargerPage() {
+  const [release, setRelease] = useState(null);
+  useEffect(() => {
+    fetch('/android-version.json', { cache: 'no-store' })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => { if (data) setRelease(data); })
+      .catch(() => {});
+  }, []);
   return (
     <main className="min-h-[100dvh] bg-[#f5f8f6] px-4 py-10 text-slate-900 sm:py-16">
       <div className="mx-auto max-w-2xl">

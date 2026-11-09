@@ -110,6 +110,7 @@ export async function POST(request) {
 
     if (action === 'stage') {
       const parsed = validateParsedPayload(body);
+      const sourceMode = body.source === 'sharesheet' ? 'sharesheet' : 'automatic';
       const ref = transactionRef(uid, body.transactionHash);
       const { userRef } = await getUserAndPremium(uid);
       const result = await adminDb.runTransaction(async (transaction) => {
@@ -117,9 +118,9 @@ export async function POST(request) {
         if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
         const profile = userSnap.data() || {};
         if (!isPremium(profile)) throw new Error('L’import SMS est réservé à Pata Premium.');
-        if (profile.smsImportEnabled !== true) throw new Error('Active d’abord l’import SMS dans les paramètres de Pata.');
+        if (sourceMode === 'automatic' && profile.smsImportEnabled !== true) throw new Error('Active d’abord l’import SMS dans les paramètres de Pata.');
         if (existingSnap.exists) return { duplicate: true, status: existingSnap.data()?.status || 'PENDING' };
-        transaction.create(ref, { ...parsed, status: 'PENDING', createdAt: FieldValue.serverTimestamp(), source: 'android_sms' });
+        transaction.create(ref, { ...parsed, status: 'PENDING', createdAt: FieldValue.serverTimestamp(), source: sourceMode });
         return { duplicate: false, status: 'PENDING' };
       });
       return NextResponse.json({ success: true, ...result });
@@ -149,7 +150,8 @@ export async function POST(request) {
         const [userSnap, importSnap] = await Promise.all([transaction.get(userRef), transaction.get(ref)]);
         if (!userSnap.exists || !importSnap.exists) throw new Error('Import SMS introuvable.');
         const profile = userSnap.data() || {};
-        if (!isPremium(profile) || profile.smsImportEnabled !== true) throw new Error('Un abonnement Premium actif et l’import SMS activé sont nécessaires.');
+        const automaticImport = importSnap.data()?.source !== 'sharesheet';
+        if (!isPremium(profile) || (automaticImport && profile.smsImportEnabled !== true)) throw new Error('Un abonnement Premium actif est nécessaire ; active la détection automatique pour les SMS reçus en arrière-plan.
         const item = importSnap.data() || {};
         if (item.status === 'CONFIRMED') return { duplicate: true, item };
         if (item.status === 'REJECTED') throw new Error('Cette opération a été refusée.');
