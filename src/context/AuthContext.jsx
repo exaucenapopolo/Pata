@@ -96,7 +96,7 @@ export function AuthProvider({ children }) {
   const logout = async () => {
     try {
       const uid = auth.currentUser?.uid;
-      if (uid && typeof window !== 'undefined') window.sessionStorage.removeItem('pata-pin-unlocked:' + uid);
+      if (uid && typeof window !== 'undefined') window.localStorage.removeItem('pata-pin-last-background:' + uid);
     } catch { /* sessionStorage peut être indisponible */ }
     return signOut(auth);
   };
