@@ -83,6 +83,20 @@ export function PinGate() {
     };
   }, [user, enabled, storageKey]);
 
+  useEffect(() => {
+    if (!user) return undefined;
+    const refreshPinStatus = async () => {
+      try {
+        const data = await apiCall(user, 'security/pin/status');
+        setEnabled(data.enabled === true);
+      } catch (err) {
+        setError(err.message || 'Vérification de sécurité indisponible.');
+      }
+    };
+    window.addEventListener('pata:pin-updated', refreshPinStatus);
+    return () => window.removeEventListener('pata:pin-updated', refreshPinStatus);
+  }, [user]);
+
   const unlock = async (event) => {
     event.preventDefault();
     if (!user || pin.length !== 4) return;
