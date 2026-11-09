@@ -36,10 +36,11 @@ export function SmsImportSettings() {
         const status = await PataSms.getStatus();
         setPermission(status.receiveSmsGranted === true);
         setBatteryExempt(status.ignoringBatteryOptimizations === true);
-        await PataSms.setConfiguration({
+        const nativeConfig = await PataSms.setConfiguration({
           enabled: data.enabled === true,
           premiumUntilMillis: data.premiumUntil ? new Date(data.premiumUntil).getTime() : 0,
         });
+        setEnabled(data.enabled === true && nativeConfig.enabled === true);
       }
     } catch (error) {
       setMessage(error.message || 'Impossible de charger les paramètres.');
@@ -80,13 +81,16 @@ export function SmsImportSettings() {
       if (!response.ok || !data.success) throw new Error(data.error || 'Impossible de modifier ce réglage.');
       setEnabled(nextEnabled);
       setPremiumUntil(data.premiumUntil || premiumUntil);
-      await PataSms.setConfiguration({
+      const nativeConfig = await PataSms.setConfiguration({
         enabled: nextEnabled,
         premiumUntilMillis: data.premiumUntil ? new Date(data.premiumUntil).getTime() : 0,
       });
-      setMessage(nextEnabled
-        ? 'Import activé. Les SMS reconnus seront détectés sur cet appareil et présentés pour confirmation.'
-        : 'Import SMS désactivé sur cet appareil.');
+      setEnabled(nextEnabled && nativeConfig.enabled === true);
+      setMessage(nextEnabled && nativeConfig.enabled !== true
+        ? 'Le réglage serveur est enregistré, mais Android n’a pas autorisé la réception automatique. Tu peux continuer à partager tes SMS avec Pata.'
+        : nextEnabled
+          ? 'Import activé. Les SMS reconnus seront détectés sur cet appareil et présentés pour confirmation.'
+          : 'Import SMS désactivé sur cet appareil.');
     } catch (error) {
       setMessage(error.message || 'Impossible d’activer l’import SMS.');
     } finally {

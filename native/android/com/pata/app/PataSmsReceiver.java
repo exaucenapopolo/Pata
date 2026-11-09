@@ -110,6 +110,30 @@ public class PataSmsReceiver extends BroadcastReceiver {
         result.amount = amount;
         Calendar calendar = Calendar.getInstance();
         calendar.setTimeInMillis(timestamp > 0 ? timestamp : System.currentTimeMillis());
+
+        Matcher isoDate = Pattern.compile("\\\\b(\\\\d{4})[-/](\\\\d{1,2})[-/](\\\\d{1,2})\\\\b").matcher(text);
+        Matcher localDate = Pattern.compile("\\\\b(\\\\d{1,2})[/-](\\\\d{1,2})[/-](\\\\d{2,4})\\\\b").matcher(text);
+        try {
+            if (isoDate.find()) {
+                calendar.set(Calendar.YEAR, Integer.parseInt(isoDate.group(1)));
+                calendar.set(Calendar.MONTH, Integer.parseInt(isoDate.group(2)) - 1);
+                calendar.set(Calendar.DAY_OF_MONTH, Integer.parseInt(isoDate.group(3)));
+            } else if (localDate.find()) {
+                int year = Integer.parseInt(localDate.group(3));
+                if (year < 100) year += year >= 70 ? 1900 : 2000;
+                calendar.set(Calendar.YEAR, year);
+                calendar.set(Calendar.MONTH, Integer.parseInt(localDate.group(2)) - 1);
+                calendar.set(Calendar.DAY_OF_MONTH, Integer.parseInt(localDate.group(1)));
+            }
+        } catch (Exception ignored) {
+            calendar.setTimeInMillis(timestamp > 0 ? timestamp : System.currentTimeMillis());
+        }
+
+        Matcher explicitTime = Pattern.compile("\\\\b([01]?\\\\d|2[0-3]):([0-5]\\\\d)\\\\b").matcher(text);
+        if (explicitTime.find()) {
+            calendar.set(Calendar.HOUR_OF_DAY, Integer.parseInt(explicitTime.group(1)));
+            calendar.set(Calendar.MINUTE, Integer.parseInt(explicitTime.group(2)));
+        }
         result.date = new SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(calendar.getTime());
         result.time = new SimpleDateFormat("HH:mm", Locale.ROOT).format(calendar.getTime());
         return result;
@@ -138,16 +162,24 @@ public class PataSmsReceiver extends BroadcastReceiver {
     }
 
     private static Integer findAmount(String text) {
-        Pattern pattern = Pattern.compile("([0-9][0-9\\s.,]{0,20})\\s*(?:FCFA|XAF|F\\s*\\.\\s*CFA|F\\s*CFA|CFA)\\b", Pattern.CASE_INSENSITIVE);
-        Matcher matcher = pattern.matcher(text);
-        if (!matcher.find()) return null;
-        String digits = matcher.group(1).replaceAll("[^0-9]", "");
-        try {
-            long amount = Long.parseLong(digits);
-            return amount > 0 && amount <= 1_000_000_000L ? (int) amount : null;
-        } catch (Exception error) {
-            return null;
+        String currency = "(?:FCFA|XAF|F\\\\s*\\\\.\\\\s*CFA|F\\\\s*CFA|CFA)";
+        Pattern[] patterns = new Pattern[] {
+            Pattern.compile("(?:montant(?:\\\\s+de\\\\s+la)?\\\\s+transaction|montant|somme)\\\\s*[:\\\\-]?\\\\s*(?:de\\\\s*)?([0-9][0-9\\\\s.,]{0,20})\\\\s*" + currency + "\\\\b", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("(?:vous\\\\s+avez\\\\s+)?(?:re[cç]u|envoy[eé]|pay[eé]|retir[eé])\\\\s+(?:la\\\\s+somme\\\\s+de\\\\s+)?([0-9][0-9\\\\s.,]{0,20})\\\\s*" + currency + "\\\\b", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("([0-9][0-9\\\\s.,]{0,20})\\\\s*" + currency + "\\\\b", Pattern.CASE_INSENSITIVE)
+        };
+        for (Pattern pattern : patterns) {
+            Matcher matcher = pattern.matcher(text);
+            if (!matcher.find()) continue;
+            String digits = matcher.group(1).replaceAll("[^0-9]", "");
+            try {
+                long amount = Long.parseLong(digits);
+                if (amount > 0 && amount <= 1_000_000_000L) return (int) amount;
+            } catch (Exception ignored) {
+                // Continue with the next known amount format.
+            }
         }
+        return null;
     }
 
     private static String hash(String value) {
