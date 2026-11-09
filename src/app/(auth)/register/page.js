@@ -11,7 +11,26 @@ import { ensureUserProfile } from '@/lib/firestore/profile';
 function getSafeReturnTo() {
   if (typeof window === 'undefined') return '/dashboard';
   const value = new URLSearchParams(window.location.search).get('returnTo') || '';
-  return /^\/cotisations\?invite=[A-Za-z0-9_-]+$/.test(value) ? value : '/dashboard';
+  return /^\\/cotisations\\?invite=[A-Za-z0-9_-]+$/.test(value) ? value : '/dashboard';
+}
+
+function getReferralCode() {
+  if (typeof window === 'undefined') return '';
+  const value = new URLSearchParams(window.location.search).get('ref') || '';
+  return /^[A-Fa-f0-9]{12}$/.test(value) ? value.toUpperCase() : '';
+}
+
+async function attributeReferral(user) {
+  const code = getReferralCode();
+  if (!code || !user) return;
+  const token = await user.getIdToken();
+  const response = await fetch('/api/referrals/attribute', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.success) throw new Error(data.error || 'Le lien de parrainage n’a pas pu être associé.');
 }
 
 export default function RegisterPage() {
@@ -54,9 +73,13 @@ export default function RegisterPage() {
     try {
       const cred = await register(email.trim(), password);
       const profile = await ensureUserProfile(cred.user);
-      if (profile?.created && cred.user.email) {
-        try { await fetch('/api/email/welcome', { method: 'POST', headers: { Authorization: `Bearer ${await cred.user.getIdToken()}` } }); }
-        catch (emailError) { console.warn('[PATA WELCOME EMAIL]', emailError?.message || emailError); }
+      if (profile?.created) {
+        try { await attributeReferral(cred.user); }
+        catch (referralError) { console.warn('[PATA REFERRAL ATTRIBUTION]', referralError?.message || referralError); }
+        if (cred.user.email) {
+          try { await fetch('/api/email/welcome', { method: 'POST', headers: { Authorization: `Bearer ${await cred.user.getIdToken()}` } }); }
+          catch (emailError) { console.warn('[PATA WELCOME EMAIL]', emailError?.message || emailError); }
+        }
       }
       router.replace(getSafeReturnTo());
     } catch (err) {
@@ -80,9 +103,13 @@ export default function RegisterPage() {
       if (u) {
         // Crée le profil Firestore si c'est la première connexion Google
         const profile = await ensureUserProfile(u);
-        if (profile?.created && u.email) {
-          try { await fetch('/api/email/welcome', { method: 'POST', headers: { Authorization: `Bearer ${await u.getIdToken()}` } }); }
-          catch (emailError) { console.warn('[PATA WELCOME EMAIL]', emailError?.message || emailError); }
+        if (profile?.created) {
+          try { await attributeReferral(u); }
+          catch (referralError) { console.warn('[PATA REFERRAL ATTRIBUTION]', referralError?.message || referralError); }
+          if (u.email) {
+            try { await fetch('/api/email/welcome', { method: 'POST', headers: { Authorization: `Bearer ${await u.getIdToken()}` } }); }
+            catch (emailError) { console.warn('[PATA WELCOME EMAIL]', emailError?.message || emailError); }
+          }
         }
         router.replace(getSafeReturnTo());
       }
@@ -96,6 +123,7 @@ export default function RegisterPage() {
   return (
     <div className="space-y-4">
       <h2 className="text-lg font-semibold">Créer un compte</h2>
+      {getReferralCode() && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs leading-5 text-emerald-900">Tu as reçu une invitation Pata. Ton premier mois Premium pourra être proposé à <strong>1 250 FCFA au lieu de 2 500 FCFA</strong> après validation de ton inscription.</div>}
 
       <Button
         type="button"
