@@ -54,7 +54,7 @@ function validateParsedPayload(body = {}) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
     throw new Error('Date ou heure de transaction invalide.');
   }
-  return { provider, eventType, direction, amount, date, time, counterparty };
+  return { provider, eventType, direction, amount, date, time };
 }
 
 async function getUserAndPremium(uid) {
@@ -79,8 +79,8 @@ export async function GET(request) {
         return right - left;
       })
       .slice(0, 20)
-      .map(({ id, provider, eventType, direction, amount, date, time, counterparty, createdAt }) => ({
-        id, provider, eventType, direction, amount, date, time, counterparty,
+      .map(({ id, provider, eventType, direction, amount, date, time, createdAt }) => ({
+        id, provider, eventType, direction, amount, date, time,
         createdAt: createdAt?.toDate ? createdAt.toDate().toISOString() : null,
       }));
     return NextResponse.json({

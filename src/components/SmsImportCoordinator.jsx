@@ -40,7 +40,14 @@ export function SmsImportCoordinator() {
     const response = await fetch('/api/sms-import', { headers: { Authorization: 'Bearer ' + token }, cache: 'no-store' });
     const result = await response.json().catch(() => ({}));
     if (!response.ok || !result.success) throw new Error(result.error || 'Imports SMS indisponibles.');
-    setPending(result.pending || []);
+    let hints = {};
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const local = await PataSms.getLocalHints();
+        hints = JSON.parse(local.hintsJson || '{}');
+      } catch { hints = {}; }
+    }
+    setPending((result.pending || []).map((item) => ({ ...item, ...(hints[item.id] || {}) })));
   }, [user]);
 
   const stageParsed = useCallback(async (parsed, sourceMode = 'automatic') => {
@@ -53,12 +60,12 @@ export function SmsImportCoordinator() {
       body: JSON.stringify({
         action: 'stage', source: sourceMode, provider: parsed.provider, transactionHash,
         amount: parsed.amount, eventType: parsed.eventType, direction: parsed.direction,
-        date: parsed.date, time: parsed.time, counterparty: parsed.counterparty || null,
+        date: parsed.date, time: parsed.time,
       }),
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok || !result.success) throw new Error(result.error || 'La transaction SMS n’a pas pu être enregistrée.');
-    return true;
+    return transactionHash;
   }, [user]);
 
   const syncDeviceInbox = useCallback(async () => {
@@ -70,7 +77,14 @@ export function SmsImportCoordinator() {
         // Ne jamais rattacher les SMS locaux d'un ancien compte au compte actuellement connecté.
         if (item.ownerUid && item.ownerUid !== user.uid) continue;
         try {
-          await stageParsed(item);
+          const transactionHash = await stageParsed(item);
+          if (item.counterparty || item.balance != null) {
+            await PataSms.saveLocalHints({
+              transactionHash,
+              counterparty: item.counterparty || '',
+              balance: item.balance == null ? null : Number(item.balance),
+            });
+          }
           accepted.push(item.transactionHash);
         } catch (error) {
           if (/Premium|abonnement|active d’abord/i.test(error.message || '')) {
@@ -87,7 +101,14 @@ export function SmsImportCoordinator() {
         const parsed = parseMobileMoneySms(shared.text);
         if (parsed) {
           try {
-            await stageParsed(parsed, 'sharesheet');
+            const transactionHash = await stageParsed(parsed, 'sharesheet');
+            if (parsed.counterparty || parsed.balance != null) {
+              await PataSms.saveLocalHints({
+                transactionHash,
+                counterparty: parsed.counterparty || '',
+                balance: parsed.balance == null ? null : Number(parsed.balance),
+              });
+            }
             await PataSms.clearSharedSms();
             setNotice('SMS partagé analysé sur cet appareil. Vérifie les informations puis confirme l’opération.');
           } catch (error) {
@@ -158,6 +179,9 @@ export function SmsImportCoordinator() {
       }
       if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de confirmer cette opération.');
       setPending((current) => current.filter((row) => row.id !== item.id));
+      if (Capacitor.isNativePlatform()) {
+        await PataSms.clearLocalHints({ transactionHash: item.id }).catch(() => {});
+      }
       setWarnings((current) => { const next = { ...current }; delete next[item.id]; return next; });
       setNotice('Opération enregistrée dans Pata.');
     } catch (error) {
@@ -179,6 +203,9 @@ export function SmsImportCoordinator() {
       const result = await response.json().catch(() => ({}));
       if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de refuser cet import.');
       setPending((current) => current.filter((row) => row.id !== item.id));
+      if (Capacitor.isNativePlatform()) {
+        await PataSms.clearLocalHints({ transactionHash: item.id }).catch(() => {});
+      }
     } catch (error) {
       setNotice(error.message || 'Refus impossible.');
     } finally {
@@ -210,6 +237,7 @@ export function SmsImportCoordinator() {
                     <p className="mt-1 text-xl font-bold tracking-tight text-slate-900">{money.format(item.amount)} FCFA</p>
                     <p className="mt-1 text-[10px] text-slate-500">{item.date} à {item.time}</p>
                     {item.counterparty && <p className="mt-1 text-xs font-medium text-slate-700">Contrepartie : {item.counterparty}</p>}
+                    {item.balance != null && <p className="mt-1 text-[10px] text-slate-500">Solde après opération : {money.format(Number(item.balance))} FCFA (visible sur cet appareil uniquement)</p>}
                   </div>
                 </div>
                 {item.direction === 'withdrawal' && <label className="mt-3 flex items-start gap-2 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900">

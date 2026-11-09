@@ -36,6 +36,7 @@ import java.util.Set;
 public class PataSmsPlugin extends Plugin {
     private static final String PREFS = "PataSms";
     private static final String PENDING = "pending_sms";
+    private static final String HINTS = "sms_local_hints";
     private static final String SHARED_TEXT = "shared_sms_text";
 
     @PluginMethod
@@ -167,6 +168,60 @@ public class PataSmsPlugin extends Plugin {
     @PluginMethod
     public void clearSharedSms(PluginCall call) {
         getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(SHARED_TEXT).apply();
+        call.resolve();
+    }
+
+
+    @PluginMethod
+    public void saveLocalHints(PluginCall call) {
+        String transactionHash = call.getString("transactionHash", "");
+        if (!transactionHash.matches("[a-f0-9]{64}")) {
+            call.reject("Empreinte de transaction invalide.");
+            return;
+        }
+        String counterparty = call.getString("counterparty", "");
+        Long balance = call.getLong("balance");
+        JSONObject hint = new JSONObject();
+        try {
+            if (counterparty != null && counterparty.matches("[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’ .-]{0,59}")) {
+                hint.put("counterparty", counterparty);
+            }
+            if (balance != null && balance >= 0L && balance <= 1_000_000_000L) {
+                hint.put("balance", balance);
+            }
+            SharedPreferences prefs = getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            JSONObject all;
+            try { all = new JSONObject(prefs.getString(HINTS, "{}")); }
+            catch (Exception error) { all = new JSONObject(); }
+            all.put(transactionHash, hint);
+            prefs.edit().putString(HINTS, all.toString()).apply();
+            call.resolve();
+        } catch (Exception error) {
+            call.reject("Impossible d’enregistrer les détails locaux.", error);
+        }
+    }
+
+    @PluginMethod
+    public void getLocalHints(PluginCall call) {
+        SharedPreferences prefs = getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        JSObject result = new JSObject();
+        result.put("hintsJson", prefs.getString(HINTS, "{}"));
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void clearLocalHints(PluginCall call) {
+        String transactionHash = call.getString("transactionHash", "");
+        if (!transactionHash.matches("[a-f0-9]{64}")) {
+            call.reject("Empreinte de transaction invalide.");
+            return;
+        }
+        SharedPreferences prefs = getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        JSONObject all;
+        try { all = new JSONObject(prefs.getString(HINTS, "{}")); }
+        catch (Exception error) { all = new JSONObject(); }
+        all.remove(transactionHash);
+        prefs.edit().putString(HINTS, all.toString()).apply();
         call.resolve();
     }
 
