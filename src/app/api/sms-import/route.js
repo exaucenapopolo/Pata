@@ -339,10 +339,11 @@ export async function GET(request) {
 
 export async function POST(request) {
   try {
-    const { uid } = await authenticate(request);
     const body = await request.json();
     const action = String(body.action || '');
 
+    // Le worker Android ne possède pas de session Firebase interactive :
+    // il est authentifié par le jeton d'appareil à usage privé lié au compte.
     if (action === 'device') {
       try {
         return await handleAutomaticDeviceImport(body);
@@ -350,10 +351,12 @@ export async function POST(request) {
         if (error.message === 'IMPORT_ALREADY_PROCESSING') return responseError('Cette opération est déjà en cours de traitement.', 409);
         const status = /Premium|abonnement|autorisé|autorisee/i.test(error.message || '') ? 403
           : /introuvable/i.test(error.message || '') ? 404
-            : /authentifi/i.test(error.message || '') ? 401 : 400;
+            : /authentifi|appareil non/i.test(error.message || '') ? 401 : 400;
         return responseError(error.message || 'Import automatique impossible.', status);
       }
     }
+
+    const { uid } = await authenticate(request);
 
     if (action === 'device-token') {
       const { userRef, profile, premium, expiry } = await getUserAndPremium(uid);
