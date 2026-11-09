@@ -150,6 +150,7 @@ public final class PataMobileMoneyParser {
             Pattern.compile("depot\\s+effectue\\s+par\\s+\\d{8,15}\\s+([\\p{L}][\\p{L}'’ .-]{1,50}?)(?=\\s+to\\b|[,.;]|$)", Pattern.CASE_INSENSITIVE),
             Pattern.compile("paiement\\s+([\\p{L}][\\p{L}'’ .-]{1,40}?)\\s+reussi\\s+par\\b", Pattern.CASE_INSENSITIVE),
             Pattern.compile("paiement\\s+de\\s+[0-9][0-9\\s.,]*\\s*(?:fcfa|xaf|cfa)\\s+a\\s+([\\p{L}][\\p{L}'’ .-]{1,40}?)\\s+a\\s+ete\\s+effectue", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("(?:vous\\s+(?:avez\\s+)?recu|recu|received)\\s+[0-9][0-9\\s.,]*\\s*(?:fcfa|xaf|cfa|f)\\s+(?:de|from)\\s+([\\p{L}][\\p{L}'’ .-]{1,50}?)(?=\\s*\\(|[,.;]|$)", Pattern.CASE_INSENSITIVE),
             Pattern.compile("(?:recu|received)\\s+(?:de|from)\\s+([\\p{L}][\\p{L}'’ .-]{1,50}?)(?=\\s*\\(|[,.;]|$)", Pattern.CASE_INSENSITIVE),
             Pattern.compile("effectuee?\\s+par\\s+([\\p{L}][\\p{L}'’ _.-]{1,50}?)(?=\\s*\\(|[,.;]|$)", Pattern.CASE_INSENSITIVE),
             Pattern.compile("(?:envoye?\\s+(?:a|au|vers)|transfert\\s+vers|sent\\s+to)\\s+([\\p{L}][\\p{L}'’ .-]{1,50}?)(?=[,.;]|$)", Pattern.CASE_INSENSITIVE)

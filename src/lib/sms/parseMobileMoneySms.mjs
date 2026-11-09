@@ -136,6 +136,7 @@ function parseCounterparty(text) {
     /depot\s+effectu[eé]\s+par\s+\d{8,15}\s+([\p{L}][\p{L}'’ .-]{1,50}?)(?=\s+to\b|[,.;]|$)/iu,
     /paiement\s+([\p{L}][\p{L}'’ .-]{1,40}?)\s+reussi\s+par\b/iu,
     /paiement\s+de\s+[0-9][0-9\s.,]*\s*(?:fcfa|xaf|cfa)\s+a\s+([\p{L}][\p{L}'’ .-]{1,40}?)\s+a\s+ete\s+effectue/iu,
+    /(?:vous\s+(?:avez\s+)?recu|recu|received)\s+[0-9][0-9\s.,]*\s*(?:fcfa|xaf|cfa|f)\s+(?:de|from)\s+([\p{L}][\p{L}'’ .-]{1,50}?)(?=\s*\(|[,.;]|$)/iu,
     /(?:recu|received)\s+(?:de|from)\s+([\p{L}][\p{L}'’ .-]{1,50}?)(?=\s*\(|[,.;]|$)/iu,
     /effectu[eé]e?\s+par\s+([\p{L}][\p{L}'’ _.-]{1,50}?)(?=\s*\(|[,.;]|$)/iu,
     /(?:envoy[eé]?\s+(?:[àa]|au|vers)|transfert\s+vers|auprès\s+de|chez)\s+([\p{L}][\p{L}'’ .-]{1,50}?)(?=[,.;]|$)/iu,

@@ -186,3 +186,19 @@ test('le second SMS ENEO est reconnu comme paiement avec le même identifiant', 
   assert.equal(result?.direction, 'expense');
   assert.equal(result?.transactionId, '19648122490');
 });
+
+
+test('extrait l’expéditeur d’une réception MTN FAPSHI après le montant', () => {
+  const result = parseMobileMoneySms(
+    "Vous avez recu 100 XAF de FAPSHI INC (237651020476) sur votre compte mobile money a 2026-11-09 20:35:14. Message de l'expediteur: From Social Boost Horizon via FAPSHI. Votre nouveau solde: 858 XAF. FRAIS: FCFA 0. Financial Transaction Id: 19661893907.",
+    { sender: 'MTN', receivedAt }
+  );
+  assert.equal(result?.provider, 'mtn_momo');
+  assert.equal(result?.eventType, 'receive');
+  assert.equal(result?.direction, 'income');
+  assert.equal(result?.amount, 100);
+  assert.equal(result?.counterparty, 'FAPSHI INC');
+  assert.equal(result?.transactionId, '19661893907');
+  assert.equal(result?.date, '2026-11-09');
+  assert.equal(result?.time, '20:35');
+});

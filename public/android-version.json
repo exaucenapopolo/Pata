@@ -1,7 +1,7 @@
 {
-  "version": "1.0.6",
-  "versionCode": 7,
+  "version": "1.0.7",
+  "versionCode": 8,
   "downloadAvailable": true,
   "apkUrl": "https://github.com/exaucenapopolo/Pata/releases/latest/download/Pata-Android.apk",
-  "releaseNotes": "Icône Pata et canal système dédiés aux notifications Android, Web Push pour les navigateurs compatibles, diffusion administrateur hors application, e-mails Mobile Money détaillés et page de téléchargement avec bouton Retour."
+  "releaseNotes": "Détection MTN MoMo et Orange Money (réceptions, transferts, paiements et retraits), classement des sorties avant comptabilisation, anti-doublon des reçus à plusieurs SMS, notifications système et diffusion administrateur corrigée."
 }
