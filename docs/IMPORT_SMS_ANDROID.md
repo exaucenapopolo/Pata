@@ -16,7 +16,9 @@ Le projet Android est généré par Capacitor pendant le workflow CI, puis les c
 6. L'utilisateur choisit la catégorie, la source de revenus si nécessaire, puis confirme ou refuse.
 7. La confirmation délègue aux routes /api/expenses/add ou /api/incomes/add. Les deux routes disposent d'une clé d'idempotence propre aux imports SMS.
 
-La file native et les opérations en attente ne contiennent que les champs parsés. Le SMS brut, le numéro de téléphone de l'expéditeur et le solde ne quittent pas le téléphone.
+La file native est liée à l'UID Pata actif au moment de la détection, afin qu'un changement de compte ne rattache pas les anciens SMS à un autre utilisateur. La file et les opérations serveur ne contiennent que les données nécessaires à l'identification et à la confirmation. Le SMS brut et le numéro de téléphone de l'expéditeur ne quittent pas le téléphone.
+
+La contrepartie (uniquement un nom affichable qui ne ressemble pas à un numéro) et le solde restent dans une table de préférences locales indexée par l'empreinte de transaction. Ils sont affichés dans la fiche de confirmation puis effacés après confirmation ou refus. Ces deux informations ne sont ni envoyées à l'API, ni écrites dans Firestore.
 
 ## Retraits
 
@@ -24,7 +26,7 @@ Un retrait est distingué d'un paiement ou d'un envoi. Il est proposé à l'util
 
 ## Android Sharesheet
 
-L'application déclare ACTION_SEND avec text/plain. L'utilisateur peut partager un SMS depuis son application Messages vers Pata. Le texte est analysé par le parseur JavaScript local puis effacé de la mémoire de partage après traitement. La route serveur reçoit les mêmes champs parsés et la même empreinte. Le partage manuel fonctionne pour un compte Premium même si le récepteur automatique est désactivé ou indisponible.
+L'application déclare ACTION_SEND avec text/plain. L'utilisateur peut partager un SMS depuis son application Messages vers Pata. Le texte est analysé par le parseur JavaScript local puis effacé de la mémoire de partage après traitement. La route serveur reçoit les champs parsés nécessaires et la même empreinte. La contrepartie et le solde restent dans le stockage local, comme pour la détection automatique. Le partage manuel fonctionne pour un compte Premium même si le récepteur automatique est désactivé ou indisponible.
 
 ## Permission RECEIVE_SMS et installation depuis le site
 
