@@ -1034,6 +1034,104 @@ async function handleReferralTransfer(request) {
   }
 }
 
+
+async function settleReferralWithdrawal(data, status) {
+  if (!data || data.withdrawalType !== 'referral' || !data.userId || !data.requestId) return;
+  const userRef = adminDb.collection('users').doc(data.userId);
+  const ledgerRef = userRef.collection('referralTransactions').doc('withdrawal-' + data.requestId);
+  await adminDb.runTransaction(async (transaction) => {
+    const [userSnap, ledgerSnap] = await Promise.all([
+      transaction.get(userRef),
+      transaction.get(ledgerRef),
+    ]);
+    if (!userSnap.exists) return;
+    const userData = userSnap.data() || {};
+    const ledger = ledgerSnap.exists ? ledgerSnap.data() || {} : {};
+    const pendingMatches = userData.referralWithdrawalRequestId === data.requestId;
+    const shouldRefund = ['REJECTED', 'FAILED'].includes(status) && ledger.status === 'PENDING_REVIEW';
+    transaction.update(userRef, {
+      ...(pendingMatches ? { referralWithdrawalPending: false, referralWithdrawalRequestId: null } : {}),
+      ...(shouldRefund ? { referralBalance: (Number(userData.referralBalance) || 0) + Math.max(0, Number(data.amount) || 0) } : {}),
+    });
+    if (ledgerSnap.exists && ledger.status === 'PENDING_REVIEW') {
+      transaction.update(ledgerRef, {
+        status,
+        processedAt: FieldValue.serverTimestamp(),
+      });
+    }
+  });
+}
+
+async function handleReferralWithdrawal(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const amount = Math.floor(Number(body.amount));
+    const phoneRaw = String(body.phone || '').replace(/[^0-9+]/g, '');
+    let phone = phoneRaw.replace(/^\\+/, '');
+    if (phone.startsWith('237') && phone.length === 12) phone = phone.slice(3);
+    const medium = body.network === 'orange' ? 'orange money' : body.network === 'mtn' ? 'mobile money' : '';
+    if (!Number.isSafeInteger(amount) || amount < 100 || amount > 500000) return errorResponse('Le retrait doit être compris entre 100 et 500 000 FCFA.', 400);
+    if (!/^6[0-9]{8}$/.test(phone)) return errorResponse('Entre un numéro Mobile Money camerounais valide à 9 chiffres.', 400);
+    if (!medium) return errorResponse('Choisis MTN Mobile Money ou Orange Money.', 400);
+
+    const userRef = adminDb.collection('users').doc(uid);
+    const requestRef = adminDb.collection('withdrawalRequests').doc();
+    const ledgerRef = userRef.collection('referralTransactions').doc('withdrawal-' + requestRef.id);
+    const result = await adminDb.runTransaction(async (transaction) => {
+      const userSnap = await transaction.get(userRef);
+      if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
+      const userData = userSnap.data() || {};
+      if (userData.referralWithdrawalPending === true) throw new Error('Une demande de retrait de ton bonus est déjà en cours.');
+      const available = Math.max(0, Number(userData.referralBalance) || 0);
+      if (available < amount) throw new Error('Ton solde de parrainage est insuffisant.');
+      transaction.update(userRef, {
+        referralBalance: available - amount,
+        referralWithdrawalPending: true,
+        referralWithdrawalRequestId: requestRef.id,
+      });
+      transaction.create(requestRef, {
+        withdrawalType: 'referral',
+        userId: uid,
+        email: String(userData.email || ''),
+        displayName: String(userData.displayName || 'Utilisateur'),
+        phone,
+        medium,
+        goalName: 'Bonus de parrainage Pata',
+        grossAmount: amount,
+        amount,
+        currency: 'XAF',
+        status: 'PENDING_REVIEW',
+        requestId: requestRef.id,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      transaction.create(ledgerRef, {
+        type: 'WITHDRAWAL',
+        destination: 'mobile_money',
+        amount,
+        phone,
+        medium,
+        requestId: requestRef.id,
+        status: 'PENDING_REVIEW',
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      return { requestId: requestRef.id, amount, email: userData.email || '', displayName: userData.displayName || 'Utilisateur', goalName: 'Bonus de parrainage Pata' };
+    });
+    await cotisationSendWithdrawalEmail({
+      withdrawalType: 'referral',
+      userId: uid,
+      requestId: result.requestId,
+      amount: result.amount,
+      email: result.email,
+      displayName: result.displayName,
+      goalName: result.goalName,
+    }, 'received');
+    return NextResponse.json({ success: true, ...result, message: 'Ta demande de retrait a été reçue. Elle sera vérifiée avant le transfert Mobile Money.' });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de créer la demande de retrait du bonus.', 400);
+  }
+}
+
 async function handleCotisationReferralPayment(request) {
   let uid = '';
   let reservationId = '';
@@ -3408,12 +3506,13 @@ async function handleAdminRejectWithdrawal(request) {
       return { ...data, requestId };
     });
     if (result.withdrawalType === 'cotisation') await restoreCotisationCycle(result, 'REJECTED');
+    else if (result.withdrawalType === 'referral') await settleReferralWithdrawal({ ...result, requestId }, 'REJECTED');
     else await unlockGoalAfterPayout(result.userId, result.goalId, 'REJECTED', requestId);
     await cotisationSendWithdrawalEmail(result, 'rejected');
     await adminDb.collection('users').doc(result.userId).collection('notifications').doc('withdrawal-' + requestId).set({
       title: 'Demande de retrait refusée',
       body: 'Ta demande de retrait a été refusée après vérification. Consulte ton historique pour plus de détails.',
-      target: result.withdrawalType === 'cotisation' ? '/cotisations' : '/goals',
+      target: result.withdrawalType === 'cotisation' ? '/cotisations' : result.withdrawalType === 'referral' ? '/settings' : '/goals',
       createdAt: FieldValue.serverTimestamp(),
     }).catch(() => {});
     return NextResponse.json({ success: true });
@@ -3475,8 +3574,9 @@ async function handleAdminApproveWithdrawal(request) {
       }
       await requestRef.update({ status: 'FAILED', providerMessage, failedAt: FieldValue.serverTimestamp() });
       if (requestData.withdrawalType === 'cotisation') await restoreCotisationCycle({ ...requestData, requestId: requestRef.id }, 'FAILED');
+      else if (requestData.withdrawalType === 'referral') await settleReferralWithdrawal({ ...requestData, requestId: requestRef.id }, 'FAILED');
       else await unlockGoalAfterPayout(requestData.userId, requestData.goalId, 'FAILED', requestRef.id);
-      await adminDb.collection('users').doc(requestData.userId).collection('notifications').doc(`withdrawal-${requestRef.id}`).set({ title: 'Retrait non effectué', body: 'Le prestataire n’a pas pu effectuer ce retrait. Consulte ton historique ou contacte le support.', target: requestData.withdrawalType === 'cotisation' ? '/cotisations' : '/goals', createdAt: FieldValue.serverTimestamp() }).catch(() => {});
+      await adminDb.collection('users').doc(requestData.userId).collection('notifications').doc(`withdrawal-${requestRef.id}`).set({ title: 'Retrait non effectué', body: 'Le prestataire n’a pas pu effectuer ce retrait. Consulte ton historique ou contacte le support.', target: requestData.withdrawalType === 'cotisation' ? '/cotisations' : requestData.withdrawalType === 'referral' ? '/settings' : '/goals', createdAt: FieldValue.serverTimestamp() }).catch(() => {});
       await cotisationSendWithdrawalEmail({ ...requestData, requestId: requestRef.id }, 'failed');
       return errorResponse(providerMessage, 502);
     }
@@ -3537,8 +3637,9 @@ async function handleFapshiPayoutWebhook(request) {
         providerPayload: { status, amount: Number(body.amount) || data.amount },
       });
       if (data.withdrawalType === 'cotisation') await restoreCotisationCycle(data, 'PAID');
+      else if (data.withdrawalType === 'referral') await settleReferralWithdrawal(data, 'PAID');
       else await unlockGoalAfterPayout(data.userId, data.goalId, 'PAID', requestRef.id);
-      const target = data.withdrawalType === 'cotisation' ? '/cotisations' : '/goals';
+      const target = data.withdrawalType === 'cotisation' ? '/cotisations' : data.withdrawalType === 'referral' ? '/settings' : '/goals';
       await adminDb.collection('users').doc(data.userId).collection('notifications').doc('withdrawal-' + requestRef.id).set({
         title: 'Retrait envoyé',
         body: 'Ton retrait de ' + Number(data.amount).toLocaleString('fr-FR') + ' FCFA a été envoyé.',
@@ -3552,8 +3653,9 @@ async function handleFapshiPayoutWebhook(request) {
         failedAt: FieldValue.serverTimestamp(),
       });
       if (data.withdrawalType === 'cotisation') await restoreCotisationCycle(data, 'FAILED');
+      else if (data.withdrawalType === 'referral') await settleReferralWithdrawal(data, 'FAILED');
       else await unlockGoalAfterPayout(data.userId, data.goalId, 'FAILED', requestRef.id);
-      const target = data.withdrawalType === 'cotisation' ? '/cotisations' : '/goals';
+      const target = data.withdrawalType === 'cotisation' ? '/cotisations' : data.withdrawalType === 'referral' ? '/settings' : '/goals';
       await adminDb.collection('users').doc(data.userId).collection('notifications').doc('withdrawal-' + requestRef.id).set({
         title: 'Retrait non effectué',
         body: 'Le prestataire n’a pas pu effectuer ce retrait. Consulte ton historique ou contacte le support.',
@@ -4307,7 +4409,7 @@ async function cotisationSendWithdrawalEmail(data, status) {
     to: data.email, subject: details[0],
     html: customAdminEmail({
       name: data.displayName || 'Utilisateur', headline: details[1], body: details[2],
-      ctaUrl: data.withdrawalType === 'cotisation' ? '/cotisations' : '/goals',
+      ctaUrl: data.withdrawalType === 'cotisation' ? '/cotisations' : data.withdrawalType === 'referral' ? '/settings' : '/goals',
       ctaLabel: 'Consulter ma demande',
     }),
     idempotencyKey: 'pata-withdrawal-' + (data.requestId || data.id || 'request') + '-' + status,
@@ -5341,6 +5443,7 @@ const ROUTES = {
   'referrals/status': { GET: handleReferralStatus },
   'referrals/attribute': { POST: handleReferralAttribute },
   'referrals/transfer': { POST: handleReferralTransfer },
+  'referrals/withdraw': { POST: handleReferralWithdrawal },
   'cotisations/pay-referral': { POST: handleCotisationReferralPayment },
   'profile/activity': { POST: handleProfileActivity },
   'analytics/income-created': { POST: handleIncomeAnalyticsEvent },
