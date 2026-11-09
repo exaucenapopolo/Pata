@@ -10,7 +10,7 @@ import { generateImageWithPollinations } from '@/lib/ai/pollinationsImage';
 import { buildUserContext } from '@/lib/ai/buildUserContext';
 import { computeGoalPlan, GOAL_LATE_PENALTY_RATE, GOAL_PENALTY_EFFECTIVE_DATE } from '@/lib/goalCalc';
 import {
-  sendPataEmail, welcomeEmail, savingsCreatedEmail, customAdminEmail, pinResetEmail,
+  sendPataEmail, welcomeEmail, savingsCreatedEmail, customAdminEmail, pinResetEmail, referralJoinedEmail, referralRewardActivatedEmail,
   cotisationCreatedEmail, cotisationJoinedEmail, cotisationOwnerJoinedEmail, cotisationStartedEmail, cotisationTurnEmail, cotisationDueEmail, cotisationContributionPaidEmail, financialReminderEmail,
 } from '@/lib/email/resend';
 
@@ -201,24 +201,69 @@ async function handleFapshiStatus(request) {
 
 /* ═══════════════════ ROUTES ABONNEMENT ═══════════════════ */
 
+
+async function reserveReferralDiscount(uid) {
+  const referralRef = adminDb.collection('referrals').doc(uid);
+  const reservationKey = randomBytes(18).toString('hex');
+  return adminDb.runTransaction(async (transaction) => {
+    const referralSnap = await transaction.get(referralRef);
+    if (!referralSnap.exists) return { eligible: false, reservationKey: null };
+    const referral = referralSnap.data() || {};
+    if (referral.status !== 'PENDING_PREMIUM' || referral.discountUsed === true) {
+      return { eligible: false, reservationKey: null };
+    }
+    if (Number(referral.discountReservedUntil || 0) > Date.now()) {
+      throw new Error('Un paiement Premium avec ta remise de parrainage est déjà en attente. Termine-le ou attends son expiration avant de recommencer.');
+    }
+    transaction.set(referralRef, {
+      discountReservationKey: reservationKey,
+      discountReservedUntil: Date.now() + 30 * 60 * 1000,
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    return { eligible: true, reservationKey };
+  });
+}
+
+async function releaseReferralDiscount(uid, reservationKey) {
+  if (!uid || !reservationKey) return;
+  const referralRef = adminDb.collection('referrals').doc(uid);
+  await adminDb.runTransaction(async (transaction) => {
+    const referralSnap = await transaction.get(referralRef);
+    if (!referralSnap.exists) return;
+    const referral = referralSnap.data() || {};
+    if (referral.discountReservationKey !== reservationKey || referral.status !== 'PENDING_PREMIUM') return;
+    transaction.set(referralRef, {
+      discountReservationKey: FieldValue.delete(),
+      discountReservedUntil: FieldValue.delete(),
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+  });
+}
+
+function referralPremiumPrice(months, discounted) {
+  const safeMonths = Math.max(1, Math.min(12, Math.floor(Number(months) || 1)));
+  return discounted ? 1250 + (safeMonths - 1) * 2500 : 2500 * safeMonths;
+}
+
 async function handleSubscriptionCheckout(request) {
+  let referralReservation = null;
+  let uid = '';
   try {
     const decoded = await authenticate(request);
-    const uid = decoded.uid;
+    uid = decoded.uid;
     const body = await request.json();
-    const months = Math.max(1, parseInt(body.months) || 1);
-    const amount = 2500 * months;
-
+    const months = Math.max(1, Math.min(12, parseInt(body.months, 10) || 1));
     const API_USER = process.env.FAPSHI_API_USER;
     const SECRET_KEY = process.env.FAPSHI_SECRET_KEY;
     if (!API_USER || !SECRET_KEY) return errorResponse('Configuration incomplète.', 500);
 
     const userDoc = await adminDb.collection('users').doc(uid).get();
     const userData = userDoc.exists ? userDoc.data() : {};
+    referralReservation = await reserveReferralDiscount(uid);
+    const amount = referralPremiumPrice(months, referralReservation.eligible);
 
     const baseUrl = getBaseUrl(request);
     const origin = request.headers.get('origin') || baseUrl;
-
     const payload = {
       amount,
       currency: 'XAF',
@@ -232,29 +277,56 @@ async function handleSubscriptionCheckout(request) {
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 12000);
-    const res = await fetch('https://live.fapshi.com/initiate-pay', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', apiuser: API_USER, apikey: SECRET_KEY },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    }).catch(() => { clearTimeout(timer); throw new Error('Service indisponible.'); });
+    let res;
+    try {
+      res = await fetch('https://live.fapshi.com/initiate-pay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apiuser: API_USER, apikey: SECRET_KEY },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+    } catch {
+      clearTimeout(timer);
+      if (referralReservation.eligible) await releaseReferralDiscount(uid, referralReservation.reservationKey);
+      referralReservation = null;
+      return errorResponse('Service indisponible. Réessaie plus tard.', 503);
+    }
     clearTimeout(timer);
 
-    const data = await res.json();
-    if (!res.ok) return errorResponse(data.message || 'Paiement refusé.', 400);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (referralReservation.eligible) await releaseReferralDiscount(uid, referralReservation.reservationKey);
+      referralReservation = null;
+      return errorResponse(data.message || 'Paiement refusé.', 400);
+    }
 
     const checkoutUrl = data.data?.url || data.link || data.url;
     const transId = data.transId || data.data?.transId;
-    if (!checkoutUrl || !transId) return errorResponse('Lien indisponible.', 502);
+    if (!checkoutUrl || !transId) {
+      if (referralReservation.eligible) await releaseReferralDiscount(uid, referralReservation.reservationKey);
+      referralReservation = null;
+      return errorResponse('Lien indisponible.', 502);
+    }
 
     await adminDb.collection('subscriptionPayments').doc(transId).set({
-      transId, userId: uid, amount, months, status: 'PENDING', checkoutUrl, createdAt: FieldValue.serverTimestamp(),
+      transId,
+      userId: uid,
+      amount,
+      months,
+      status: 'PENDING',
+      checkoutUrl,
+      referralDiscountApplied: referralReservation.eligible === true,
+      referralReservationKey: referralReservation.reservationKey || null,
+      createdAt: FieldValue.serverTimestamp(),
     });
-
-    return NextResponse.json({ success: true, checkoutUrl, transId });
-  } catch (error) { return errorResponse(error.message, 500); }
+    return NextResponse.json({ success: true, checkoutUrl, transId, amount, referralDiscountApplied: referralReservation.eligible === true });
+  } catch (error) {
+    if (uid && referralReservation?.eligible) {
+      await releaseReferralDiscount(uid, referralReservation.reservationKey).catch(() => {});
+    }
+    return errorResponse(error.message || 'Impossible de préparer le paiement Premium.', 500);
+  }
 }
-
 async function handleSubscriptionPayWithBalance(request) {
   try {
     const decoded = await authenticate(request);
@@ -263,35 +335,115 @@ async function handleSubscriptionPayWithBalance(request) {
     const requestedMonths = Number(body.months);
     const months = Math.floor(requestedMonths);
     if (!Number.isInteger(months) || months < 1 || months > 12) return errorResponse('Choisis une durée comprise entre 1 et 12 mois.', 400);
-    const amount = 2500 * months;
+
     const userRef = adminDb.collection('users').doc(uid);
+    const referralRef = adminDb.collection('referrals').doc(uid);
     const paymentRef = adminDb.collection('subscriptionPayments').doc();
     const result = await adminDb.runTransaction(async (transaction) => {
-      const userDoc = await transaction.get(userRef);
+      const [userDoc, referralSnap] = await Promise.all([
+        transaction.get(userRef),
+        transaction.get(referralRef),
+      ]);
       if (!userDoc.exists) throw new Error('Utilisateur introuvable.');
-      const userData = userDoc.data();
+      const userData = userDoc.data() || {};
+      const referral = referralSnap.exists ? referralSnap.data() || {} : {};
+      const isReferred = referral.status === 'PENDING_PREMIUM' && referral.discountUsed !== true;
+      if (isReferred && Number(referral.discountReservedUntil || 0) > Date.now()) {
+        throw new Error('Un paiement Premium avec la remise de parrainage est déjà en attente. Termine-le ou attends son expiration.');
+      }
+      const amount = referralPremiumPrice(months, isReferred);
       const balance = Number(userData.balance) || 0;
       if (balance < amount) throw new Error(`Solde insuffisant. Ton solde est de ${balance.toLocaleString('fr-FR')} FCFA; il manque ${(amount - balance).toLocaleString('fr-FR')} FCFA.`);
+
+      const referrerUid = isReferred ? String(referral.referrerUid || '') : '';
+      const referrerRef = referrerUid ? adminDb.collection('users').doc(referrerUid) : null;
+      const ledgerRef = referrerRef ? referrerRef.collection('referralTransactions').doc('invite-' + uid) : null;
+      const nestedReferralRef = referrerRef ? referrerRef.collection('referrals').doc(uid) : null;
+      let referrerSnap = null;
+      let ledgerSnap = null;
+      if (referrerRef) {
+        [referrerSnap, ledgerSnap] = await Promise.all([
+          transaction.get(referrerRef),
+          transaction.get(ledgerRef),
+        ]);
+      }
+
       const now = new Date();
       const currentValue = userData.premiumUntil;
       const currentExpiry = currentValue?.toDate ? currentValue.toDate() : new Date(currentValue || 0);
       const baseDate = currentExpiry > now ? currentExpiry : now;
       const newExpiration = new Date(baseDate.getTime() + months * 30 * 86400000);
       transaction.update(userRef, {
-        balance: balance - amount, premiumUntil: newExpiration.toISOString(),
-        lastPaymentDate: now.toISOString(), lastPaymentAmount: amount,
-        lastPaymentMethod: 'balance', premiumLastStartDate: now.toISOString(),
+        balance: balance - amount,
+        premiumUntil: newExpiration.toISOString(),
+        lastPaymentDate: now.toISOString(),
+        lastPaymentAmount: amount,
+        lastPaymentMethod: 'balance',
+        premiumLastStartDate: now.toISOString(),
+        ...(isReferred ? { referralDiscountUsed: true } : {}),
       });
       transaction.create(paymentRef, {
-        transId: paymentRef.id, userId: uid, amount, months, status: 'CONFIRMED',
-        method: 'balance', createdAt: FieldValue.serverTimestamp(), confirmedAt: FieldValue.serverTimestamp(),
+        transId: paymentRef.id,
+        userId: uid,
+        amount,
+        months,
+        status: 'CONFIRMED',
+        method: 'balance',
+        referralDiscountApplied: isReferred,
+        createdAt: FieldValue.serverTimestamp(),
+        confirmedAt: FieldValue.serverTimestamp(),
       });
-      return newExpiration.toISOString();
-    });
-    return NextResponse.json({ success: true, newExpiration: result });
-  } catch (error) { return errorResponse(error.message, 500); }
-}
 
+      let reward = null;
+      if (isReferred && referrerRef && referrerSnap?.exists) {
+        const rewardAmount = 1000;
+        if (!ledgerSnap?.exists) {
+          const referrerData = referrerSnap.data() || {};
+          transaction.update(referrerRef, { referralBalance: (Number(referrerData.referralBalance) || 0) + rewardAmount });
+          transaction.create(ledgerRef, {
+            type: 'REWARD',
+            amount: rewardAmount,
+            invitedUid: uid,
+            invitedName: userData.displayName || decoded.email || 'Filleul',
+            status: 'CONFIRMED',
+            sourcePaymentId: paymentRef.id,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+          reward = { referrerUid, invitedName: userData.displayName || decoded.email || 'Filleul' };
+        }
+        const referralUpdate = {
+          status: 'REWARDED',
+          discountUsed: true,
+          rewardedAmount: rewardAmount,
+          premiumPaymentId: paymentRef.id,
+          rewardedAt: FieldValue.serverTimestamp(),
+          discountReservationKey: FieldValue.delete(),
+          discountReservedUntil: FieldValue.delete(),
+          updatedAt: FieldValue.serverTimestamp(),
+        };
+        transaction.set(referralRef, referralUpdate, { merge: true });
+        transaction.set(nestedReferralRef, referralUpdate, { merge: true });
+      }
+      return { newExpiration: newExpiration.toISOString(), amount, referralDiscountApplied: isReferred, reward };
+    });
+
+    if (result.reward) {
+      try {
+        const referrerDoc = await adminDb.collection('users').doc(result.reward.referrerUid).get();
+        const referrer = referrerDoc.exists ? referrerDoc.data() || {} : {};
+        if (referrer.email) {
+          await sendPataEmail({
+            to: referrer.email,
+            subject: 'Ton bonus de parrainage Pata est disponible',
+            html: referralRewardActivatedEmail({ referrerName: referrer.displayName, invitedName: result.reward.invitedName }),
+            idempotencyKey: 'pata-referral-reward-' + uid,
+          });
+        }
+      } catch (emailError) { console.warn('[PATA REFERRAL REWARD EMAIL]', emailError.message || emailError); }
+    }
+    return NextResponse.json({ success: true, ...result, reward: undefined });
+  } catch (error) { return errorResponse(error.message || 'Impossible de confirmer le paiement Premium.', 500); }
+}
 async function handleSubscriptionWebhook(request) {
   try {
     const body = await request.json();
