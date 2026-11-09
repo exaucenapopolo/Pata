@@ -418,31 +418,6 @@ async function handleAutomaticDeviceImport(body) {
   }
 
   const providerName = parsed.provider === 'mtn_momo' ? 'MTN MoMo' : 'Orange Money';
-    const notificationId = 'sms-review-' + hash;
-    await adminDb.collection('users').doc(uid).collection('notifications').doc(notificationId).set({
-      title: 'Retrait Mobile Money à vérifier',
-      body: 'Un retrait de ' + Number(parsed.amount).toLocaleString('fr-FR') + ' FCFA via ' + providerName
-        + ' a été détecté. Il attend ta classification et n’a pas été compté comme une dépense.',
-      target: '/dashboard',
-      source: 'sms_import',
-      operationType: 'withdrawal',
-      operationId: null,
-      provider: parsed.provider,
-      amount: parsed.amount,
-      read: false,
-      readAt: null,
-      createdAt: FieldValue.serverTimestamp(),
-    }, { merge: true });
-    return NextResponse.json({
-      success: true,
-      duplicate: false,
-      requiresReview: true,
-      target: '/dashboard',
-      notifications: { inAppSent: true, requiresReview: true },
-    });
-  }
-
-  const providerName = parsed.provider === 'mtn_momo' ? 'MTN MoMo' : 'Orange Money';
   const smsImportId = 'sms_' + hash;
   const counterparty = parsed.counterparty || '';
   const noteBase = parsed.eventType === 'withdrawal' ? 'Retrait Mobile Money'
@@ -664,7 +639,6 @@ export async function POST(request) {
       const ref = transactionRef(uid, body.id);
       const operationType = String(body.operationType || '');
       const categoryId = String(body.categoryId || '').trim().slice(0, 80);
-      const incomeSourceId = String(body.incomeSourceId || 'all').trim().slice(0, 150);
       const expenseType = String(body.expenseType || '').trim();
       const projectId = String(body.projectId || '').trim().slice(0, 150);
       const confirmBudgetOverrun = body.confirmBudgetOverrun === true;

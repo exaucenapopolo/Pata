@@ -157,7 +157,6 @@ export function SmsImportCoordinator() {
           action: 'confirm', id: item.id,
           operationType: isIncome ? 'income' : 'expense',
           categoryId: choice.categoryId || (isIncome ? 'other_income' : item.suggestedCategoryId || 'other'),
-          incomeSourceId: choice.incomeSourceId || 'all',
           expenseType: choice.expenseType || '',
           projectId: choice.projectId || '',
           confirmBudgetOverrun: warnings[item.id] === true,
@@ -235,7 +234,7 @@ export function SmsImportCoordinator() {
                 </div>
                 {item.direction === 'withdrawal' && <label className="mt-3 flex items-start gap-2 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900">
                   <input type="checkbox" checked={choice.confirmWithdrawal === true} onChange={(event) => updateChoice(item.id, { confirmWithdrawal: event.target.checked })} className="mt-0.5"/>
-                  Enregistrer explicitement ce retrait comme une dépense. Un retrait d’espèces n’est pas toujours une consommation.
+                  Enregistrer explicitement ce retrait comme une sortie. Tu choisiras ensuite sa nature réelle avant de le comptabiliser.
                 </label>}
                 {!incoming && <label className="mt-3 block text-xs font-semibold text-slate-700">
                   Nature de la sortie
@@ -257,12 +256,12 @@ export function SmsImportCoordinator() {
                 </label>}
                 <label className="mt-3 block text-xs font-semibold text-slate-700">
                   Catégorie
-                  <select value={choice.categoryId || (incoming ? 'other_income' : 'item.suggestedCategoryId' || 'other')} onChange={(event) => updateChoice(item.id, { categoryId: event.target.value })} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800">
+                  <select value={choice.categoryId || (incoming ? 'other_income' : item.suggestedCategoryId || 'other')} onChange={(event) => updateChoice(item.id, { categoryId: event.target.value })} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800">
                     {categories.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}
                   </select>
                 </label>
-                {item.direction === 'withdrawal' && <p className="mt-3 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">                {item.direction === 'withdrawal' && <p className="mt-3 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">
-                  Si tu confirmes, Pata enregistrera cette sortie depuis le solde Mobile Money. Elle ne sera pas débitée d’un revenu déjà saisi dans l’application.
+                {item.direction === 'withdrawal' && <p className="mt-3 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">
+                  Toute sortie confirmée est rattachée au solde Mobile Money externe, sans débiter un revenu Pata déjà enregistré.
                 </p>}
                 {warnings[item.id] && <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900">Le budget sera dépassé. Confirme une seconde fois uniquement si tu souhaites enregistrer cette opération.</p>}
                 <div className="mt-3 flex flex-wrap gap-2">
