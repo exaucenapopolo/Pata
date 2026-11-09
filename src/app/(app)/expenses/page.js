@@ -97,6 +97,17 @@ export default function ExpensesPage() {
     return () => window.removeEventListener('pata:expense-new', openFromShortcut);
   }, []);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const highlightedId = params.get('highlight');
+    if (!highlightedId || !expenses.length) return;
+    const match = expenses.find((item) => item.id === highlightedId);
+    if (match) setSelectedExpense(match);
+    params.delete('highlight');
+    const query = params.toString();
+    window.history.replaceState(null, '', window.location.pathname + (query ? '?' + query : ''));
+  }, [expenses]);
+
   const startDate = showCustomPeriod ? customStart : getFirstOfMonth();
   const endDate = showCustomPeriod ? customEnd : getLastOfMonth();
 
