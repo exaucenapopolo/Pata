@@ -1657,10 +1657,18 @@ async function handleCreateIncome(request) {
     if (!Number.isSafeInteger(amount) || amount <= 0) return errorResponse('Indique un montant de revenu valide.', 400);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{4}-\d{2}$/.test(month) || month !== date.slice(0, 7)) return errorResponse('La date du revenu est invalide.', 400);
     const userRef = adminDb.collection('users').doc(uid);
-    const incomeRef = userRef.collection('incomes').doc();
+    const smsImportId = /^sms_[a-f0-9]{64}$/.test(String(body.smsImportId || '')) ? String(body.smsImportId) : null;
+    const incomeRef = userRef.collection('incomes').doc(smsImportId || undefined);
     const result = await adminDb.runTransaction(async (transaction) => {
-      const userSnap = await transaction.get(userRef);
+      const [userSnap, existingIncomeSnap] = await Promise.all([
+        transaction.get(userRef),
+        smsImportId ? transaction.get(incomeRef) : Promise.resolve(null),
+      ]);
       if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
+      if (existingIncomeSnap?.exists) {
+        if (existingIncomeSnap.data()?.smsImportId !== smsImportId) throw new Error('Identifiant d’import déjà utilisé.');
+        return { id: incomeRef.id, duplicate: true };
+      }
       const userData = userSnap.data();
       let projectName = '';
       if (projectId) {
@@ -1681,6 +1689,7 @@ async function handleCreateIncome(request) {
       transaction.create(incomeRef, {
         amount, source: source || 'Revenu', categoryId, month, date, note,
         ...(projectId ? { projectId, projectName } : {}),
+        ...(smsImportId ? { smsImportId } : {}),
         ...optionalMetadata,
         createdAt: FieldValue.serverTimestamp(),
       });
@@ -2178,7 +2187,8 @@ async function handleAddExpense(request) {
   try {
     const decoded = await authenticate(request);
     const body = await request.json();
-    const result = await createExpenseForUser(decoded.uid, body);
+    const smsImportId = /^sms_[a-f0-9]{64}$/.test(String(body.smsImportId || '')) ? String(body.smsImportId) : null;
+    const result = await createExpenseForUser(decoded.uid, body, { idempotencyKey: smsImportId });
     return NextResponse.json(result);
   } catch (error) {
     const message = error.message || 'Erreur lors de l’enregistrement de la dépense.';
