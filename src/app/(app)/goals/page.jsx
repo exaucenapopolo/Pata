@@ -76,7 +76,7 @@ function buildGoalAdvices(plan, balance, goalName) {
     const missedLabel = `${plan.missedPayments} échéance${plan.missedPayments > 1 ? 's' : ''} manquée${plan.missedPayments > 1 ? 's' : ''}`;
     advices.push({
       type: 'danger',
-      message: `${missedLabel} : des ajustements liés aux échéances de ${formatCurrency(plan.penalty)} sont dus. Ils représentent 15 % du montant cible par échéance manquée et seront déduits au retrait ou à la clôture.`,
+      message: `${missedLabel} : des ajustements liés aux échéances de ${formatCurrency(plan.penalty)} sont dus. Le calcul est limité à 7 % du montant resté impayé à chaque échéance et sera déduit au retrait ou à la clôture.`,
     });
   } else if (plan.totalDeposited >= plan.expectedAmount) {
     advices.push({ type: 'success', message: `Tu es à jour : ${formatCurrency(plan.totalDeposited)} versés. Continue comme ça.` });
@@ -107,7 +107,7 @@ function ConfirmWithdrawModal({ goal, actionType, onClose, onConfirm, busy }) {
     `Bonjour l'équipe Pata,\n\nJe souhaite ${isCancel ? 'annuler' : 'clôturer'} mon ${isPiggybank ? 'épargne libre' : 'objectif'} "${goal.name}".\n\n` +
     `- Total épargné : ${formatCurrency(plan.totalDeposited)}\n` +
     (plan.totalDebt > 0 ? `- Dettes : ${formatCurrency(plan.totalDebt)}\n` : '') +
-    (latePenalty > 0 ? `- Ajustement de régularité (15%) : ${formatCurrency(latePenalty)}\n` : '') +
+    (latePenalty > 0 ? `- Ajustement de retard (7 % du montant manqué) : ${formatCurrency(latePenalty)}\n` : '') +
     (cancelPenalty > 0 ? `- Frais de clôture anticipée (10%) : ${formatCurrency(cancelPenalty)}\n` : '') +
     `- Net à recevoir : ${formatCurrency(netRefund)}\n\nMerci.`
   );
@@ -126,7 +126,7 @@ function ConfirmWithdrawModal({ goal, actionType, onClose, onConfirm, busy }) {
         <div className="space-y-2 rounded-xl border border-slate-200 p-3">
           <div className="flex justify-between text-sm"><span className="text-slate-500">Total épargné</span><span className="font-medium text-slate-800">{formatCurrency(plan.totalDeposited)}</span></div>
           {plan.totalDebt > 0 && (<div className="flex justify-between text-sm text-red-600"><span>Dettes</span><span className="font-medium">- {formatCurrency(plan.totalDebt)}</span></div>)}
-          {latePenalty > 0 && (<div className="flex justify-between text-sm text-red-600"><span>Ajustement de régularité (15%)</span><span className="font-medium">- {formatCurrency(latePenalty)}</span></div>)}
+          {latePenalty > 0 && (<div className="flex justify-between text-sm text-red-600"><span>Ajustement de retard (7 % du montant manqué)</span><span className="font-medium">- {formatCurrency(latePenalty)}</span></div>)}
           {cancelPenalty > 0 && (<div className="flex justify-between text-sm text-red-600"><span>Frais de clôture anticipée (10%)</span><span className="font-medium">- {formatCurrency(cancelPenalty)}</span></div>)}
           <div className="mt-2 flex justify-between border-t border-slate-200 pt-2 text-base font-bold">
             <span className="text-slate-800">Net à recevoir</span><span className="text-brand-600">{formatCurrency(netRefund)}</span>
@@ -174,7 +174,6 @@ function GoalDetail({ goal, onClose, onAskWithdraw }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [showLoan, setShowLoan] = useState(false);
 
   const balance = profile?.balance || 0;
 
@@ -275,7 +274,7 @@ function GoalDetail({ goal, onClose, onAskWithdraw }) {
 
         {!isPiggybank && plan.totalDebt > 0 && (
           <div className="flex flex-col gap-2 rounded-xl border border-red-200 bg-red-50 p-3">
-            <div className="flex items-start gap-2"><Landmark size={16} className="mt-0.5 shrink-0 text-red-600" /><p className="text-sm text-red-700">Dette de <strong>{formatCurrency(plan.totalDebt)}</strong> (incluant 5% d'intérêts). Sera déduite si tu retires.</p></div>
+            <div className="flex items-start gap-2"><Landmark size={16} className="mt-0.5 shrink-0 text-red-600" /><p className="text-sm text-red-700">Ancienne avance enregistrée : <strong>{formatCurrency(plan.totalDebt)}</strong>. Elle sera déduite du retrait si elle n'est pas remboursée avant.</p></div>
             <div className="flex gap-2 items-end mt-2">
               <Input label="Montant à rembourser" type="number" min="1" value={repayAmount} onChange={e => setRepayAmount(e.target.value)} className="flex-1" />
               <Button onClick={() => handleAction('repay', { amount: Number(repayAmount) }, 'Prêt remboursé.')} disabled={busy || !repayAmount || Number(repayAmount) > balance}>Rembourser</Button>
@@ -291,7 +290,7 @@ function GoalDetail({ goal, onClose, onAskWithdraw }) {
           </div>
         )}
 
-        {(!plan.isReached || isPiggybank) && !showLoan && (
+        {(!plan.isReached || isPiggybank) && (
           <form onSubmit={onFundFromWallet} className="rounded-xl border border-slate-200 p-3.5">
             <div className="mb-3 flex items-center justify-between rounded-lg bg-brand-50 px-3 py-2"><span className="text-xs text-slate-600">Solde disponible</span><span className="text-sm font-semibold text-brand-700">{formatCurrency(balance)}</span></div>
             <div className="mb-3 space-y-2">
@@ -300,18 +299,10 @@ function GoalDetail({ goal, onClose, onAskWithdraw }) {
             </div>
             <div className="flex justify-end"><Button type="submit" disabled={saving || balance <= 0 || !amount || Number(amount) > Number(balance)}><Banknote size={14} /> {saving ? 'Versement…' : 'Verser'}</Button></div>
             {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
-            {!isPiggybank && (<div className="mt-3 text-center"><button type="button" onClick={() => setShowLoan(true)} className="text-xs font-semibold text-brand-600 hover:underline">Besoin d’un coup de pouce ? Consulter le micro-prêt</button></div>)}
           </form>
         )}
 
-        {showLoan && !plan.isReached && (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3.5">
-            <h4 className="text-sm font-semibold text-amber-800 mb-1">Micro-prêt d'urgence</h4>
-            <p className="text-xs text-amber-700 mb-3">Tu peux demander une avance pour respecter l’échéance. Des intérêts de 5 % s’appliquent.</p>
-            <div className="flex gap-2 items-end"><Input label="Montant" type="number" min="1" value={amount} onChange={e => setAmount(e.target.value)} className="flex-1" /><Button onClick={() => handleAction('borrow', { amount: Number(amount) }, 'Prêt accordé.')} disabled={busy || !amount} className="bg-amber-600 hover:bg-amber-700">Emprunter</Button></div>
-            <button onClick={() => setShowLoan(false)} className="text-xs text-amber-800 mt-3 hover:underline">Annuler</button>
-          </div>
-        )}
+
 
         <div className="space-y-2">
           {plan.isReached || isPiggybank ? (
