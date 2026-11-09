@@ -1,5 +1,5 @@
 // public/sw.js
-const CACHE_NAME = 'pata-cache-v2';
+const CACHE_NAME = 'pata-cache-v3';
 const urlsToCache = [
   '/',
   '/dashboard',

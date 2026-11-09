@@ -1,8 +1,11 @@
 package com.pata.app;
 
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.os.Build;
 import com.getcapacitor.BridgeActivity;
 import org.json.JSONObject;
 
@@ -15,6 +18,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(PataSmsPlugin.class);
         super.onCreate(savedInstanceState);
+        createPataNotificationChannel();
         captureSharedIntent(getIntent());
         openNotificationTarget(getIntent());
     }
@@ -25,6 +29,19 @@ public class MainActivity extends BridgeActivity {
         setIntent(intent);
         captureSharedIntent(intent);
         openNotificationTarget(intent);
+    }
+
+    private void createPataNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager == null) return;
+        NotificationChannel channel = new NotificationChannel(
+            "pata_general",
+            "Notifications Pata",
+            NotificationManager.IMPORTANCE_DEFAULT
+        );
+        channel.setDescription("Messages importants et alertes envoyés par Pata.");
+        manager.createNotificationChannel(channel);
     }
 
     private void captureSharedIntent(Intent intent) {

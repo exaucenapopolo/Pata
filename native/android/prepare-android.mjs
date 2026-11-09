@@ -36,9 +36,12 @@ for (const file of [
 
 const iconResourceDir = path.join(root, 'android/app/src/main/res/drawable');
 const largeIconDir = path.join(root, 'android/app/src/main/res/drawable-nodpi');
+const valuesResourceDir = path.join(root, 'android/app/src/main/res/values');
 fs.mkdirSync(iconResourceDir, { recursive: true });
 fs.mkdirSync(largeIconDir, { recursive: true });
+fs.mkdirSync(valuesResourceDir, { recursive: true });
 fs.copyFileSync(path.join(root, 'native/android/res/drawable/ic_stat_pata.xml'), path.join(iconResourceDir, 'ic_stat_pata.xml'));
+fs.copyFileSync(path.join(root, 'native/android/res/values/pata_colors.xml'), path.join(valuesResourceDir, 'pata_colors.xml'));
 fs.copyFileSync(path.join(root, 'public/android-chrome-192x192.png'), path.join(largeIconDir, 'pata_notification_large.png'));
 
 const manifestPath = path.join(root, 'android/app/src/main/AndroidManifest.xml');
@@ -57,6 +60,18 @@ if (!manifest.includes('PataSmsReceiver')) {
   const receiver = '\n        <receiver\n            android:name="com.pata.app.PataSmsReceiver"\n            android:enabled="true"\n            android:exported="true">\n            <intent-filter android:priority="999">\n                <action android:name="android.provider.Telephony.SMS_RECEIVED" />\n            </intent-filter>\n        </receiver>\n';
   manifest = manifest.replace('</application>', receiver + '    </application>');
 }
+// Firebase Cloud Messaging : identité Pata et canal système par défaut.
+if (!manifest.includes('com.google.firebase.messaging.default_notification_icon')) {
+  const applicationTag = manifest.match(/<application\b[^>]*>/);
+  if (!applicationTag) throw new Error('Balise application Android introuvable.');
+  const firebaseMetadata = [
+    '        <meta-data android:name="com.google.firebase.messaging.default_notification_icon" android:resource="@drawable/ic_stat_pata" />',
+    '        <meta-data android:name="com.google.firebase.messaging.default_notification_color" android:resource="@color/pata_notification_color" />',
+    '        <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="pata_general" />',
+  ].join('\n');
+  manifest = manifest.replace(applicationTag[0], applicationTag[0] + '\n' + firebaseMetadata);
+}
+
 if (!manifest.includes('android.intent.action.SEND')) {
   const filter = '\n            <intent-filter>\n                <action android:name="android.intent.action.SEND" />\n                <category android:name="android.intent.category.DEFAULT" />\n                <data android:mimeType="text/plain" />\n            </intent-filter>\n';
   manifest = manifest.replace(/(<activity[^>]*android:name="[^"]*MainActivity"[^>]*>[\s\S]*?)(<\/activity>)/, '$1' + filter + '$2');
@@ -82,8 +97,8 @@ if (fs.existsSync(gradlePath)) {
     if (depth !== 0) throw new Error('Bloc dependencies Gradle mal formé.');
     gradle = gradle.slice(0, close - 1) + '\n' + dependency + '\n' + gradle.slice(close - 1);
   }
-  gradle = gradle.replace(/versionCode\s+\d+/, 'versionCode 5');
-  gradle = gradle.replace(/versionName\s+["'][^"']+["']/, 'versionName "1.0.4"');
+  gradle = gradle.replace(/versionCode\s+\d+/, 'versionCode 6');
+  gradle = gradle.replace(/versionName\s+["'][^"']+["']/, 'versionName "1.0.5"');
   fs.writeFileSync(gradlePath, gradle);
 }
-console.log('Pata Android 1.0.4 : icône Pata pour les notifications système, Web Push, SMS et synchronisation WorkManager configurés.');
+console.log('Pata Android 1.0.5 : icône et canal Pata pour les notifications système, Web Push, import SMS et synchronisation WorkManager configurés.');

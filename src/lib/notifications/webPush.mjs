@@ -7,7 +7,22 @@ export function normalizeWebPushSubscription(value) {
   if (!value || typeof value !== 'object') throw new Error('Abonnement Web Push manquant.');
   const endpoint = String(value.endpoint || '').trim();
   const parsed = new URL(endpoint);
-  if (parsed.protocol !== 'https:' || endpoint.length > 4096) throw new Error('Adresse de notification invalide.');
+  const hostname = parsed.hostname.toLowerCase();
+  const allowedHost = hostname === 'fcm.googleapis.com'
+    || hostname === 'web.push.apple.com'
+    || hostname === 'push.services.mozilla.com'
+    || hostname.endsWith('.push.services.mozilla.com')
+    || hostname.endsWith('.notify.windows.com');
+  if (
+    parsed.protocol !== 'https:'
+    || endpoint.length > 4096
+    || !allowedHost
+    || parsed.username
+    || parsed.password
+    || parsed.port
+  ) {
+    throw new Error('Adresse de notification invalide ou service Web Push non reconnu.');
+  }
   const p256dh = String(value.keys?.p256dh || '').trim();
   const auth = String(value.keys?.auth || '').trim();
   if (p256dh.length < 40 || p256dh.length > 256 || auth.length < 16 || auth.length > 128) {
@@ -15,7 +30,9 @@ export function normalizeWebPushSubscription(value) {
   }
   return {
     endpoint,
-    expirationTime: Number.isFinite(Number(value.expirationTime)) ? Number(value.expirationTime) : null,
+    expirationTime: value.expirationTime == null
+      ? null
+      : Number.isFinite(Number(value.expirationTime)) ? Number(value.expirationTime) : null,
     keys: { p256dh, auth },
   };
 }

@@ -3,7 +3,7 @@ import { createHash, createHmac, timingSafeEqual, randomBytes, randomInt, scrypt
 import { adminAuth, adminDb, adminMessaging } from '@/lib/firebase/admin';
 import { FieldValue, FieldPath, AggregateField } from 'firebase-admin/firestore';
 import { completeWithGroq } from '@/lib/ai/groqClient';
-import { normalizeWebPushSubscription, webPushSubscriptionId, sendPataWebPush, isExpiredWebPushError } from '@/lib/notifications/webPush';
+import { normalizeWebPushSubscription, webPushSubscriptionId, sendPataWebPush, isExpiredWebPushError } from '@/lib/notifications/webPush.mjs';
 import { AI_TOOLS, createExpenseForUser, updateExpenseForUser, deleteExpenseForUser, executeAITool, runAutomationForUser, generateWeeklyReportForUser } from '@/lib/ai/financialTools';
 import { generateAudioWithGemini } from '@/lib/ai/geminiTTS';
 import { chatWithGroqVision } from '@/lib/ai/groqVision';

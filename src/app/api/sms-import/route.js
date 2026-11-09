@@ -4,7 +4,7 @@ import { adminAuth, adminDb, adminMessaging } from '@/lib/firebase/admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { createExpenseForUser } from '@/lib/ai/financialTools';
 import { sendPataEmail, renderPataEmail, escapeEmailHtml } from '@/lib/email/resend';
-import { sendPataWebPush, isExpiredWebPushError } from '@/lib/notifications/webPush';
+import { sendPataWebPush, isExpiredWebPushError } from '@/lib/notifications/webPush.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
