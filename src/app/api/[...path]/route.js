@@ -1166,10 +1166,15 @@ async function handleWelcomeEmail(request) {
     if (!recipient) return errorResponse('Aucune adresse e-mail associée à ce compte.', 400);
     if (profile.welcomeEmailSentAt) return NextResponse.json({ success: true, alreadySent: true });
     const name = String(profile.displayName || recipient.split('@')[0] || 'Utilisateur').replaceAll(String.fromCharCode(10), ' ').replaceAll(String.fromCharCode(13), ' ').slice(0, 80);
+    let referrerName = '';
+    if (profile.referredByUid) {
+      const referrerSnap = await adminDb.collection('users').doc(String(profile.referredByUid)).get();
+      if (referrerSnap.exists) referrerName = String(referrerSnap.data()?.displayName || '').slice(0, 100);
+    }
     const sent = await sendPataEmail({
       to: recipient,
       subject: `Bienvenue sur Pata, ${name} !`,
-      html: welcomeEmail({ name }),
+      html: welcomeEmail({ name, referrerName }),
       idempotencyKey: `pata-welcome-${uid}`,
     });
     await userRef.set({
@@ -5333,6 +5338,10 @@ const ROUTES = {
   'security/pin/verify': { POST: handlePinVerify },
   'security/pin/reset/request': { POST: handlePinResetRequest },
   'security/pin/reset/confirm': { POST: handlePinResetConfirm },
+  'referrals/status': { GET: handleReferralStatus },
+  'referrals/attribute': { POST: handleReferralAttribute },
+  'referrals/transfer': { POST: handleReferralTransfer },
+  'cotisations/pay-referral': { POST: handleCotisationReferralPayment },
   'profile/activity': { POST: handleProfileActivity },
   'analytics/income-created': { POST: handleIncomeAnalyticsEvent },
   'automations/run':       { POST: handleAutomationsRun },
