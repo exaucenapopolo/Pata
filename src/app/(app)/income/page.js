@@ -22,7 +22,7 @@ import { useProfile } from '@/hooks/useProfile';
 import { useProjects } from '@/hooks/useProjects';
 import { useBudgetRules } from '@/hooks/useBudgetRules';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
-import { createIncome, deleteIncome } from '@/lib/firestore/incomes';
+import { createIncome, updateIncome, deleteIncome } from '@/lib/firestore/incomes';
 import { upsertBudget } from '@/lib/firestore/budgets';
 import { computeBudgetBreakdown } from '@/lib/budgetRules';
 import { INCOME_CATEGORIES, EXPENSE_CATEGORIES } from '@/lib/constants';
@@ -46,7 +46,7 @@ const currentTime = () => {
   const d = new Date();
   return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 };
-const emptyIncomeForm = () => ({ amount: '', source: 'Salaire', categoryId: 'salary', note: '', date: todayIso(), projectId: '', time: currentTime(), locationLabel: '', latitude: null, longitude: null, locationAccuracy: null, paymentMethod: '', details: '' });
+const emptyIncomeForm = () => ({ id: null, amount: '', source: 'Salaire', categoryId: 'salary', note: '', date: todayIso(), projectId: '', time: currentTime(), locationLabel: '', latitude: null, longitude: null, locationAccuracy: null, paymentMethod: '', details: '' });
 
 const FREQUENCIES = [
   { id: 'daily', label: 'Par jour', multiplier: 30 },
@@ -104,6 +104,17 @@ export default function IncomePage() {
     }
     return () => window.removeEventListener('pata:income-new', openFromShortcut);
   }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const highlightedId = params.get('highlight');
+    if (!highlightedId || !incomes.length) return;
+    const match = incomes.find((item) => item.id === highlightedId);
+    if (match) setSelectedIncome(match);
+    params.delete('highlight');
+    const query = params.toString();
+    window.history.replaceState(null, '', window.location.pathname + (query ? '?' + query : ''));
+  }, [incomes]);
 
   const incomesWithBalance = useMemo(() => {
     return incomes.map((inc) => {
@@ -333,6 +344,28 @@ export default function IncomePage() {
     setOpen(true);
   };
 
+  const openEditIncome = (income) => {
+    setSelectedIncome(null);
+    setForm({
+      id: income.id,
+      amount: String(income.amount || ''),
+      source: income.source || 'Revenu',
+      categoryId: income.categoryId || 'other_income',
+      note: income.note || '',
+      date: income.date || todayIso(),
+      projectId: income.projectId || '',
+      time: income.time || '',
+      locationLabel: income.locationLabel || '',
+      latitude: income.latitude ?? null,
+      longitude: income.longitude ?? null,
+      locationAccuracy: income.locationAccuracy ?? null,
+      paymentMethod: income.paymentMethod || '',
+      details: income.details || '',
+    });
+    setError('');
+    setOpen(true);
+  };
+
   const onSubmit = async (e) => {
     e.preventDefault(); setError('');
     const amount = Number(form.amount);
@@ -346,10 +379,14 @@ export default function IncomePage() {
         locationLabel: form.locationLabel, latitude: form.latitude, longitude: form.longitude,
         locationAccuracy: form.locationAccuracy, paymentMethod: form.paymentMethod, details: form.details,
       };
-      await createIncome(user.uid, payload);
+      if (form.id) {
+        await updateIncome(user.uid, form.id, payload);
+      } else {
+        await createIncome(user.uid, payload);
+        setShowCotisationReminder(true);
+      }
       setOpen(false);
       setForm(emptyIncomeForm());
-      setShowCotisationReminder(true);
     } catch (err) { setError(err.message || 'Impossible d’enregistrer ce revenu.'); } finally { setSaving(false); }
   };
 
@@ -653,13 +690,16 @@ export default function IncomePage() {
               </div>
               {selectedIncome.latitude != null && selectedIncome.longitude != null && <a href={'https://www.google.com/maps?q=' + selectedIncome.latitude + ',' + selectedIncome.longitude} target="_blank" rel="noreferrer" className="block rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-brand-800 hover:bg-brand-50">Voir la position sur la carte</a>}
               <AssistantShortcut label="Analyser ce revenu avec Mč" prompt={`Analyse ce revenu enregistré dans Pata : source ${selectedIncome.source || 'non précisée'}, montant ${selectedIncome.amount} FCFA, date ${selectedIncome.date || 'non précisée'}, catégorie ${selectedIncome.categoryId || 'non précisée'}. Explique son importance dans mon équilibre financier et propose des conseils concrets. Ne modifie aucune donnée.`}/>
-              <Button type="button" variant="outline" className="w-full border-red-200 text-red-700 hover:bg-red-50" onClick={() => { setDeleteId(selectedIncome.id); setSelectedIncome(null); }}><Trash2 size={14}/> Supprimer ce revenu</Button>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" className="flex-1" onClick={() => openEditIncome(selectedIncome)}><Pencil size={14}/> Modifier</Button>
+                <Button type="button" variant="outline" className="flex-1 border-red-200 text-red-700 hover:bg-red-50" onClick={() => { setDeleteId(selectedIncome.id); setSelectedIncome(null); }}><Trash2 size={14}/> Supprimer</Button>
+              </div>
             </div>
           );
         })()}
       </Modal>
 
-      <Modal open={open} onClose={() => setOpen(false)} title="Nouveau revenu">
+      <Modal open={open} onClose={() => setOpen(false)} title={form.id ? "Modifier le revenu" : "Nouveau revenu"}>
         <form onSubmit={onSubmit} className="space-y-3">
           <Input label="Montant (FCFA)" type="number" min="0" step="1" required value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
           <div>
