@@ -34,6 +34,13 @@ for (const file of [
   fs.copyFileSync(path.join(javaSource, file), path.join(javaTarget, file));
 }
 
+const iconResourceDir = path.join(root, 'android/app/src/main/res/drawable');
+const largeIconDir = path.join(root, 'android/app/src/main/res/drawable-nodpi');
+fs.mkdirSync(iconResourceDir, { recursive: true });
+fs.mkdirSync(largeIconDir, { recursive: true });
+fs.copyFileSync(path.join(root, 'native/android/res/drawable/ic_stat_pata.xml'), path.join(iconResourceDir, 'ic_stat_pata.xml'));
+fs.copyFileSync(path.join(root, 'public/android-chrome-192x192.png'), path.join(largeIconDir, 'pata_notification_large.png'));
+
 const manifestPath = path.join(root, 'android/app/src/main/AndroidManifest.xml');
 let manifest = fs.readFileSync(manifestPath, 'utf8');
 const permissions = [
@@ -75,8 +82,8 @@ if (fs.existsSync(gradlePath)) {
     if (depth !== 0) throw new Error('Bloc dependencies Gradle mal formé.');
     gradle = gradle.slice(0, close - 1) + '\n' + dependency + '\n' + gradle.slice(close - 1);
   }
-  gradle = gradle.replace(/versionCode\s+\d+/, 'versionCode 4');
-  gradle = gradle.replace(/versionName\s+["'][^"']+["']/, 'versionName "1.0.3"');
+  gradle = gradle.replace(/versionCode\s+\d+/, 'versionCode 5');
+  gradle = gradle.replace(/versionName\s+["'][^"']+["']/, 'versionName "1.0.4"');
   fs.writeFileSync(gradlePath, gradle);
 }
-console.log('Pata Android 1.0.3 : icône officielle, file SMS protégée, retraits à confirmer, diagnostic et synchronisation WorkManager configurés.');
+console.log('Pata Android 1.0.4 : icône Pata pour les notifications système, Web Push, SMS et synchronisation WorkManager configurés.');

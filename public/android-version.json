@@ -1,7 +1,7 @@
 {
-  "version": "1.0.3",
-  "versionCode": 4,
+  "version": "1.0.4",
+  "versionCode": 5,
   "downloadAvailable": true,
   "apkUrl": "https://github.com/exaucenapopolo/Pata/releases/latest/download/Pata-Android.apk",
-  "releaseNotes": "Diagnostic SMS complet, rattachement automatique de l'appareil, file hors ligne protégée, retraits à confirmer et synchronisation Mobile Money renforcée."
+  "releaseNotes": "Icône Pata pour les notifications Android, Web Push multi-navigateurs, diffusion administrateur en notification système, e-mails Mobile Money plus détaillés et bouton Retour sur la page de téléchargement."
 }

@@ -359,9 +359,31 @@ async function handleAutomaticDeviceImport(body) {
       budgetWarnings, lastError: FieldValue.delete(),
     }, { merge: true });
 
+    const notificationCategoryId = parsed.direction === 'income' ? 'other_income' : inferExpenseCategory(counterparty, parsed.eventType);
+    const notificationCategoryLabels = {
+      other_income: 'Autres revenus',
+      internet: 'Internet et téléphone',
+      transport: 'Transport',
+      food: 'Alimentation',
+      health: 'Santé',
+      housing: 'Logement et factures',
+      contribution: 'Cotisation',
+      other: 'Autres dépenses',
+    };
     const notificationResult = await notifyAutomaticSmsTransaction(uid, claim.profile, {
-      transactionHash: hash, direction: parsed.direction === 'income' ? 'income' : 'expense',
-      amount: parsed.amount, provider: parsed.provider, providerName, operationId, target, budgetWarnings,
+      transactionHash: hash,
+      direction: parsed.direction === 'income' ? 'income' : 'expense',
+      amount: parsed.amount,
+      provider: parsed.provider,
+      providerName,
+      date: parsed.date,
+      time: parsed.time,
+      counterparty,
+      categoryId: notificationCategoryId,
+      categoryLabel: notificationCategoryLabels[notificationCategoryId] || 'Autres dépenses',
+      operationId,
+      target,
+      budgetWarnings,
     });
     await importRef.set({
       notificationStatus: notificationResult,

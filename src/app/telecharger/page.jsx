@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { ArrowLeft } from 'lucide-react';
 import { AndroidDownloadCard } from '@/components/AndroidDownloadCard';
 
 export const metadata = {
@@ -10,16 +11,21 @@ export default function TelechargerPage() {
   return (
     <main className="min-h-[100dvh] bg-[#f5f8f6] px-4 py-10 text-slate-900 sm:py-16">
       <div className="mx-auto max-w-2xl">
-        <Link href="/" className="inline-flex items-center gap-2 text-sm font-bold text-[#075b43]">
-          <img src="/android-chrome-192x192.png" alt="" className="h-9 w-9 rounded-xl"/> Pata
-        </Link>
+        <div className="flex items-center justify-between gap-3">
+          <Link href="/" className="inline-flex items-center gap-2 text-sm font-bold text-[#075b43]">
+            <img src="/android-chrome-192x192.png" alt="" className="h-9 w-9 rounded-xl"/> Pata
+          </Link>
+          <Link href="/" className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50">
+            <ArrowLeft size={15}/> Retour
+          </Link>
+        </div>
         <section className="mt-8 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-9">
           <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#075b43]">Application Android</p>
           <h1 className="mt-2 text-3xl font-bold tracking-tight">Pata sur ton téléphone</h1>
-          <p className="mt-3 text-sm leading-6 text-slate-600">L’application Android conserve les fonctionnalités de Pata et détecte localement les confirmations Mobile Money. Les opérations reconnues sont synchronisées et enregistrées automatiquement ; les retraits d’espèces restent en attente de ton accord. Si Android refuse l’accès SMS, tu peux partager les confirmations manuellement.</p>
+          <p className="mt-3 text-sm leading-6 text-slate-600">L’application Android conserve les fonctionnalités de Pata et détecte localement les confirmations Mobile Money. Les opérations reconnues sont synchronisées automatiquement ; les retraits restent en attente de ton accord. Les notifications affichent l’identité de Pata.</p>
           <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4">
             <h2 className="text-sm font-bold text-amber-950">Téléchargement de la version Android</h2>
-            <p className="mt-2 text-sm leading-6 text-amber-900">La disponibilité est vérifiée automatiquement. Une version signée sera proposée ici dès sa publication.</p>
+            <p className="mt-2 text-sm leading-6 text-amber-900">La disponibilité de la dernière version signée est vérifiée automatiquement.</p>
             <AndroidDownloadCard />
           </div>
           <div className="mt-7 space-y-4">

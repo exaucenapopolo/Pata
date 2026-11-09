@@ -1,4 +1,4 @@
-/* Le gestionnaire de clic doit être enregistré avant Firebase Messaging afin qu’il reste prioritaire. */
+/* Le gestionnaire de clic doit être enregistré avant Firebase Messaging pour rester prioritaire. */
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const rawTarget = event.notification.data?.url || '/dashboard';
@@ -15,6 +15,21 @@ self.addEventListener('notificationclick', (event) => {
     }
     await clients.openWindow(target);
   })());
+});
+
+self.addEventListener('push', (event) => {
+  if (!event.data) return;
+  let payload;
+  try { payload = event.data.json(); } catch { return; }
+  if (payload?.source !== 'pata-webpush') return;
+  event.waitUntil(self.registration.showNotification(payload.title || 'Pata', {
+    body: payload.body || 'Ouvre Pata pour consulter cette information.',
+    icon: payload.icon || '/android-chrome-192x192.png',
+    badge: payload.badge || '/android-chrome-192x192.png',
+    tag: payload.tag || 'pata-notification',
+    renotify: false,
+    data: { url: payload.url || '/dashboard' },
+  }));
 });
 
 importScripts('https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js');
@@ -34,16 +49,14 @@ if (firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.messagin
   firebase.initializeApp(firebaseConfig);
   const messaging = firebase.messaging();
   messaging.onBackgroundMessage((payload) => {
-    const title = payload.data?.title || payload.notification?.title || 'Pata';
-    const options = {
-      body: payload.data?.body || payload.notification?.body || 'Ouvre Pata pour consulter ton suivi financier.',
+    if (payload.notification) return;
+    return self.registration.showNotification(payload.data?.title || 'Pata', {
+      body: payload.data?.body || 'Ouvre Pata pour consulter ton suivi financier.',
       icon: '/android-chrome-192x192.png',
       badge: '/android-chrome-192x192.png',
       data: { url: payload.data?.url || '/dashboard' },
       tag: payload.data?.tag || 'pata-notification',
       renotify: false,
-    };
-    // Les messages envoyés par le serveur sont data-only : un seul affichage natif est créé ici.
-    return self.registration.showNotification(title, options);
+    });
   });
 }

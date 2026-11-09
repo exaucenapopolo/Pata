@@ -205,7 +205,10 @@ public class PataSmsReceiver extends BroadcastReceiver {
             PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0));
         Notification.Builder builder = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(context, CHANNEL) : new Notification.Builder(context);
         manager.notify((int) (System.currentTimeMillis() & 0x7fffffff),
-            builder.setSmallIcon(android.R.drawable.stat_notify_chat).setContentTitle(title)
+            builder.setSmallIcon(R.drawable.ic_stat_pata)
+                .setLargeIcon(android.graphics.BitmapFactory.decodeResource(context.getResources(), R.drawable.pata_notification_large))
+                .setColor(0xff075b43)
+                .setContentTitle(title)
                 .setContentText(body).setAutoCancel(true).setContentIntent(pending).build());
     }
 

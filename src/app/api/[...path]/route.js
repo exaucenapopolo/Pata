@@ -3,6 +3,7 @@ import { createHash, createHmac, timingSafeEqual, randomBytes, randomInt, scrypt
 import { adminAuth, adminDb, adminMessaging } from '@/lib/firebase/admin';
 import { FieldValue, FieldPath, AggregateField } from 'firebase-admin/firestore';
 import { completeWithGroq } from '@/lib/ai/groqClient';
+import { normalizeWebPushSubscription, webPushSubscriptionId, sendPataWebPush, isExpiredWebPushError } from '@/lib/notifications/webPush';
 import { AI_TOOLS, createExpenseForUser, updateExpenseForUser, deleteExpenseForUser, executeAITool, runAutomationForUser, generateWeeklyReportForUser } from '@/lib/ai/financialTools';
 import { generateAudioWithGemini } from '@/lib/ai/geminiTTS';
 import { chatWithGroqVision } from '@/lib/ai/groqVision';
@@ -642,18 +643,50 @@ async function handleNotificationSubscription(request, remove = false) {
   try {
     const { uid } = await authenticate(request);
     const body = await request.json();
+    const userRef = adminDb.collection('users').doc(uid);
+
+    if (body.subscription) {
+      const subscription = normalizeWebPushSubscription(body.subscription);
+      const subscriptionId = webPushSubscriptionId(subscription.endpoint);
+      const subscriptionRef = userRef.collection('webPushSubscriptions').doc(subscriptionId);
+      if (remove) {
+        await subscriptionRef.delete().catch(() => {});
+      } else {
+        await subscriptionRef.set({
+          endpoint: subscription.endpoint,
+          expirationTime: subscription.expirationTime,
+          keys: subscription.keys,
+          updatedAt: FieldValue.serverTimestamp(),
+          createdAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+      }
+      const [freshUser, countSnapshot] = await Promise.all([
+        userRef.get(),
+        userRef.collection('webPushSubscriptions').count().get(),
+      ]);
+      const tokens = Array.isArray(freshUser.data()?.pushTokens)
+        ? freshUser.data().pushTokens.filter((token) => typeof token === 'string' && token.length > 20)
+        : [];
+      const webPushDeviceCount = Number(countSnapshot.data()?.count) || 0;
+      await userRef.set({
+        webPushDeviceCount,
+        notificationsEnabled: webPushDeviceCount + tokens.length > 0,
+        notificationsUpdatedAt: FieldValue.serverTimestamp(),
+        ...(remove
+          ? { lastWebPushRemovedAt: FieldValue.serverTimestamp() }
+          : { lastWebPushTokenSyncedAt: FieldValue.serverTimestamp(), lastPushErrorCode: FieldValue.delete() }),
+      }, { merge: true });
+      return NextResponse.json({ success: true, channel: 'webpush', deviceCount: webPushDeviceCount + tokens.length });
+    }
+
     const token = String(body.token || '').trim();
     if (token.length < 40 || token.length > 4096) return errorResponse('Jeton de notification invalide.', 400);
-    const userRef = adminDb.collection('users').doc(uid);
     if (remove) {
       await userRef.set({
         pushTokens: FieldValue.arrayRemove(token),
         notificationsUpdatedAt: FieldValue.serverTimestamp(),
         lastPushTokenRemovedAt: FieldValue.serverTimestamp(),
       }, { merge: true });
-      const fresh = await userRef.get();
-      const remaining = Array.isArray(fresh.data()?.pushTokens) ? fresh.data().pushTokens : [];
-      await userRef.set({ notificationsEnabled: remaining.length > 0 }, { merge: true });
     } else {
       await userRef.set({
         pushTokens: FieldValue.arrayUnion(token),
@@ -663,7 +696,11 @@ async function handleNotificationSubscription(request, remove = false) {
         lastPushErrorCode: FieldValue.delete(),
       }, { merge: true });
     }
-    return NextResponse.json({ success: true });
+    const fresh = await userRef.get();
+    const tokens = Array.isArray(fresh.data()?.pushTokens) ? fresh.data().pushTokens : [];
+    const webPushDeviceCount = Number(fresh.data()?.webPushDeviceCount) || 0;
+    await userRef.set({ notificationsEnabled: tokens.length + webPushDeviceCount > 0 }, { merge: true });
+    return NextResponse.json({ success: true, channel: 'fcm' });
   } catch (error) {
     return errorResponse(error.message || 'Impossible d’enregistrer les notifications.', 400);
   }
@@ -1320,10 +1357,30 @@ async function handleNotificationTest(request) {
     const { uid } = await authenticate(request);
     uidForCleanup = uid;
     const body = await request.json();
+    const userRef = adminDb.collection('users').doc(uid);
+
+    if (body.subscription) {
+      const subscription = normalizeWebPushSubscription(body.subscription);
+      const subscriptionId = webPushSubscriptionId(subscription.endpoint);
+      const stored = await userRef.collection('webPushSubscriptions').doc(subscriptionId).get();
+      if (!stored.exists) return errorResponse('Cet appareil n’est plus inscrit. Réactive les notifications puis réessaie.', 404);
+      await sendPataWebPush(subscription, {
+        title: 'Pata — test réussi',
+        body: 'Les notifications système sont bien reliées à cet appareil.',
+        url: '/settings',
+        tag: 'pata-test-' + Date.now(),
+      });
+      await userRef.set({
+        lastPushAcceptedAt: FieldValue.serverTimestamp(),
+        lastPushErrorCode: FieldValue.delete(),
+        lastPushErrorAt: FieldValue.delete(),
+      }, { merge: true });
+      return NextResponse.json({ success: true, channel: 'webpush' });
+    }
+
     const token = String(body.token || '').trim();
     tokenForCleanup = token;
     if (token.length < 40 || token.length > 4096) return errorResponse('Appareil non reconnu.', 400);
-    const userRef = adminDb.collection('users').doc(uid);
     await userRef.set({
       pushTokens: FieldValue.arrayUnion(token),
       notificationsEnabled: true,
@@ -1334,8 +1391,26 @@ async function handleNotificationTest(request) {
     const appUrl = getPataAppUrl(request);
     const messageId = await adminMessaging.send({
       token,
+      notification: {
+        title: 'Pata — test réussi',
+        body: 'Les notifications sont bien reliées à cet appareil.',
+      },
       data: { title: 'Pata — test réussi', body: 'Les notifications sont bien reliées à cet appareil.', url: '/settings', tag },
-      webpush: { headers: { TTL: '300', Urgency: 'high' }, fcmOptions: { link: new URL('/settings', appUrl).toString() } },
+      android: {
+        priority: 'high',
+        notification: { channelId: 'pata_general', icon: 'ic_stat_pata', color: '#0b5c46' },
+      },
+      webpush: {
+        headers: { TTL: '300', Urgency: 'high' },
+        notification: {
+          title: 'Pata — test réussi',
+          body: 'Les notifications sont bien reliées à cet appareil.',
+          icon: appUrl + '/android-chrome-192x192.png',
+          badge: appUrl + '/android-chrome-192x192.png',
+          tag,
+        },
+        fcmOptions: { link: new URL('/settings', appUrl).toString() },
+      },
     });
     await userRef.set({
       lastPushAcceptedAt: FieldValue.serverTimestamp(),
@@ -1343,7 +1418,7 @@ async function handleNotificationTest(request) {
       lastPushErrorAt: FieldValue.delete(),
     }, { merge: true });
     console.info('[PATA PUSH TEST ACCEPTED]', { uid, messageId, tokenSuffix: token.slice(-8) });
-    return NextResponse.json({ success: true, messageId });
+    return NextResponse.json({ success: true, messageId, channel: 'fcm' });
   } catch (error) {
     const invalidToken = ['messaging/registration-token-not-registered', 'messaging/invalid-registration-token'].includes(error.code);
     if (uidForCleanup) {
@@ -1356,18 +1431,19 @@ async function handleNotificationTest(request) {
         }, { merge: true }).catch(() => {});
         const fresh = await userRef.get().catch(() => null);
         const remaining = Array.isArray(fresh?.data()?.pushTokens) ? fresh.data().pushTokens : [];
-        if (!remaining.length) await userRef.set({ notificationsEnabled: false }, { merge: true }).catch(() => {});
+        const webPushDeviceCount = Number(fresh?.data()?.webPushDeviceCount) || 0;
+        if (!remaining.length && !webPushDeviceCount) await userRef.set({ notificationsEnabled: false }, { merge: true }).catch(() => {});
       } else {
         await userRef.set({
-          lastPushErrorCode: String(error.code || 'messaging/unknown-error').slice(0, 120),
+          lastPushErrorCode: String(error.code || error.statusCode || 'messaging/unknown-error').slice(0, 120),
           lastPushErrorAt: FieldValue.serverTimestamp(),
         }, { merge: true }).catch(() => {});
       }
     }
     const message = invalidToken
-      ? 'Ce jeton est devenu obsolète et vient d’être supprimé. Dans les paramètres Pata, utilise « Réparer cet appareil » pour créer et enregistrer un nouveau jeton.'
-      : 'Le test de notification a échoué. Vérifie les autorisations et les paramètres de cet appareil.';
-    console.error('[PUSH TEST]:', error.code || error.message);
+      ? 'Ce jeton Firebase est devenu obsolète. Réinscris cet appareil depuis les paramètres Pata.'
+      : error.message || 'Le test de notification a échoué. Vérifie les autorisations et les paramètres de cet appareil.';
+    console.error('[PUSH TEST]:', error.code || error.statusCode || error.message);
     return errorResponse(message, 502);
   }
 }
@@ -1381,16 +1457,20 @@ async function handleNotificationStatus(request) {
     const tokens = Array.isArray(profile.pushTokens)
       ? [...new Set(profile.pushTokens.filter((token) => typeof token === 'string' && token.length > 20))]
       : [];
+    const webPushDeviceCount = Math.max(0, Number(profile.webPushDeviceCount) || 0);
     const asIso = (value) => value?.toDate ? value.toDate().toISOString() : value instanceof Date ? value.toISOString() : typeof value === 'string' ? value : null;
     return NextResponse.json({
       success: true,
-      enabled: profile.notificationsEnabled === true && tokens.length > 0,
-      deviceCount: tokens.length,
+      enabled: profile.notificationsEnabled === true && tokens.length + webPushDeviceCount > 0,
+      deviceCount: tokens.length + webPushDeviceCount,
+      fcmDeviceCount: tokens.length,
+      webPushDeviceCount,
       lastPushAcceptedAt: asIso(profile.lastPushAcceptedAt),
       lastPushTestAt: asIso(profile.lastPushTestAt),
       lastPushErrorAt: asIso(profile.lastPushErrorAt),
       lastPushErrorCode: String(profile.lastPushErrorCode || '').slice(0, 120) || null,
       lastPushTokenSyncedAt: asIso(profile.lastPushTokenSyncedAt),
+      lastWebPushTokenSyncedAt: asIso(profile.lastWebPushTokenSyncedAt),
     });
   } catch (error) {
     return errorResponse(error.message || 'Impossible de vérifier les notifications.', 401);
@@ -3817,9 +3897,12 @@ async function handleAdminNotificationRecipients(request) {
       recipients: docs.map((doc) => {
         const data = doc.data() || {};
         const tokens = Array.isArray(data.pushTokens) ? data.pushTokens.filter((token) => typeof token === 'string' && token.length > 20) : [];
+        const webPushDeviceCount = Math.max(0, Number(data.webPushDeviceCount) || 0);
+        const deviceCount = tokens.length + webPushDeviceCount;
         return {
           id: doc.id, displayName: data.displayName || 'Utilisateur', email: data.email || '', phone: data.phone || '',
-          notificationsEnabled: Boolean(data.notificationsEnabled && tokens.length), deviceCount: tokens.length,
+          notificationsEnabled: Boolean(data.notificationsEnabled && deviceCount), deviceCount,
+          fcmDeviceCount: tokens.length, webPushDeviceCount,
           createdAt: serializeAdminValue(data.createdAt || null), lastSeenAt: serializeAdminValue(data.lastSeenAt || null),
         };
       }),
@@ -4039,31 +4122,70 @@ async function handleAdminBroadcast(request) {
     }
 
     const tokenOwners = new Map();
+    const webPushTargets = [];
     for (const userDoc of recipientDocs) {
       const data = userDoc.data() || {};
       if (!data.notificationsEnabled) continue;
-      const tokens = Array.isArray(data.pushTokens) ? data.pushTokens.filter((token) => typeof token === 'string' && token.length > 20) : [];
+      const tokens = Array.isArray(data.pushTokens)
+        ? data.pushTokens.filter((token) => typeof token === 'string' && token.length > 20)
+        : [];
       for (const token of tokens) {
         if (!tokenOwners.has(token)) tokenOwners.set(token, []);
         tokenOwners.get(token).push(userDoc.ref);
       }
+      if (Number(data.webPushDeviceCount) > 0) {
+        const subscriptions = await userDoc.ref.collection('webPushSubscriptions').get();
+        for (const subscriptionDoc of subscriptions.docs) {
+          const subscriptionData = subscriptionDoc.data() || {};
+          if (subscriptionData.endpoint && subscriptionData.keys?.p256dh && subscriptionData.keys?.auth) {
+            webPushTargets.push({
+              userRef: userDoc.ref,
+              subscriptionRef: subscriptionDoc.ref,
+              subscription: {
+                endpoint: subscriptionData.endpoint,
+                expirationTime: subscriptionData.expirationTime ?? null,
+                keys: subscriptionData.keys,
+              },
+            });
+          }
+        }
+      }
     }
+
     const optedTokens = [...tokenOwners.keys()];
     let pushSent = 0;
     let pushFailed = 0;
-    let pushMode = optedTokens.length ? 'direct-device-multicast' : 'in-app-only';
-    let pushError = '';
+    let webPushSent = 0;
+    let webPushFailed = 0;
     const failureDetails = [];
     const invalidTokens = [];
+    const invalidWebPush = [];
+    let pushError = '';
+    let webPushError = '';
+    const appUrl = getPataAppUrl(request);
+
     try {
       for (let offset = 0; offset < optedTokens.length; offset += 500) {
         const chunk = optedTokens.slice(offset, offset + 500);
         const result = await adminMessaging.sendEachForMulticast({
           tokens: chunk,
-          data: { title, body: message, url: path, tag },
+          notification: { title, body: message },
+          data: { title, body: message, url: path, tag, source: 'admin' },
+          android: {
+            priority: 'high',
+            notification: { channelId: 'pata_general', icon: 'ic_stat_pata', color: '#0b5c46' },
+          },
           webpush: {
             headers: { TTL: '86400', Urgency: 'high' },
-            fcmOptions: { link: new URL(path, getPataAppUrl(request)).toString() },
+            notification: {
+              title,
+              body: message,
+              icon: appUrl + '/android-chrome-192x192.png',
+              badge: appUrl + '/android-chrome-192x192.png',
+              tag,
+              renotify: false,
+            },
+            fcmOptions: { link: new URL(path, appUrl).toString() },
           },
         });
         pushSent += result.successCount;
@@ -4072,7 +4194,7 @@ async function handleAdminBroadcast(request) {
           if (response.success) return;
           const token = chunk[index];
           const code = response.error?.code || 'messaging/unknown-error';
-          failureDetails.push({ tokenSuffix: token.slice(-8), code });
+          failureDetails.push({ channel: 'fcm', tokenSuffix: token.slice(-8), code });
           if (['messaging/registration-token-not-registered', 'messaging/invalid-registration-token'].includes(code)) invalidTokens.push(token);
         });
       }
@@ -4088,29 +4210,71 @@ async function handleAdminBroadcast(request) {
             if (!snapshot.exists) return;
             const currentTokens = Array.isArray(snapshot.data()?.pushTokens) ? snapshot.data().pushTokens : [];
             const remainingTokens = currentTokens.filter((token) => !invalidSet.has(token));
+            const webPushDeviceCount = Number(snapshot.data()?.webPushDeviceCount) || 0;
             transaction.set(ref, {
               pushTokens: remainingTokens,
-              notificationsEnabled: remainingTokens.length > 0,
+              notificationsEnabled: remainingTokens.length + webPushDeviceCount > 0,
               notificationsUpdatedAt: FieldValue.serverTimestamp(),
             }, { merge: true });
           });
         }
       }
     } catch (error) {
-      pushError = error.message || 'Erreur du service de notifications push.';
-      console.error('[ADMIN BROADCAST PUSH]', error.code || error.message);
+      pushError = error.message || 'Erreur du service Firebase.';
+      console.error('[ADMIN BROADCAST FCM]', error.code || error.message);
     }
+
+    for (let offset = 0; offset < webPushTargets.length; offset += 40) {
+      const chunk = webPushTargets.slice(offset, offset + 40);
+      const results = await Promise.allSettled(chunk.map((target) => sendPataWebPush(target.subscription, {
+        title, body: message, url: path, tag,
+      })));
+      for (let index = 0; index < results.length; index += 1) {
+        const result = results[index];
+        if (result.status === 'fulfilled') {
+          webPushSent += 1;
+          continue;
+        }
+        webPushFailed += 1;
+        const error = result.reason;
+        failureDetails.push({
+          channel: 'webpush',
+          endpointSuffix: String(chunk[index].subscription.endpoint).slice(-18),
+          code: String(error?.statusCode || error?.code || error?.message || 'webpush/unknown-error').slice(0, 120),
+        });
+        if (isExpiredWebPushError(error)) invalidWebPush.push(chunk[index]);
+        else if (!webPushError) webPushError = error.message || 'Erreur du service Web Push.';
+      }
+    }
+
+    for (const target of invalidWebPush) {
+      await target.subscriptionRef.delete().catch(() => {});
+      const countSnapshot = await target.userRef.collection('webPushSubscriptions').count().get().catch(() => null);
+      const webPushDeviceCount = Number(countSnapshot?.data()?.count) || 0;
+      const userSnapshot = await target.userRef.get().catch(() => null);
+      const tokens = Array.isArray(userSnapshot?.data()?.pushTokens) ? userSnapshot.data().pushTokens : [];
+      await target.userRef.set({
+        webPushDeviceCount,
+        notificationsEnabled: webPushDeviceCount + tokens.length > 0,
+        notificationsUpdatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true }).catch(() => {});
+    }
+
+    const totalPushSent = pushSent + webPushSent;
+    const totalPushFailed = pushFailed + webPushFailed;
+    const optedInDevices = optedTokens.length + webPushTargets.length;
     return NextResponse.json({
       success: true, notificationId, recipientMode, inAppDelivered,
-      optedInDevices: optedTokens.length, pushSent, pushFailed, pushMode,
+      optedInDevices, pushSent: totalPushSent, fcmPushSent: pushSent, webPushSent,
+      pushFailed: totalPushFailed, fcmPushFailed: pushFailed, webPushFailed,
+      pushMode: optedInDevices ? 'fcm-and-webpush' : 'in-app-only',
       invalidTokensRemoved: invalidTokens.length,
-      pushError: pushError || null,
+      invalidWebPushSubscriptionsRemoved: invalidWebPush.length,
+      pushError: pushError || webPushError || null,
       pushFailureDetails: failureDetails.slice(0, 25),
-      message: pushError
-        ? `Notification enregistrée dans Pata pour ${inAppDelivered} compte(s), mais le service push a signalé une erreur : ${pushError}`
-        : optedTokens.length
-          ? `Notification enregistrée dans la boîte Pata de ${inAppDelivered} compte(s). FCM a accepté l’envoi vers ${pushSent} appareil(s) sur ${optedTokens.length}. ${invalidTokens.length} ancien(s) jeton(s) ont été supprimés ; les appareils concernés doivent réactiver les notifications. Autres erreurs push : ${Math.max(0, pushFailed - invalidTokens.length)}.`
-          : `Notification enregistrée dans Pata pour ${inAppDelivered} compte(s). Aucun appareil n’a activé les notifications push.`,
+      message: optedInDevices
+        ? 'Notification enregistrée dans Pata pour ' + inAppDelivered + ' compte(s). Envois acceptés : ' + totalPushSent + '/' + optedInDevices + ' appareil(s) (Firebase : ' + pushSent + ', Web Push : ' + webPushSent + '). Échecs : ' + totalPushFailed + '.'
+        : 'Notification enregistrée dans Pata pour ' + inAppDelivered + ' compte(s). Aucun appareil n’a encore activé les notifications système.',
     });
   } catch (error) {
     console.error('[ADMIN BROADCAST]', error.code || error.message);

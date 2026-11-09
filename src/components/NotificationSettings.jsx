@@ -1,138 +1,211 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Bell, BellOff, Loader2 } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Bell, BellOff, Loader2, RefreshCw, Smartphone } from 'lucide-react';
 import { deleteToken, getMessaging, getToken, isSupported } from 'firebase/messaging';
 import app from '@/lib/firebase/client';
 import { useAuth } from '@/hooks/useAuth';
-import { useProfile } from '@/hooks/useProfile';
 import { Button } from '@/components/ui/Button';
 
-export async function getDeviceMessagingToken(vapidKey) {
-  const config = {
-    apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || '',
-    authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || '',
-    projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || '',
-    storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || '',
-    messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || '',
-    appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || '',
-  };
-  const params = new URLSearchParams(config);
-  const workerUrl = `/firebase-messaging-sw.js?${params.toString()}`;
-  let registration = await navigator.serviceWorker.getRegistration('/firebase-messaging/');
-  if (!registration) {
-    registration = await navigator.serviceWorker.register(workerUrl, { scope: '/firebase-messaging/', updateViaCache: 'none' });
-  } else {
-    await registration.update().catch(() => {});
+function isIOSDevice() {
+  return /iPhone|iPad|iPod/i.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+function isStandaloneWebApp() {
+  return window.matchMedia?.('(display-mode: standalone)').matches
+    || window.navigator.standalone === true;
+}
+
+function getPushSupportMessage() {
+  if (typeof window === 'undefined') return '';
+  if (isIOSDevice() && !isStandaloneWebApp()) {
+    return 'Sur iPhone et iPad, ajoute d’abord Pata à l’écran d’accueil. Les notifications Web Push sont disponibles dans la web app installée sous iOS/iPadOS 16.4 ou ultérieur, pas dans un onglet Safari classique.';
   }
-  if (!registration.active) {
-    const worker = registration.installing || registration.waiting;
-    if (worker) {
-      await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('La préparation des notifications a pris trop de temps. Réessaie.')), 12000);
-        const finish = () => {
-          if (worker.state === 'activated') { clearTimeout(timeout); resolve(); }
-          if (worker.state === 'redundant') { clearTimeout(timeout); reject(new Error('Impossible de préparer les notifications sur cet appareil.')); }
-        };
-        worker.addEventListener('statechange', finish);
-        finish();
-      });
+  if (!('Notification' in window)) return 'Ce navigateur ne fournit pas l’API Notifications.';
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    return 'Ce navigateur ne prend pas en charge les Service Workers et Push API nécessaires aux notifications en arrière-plan.';
+  }
+  if (!process.env.NEXT_PUBLIC_WEB_PUSH_VAPID_KEY) return 'La clé publique Web Push de Pata n’est pas disponible.';
+  return '';
+}
+
+function urlBase64ToUint8Array(value) {
+  const padding = '='.repeat((4 - value.length % 4) % 4);
+  const base64 = (value + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = window.atob(base64);
+  return Uint8Array.from(raw, (character) => character.charCodeAt(0));
+}
+
+async function ensurePataServiceWorker() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    throw new Error(getPushSupportMessage() || 'Les notifications en arrière-plan ne sont pas prises en charge.');
+  }
+  // Pata utilise déjà /sw.js pour le cache hors ligne : on le conserve et on y ajoute Push.
+  let registration = await navigator.serviceWorker.getRegistration('/');
+  const scriptUrl = registration?.active?.scriptURL
+    || registration?.installing?.scriptURL
+    || registration?.waiting?.scriptURL
+    || '';
+  if (!registration || !new URL(scriptUrl || location.href).pathname.endsWith('/sw.js')) {
+    registration = await navigator.serviceWorker.register('/sw.js', { scope: '/', updateViaCache: 'none' });
+  }
+  await registration.update().catch(() => {});
+  await navigator.serviceWorker.ready;
+  const activeRegistration = await navigator.serviceWorker.getRegistration('/');
+  if (!activeRegistration?.active) throw new Error('Le Service Worker Pata ne s’est pas activé. Recharge la page puis réessaie.');
+  return activeRegistration;
+}
+
+async function postSubscription(path, user, subscription) {
+  const idToken = await user.getIdToken();
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + idToken },
+    body: JSON.stringify({ subscription: subscription.toJSON() }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.success) throw new Error(result.error || 'Le serveur Pata n’a pas pu enregistrer cet appareil.');
+  return result;
+}
+
+async function removeLegacyFcmRegistration(user) {
+  try {
+    if (!(await isSupported())) return;
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    const legacyRegistration = registrations.find((item) => new URL(item.scope).pathname === '/firebase-messaging/');
+    if (!legacyRegistration) return;
+    const vapidKey = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY;
+    if (vapidKey) {
+      const messaging = getMessaging(app);
+      const token = await getToken(messaging, { vapidKey, serviceWorkerRegistration: legacyRegistration }).catch(() => '');
+      if (token) {
+        const idToken = await user.getIdToken();
+        await fetch('/api/notifications/unsubscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + idToken },
+          body: JSON.stringify({ token }),
+        }).catch(() => {});
+      }
+      await deleteToken(messaging).catch(() => false);
     }
+    await legacyRegistration.unregister().catch(() => false);
+  } catch (error) {
+    console.warn('[PATA LEGACY FCM CLEANUP]', error?.message || error);
   }
-  if (!registration.active) throw new Error('Le service de notifications ne démarre pas sur cet appareil. Recharge la page puis réessaie.');
-  const messaging = getMessaging(app);
-  return getToken(messaging, { vapidKey, serviceWorkerRegistration: registration });
 }
 
 export function NotificationSettings() {
   const { user } = useAuth();
-  const { profile } = useProfile();
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState('');
-  const [enabled, setEnabled] = useState(false);
-  const [deviceToken, setDeviceToken] = useState('');
   const [testing, setTesting] = useState(false);
+  const [enabled, setEnabled] = useState(false);
+  const [message, setMessage] = useState('');
   const [serverStatus, setServerStatus] = useState(null);
+  const [browserSupport, setBrowserSupport] = useState('');
+
+  const refreshStatus = useCallback(async () => {
+    if (!user) {
+      setEnabled(false);
+      setServerStatus(null);
+      return;
+    }
+    const idToken = await user.getIdToken();
+    const response = await fetch('/api/notifications/status', {
+      headers: { Authorization: 'Bearer ' + idToken },
+      cache: 'no-store',
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de vérifier les notifications.');
+    setServerStatus(result);
+
+    if (typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted') {
+      setEnabled(false);
+      return;
+    }
+    const disabled = localStorage.getItem('pata-webpush-disabled:' + user.uid) === '1';
+    if (disabled || getPushSupportMessage()) {
+      setEnabled(false);
+      return;
+    }
+    const registration = await ensurePataServiceWorker();
+    const subscription = await registration.pushManager.getSubscription();
+    if (subscription) {
+      await postSubscription('/api/notifications/subscribe', user, subscription);
+      setEnabled(true);
+    } else {
+      setEnabled(false);
+    }
+  }, [user]);
 
   useEffect(() => {
+    const reason = getPushSupportMessage();
+    setBrowserSupport(reason);
+    if (!reason && 'serviceWorker' in navigator && 'PushManager' in window) {
+      ensurePataServiceWorker().catch((error) => console.warn('[PATA PUSH WORKER]', error?.message || error));
+    }
+    refreshStatus().catch((error) => setMessage(error.message || 'Impossible de vérifier les notifications.'));
+  }, [refreshStatus]);
+
+  // Les anciens jetons FCM restent pris en charge pendant que les utilisateurs migrent vers Web Push.
+  useEffect(() => {
+    let unsubscribe = null;
     let active = true;
-    const syncCurrentDevice = async () => {
-      if (!user) {
-        if (active) { setEnabled(false); setDeviceToken(''); setServerStatus(null); }
-        return;
-      }
+    (async () => {
       try {
-        const idToken = await user.getIdToken();
-        const statusResponse = await fetch('/api/notifications/status', {
-          headers: { Authorization: 'Bearer ' + idToken },
-          cache: 'no-store',
+        if (!user || !(await isSupported()) || !('Notification' in window) || Notification.permission !== 'granted') return;
+        const messaging = getMessaging(app);
+        const { onMessage } = await import('firebase/messaging');
+        unsubscribe = onMessage(messaging, async (payload) => {
+          if (!active || !payload) return;
+          const data = payload.data || {};
+          const notice = payload.notification || {};
+          const registration = await navigator.serviceWorker.getRegistration('/');
+          if (!registration) return;
+          await registration.showNotification(data.title || notice.title || 'Pata', {
+            body: data.body || notice.body || 'Ouvre Pata pour consulter cette information.',
+            icon: '/android-chrome-192x192.png',
+            badge: '/android-chrome-192x192.png',
+            tag: data.tag || 'pata-foreground',
+            data: { url: data.url || '/dashboard' },
+          });
         });
-        const statusData = await statusResponse.json().catch(() => ({}));
-        if (active && statusResponse.ok && statusData.success) setServerStatus(statusData);
-      } catch { /* diagnostic optionnel */ }
-      if (typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted') {
-        if (active) { setEnabled(false); setDeviceToken(''); }
-        return;
+      } catch (error) {
+        console.warn('[PATA FOREGROUND PUSH]', error?.message || error);
       }
-      try {
-        if (localStorage.getItem(`pata-push-disabled:${user.uid}`) === '1') {
-          if (active) { setEnabled(false); setDeviceToken(''); }
-          return;
-        }
-      } catch { /* stockage local indisponible */ }
-      const vapidKey = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY;
-      if (!vapidKey || !(await isSupported())) {
-        if (active) setEnabled(false);
-        return;
-      }
-      try {
-        const token = await getDeviceMessagingToken(vapidKey);
-        if (!active) return;
-        const savedTokens = Array.isArray(profile?.pushTokens) ? profile.pushTokens : [];
-        setDeviceToken(token || '');
-        const registeredOnThisDevice = Boolean(token && savedTokens.includes(token));
-        setEnabled(registeredOnThisDevice && Boolean(profile?.notificationsEnabled));
-        if (token && !registeredOnThisDevice && active) {
-          setMessage('Le jeton de cet appareil n’est pas enregistré dans Pata. Utilise « Réparer cet appareil » pour créer un nouveau jeton et le réinscrire.');
-        }
-      } catch {
-        if (active) setEnabled(false);
-      }
-    };
-    syncCurrentDevice();
-    return () => { active = false; };
-  }, [user, profile?.notificationsEnabled, profile?.pushTokens]);
+    })();
+    return () => { active = false; if (unsubscribe) unsubscribe(); };
+  }, [user]);
 
   const subscribe = async () => {
-    setMessage('');
     if (!user) return setMessage('Reconnecte-toi pour activer les notifications.');
-    if (typeof window === 'undefined' || !('Notification' in window) || !('serviceWorker' in navigator)) {
-      return setMessage('Ce navigateur ne prend pas en charge les notifications en arrière-plan.');
+    const reason = getPushSupportMessage();
+    if (reason) {
+      setBrowserSupport(reason);
+      setMessage(reason);
+      return;
     }
-    const vapidKey = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY;
-    if (!vapidKey) return setMessage('Les notifications ne sont pas encore disponibles sur Pata. Réessaie plus tard ou contacte le support.');
     setLoading(true);
+    setMessage('');
     try {
-      const supported = await isSupported();
-      if (!supported) throw new Error('Cet appareil ne prend pas en charge les notifications.');
       const permission = await Notification.requestPermission();
       if (permission !== 'granted') throw new Error('Autorisation refusée. Tu peux l’activer dans les paramètres du navigateur.');
-      const token = await getDeviceMessagingToken(vapidKey);
-      if (!token) throw new Error('Le navigateur n’a pas fourni de jeton de notification.');
-      const idToken = await user.getIdToken();
-      const response = await fetch('/api/notifications/subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ token }),
-      });
-      const result = await response.json();
-      if (!response.ok || !result.success) throw new Error(result.error || 'Impossible d’enregistrer cet appareil.');
-      try { localStorage.removeItem(`pata-push-disabled:${user.uid}`); } catch { /* stockage local indisponible */ }
+      const registration = await ensurePataServiceWorker();
+      let subscription = await registration.pushManager.getSubscription();
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_WEB_PUSH_VAPID_KEY),
+        });
+      }
+      await postSubscription('/api/notifications/subscribe', user, subscription);
+      await removeLegacyFcmRegistration(user);
+      localStorage.removeItem('pata-webpush-disabled:' + user.uid);
       setEnabled(true);
-      setDeviceToken(token);
-      setMessage('Les rappels sont activés sur cet appareil.');
+      setMessage('Les notifications système sont activées sur cet appareil. Pata peut maintenant t’alerter même lorsque le site est fermé, selon les règles du navigateur et du système.');
+      await refreshStatus();
     } catch (error) {
-      setMessage(error.message || 'Activation impossible.');
+      setMessage(error.message || 'Impossible d’activer les notifications.');
     } finally {
       setLoading(false);
     }
@@ -140,105 +213,58 @@ export function NotificationSettings() {
 
   const repairDevice = async () => {
     if (!user) return setMessage('Reconnecte-toi pour réparer les notifications.');
-    if (typeof window === 'undefined' || !('Notification' in window) || !('serviceWorker' in navigator)) {
-      return setMessage('Ce navigateur ne prend pas en charge les notifications en arrière-plan.');
-    }
     setLoading(true);
     setMessage('Réparation de la connexion aux notifications…');
     try {
-      const supported = await isSupported();
-      if (!supported) throw new Error('Cet appareil ne prend pas en charge les notifications.');
-      const permission = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
-      if (permission !== 'granted') throw new Error('Autorise les notifications dans les paramètres de ton navigateur.');
-      const vapidKey = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY;
-      if (!vapidKey) throw new Error('La clé VAPID manque dans la configuration de Pata.');
-      const messaging = getMessaging(app);
-      const previousToken = deviceToken || await getDeviceMessagingToken(vapidKey);
-      const idToken = await user.getIdToken();
-      if (previousToken) {
-        await fetch('/api/notifications/unsubscribe', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-          body: JSON.stringify({ token: previousToken }),
-        });
+      const registration = await ensurePataServiceWorker();
+      const previous = await registration.pushManager.getSubscription();
+      if (previous) {
+        await postSubscription('/api/notifications/unsubscribe', user, previous);
+        await previous.unsubscribe().catch(() => false);
       }
-      await deleteToken(messaging).catch(() => false);
-      const freshToken = await getDeviceMessagingToken(vapidKey);
-      if (!freshToken) throw new Error('Firebase n’a pas fourni de nouveau jeton. Recharge la page et réessaie.');
-      const response = await fetch('/api/notifications/subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ token: freshToken }),
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok || !result.success) throw new Error(result.error || 'Le nouveau jeton n’a pas pu être enregistré.');
-      try { localStorage.removeItem(`pata-push-disabled:${user.uid}`); } catch { /* stockage local indisponible */ }
-      setDeviceToken(freshToken);
-      setEnabled(true);
-      setMessage('Cet appareil est maintenant réinscrit. Tu peux envoyer un test pour vérifier la réception.');
-    } catch (error) {
-      setEnabled(false);
-      setMessage(error.message || 'Impossible de réparer les notifications sur cet appareil.');
-    } finally {
       setLoading(false);
+      await subscribe();
+    } catch (error) {
+      setLoading(false);
+      setEnabled(false);
+      setMessage(error.message || 'Impossible de réparer cet appareil.');
     }
   };
 
   const sendTest = async () => {
     if (!user) return setMessage('Connecte-toi pour tester les notifications.');
     setTesting(true);
-    setMessage('Envoi du test…');
+    setMessage('Envoi du test système…');
     try {
-      const vapidKey = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY;
-      if (!vapidKey || Notification.permission !== 'granted') throw new Error('Active d’abord les notifications sur cet appareil.');
-      const token = deviceToken || await getDeviceMessagingToken(vapidKey);
-      if (!token) throw new Error('Impossible de retrouver cet appareil. Désactive puis réactive les notifications.');
-      if (!deviceToken) setDeviceToken(token);
-      const idToken = await user.getIdToken();
-      const response = await fetch('/api/notifications/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ token }),
-      });
-      const result = await response.json();
-      if (!response.ok || !result.success) throw new Error(result.error || 'Le test n’a pas pu être envoyé.');
-      const statusToken = await user.getIdToken();
-      const statusResponse = await fetch('/api/notifications/status', {
-        headers: { Authorization: 'Bearer ' + statusToken },
-        cache: 'no-store',
-      });
-      const statusData = await statusResponse.json().catch(() => ({}));
-      if (statusResponse.ok && statusData.success) setServerStatus(statusData);
-      setMessage('Firebase a accepté le test. Vérifie l’écran du téléphone et les réglages du navigateur : l’acceptation par le serveur ne garantit pas à elle seule l’affichage sur l’appareil.');
+      const registration = await ensurePataServiceWorker();
+      const subscription = await registration.pushManager.getSubscription();
+      if (!subscription) throw new Error('Cet appareil n’est pas inscrit. Active d’abord les notifications.');
+      await postSubscription('/api/notifications/test', user, subscription);
+      setMessage('Le serveur a accepté le test Web Push. Vérifie le centre de notifications de ton appareil.');
+      await refreshStatus();
     } catch (error) {
-      setMessage(error.message || 'Le test a échoué.');
-    } finally { setTesting(false); }
+      setMessage(error.message || 'Le test de notification a échoué.');
+    } finally {
+      setTesting(false);
+    }
   };
 
   const unsubscribe = async () => {
+    if (!user) return;
     setLoading(true);
     setMessage('');
     try {
-      const supported = await isSupported();
-      if (supported && user) {
-        const vapidKey = process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY;
-        if (!vapidKey) throw new Error('Les notifications ne sont pas encore disponibles sur Pata. Réessaie plus tard ou contacte le support.');
-        const token = await getDeviceMessagingToken(vapidKey);
-        if (token) {
-          const idToken = await user.getIdToken();
-          const response = await fetch('/api/notifications/unsubscribe', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-            body: JSON.stringify({ token }),
-          });
-          const result = await response.json().catch(() => ({}));
-          if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de désactiver cet appareil.');
-        }
+      const registration = await ensurePataServiceWorker();
+      const subscription = await registration.pushManager.getSubscription();
+      if (subscription) {
+        await postSubscription('/api/notifications/unsubscribe', user, subscription);
+        await subscription.unsubscribe().catch(() => false);
       }
-      try { localStorage.setItem(`pata-push-disabled:${user?.uid || 'guest'}`, '1'); } catch { /* stockage local indisponible */ }
+      await removeLegacyFcmRegistration(user);
+      localStorage.setItem('pata-webpush-disabled:' + user.uid, '1');
       setEnabled(false);
-      setDeviceToken('');
-      setMessage('Les rappels sont désactivés sur cet appareil.');
+      setMessage('Les notifications sont désactivées sur cet appareil. Les autres appareils du compte ne sont pas modifiés.');
+      await refreshStatus();
     } catch (error) {
       setMessage(error.message || 'Désactivation impossible.');
     } finally {
@@ -246,39 +272,37 @@ export function NotificationSettings() {
     }
   };
 
+  const deviceCount = Number(serverStatus?.deviceCount || 0);
+  const webPushCount = Number(serverStatus?.webPushDeviceCount || 0);
+  const fcmCount = Number(serverStatus?.fcmDeviceCount || 0);
+
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <Button type="button" variant={enabled ? 'outline' : 'primary'} onClick={enabled ? unsubscribe : subscribe} disabled={loading}>
+        <Button type="button" variant={enabled ? 'outline' : 'primary'} onClick={enabled ? unsubscribe : subscribe} disabled={loading || Boolean(browserSupport)}>
           {loading ? <Loader2 size={15} className="animate-spin" /> : enabled ? <BellOff size={15} /> : <Bell size={15} />}
           {loading ? 'Traitement…' : enabled ? 'Désactiver sur cet appareil' : 'Activer les notifications'}
         </Button>
-        <span className={`text-xs font-medium ${enabled ? 'text-emerald-700' : 'text-slate-500'}`}>{enabled ? 'Activées sur cet appareil' : 'Non activées'}</span>
         {enabled && <Button type="button" variant="outline" onClick={sendTest} disabled={testing || loading}><Bell size={15}/>{testing ? 'Envoi…' : 'Tester'}</Button>}
-        <Button type="button" variant="outline" onClick={repairDevice} disabled={loading || testing}>
-          {loading ? <Loader2 size={15} className="animate-spin"/> : <Bell size={15}/>}
+        <Button type="button" variant="outline" onClick={repairDevice} disabled={loading || testing || Boolean(browserSupport)}>
+          {loading ? <Loader2 size={15} className="animate-spin"/> : <RefreshCw size={15}/>}
           Réparer cet appareil
         </Button>
       </div>
-      {message && <p role="status" className="text-xs text-slate-600">{message}</p>}
+      {browserSupport && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+        <p className="flex items-center gap-2 text-xs font-semibold text-amber-900"><Smartphone size={14}/> Notifications indisponibles dans ce contexte</p>
+        <p className="mt-1 text-xs leading-5 text-amber-800">{browserSupport}</p>
+      </div>}
+      {message && <p role="status" className="text-xs leading-5 text-slate-600">{message}</p>}
       {serverStatus && (
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
-          <p className="text-[11px] font-semibold text-slate-700">
-            {Number(serverStatus.deviceCount || 0)} appareil(aux) associé(s) à ton compte
-          </p>
-          {serverStatus.lastPushAcceptedAt && (
-            <p className="mt-1 text-[10px] leading-4 text-slate-500">
-              Dernier envoi accepté par Firebase : {new Date(serverStatus.lastPushAcceptedAt).toLocaleString('fr-FR')}
-            </p>
-          )}
-          {serverStatus.lastPushErrorCode && (
-            <p className="mt-1 break-words text-[10px] leading-4 text-amber-700">
-              Dernier problème signalé : {serverStatus.lastPushErrorCode}
-            </p>
-          )}
+          <p className="text-[11px] font-semibold text-slate-700">{deviceCount} appareil(aux) inscrit(s) à ton compte</p>
+          <p className="mt-1 text-[10px] leading-4 text-slate-500">{webPushCount} Web Push · {fcmCount} ancien(s) jeton(s) Firebase</p>
+          {serverStatus.lastPushAcceptedAt && <p className="mt-1 text-[10px] leading-4 text-slate-500">Dernier envoi accepté : {new Date(serverStatus.lastPushAcceptedAt).toLocaleString('fr-FR')}</p>}
+          {serverStatus.lastPushErrorCode && <p className="mt-1 break-words text-[10px] leading-4 text-amber-700">Dernier problème : {serverStatus.lastPushErrorCode}</p>}
         </div>
       )}
-      <p className="text-[11px] leading-5 text-slate-400">Les alertes système peuvent apparaître même lorsque Pata est fermé, selon les autorisations du navigateur et les réglages de l’appareil.</p>
+      <p className="text-[11px] leading-5 text-slate-400">Pata utilise Web Push pour les navigateurs compatibles. La livraison dépend de l’autorisation, de la connexion Internet, du système et des réglages d’économie d’énergie.</p>
     </div>
   );
 }
