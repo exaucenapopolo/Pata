@@ -1707,6 +1707,46 @@ async function handleCreateIncome(request) {
   }
 }
 
+async function handleUpdateIncome(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const incomeId = String(body.incomeId || body.id || '').trim().slice(0, 150);
+    if (!incomeId || incomeId.includes('/')) return errorResponse('Identifiant de revenu invalide.', 400);
+    const amount = Math.round(Number(body.amount));
+    const source = String(body.source || '').trim().slice(0, 100);
+    const categoryId = String(body.categoryId || 'other_income').trim().slice(0, 80);
+    const date = String(body.date || '');
+    const month = String(body.month || date.slice(0, 7));
+    const note = String(body.note || '').trim().slice(0, 250);
+    const allowedCategories = new Set(['salary', 'business', 'gift', 'other_income']);
+    if (!Number.isSafeInteger(amount) || amount <= 0) return errorResponse('Indique un montant de revenu valide.', 400);
+    if (!source) return errorResponse('Indique la source de ce revenu.', 400);
+    if (!allowedCategories.has(categoryId)) return errorResponse('Catégorie de revenu invalide.', 400);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{4}-\d{2}$/.test(month) || month !== date.slice(0, 7)) return errorResponse('La date du revenu est invalide.', 400);
+    const userRef = adminDb.collection('users').doc(uid);
+    const incomeRef = userRef.collection('incomes').doc(incomeId);
+    const optionalMetadata = readOptionalIncomeMetadata(body);
+    await adminDb.runTransaction(async (transaction) => {
+      const [userSnap, incomeSnap] = await Promise.all([transaction.get(userRef), transaction.get(incomeRef)]);
+      if (!userSnap.exists || !incomeSnap.exists) throw new Error('Revenu introuvable.');
+      const previous = incomeSnap.data() || {};
+      transaction.update(incomeRef, {
+        amount, source, categoryId, date, month, note,
+        ...readOptionalIncomeMetadata(body, previous),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      transaction.update(userRef, {
+        lifetimeIncomeAmount: FieldValue.increment(amount - (Number(previous.amount) || 0)),
+      });
+    });
+    return NextResponse.json({ success: true, id: incomeId });
+  } catch (error) {
+    const message = error.message || 'Impossible de modifier ce revenu.';
+    return errorResponse(message, /introuvable|invalide|source/i.test(message) ? 400 : 500);
+  }
+}
+
 
 async function handleUpsertBudget(request) {
   try {
@@ -5473,6 +5513,7 @@ const ROUTES = {
   'forecasts/duration/save': { POST: handleSaveDurationForecast },
   'forecasts/duration/delete': { POST: handleDeleteDurationForecast },
   'incomes/add': { POST: handleCreateIncome },
+  'incomes/update': { POST: handleUpdateIncome },
   'projects/create': { POST: handleCreateProject },
   'cotisations/invite': { GET: handleCotisationInvitePreview },
   'cotisations/scheduler': { GET: handleCotisationsScheduler, POST: handleCotisationsScheduler },
