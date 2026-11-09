@@ -242,13 +242,16 @@ export function SmsImportCoordinator() {
                     {categories.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}
                   </select>
                 </label>
-                {!incoming && <label className="mt-3 block text-xs font-semibold text-slate-700">
+                {!incoming && item.direction !== 'withdrawal' && <label className="mt-3 block text-xs font-semibold text-slate-700">
                   Source de revenus à débiter
                   <select value={choice.incomeSourceId || 'all'} onChange={(event) => updateChoice(item.id, { incomeSourceId: event.target.value })} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800">
                     <option value="all">Tous les revenus disponibles</option>
                     {incomes.map((income) => <option key={income.id} value={income.id}>{income.source} · {money.format(income.amount || 0)} FCFA</option>)}
                   </select>
                 </label>}
+                {item.direction === 'withdrawal' && <p className="mt-3 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">
+                  Si tu confirmes, Pata enregistrera cette sortie depuis le solde Mobile Money. Elle ne sera pas débitée d’un revenu déjà saisi dans l’application.
+                </p>}
                 {warnings[item.id] && <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900">Le budget sera dépassé. Confirme une seconde fois uniquement si tu souhaites enregistrer cette opération.</p>}
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Button size="sm" disabled={workingId === item.id || (item.direction === 'withdrawal' && choice.confirmWithdrawal !== true)} onClick={() => confirm(item)}>
