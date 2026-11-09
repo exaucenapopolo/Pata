@@ -159,6 +159,7 @@ export function SmsImportCoordinator() {
           categoryId: choice.categoryId || (isIncome ? 'other_income' : item.suggestedCategoryId || 'other'),
           expenseType: choice.expenseType || '',
           projectId: choice.projectId || '',
+          confirmWithdrawal: choice.confirmWithdrawal === true,
           confirmBudgetOverrun: warnings[item.id] === true,
         }),
       });

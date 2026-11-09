@@ -642,6 +642,7 @@ export async function POST(request) {
       const expenseType = String(body.expenseType || '').trim();
       const projectId = String(body.projectId || '').trim().slice(0, 150);
       const confirmBudgetOverrun = body.confirmBudgetOverrun === true;
+      const confirmWithdrawal = body.confirmWithdrawal === true;
       if (!['income', 'expense'].includes(operationType)) return responseError('Type d’opération invalide.', 400);
       if (!categoryId) return responseError('Choisis une catégorie avant de confirmer.', 400);
       if (operationType === 'expense' && !['consumption', 'project', 'savings', 'investment'].includes(expenseType)) {
@@ -671,6 +672,7 @@ export async function POST(request) {
         }
         if (item.direction === 'income' && operationType !== 'income') throw new Error('Cette transaction est une réception : elle doit être enregistrée comme revenu.');
         if (item.direction !== 'income' && operationType !== 'expense') throw new Error('Cette transaction est une sortie : elle doit être enregistrée comme dépense.');
+        if (item.eventType === 'withdrawal' && !confirmWithdrawal) throw new Error('Confirme explicitement que tu souhaites comptabiliser ce retrait comme une sortie.');
         transaction.update(ref, {
           status: 'PROCESSING',
           categoryId,
