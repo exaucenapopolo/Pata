@@ -144,6 +144,8 @@ async function notifyAutomaticSmsTransaction(uid, profile, transaction) {
     createdAt: FieldValue.serverTimestamp(),
   }, { merge: true });
 
+  let pushSent = 0;
+  let pushFailed = 0;
   const tokens = profile.notificationsEnabled === true && Array.isArray(profile.pushTokens)
     ? [...new Set(profile.pushTokens.filter((token) => typeof token === 'string' && token.length > 20))]
     : [];
@@ -155,7 +157,9 @@ async function notifyAutomaticSmsTransaction(uid, profile, transaction) {
         android: { priority: 'high' },
         webpush: { headers: { TTL: '86400' } },
       });
+      pushSent += 1;
     } catch (error) {
+      pushFailed += 1;
       console.warn('[PATA SMS PUSH]', uid, error.code || error.message);
       if (['messaging/registration-token-not-registered', 'messaging/invalid-registration-token'].includes(error.code)) {
         await adminDb.collection('users').doc(uid).update({
@@ -176,6 +180,9 @@ async function notifyAutomaticSmsTransaction(uid, profile, transaction) {
       console.warn('[PATA SMS EMAIL USER]', uid, error.message || error);
     }
   }
+
+  let emailSent = false;
+  let emailStatus = 'no_email';
   if (email.includes('@')) {
     const operationLabel = transaction.direction === 'income' ? 'Revenu reçu' : 'Dépense détectée';
     const safeAmount = escapeEmailHtml(amount);
@@ -198,10 +205,21 @@ async function notifyAutomaticSmsTransaction(uid, profile, transaction) {
         html,
         idempotencyKey: 'pata-sms-' + uid + '-' + transaction.transactionHash,
       });
+      emailSent = true;
+      emailStatus = 'sent';
     } catch (error) {
+      emailStatus = 'failed';
       console.warn('[PATA SMS EMAIL]', uid, error.message || error);
     }
   }
+
+  return {
+    inAppSent: true,
+    pushSent,
+    pushFailed,
+    emailSent,
+    emailStatus,
+  };
 }
 
 async function handleAutomaticDeviceImport(body) {
@@ -291,11 +309,18 @@ async function handleAutomaticDeviceImport(body) {
       budgetWarnings, lastError: FieldValue.delete(),
     }, { merge: true });
 
-    await notifyAutomaticSmsTransaction(uid, claim.profile, {
+    const notificationResult = await notifyAutomaticSmsTransaction(uid, claim.profile, {
       transactionHash: hash, direction: parsed.direction === 'income' ? 'income' : 'expense',
       amount: parsed.amount, provider: parsed.provider, providerName, operationId, target, budgetWarnings,
     });
-    return NextResponse.json({ success: true, duplicate: false, operationId, target, budgetWarnings });
+    await importRef.set({
+      notificationStatus: notificationResult,
+      notificationUpdatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    return NextResponse.json({
+      success: true, duplicate: false, operationId, target, budgetWarnings,
+      notifications: notificationResult,
+    });
   } catch (error) {
     await importRef.set({
       status: 'FAILED',
