@@ -267,3 +267,22 @@ export function referralJoinedEmail({ referrerName, invitedName }) {
     ctaUrl: '/settings',
   });
 }
+
+
+export function referralRewardActivatedEmail({ referrerName, invitedName }) {
+  const bodyHtml = `
+    <p style="margin:0 0 15px;color:#334155;font-size:14px;line-height:1.75;">Bonjour ${escapeEmailHtml(referrerName || '')}, l'abonné(e) que tu as invité(e), <strong>${escapeEmailHtml(invitedName || 'ton filleul')}</strong>, vient d'activer Pata Premium.</p>
+    <div style="margin:16px 0;padding:16px;border:1px solid #dcebe2;border-radius:12px;background:#f3faf6;">
+      <div style="color:#64748b;font-size:11px;font-weight:700;">BONUS CRÉDITÉ</div>
+      <div style="margin-top:5px;color:#123d2c;font-size:26px;font-weight:700;">+1 000 FCFA</div>
+      <p style="margin:8px 0 0;color:#475569;font-size:13px;line-height:1.7;">Le montant est disponible dans ton solde de parrainage, séparé de ton portefeuille. Tu peux le transférer vers ton portefeuille, une épargne ou une cotisation.</p>
+    </div>`;
+  return renderPataEmail({
+    preheader: 'Ton bonus de parrainage Pata a été crédité.',
+    eyebrow: 'BONUS DE PARRAINAGE',
+    headline: 'Ton filleul a activé Premium.',
+    bodyHtml,
+    ctaLabel: 'Gérer mon solde de parrainage',
+    ctaUrl: '/settings',
+  });
+}
