@@ -46,10 +46,10 @@ export default function RegisterPage() {
 
   // Redirige si une session est déjà ouverte
   useEffect(() => {
-    if (!authLoading && user) {
+    if (!authLoading && user && !loading && !googleLoading) {
       router.replace(getSafeReturnTo());
     }
-  }, [user, authLoading, router]);
+  }, [user, authLoading, loading, googleLoading, router]);
 
   if (authLoading) {
     return (
