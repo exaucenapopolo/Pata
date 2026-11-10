@@ -80,6 +80,434 @@ async function sendPataPushToUser(userRef,notification,appUrl,knownUserData=null
  return result;
 }
 
+
+function normalizeDebtSearchName(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('fr-FR').replace(/\s+/g, ' ').trim().slice(0, 100);
+}
+
+async function handleDebtUserSearch(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const url = new URL(request.url);
+    const rawQuery = String(url.searchParams.get('q') || '').trim();
+    const searchName = normalizeDebtSearchName(rawQuery);
+    if (searchName.length < 3) return NextResponse.json({ success: true, users: [] });
+    const snapshot = await adminDb.collection('userDirectory')
+      .orderBy('searchName')
+      .startAt(searchName)
+      .endAt(searchName + '\uf8ff')
+      .limit(8)
+      .get();
+    const users = snapshot.docs
+      .filter((document) => document.id !== uid)
+      .map((document) => {
+        const data = document.data() || {};
+        return { uid: document.id, displayName: String(data.displayName || '').trim().slice(0, 100) };
+      })
+      .filter((item) => item.displayName);
+    return NextResponse.json({ success: true, users });
+  } catch (error) {
+    return errorResponse(error.message || 'Recherche des comptes Pata indisponible.', 401);
+  }
+}
+
+async function createLinkedDebtRequest(request, requesterUid, sourceDebtId, targetUid, kind) {
+  const cleanTargetUid = String(targetUid || '').trim().slice(0, 150);
+  if (!cleanTargetUid || cleanTargetUid === requesterUid || cleanTargetUid.includes('/')
+    || !['borrowed', 'lent'].includes(kind)) return { status: 'not_linked' };
+  const users = adminDb.collection('users');
+  const requesterRef = users.doc(requesterUid);
+  const recipientRef = users.doc(cleanTargetUid);
+  const sourceDebtRef = requesterRef.collection('debts').doc(sourceDebtId);
+  const requestId = createHash('sha256').update(requesterUid + ':' + sourceDebtId).digest('hex').slice(0, 40);
+  const requestRef = recipientRef.collection('debtRequests').doc(requestId);
+  const result = await adminDb.runTransaction(async (transaction) => {
+    const [requesterSnap, recipientSnap, debtSnap, existingSnap] = await Promise.all([
+      transaction.get(requesterRef), transaction.get(recipientRef),
+      transaction.get(sourceDebtRef), transaction.get(requestRef),
+    ]);
+    if (!requesterSnap.exists || !recipientSnap.exists || !debtSnap.exists) return { status: 'account_unavailable' };
+    if (existingSnap.exists) return { status: String(existingSnap.data()?.status || 'pending'), requestId };
+    const requester = requesterSnap.data() || {};
+    const debt = debtSnap.data() || {};
+    if (debt.counterpartyUid && debt.counterpartyUid !== cleanTargetUid) return { status: 'already_linked' };
+    const month = getDoualaMonthKey();
+    const premium = isPremiumAccount(requester);
+    const currentCount = requester.linkedDebtRequestMonth === month
+      ? Math.max(0, Number(requester.linkedDebtRequestCount) || 0) : 0;
+    if (!premium && currentCount >= 2) return { status: 'quota_reached' };
+    const requesterName = String(requester.displayName || 'Un utilisateur Pata').trim().slice(0, 100);
+    const requestData = {
+      type: 'new_debt',
+      kind,
+      status: 'pending',
+      requesterUid,
+      requesterName,
+      sourceDebtId,
+      person: String(debt.person || '').slice(0, 100),
+      amount: Math.max(0, Number(debt.amount) || 0),
+      remaining: Math.max(0, Number(debt.remaining) || 0),
+      dueDate: String(debt.dueDate || ''),
+      date: getDoualaToday(),
+      createdAt: FieldValue.serverTimestamp(),
+    };
+    transaction.create(requestRef, requestData);
+    transaction.update(sourceDebtRef, {
+      counterpartyUid: cleanTargetUid,
+      counterpartyName: String((recipientSnap.data() || {}).displayName || '').slice(0, 100),
+      linkStatus: 'pending',
+      requestId,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    if (!premium) transaction.update(requesterRef, {
+      linkedDebtRequestMonth: month,
+      linkedDebtRequestCount: currentCount + 1,
+    });
+    return {
+      status: 'pending', requestId, recipientProfile: recipientSnap.data() || {},
+      requesterName, amount: requestData.amount, kind,
+    };
+  });
+
+  if (result.status === 'pending' && result.recipientProfile) {
+    const title = 'Nouvelle demande de dette';
+    const action = kind === 'borrowed' ? 'déclare avoir emprunté auprès de toi' : 'déclare t’avoir prêté';
+    const body = result.requesterName + ' ' + action + ' ' + Number(result.amount).toLocaleString('fr-FR') + ' FCFA. Ouvre Pata pour vérifier et répondre.';
+    try {
+      await recipientRef.collection('notifications').doc('debt-request-' + requestId).set({
+        title, body, target: '/debts', date: getDoualaToday(),
+        source: 'debt_request', read: false, readAt: null,
+        createdAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      await sendPataPushToUser(recipientRef, {
+        title, body, url: '/debts',
+        tag: 'pata-debt-request-' + requestId,
+        source: 'debt_request',
+      }, getPataAppUrl(request), result.recipientProfile);
+    } catch (notificationError) {
+      console.warn('[PATA DEBT REQUEST NOTIFICATION]', notificationError.message || notificationError);
+    }
+  }
+  return { status: result.status, requestId: result.requestId || null };
+}
+
+async function notifyDebtRequestRecipient(request, targetUid, requestId, title, body, source = 'debt_request') {
+  const targetRef = adminDb.collection('users').doc(String(targetUid || ''));
+  const notification = {
+    title, body, target: '/debts', date: getDoualaToday(),
+    source, read: false, readAt: null,
+    createdAt: FieldValue.serverTimestamp(),
+  };
+  await targetRef.collection('notifications').doc('debt-request-' + requestId).set(notification, { merge: true });
+  await sendPataPushToUser(targetRef, {
+    title, body, url: '/debts',
+    tag: 'pata-debt-request-' + requestId,
+    source,
+  }, getPataAppUrl(request));
+}
+
+async function handleDebtRequestsList(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const snapshot = await adminDb.collection('users').doc(uid).collection('debtRequests')
+      .where('status', '==', 'pending').limit(30).get();
+    const requests = snapshot.docs.map((document) => ({
+      id: document.id,
+      ...serializeAdminValue(document.data()),
+    }));
+    requests.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    return NextResponse.json({ success: true, requests });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de charger les demandes.', 401);
+  }
+}
+
+async function handleDebtRequestRespond(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const requestId = String(body.requestId || '').trim().slice(0, 150);
+    const decision = String(body.decision || '').trim();
+    if (!requestId || requestId.includes('/') || !['accept', 'reject'].includes(decision)) {
+      return errorResponse('Demande ou décision invalide.', 400);
+    }
+    const recipientRef = adminDb.collection('users').doc(uid);
+    const requestRef = recipientRef.collection('debtRequests').doc(requestId);
+    const result = await adminDb.runTransaction(async (transaction) => {
+      const requestSnap = await transaction.get(requestRef);
+      if (!requestSnap.exists) throw new Error('Cette demande n’existe plus.');
+      const requestData = requestSnap.data() || {};
+      if (requestData.status !== 'pending') throw new Error('Cette demande a déjà été traitée.');
+      const requesterUid = String(requestData.requesterUid || '');
+      if (!requesterUid || requesterUid === uid || requesterUid.includes('/')) throw new Error('Les informations de cette demande sont invalides.');
+      const requesterRef = adminDb.collection('users').doc(requesterUid);
+
+      if (requestData.type === 'repayment') {
+        const sourceDebtId = String(requestData.sourceDebtId || '');
+        const targetDebtId = String(requestData.targetDebtId || '');
+        const repaymentExpenseIds = Array.isArray(requestData.repaymentExpenseIds) && requestData.repaymentExpenseIds.length
+          ? requestData.repaymentExpenseIds.map((value) => String(value || ''))
+          : [String(requestData.repaymentExpenseId || '')];
+        if (!sourceDebtId || !targetDebtId || !repaymentExpenseIds.length
+          || sourceDebtId.includes('/') || targetDebtId.includes('/')
+          || repaymentExpenseIds.some((id) => !id || id.includes('/'))) {
+          throw new Error('Les informations du remboursement sont incomplètes.');
+        }
+        const sourceDebtRef = requesterRef.collection('debts').doc(sourceDebtId);
+        const targetDebtRef = recipientRef.collection('debts').doc(targetDebtId);
+        const expenseRefs = repaymentExpenseIds.map((id) => requesterRef.collection('expenses').doc(id));
+        const [recipientSnap, requesterSnap, sourceDebtSnap, targetDebtSnap, ...expenseSnaps] = await Promise.all([
+          transaction.get(recipientRef), transaction.get(requesterRef),
+          transaction.get(sourceDebtRef), transaction.get(targetDebtRef),
+          ...expenseRefs.map((ref) => transaction.get(ref)),
+        ]);
+        if (!recipientSnap.exists || !requesterSnap.exists || !sourceDebtSnap.exists || !targetDebtSnap.exists || expenseSnaps.some((snap) => !snap.exists)) {
+          throw new Error('Une dette ou une opération liée n’existe plus.');
+        }
+        const sourceDebt = sourceDebtSnap.data() || {};
+        const targetDebt = targetDebtSnap.data() || {};
+        const expenseRows = expenseSnaps.map((snap) => snap.data() || {});
+        if (sourceDebt.type !== 'i_owe' || targetDebt.type !== 'owed_to_me'
+          || sourceDebt.counterpartyUid !== uid || targetDebt.counterpartyUid !== requesterUid
+          || sourceDebt.peerDebtId !== targetDebtId || targetDebt.peerDebtId !== sourceDebtId
+          || expenseRows.some((expense) => expense.pendingConfirmation !== true || expense.debtRequestId !== requestId)) {
+          throw new Error('Les deux dettes ne sont plus associées ou ce remboursement a déjà été traité.');
+        }
+        if (decision === 'reject') {
+          transaction.update(requestRef, { status: 'rejected', rejectedAt: FieldValue.serverTimestamp() });
+          expenseRefs.forEach((expenseRef) => transaction.delete(expenseRef));
+          return {
+            requestType: 'repayment',
+            status: 'rejected',
+            requesterRef,
+            requesterProfile: requesterSnap.data() || {},
+            amount: Number(requestData.amount) || 0,
+          };
+        }
+
+        const amount = Math.round(Number(requestData.amount));
+        const sourceRemaining = Math.max(0, Number(sourceDebt.remaining) || 0);
+        const targetRemaining = Math.max(0, Number(targetDebt.remaining) || 0);
+        if (!Number.isSafeInteger(amount) || amount <= 0 || amount > sourceRemaining || amount > targetRemaining) {
+          throw new Error('Le montant à confirmer dépasse le solde restant de la dette.');
+        }
+        if (Math.abs(sourceRemaining - targetRemaining) > 1) throw new Error('Les soldes des deux côtés ne correspondent plus. Contacte le support avant de confirmer.');
+        const remaining = Math.max(0, sourceRemaining - amount);
+        const date = /^\d{4}-\d{2}-\d{2}$/.test(String(requestData.date || '')) ? requestData.date : getDoualaToday();
+        const today = getDoualaToday();
+        const dueDate = String(sourceDebt.dueDate || targetDebt.dueDate || '');
+        const nextStatus = remaining <= 0 ? 'paid' : dueDate && dueDate < today ? 'late' : 'partial';
+        const completed = remaining <= 0;
+        const incomeRef = recipientRef.collection('incomes').doc();
+        const requesterName = String(requestData.requesterName || sourceDebt.person || 'Utilisateur Pata').slice(0, 100);
+        const month = date.slice(0, 7);
+        const repaymentSource = 'Remboursement reçu · ' + requesterName;
+
+        transaction.update(sourceDebtRef, { remaining, status: nextStatus, updatedAt: FieldValue.serverTimestamp() });
+        transaction.update(targetDebtRef, { remaining, status: nextStatus, updatedAt: FieldValue.serverTimestamp() });
+        transaction.create(sourceDebtRef.collection('repayments').doc(), {
+          date, amount, transactionId: repaymentExpenseIds[0], source: 'linked_confirmation', confirmedByUid: uid,
+        });
+        transaction.create(targetDebtRef.collection('repayments').doc(), {
+          date, amount, transactionId: incomeRef.id, source: 'linked_confirmation', confirmedByUid: uid,
+        });
+        expenseRefs.forEach((expenseRef) => transaction.update(expenseRef, {
+          neutralFlow: false,
+          status: 'confirmed',
+          pendingConfirmation: false,
+          confirmedAt: FieldValue.serverTimestamp(),
+          confirmationMessage: 'Remboursement confirmé par le créancier.',
+          updatedAt: FieldValue.serverTimestamp(),
+        }));
+        transaction.create(incomeRef, {
+          amount,
+          source: repaymentSource,
+          categoryId: 'debt_repayment_received',
+          month,
+          date,
+          note: 'Remboursement confirmé entre comptes Pata.',
+          flowType: 'repayment_received',
+          neutralFlow: false,
+          person: requesterName,
+          repaymentDebtId: targetDebtId,
+          linkedDebtId: sourceDebtId,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+
+        const currentMonth = getDoualaMonthKey();
+        const debtorStats = normalizeMonthlyStatsForMonth(requesterSnap.data()?.monthlyStats || {}, currentMonth);
+        const creditorStats = normalizeMonthlyStatsForMonth(recipientSnap.data()?.monthlyStats || {}, currentMonth);
+        debtorStats.expenses = (Number(debtorStats.expenses) || 0) + 1;
+        creditorStats.incomes = (Number(creditorStats.incomes) || 0) + 1;
+        debtorStats.lastResetMonth = currentMonth;
+        creditorStats.lastResetMonth = currentMonth;
+        transaction.set(requesterRef, {
+          monthlyStats: debtorStats,
+          lifetimeExpenseAmount: FieldValue.increment(amount),
+          lifetimeExpenseCount: FieldValue.increment(1),
+          ...(completed ? { activeDebtCount: FieldValue.increment(-1) } : {}),
+        }, { merge: true });
+        transaction.set(recipientRef, {
+          monthlyStats: creditorStats,
+          lifetimeIncomeAmount: FieldValue.increment(amount),
+          lifetimeIncomeCount: FieldValue.increment(1),
+          ...(completed ? { activeDebtCount: FieldValue.increment(-1) } : {}),
+        }, { merge: true });
+        transaction.update(requestRef, {
+          status: 'accepted',
+          acceptedAt: FieldValue.serverTimestamp(),
+          confirmedIncomeId: incomeRef.id,
+        });
+        return {
+          requestType: 'repayment',
+          status: 'accepted',
+          requesterRef,
+          requesterProfile: requesterSnap.data() || {},
+          amount,
+        };
+      }
+
+      if (requestData.type !== 'new_debt') throw new Error('Type de demande non pris en charge.');
+      const sourceDebtId = String(requestData.sourceDebtId || '');
+      if (!sourceDebtId || sourceDebtId.includes('/')) throw new Error('Identifiant de dette invalide.');
+      const sourceDebtRef = requesterRef.collection('debts').doc(sourceDebtId);
+      const [recipientSnap, requesterSnap, sourceDebtSnap] = await Promise.all([
+        transaction.get(recipientRef), transaction.get(requesterRef), transaction.get(sourceDebtRef),
+      ]);
+      if (!recipientSnap.exists || !requesterSnap.exists || !sourceDebtSnap.exists) {
+        throw new Error('Un des comptes ou la dette liée n’existe plus.');
+      }
+      const sourceDebt = sourceDebtSnap.data() || {};
+      if (sourceDebt.counterpartyUid !== uid || sourceDebt.linkStatus !== 'pending') {
+        throw new Error('Cette dette n’attend plus de confirmation.');
+      }
+      if (decision === 'reject') {
+        transaction.update(requestRef, { status: 'rejected', rejectedAt: FieldValue.serverTimestamp() });
+        transaction.update(sourceDebtRef, { linkStatus: 'rejected', updatedAt: FieldValue.serverTimestamp() });
+        return {
+          requestType: 'new_debt',
+          status: 'rejected', requesterRef, requesterProfile: requesterSnap.data() || {},
+          requesterName: String(requestData.requesterName || 'Un utilisateur Pata'),
+        };
+      }
+      const kind = requestData.kind;
+      if (!['borrowed', 'lent'].includes(kind)) throw new Error('Sens de la dette invalide.');
+      const amount = Math.max(0, Number(sourceDebt.amount) || Number(requestData.amount) || 0);
+      const remaining = Math.min(amount, Math.max(0, Number(sourceDebt.remaining) || Number(requestData.remaining) || 0));
+      if (!Number.isSafeInteger(amount) || amount <= 0 || remaining <= 0) throw new Error('Le montant restant de cette dette n’est plus valide.');
+      const requesterName = String(requestData.requesterName || 'Utilisateur Pata').slice(0, 100);
+      const date = getDoualaToday();
+      const mirrorDebtRef = recipientRef.collection('debts').doc('linked_' + requestId.slice(0, 32));
+      const ledgerCollection = kind === 'borrowed' ? 'expenses' : 'incomes';
+      const ledgerRef = recipientRef.collection(ledgerCollection).doc('linked_' + requestId.slice(0, 32));
+      const dueDate = String(sourceDebt.dueDate || requestData.dueDate || '');
+      const status = String(sourceDebt.status || 'active');
+      transaction.create(mirrorDebtRef, {
+        type: kind === 'borrowed' ? 'owed_to_me' : 'i_owe',
+        person: requesterName,
+        amount,
+        remaining,
+        createdAt: FieldValue.serverTimestamp(),
+        dueDate,
+        status,
+        note: 'Dette liée à un autre compte Pata.',
+        transactionId: ledgerRef.id,
+        counterpartyUid: requesterUid,
+        counterpartyName: requesterName,
+        linkedDebtId: sourceDebtId,
+        peerDebtId: sourceDebtId,
+        linkStatus: 'accepted',
+      });
+      if (kind === 'borrowed') {
+        transaction.create(ledgerRef, {
+          amount,
+          categoryId: 'loan_given',
+          note: 'Prêt confirmé entre utilisateurs Pata.',
+          date,
+          incomeSourceId: 'external',
+          incomeSourceName: 'Prêt entre utilisateurs Pata',
+          expenseType: 'consumption',
+          flowType: 'loan_given',
+          neutralFlow: true,
+          person: requesterName,
+          phone: null,
+          dueDate,
+          debtId: mirrorDebtRef.id,
+          linkedDebtId: sourceDebtId,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      } else {
+        transaction.create(ledgerRef, {
+          amount,
+          source: requesterName,
+          categoryId: 'debt_borrowed',
+          month: date.slice(0, 7),
+          date,
+          note: 'Dette confirmée entre utilisateurs Pata.',
+          flowType: 'debt_borrowed',
+          neutralFlow: true,
+          person: requesterName,
+          phone: null,
+          dueDate,
+          debtId: mirrorDebtRef.id,
+          linkedDebtId: sourceDebtId,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      }
+      transaction.update(sourceDebtRef, {
+        linkStatus: 'accepted',
+        peerDebtId: mirrorDebtRef.id,
+        linkedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      transaction.update(requestRef, {
+        status: 'accepted',
+        acceptedAt: FieldValue.serverTimestamp(),
+        mirrorDebtId: mirrorDebtRef.id,
+      });
+      transaction.set(recipientRef, { activeDebtCount: FieldValue.increment(1) }, { merge: true });
+      return {
+        requestType: 'new_debt',
+        status: 'accepted', requesterRef, requesterProfile: requesterSnap.data() || {},
+        requesterName, amount, dueDate,
+      };
+    });
+
+    let title = '';
+    let bodyText = '';
+    if (result.requestType === 'repayment') {
+      title = result.status === 'accepted' ? 'Remboursement confirmé' : 'Remboursement non confirmé';
+      bodyText = result.status === 'accepted'
+        ? 'Le remboursement de ' + Number(result.amount).toLocaleString('fr-FR') + ' FCFA a été confirmé. Les soldes des deux comptes ont été mis à jour.'
+        : 'Le remboursement déclaré n’a pas été confirmé. Le solde de la dette reste inchangé.';
+    } else {
+      title = result.status === 'accepted' ? 'Dette confirmée' : 'Demande de dette refusée';
+      bodyText = result.status === 'accepted'
+        ? 'Ta demande a été acceptée. La dette correspondante a été ajoutée automatiquement dans les deux comptes.'
+        : 'La personne concernée n’a pas confirmé cette dette. Ton enregistrement personnel reste disponible dans Pata.';
+    }
+    try {
+      await result.requesterRef.collection('notifications').doc('debt-response-' + requestId).set({
+        title, body: bodyText, target: '/debts', date: getDoualaToday(),
+        source: 'debt_request_response', read: false, readAt: null,
+        createdAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      await sendPataPushToUser(result.requesterRef, {
+        title, body: bodyText, url: '/debts',
+        tag: 'pata-debt-response-' + requestId,
+        source: 'debt_request_response',
+      }, getPataAppUrl(request), result.requesterProfile);
+    } catch (notificationError) {
+      console.warn('[PATA DEBT RESPONSE NOTIFICATION]', notificationError.message || notificationError);
+    }
+    return NextResponse.json({ success: true, status: result.status });
+  } catch (error) {
+    const message = error.message || 'Impossible de traiter cette demande.';
+    return errorResponse(message, /n’existe|n'existe|déjà|invalide|montant|attend|pris en charge|sens|soldes|associées|associées|correspondent|incomplètes/i.test(message) ? 400 : 500);
+  }
+}
+
 /* ═══════════════════ GESTION DES QUOTAS & SÉCURITÉ ═══════════════════ */
 
 const PLAN_LIMITS = {
@@ -1815,7 +2243,8 @@ async function handleCreateIncome(request) {
 
     const userRef = adminDb.collection('users').doc(uid);
     const smsImportId = /^sms_[a-f0-9]{64}$/.test(String(body.smsImportId || '')) ? String(body.smsImportId) : null;
-    const incomeRef = userRef.collection('incomes').doc(smsImportId || undefined);
+    const incomeCollection = userRef.collection('incomes');
+    const incomeRef = smsImportId ? incomeCollection.doc(smsImportId) : incomeCollection.doc();
     const newDebtRef = flowType === 'debt_borrowed' ? userRef.collection('debts').doc() : null;
     const repaymentDebtRef = flowType === 'repayment_received' ? userRef.collection('debts').doc(repaymentDebtId) : null;
     const builtInCategories = new Set(['salary', 'business', 'sales', 'commission', 'rental', 'pension', 'gift', 'debt_repayment_received', 'debt_borrowed', 'other_income']);
@@ -1915,7 +2344,12 @@ async function handleCreateIncome(request) {
         ...(projectId ? { projectId, projectName } : {}),
       };
     });
-    return NextResponse.json({ success: true, ...result });
+    let linkedDebt = null;
+    if (flowType === 'debt_borrowed' && result.debtId && body.counterpartyUid) {
+      try { linkedDebt = await createLinkedDebtRequest(request, uid, result.debtId, body.counterpartyUid, 'borrowed'); }
+      catch (linkError) { console.warn('[PATA BORROWED DEBT LINK]', linkError.message || linkError); linkedDebt = { status: 'unavailable' }; }
+    }
+    return NextResponse.json({ success: true, ...result, ...(linkedDebt ? { linkedDebt } : {}) });
   } catch (error) {
     const message = error.message || 'Impossible d’enregistrer ce revenu.';
     const status = /atteint|introuvable|invalide|obligatoire|limit|dépasse|depasse|créance|creance|remboursement/i.test(message) ? 400 : 500;
@@ -2449,7 +2883,27 @@ async function handleAddExpense(request) {
     const body = await request.json();
     const smsImportId = /^sms_[a-f0-9]{64}$/.test(String(body.smsImportId || '')) ? String(body.smsImportId) : null;
     const result = await createExpenseForUser(decoded.uid, body, { idempotencyKey: smsImportId });
-    return NextResponse.json(result);
+    if (result.pendingConfirmation && result.requestId && result.counterpartyUid) {
+      try {
+        const amountLabel = Number(result.amount || body.amount || 0).toLocaleString('fr-FR');
+        await notifyDebtRequestRecipient(
+          request,
+          result.counterpartyUid,
+          result.requestId,
+          'Remboursement à confirmer',
+          String(result.requesterName || 'Un utilisateur Pata') + ' déclare t’avoir remboursé ' + amountLabel + ' FCFA. Vérifie puis confirme cette opération.',
+          'debt_repayment_request'
+        );
+      } catch (notificationError) {
+        console.warn('[PATA DEBT REPAYMENT NOTIFICATION]', notificationError.message || notificationError);
+      }
+    }
+    let linkedDebt = null;
+    if (body.flowType === 'loan_given' && result.debtId && body.counterpartyUid) {
+      try { linkedDebt = await createLinkedDebtRequest(request, decoded.uid, result.debtId, body.counterpartyUid, 'lent'); }
+      catch (linkError) { console.warn('[PATA GRANTED LOAN LINK]', linkError.message || linkError); linkedDebt = { status: 'unavailable' }; }
+    }
+    return NextResponse.json({ ...result, ...(linkedDebt ? { linkedDebt } : {}) });
   } catch (error) {
     const message = error.message || 'Erreur lors de l’enregistrement de la dépense.';
     const status = /limite gratuite/i.test(message) ? 403
@@ -3203,7 +3657,17 @@ async function handleProfileActivity(request) {
     // Do not create a skeletal profile here: the registration flow initializes
     // the profile and triggers the one-time welcome email.
     if (!profileSnap.exists) return NextResponse.json({ success: true, profilePending: true });
-    await userRef.set({ lastSeenAt: FieldValue.serverTimestamp(), email: decoded.email || profileSnap.data()?.email || null }, { merge: true });
+    const profile = profileSnap.data() || {};
+    const displayName = String(profile.displayName || decoded.name || decoded.email?.split('@')[0] || 'Utilisateur').trim().slice(0, 100);
+    const searchName = displayName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('fr-FR').replace(/\s+/g, ' ').trim();
+    await Promise.all([
+      userRef.set({ lastSeenAt: FieldValue.serverTimestamp(), email: decoded.email || profile.email || null }, { merge: true }),
+      adminDb.collection('userDirectory').doc(decoded.uid).set({
+        displayName,
+        searchName,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true }),
+    ]);
     return NextResponse.json({ success: true });
   } catch (error) { return errorResponse(error.message || 'Impossible de mettre à jour le profil.', 401); }
 }
@@ -5882,6 +6346,9 @@ const ROUTES = {
   'goals/create': { POST: handleCreateGoal },
   'goals/update': { POST: handleUpdateGoal },
   'goals/delete': { POST: handleDeleteGoal },
+  'debts/search-users': { GET: handleDebtUserSearch },
+  'debts/requests': { GET: handleDebtRequestsList },
+  'debts/requests/respond': { POST: handleDebtRequestRespond },
   'debts/list': { GET: async (request) => { try { const { uid } = await authenticate(request); const snapshot = await adminDb.collection('users').doc(uid).collection('debts').orderBy('createdAt', 'desc').get(); return NextResponse.json({ success: true, debts: snapshot.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })) }); } catch (error) { return errorResponse(error.message || 'Impossible de charger les dettes.', 401); } } },
   'debts/repayments': { GET: handleDebtRepayments },
   'expenses/add':          { POST: handleAddExpense },

@@ -9,6 +9,7 @@ import { useProfile } from '@/hooks/useProfile';
 import { listDebtRepayments } from '@/lib/firestore/debts';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { EmptyState } from '@/components/ui/EmptyState';
+import DebtRequestsPanel from '@/components/debts/DebtRequestsPanel';
 
 const OPEN_STATUSES = ['active', 'partial', 'late'];
 const FILTERS = [
@@ -41,6 +42,8 @@ export default function DebtsPage() {
   const payables = openDebts.filter((debt) => debt.type === 'i_owe');
   const totalReceivable = receivables.reduce((sum, debt) => sum + (Number(debt.remaining) || 0), 0);
   const totalPayable = payables.reduce((sum, debt) => sum + (Number(debt.remaining) || 0), 0);
+  const receivablePeopleCount = new Set(receivables.map((debt) => String(debt.person || '').trim().toLocaleLowerCase('fr-FR')).filter(Boolean)).size;
+  const payablePeopleCount = new Set(payables.map((debt) => String(debt.person || '').trim().toLocaleLowerCase('fr-FR')).filter(Boolean)).size;
   const premiumExpiry = profile?.premiumUntil?.toDate ? profile.premiumUntil.toDate() : new Date(profile?.premiumUntil || 0);
   const isPremium = Number.isFinite(premiumExpiry.getTime()) && premiumExpiry > new Date();
   const activeDebtCount = openDebts.length;
@@ -93,14 +96,16 @@ export default function DebtsPage() {
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
           <p className="text-xs font-semibold text-emerald-800">On me doit</p>
           <p className="mt-1 text-xl font-bold text-emerald-900">{formatCurrency(totalReceivable)}</p>
-          <p className="mt-1 text-[11px] text-emerald-800">{receivables.length} créance(s) active(s)</p>
+          <p className="mt-1 text-[11px] text-emerald-800">{receivablePeopleCount} personne(s) te doivent de l’argent</p>
         </div>
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
           <p className="text-xs font-semibold text-amber-800">Je dois</p>
           <p className="mt-1 text-xl font-bold text-amber-900">{formatCurrency(totalPayable)}</p>
-          <p className="mt-1 text-[11px] text-amber-800">{payables.length} dette(s) active(s)</p>
+          <p className="mt-1 text-[11px] text-amber-800">{payablePeopleCount} personne(s) à qui tu dois</p>
         </div>
       </section>
+
+      <DebtRequestsPanel uid={user?.uid} />
 
       {!isPremium && <p className={'rounded-xl border px-3 py-2.5 text-xs ' + (freeDebtLimitReached ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-slate-200 bg-white text-slate-600')}>Compte gratuit : {activeDebtCount}/2 dettes ou prêts actifs. Les remboursements complets libèrent une place ; Premium permet un suivi illimité.</p>}
 
@@ -118,6 +123,9 @@ export default function DebtsPage() {
               : '/expenses?new=1&flowType=repayment&debtId=' + encodeURIComponent(debt.id);
             const due = dateKey(debt.dueDate);
             const remaining = Math.max(0, Number(debt.remaining) || 0);
+            const amount = Math.max(0, Number(debt.amount) || 0);
+            const alreadyRepaid = Math.max(0, amount - remaining);
+            const since = dateKey(debt.createdAt);
             const expanded = expandedDebtId === debt.id;
             const historyLoaded = Object.prototype.hasOwnProperty.call(repaymentsByDebt, debt.id);
             return <article key={debt.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -133,16 +141,22 @@ export default function DebtsPage() {
                 <span className={'shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold ' + (debt.status === 'late' ? 'bg-red-50 text-red-700' : debt.status === 'paid' ? 'bg-emerald-50 text-emerald-700' : debt.status === 'cancelled' ? 'bg-slate-100 text-slate-500' : 'bg-blue-50 text-blue-700')}>{statusLabel[debt.status] || debt.status}</span>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-3 rounded-xl bg-slate-50 p-3">
-                <div><p className="text-[10px] text-slate-500">Montant initial</p><p className="mt-1 text-sm font-semibold text-slate-800">{formatCurrency(Number(debt.amount) || 0)}</p></div>
+                <div><p className="text-[10px] text-slate-500">Montant initial</p><p className="mt-1 text-sm font-semibold text-slate-800">{formatCurrency(amount)}</p></div>
+                <div><p className="text-[10px] text-slate-500">Déjà remboursé</p><p className="mt-1 text-sm font-semibold text-emerald-700">{formatCurrency(alreadyRepaid)}</p></div>
                 <div><p className="text-[10px] text-slate-500">Solde restant</p><p className="mt-1 text-sm font-bold text-slate-900">{formatCurrency(remaining)}</p></div>
+                <div><p className="text-[10px] text-slate-500">Enregistré depuis</p><p className="mt-1 text-sm font-semibold text-slate-800">{since ? formatDate(since) : 'Date inconnue'}</p></div>
                 <div className="col-span-2 flex items-center gap-1.5 text-[11px] text-slate-500"><CalendarClock size={13}/> Échéance : {due ? formatDate(due) : 'Non précisée'}</div>
               </div>
+              {debt.linkStatus === 'pending' && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-800">Demande envoyée à un autre compte Pata. La dette reste enregistrée chez toi pendant l’attente de sa réponse.</p>}
+              {debt.linkStatus === 'accepted' && <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-[11px] text-emerald-800">Dette synchronisée avec un autre compte Pata. Les remboursements déclarés par le débiteur devront être confirmés par le créancier.</p>}
+              {debt.linkStatus === 'rejected' && <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-[11px] text-slate-600">La demande de liaison n’a pas été acceptée. Ton suivi personnel reste actif.</p>}
               {debt.note && <p className="mt-3 whitespace-pre-wrap text-xs leading-5 text-slate-600">{debt.note}</p>}
-              {OPEN_STATUSES.includes(debt.status) && remaining > 0 && <Link href={actionHref} className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-                <HandCoins size={15}/> Enregistrer un remboursement
+              {OPEN_STATUSES.includes(debt.status) && remaining > 0 && !(isReceivable && debt.linkStatus === 'accepted') && <Link href={actionHref} className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                <HandCoins size={15}/> {debt.linkStatus === 'accepted' && !isReceivable ? 'Déclarer un remboursement' : 'Enregistrer un remboursement'}
               </Link>}
+              {isReceivable && debt.linkStatus === 'accepted' && remaining > 0 && <p className="mt-3 text-[11px] leading-5 text-slate-500">Le débiteur doit déclarer son remboursement depuis son compte. Tu recevras alors une demande à confirmer ici.</p>}
               <button type="button" onClick={() => toggleHistory(debt)} aria-expanded={expanded} className="mt-3 inline-flex min-h-9 w-full items-center justify-between rounded-xl border border-slate-100 px-3 text-xs font-semibold text-slate-600 hover:bg-slate-50">
-                <span className="inline-flex items-center gap-2"><History size={14}/> Historique des remboursements</span>
+                <span className="inline-flex items-center gap-2"><History size={14}/> Voir les détails et remboursements</span>
                 <ChevronDown size={15} className={expanded ? 'rotate-180 transition-transform' : 'transition-transform'}/>
               </button>
               {expanded && <div className="mt-2 rounded-xl bg-slate-50 p-3">

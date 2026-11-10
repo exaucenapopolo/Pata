@@ -1,5 +1,5 @@
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '@/lib/firebase/client';
+import { db, auth } from '@/lib/firebase/client';
 
 const ref = (uid) => doc(db, 'users', uid);
 
@@ -25,6 +25,16 @@ export async function ensureUserProfile(user) {
     if (existing[key] === undefined || existing[key] === null || existing[key] === '') patch[key] = value;
   });
   if (Object.keys(patch).length) await setDoc(userRef, patch, { merge: true });
+  // Le nouvel utilisateur devient immédiatement trouvable par son nom dans
+  // l’autocomplétion des dettes, sans lecture globale des profils.
+  if (created) {
+    try {
+      const token = await user.getIdToken();
+      await fetch('/api/profile/activity', { method: 'POST', headers: { Authorization: 'Bearer ' + token } });
+    } catch (error) {
+      console.warn('Index du nom de profil non synchronisé :', error?.message || error);
+    }
+  }
   return { id: user.uid, ...existing, ...patch, created };
 }
 
@@ -35,4 +45,12 @@ export async function getUserProfile(uid) {
 
 export async function updateUserProfile(uid, patch) {
   await updateDoc(ref(uid), { ...patch, updatedAt: serverTimestamp() });
+  if (patch.displayName !== undefined && auth.currentUser?.uid === uid) {
+    try {
+      const token = await auth.currentUser.getIdToken();
+      await fetch('/api/profile/activity', { method: 'POST', headers: { Authorization: 'Bearer ' + token } });
+    } catch (error) {
+      console.warn('Index du nom de profil non actualisé :', error?.message || error);
+    }
+  }
 }

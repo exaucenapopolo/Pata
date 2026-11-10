@@ -267,6 +267,93 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
       allocations = [{ income, amount }];
     }
 
+    if (flowType === 'repayment' && repaymentDebtSnap?.exists) {
+      const linkedDebt = repaymentDebtSnap.data() || {};
+      if (linkedDebt.linkStatus === 'accepted' && linkedDebt.counterpartyUid && linkedDebt.peerDebtId) {
+        const counterpartyUid = String(linkedDebt.counterpartyUid);
+        if (counterpartyUid === uid || counterpartyUid.includes('/')) throw new Error('Le compte lié à cette dette est invalide.');
+        const counterpartyRef = adminDb.collection('users').doc(counterpartyUid);
+        const counterpartyDebtRef = counterpartyRef.collection('debts').doc(String(linkedDebt.peerDebtId));
+        const [counterpartySnap, counterpartyDebtSnap] = await Promise.all([
+          transaction.get(counterpartyRef),
+          transaction.get(counterpartyDebtRef),
+        ]);
+        if (!counterpartySnap.exists || !counterpartyDebtSnap.exists) throw new Error('Le compte associé à cette dette n’est plus disponible.');
+        const counterpartyDebt = counterpartyDebtSnap.data() || {};
+        if (counterpartyDebt.type !== 'owed_to_me'
+          || counterpartyDebt.counterpartyUid !== uid
+          || counterpartyDebt.peerDebtId !== repaymentDebtId
+          || counterpartyDebt.linkStatus !== 'accepted') {
+          throw new Error('Les deux côtés de cette dette ne sont plus correctement associés.');
+        }
+
+        const requestRef = counterpartyRef.collection('debtRequests').doc();
+        const requesterName = String(userData.displayName || 'Un utilisateur Pata').trim().slice(0, 100);
+        const pendingExpenses = [];
+        allocations.forEach(({ income, amount: allocated }, index) => {
+          const expenseRef = expenseCollection.doc();
+          const rowNote = index === 0 ? note : note + (note ? ' ' : '') + '(Partagé)';
+          transaction.create(expenseRef, {
+            amount: allocated,
+            categoryId,
+            note: rowNote,
+            date,
+            incomeSourceId: income.id,
+            incomeSourceName: income.source || 'Revenu sans nom',
+            expenseType: 'consumption',
+            flowType: 'repayment',
+            neutralFlow: true,
+            status: 'pending_confirmation',
+            pendingConfirmation: true,
+            repaymentDebtId,
+            linkedDebtId: linkedDebt.peerDebtId,
+            debtRequestId: requestRef.id,
+            ...optionalMetadata,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+          pendingExpenses.push({
+            expenseId: expenseRef.id,
+            incomeSourceId: income.id,
+            incomeSourceName: income.source || 'Revenu sans nom',
+            amount: allocated,
+          });
+        });
+        transaction.create(requestRef, {
+          type: 'repayment',
+          status: 'pending',
+          requesterUid: uid,
+          requesterName,
+          sourceDebtId: repaymentDebtId,
+          targetDebtId: String(linkedDebt.peerDebtId),
+          repaymentExpenseId: pendingExpenses[0]?.expenseId || null,
+          repaymentExpenseIds: pendingExpenses.map((item) => item.expenseId),
+          allocations: pendingExpenses,
+          counterpartyName: String(linkedDebt.person || ''),
+          amount,
+          date,
+          dueDate: String(linkedDebt.dueDate || ''),
+          createdAt: FieldValue.serverTimestamp(),
+        });
+        return {
+          success: true,
+          amount,
+          date,
+          categoryId,
+          expenseType: 'consumption',
+          flowType: 'repayment',
+          repaymentDebtId,
+          pendingConfirmation: true,
+          requestId: requestRef.id,
+          counterpartyUid,
+          requesterName,
+          allocations: pendingExpenses,
+          recordsCreated: pendingExpenses.length,
+          expenseIds: pendingExpenses.map((item) => item.expenseId),
+          expenseId: pendingExpenses[0]?.expenseId || null,
+        };
+      }
+    }
+
     // Vérifie les enveloppes budgétaires avant toute écriture. L'utilisateur garde le dernier mot.
     const plannedBySource = new Map();
     allocations.forEach(({ income, amount: allocated }) => {

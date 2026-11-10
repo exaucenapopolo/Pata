@@ -31,6 +31,7 @@ import { formatCurrency, formatDate } from '@/lib/utils';
 import { saveVitalForecast, deleteVitalForecast, saveDurationForecast as saveDurationForecastRecord, deleteDurationForecast } from '@/lib/firestore/forecasts';
 import { useBudgets } from '@/hooks/useBudgets';
 import { OptionalTransactionFields } from '@/components/transactions/OptionalTransactionFields';
+import { DebtCounterpartyField } from '@/components/debts/DebtCounterpartyField';
 import { AssistantShortcut } from '@/components/ai/AssistantShortcut';
 
 // 🟢 DATES LOCALES (Pas de décalage UTC)
@@ -47,7 +48,7 @@ const currentTime = () => {
   const d = new Date();
   return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 };
-const emptyIncomeForm = () => ({ id: null, amount: '', source: 'Salaire', categoryId: 'salary', note: '', date: todayIso(), projectId: '', time: currentTime(), locationLabel: '', latitude: null, longitude: null, locationAccuracy: null, paymentMethod: '', details: '', flowType: 'normal', person: '', phone: '', dueDate: '', repaymentDebtId: '' });
+const emptyIncomeForm = () => ({ id: null, amount: '', source: 'Salaire', categoryId: 'salary', note: '', date: todayIso(), projectId: '', time: currentTime(), locationLabel: '', latitude: null, longitude: null, locationAccuracy: null, paymentMethod: '', details: '', flowType: 'normal', person: '', phone: '', dueDate: '', repaymentDebtId: '', counterpartyUid: '' });
 
 const FREQUENCIES = [
   { id: 'daily', label: 'Par jour', multiplier: 30 },
@@ -371,7 +372,7 @@ export default function IncomePage() {
       locationAccuracy: income.locationAccuracy ?? null,
       paymentMethod: income.paymentMethod || '',
       details: income.details || '',
-      flowType: income.flowType || 'normal', person: income.person || '', phone: income.phone || '', dueDate: income.dueDate || '', repaymentDebtId: income.repaymentDebtId || '',
+      flowType: income.flowType || 'normal', person: income.person || '', phone: income.phone || '', dueDate: income.dueDate || '', repaymentDebtId: income.repaymentDebtId || '', counterpartyUid: income.counterpartyUid || '',
     });
     setError('');
     setOpen(true);
@@ -390,6 +391,7 @@ export default function IncomePage() {
         amount, source: form.flowType === 'debt_borrowed' ? form.person : form.source,
         categoryId: form.flowType === 'debt_borrowed' ? 'debt_borrowed' : form.flowType === 'repayment_received' ? 'debt_repayment_received' : form.categoryId,
         flowType: form.flowType || 'normal', person: form.person, phone: form.phone, dueDate: form.dueDate,
+        counterpartyUid: form.counterpartyUid || '',
         repaymentDebtId: form.flowType === 'repayment_received' ? form.repaymentDebtId : '', note: form.note,
         date: form.date, month: form.date.slice(0, 7), projectId: form.flowType === 'normal' && isPremium ? form.projectId : '', time: form.time,
         locationLabel: form.locationLabel, latitude: form.latitude, longitude: form.longitude,
@@ -398,7 +400,10 @@ export default function IncomePage() {
       if (form.id) {
         await updateIncome(user.uid, form.id, payload);
       } else {
-        await createIncome(user.uid, payload);
+        const result = await createIncome(user.uid, payload);
+        if (result.linkedDebt?.status === 'quota_reached') {
+          window.alert('Ta dette est bien enregistrée. Le quota gratuit de 2 liaisons de comptes par mois est atteint ; elle reste suivie normalement dans ton compte.');
+        }
         setShowCotisationReminder(true);
       }
       setOpen(false);
@@ -720,7 +725,7 @@ export default function IncomePage() {
       <Modal open={open} onClose={() => setOpen(false)} title={form.id ? "Modifier le revenu" : "Nouveau revenu"}>
         <form onSubmit={onSubmit} className="space-y-3">
           <div><label className="mb-1 block text-sm font-medium text-slate-700">Type d’opération</label><select value={form.flowType || 'normal'} disabled={!!form.id} onChange={(event) => { const flowType = event.target.value; const categoryId = flowType === 'debt_borrowed' ? 'debt_borrowed' : flowType === 'repayment_received' ? 'debt_repayment_received' : 'salary'; setForm({ ...form, flowType, categoryId, repaymentDebtId: flowType === 'repayment_received' ? form.repaymentDebtId : '', projectId: '' }); }} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="normal">Revenu normal</option><option value="debt_borrowed">Dette contractée (argent emprunté)</option><option value="repayment_received">Remboursement reçu</option></select></div>
-          {form.flowType === 'debt_borrowed' && <div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><Input label="Personne qui te prête" required value={form.person} onChange={(event) => setForm({ ...form, person: event.target.value, source: event.target.value })}/><Input label="Téléphone (facultatif)" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })}/><Input label="Date d’échéance" type="date" required value={form.dueDate} onChange={(event) => setForm({ ...form, dueDate: event.target.value })}/></div>}
+          {form.flowType === 'debt_borrowed' && <div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><div className="sm:col-span-2"><DebtCounterpartyField label="Personne auprès de qui tu empruntes" value={form.person} selectedUid={form.counterpartyUid} onNameChange={(person) => setForm({ ...form, person, source: person, counterpartyUid: '' })} onSelect={(account) => setForm({ ...form, person: account.displayName, source: account.displayName, counterpartyUid: account.uid })}/></div><Input label="Téléphone (facultatif)" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })}/><Input label="Date d’échéance" type="date" required value={form.dueDate} onChange={(event) => setForm({ ...form, dueDate: event.target.value })}/></div>}
           {form.flowType === 'repayment_received' && <div><label className="mb-1 block text-sm font-medium text-slate-700">Créance remboursée</label><select required value={form.repaymentDebtId} onChange={(event) => setForm({ ...form, repaymentDebtId: event.target.value })} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="">Choisir une créance</option>{activeReceivableDebts.map((debt) => <option key={debt.id} value={debt.id}>{debt.person} · {formatCurrency(Number(debt.remaining) || 0)} restant</option>)}</select>{!activeReceivableDebts.length && <p className="mt-1 text-xs text-slate-500">Aucune créance active à encaisser.</p>}</div>}
           <Input label="Montant (FCFA)" type="number" min="0" step="1" required value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
           {form.flowType === 'normal' ? <div><p className="mb-2 text-sm font-medium text-slate-700">Catégorie de revenu</p><CategoryManager type="income" value={form.categoryId} onChange={(id) => { const category = [...INCOME_CATEGORIES, ...customIncomeCategories].find((item) => item.id === id); setForm({ ...form, categoryId: id, source: category?.label || category?.name || form.source }); }}/></div> : <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">Catégorie : <strong>{form.flowType === 'debt_borrowed' ? 'Dette contractée (mouvement neutre)' : 'Remboursement reçu (revenu normal)'}</strong></p>}

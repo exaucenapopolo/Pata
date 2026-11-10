@@ -22,6 +22,7 @@ import { createExpense, updateExpense, deleteExpense } from '@/lib/firestore/exp
 import { createAutomation } from '@/lib/firestore/automations';
 import { formatCurrency, formatDate, resolveCategory, getFirstOfMonth, getLastOfMonth, getLocalMonth } from '@/lib/utils';
 import { OptionalTransactionFields } from '@/components/transactions/OptionalTransactionFields';
+import { DebtCounterpartyField } from '@/components/debts/DebtCounterpartyField';
 import { AssistantShortcut } from '@/components/ai/AssistantShortcut';
 
 const todayIso = () => {
@@ -51,7 +52,7 @@ const emptyForm = () => ({
   details: '',
   incomeSourceId: 'all',
   incomeSourceName: 'Tous les revenus',
-  flowType: 'normal', person: '', phone: '', dueDate: '', repaymentDebtId: '',
+  flowType: 'normal', person: '', phone: '', dueDate: '', repaymentDebtId: '', counterpartyUid: '',
 });
 
 export default function ExpensesPage() {
@@ -206,7 +207,7 @@ export default function ExpensesPage() {
       details: exp.details || '',
       incomeSourceId: exp.incomeSourceId || 'all',
       incomeSourceName: exp.incomeSourceName || 'Tous les revenus',
-      flowType: exp.flowType || 'normal', person: exp.person || '', phone: exp.phone || '', dueDate: exp.dueDate || '', repaymentDebtId: exp.repaymentDebtId || '',
+      flowType: exp.flowType || 'normal', person: exp.person || '', phone: exp.phone || '', dueDate: exp.dueDate || '', repaymentDebtId: exp.repaymentDebtId || '', counterpartyUid: exp.counterpartyUid || '',
     });
     setError('');
     setOpen(true);
@@ -227,6 +228,7 @@ export default function ExpensesPage() {
         amount,
         categoryId: form.flowType === 'loan_given' ? 'loan_given' : form.flowType === 'repayment' ? 'debt_repayment' : form.categoryId,
         flowType: form.flowType || 'normal', person: form.person, phone: form.phone, dueDate: form.dueDate,
+        counterpartyUid: form.counterpartyUid || '',
         repaymentDebtId: form.flowType === 'repayment' ? form.repaymentDebtId : '',
         expenseType: form.flowType === 'normal' ? (form.expenseType || 'consumption') : 'consumption',
         projectId: form.flowType === 'normal' && form.expenseType === 'project' ? form.projectId : '',
@@ -256,6 +258,12 @@ export default function ExpensesPage() {
           const accepted = window.confirm(`${result.message}\n\nSouhaites-tu continuer ?`);
           if (!accepted) return;
           result = await createExpense(user.uid, { ...payload, confirmBudgetOverrun: true });
+        }
+        if (result.pendingConfirmation) {
+          window.alert('Remboursement enregistré en attente. Le créancier doit confirmer la réception avant la mise à jour des deux comptes.');
+        }
+        if (result.linkedDebt?.status === 'quota_reached') {
+          window.alert('Ta dette est bien enregistrée. Le quota gratuit de 2 liaisons de comptes par mois est atteint ; elle reste suivie normalement dans ton compte.');
         }
       }
       setOpen(false);
@@ -506,7 +514,7 @@ export default function ExpensesPage() {
       <Modal open={open} onClose={() => setOpen(false)} title={form.id ? 'Modifier la dépense' : 'Nouvelle dépense'}>
         <form onSubmit={onSubmit} className="space-y-4">
           <div><label className="mb-1 block text-sm font-medium text-slate-700">Type d’opération</label><select value={form.flowType || 'normal'} disabled={!!form.id} onChange={(event) => { const flowType = event.target.value; setForm({ ...form, flowType, categoryId: flowType === 'loan_given' ? 'loan_given' : flowType === 'repayment' ? 'debt_repayment' : 'food', repaymentDebtId: flowType === 'repayment' ? form.repaymentDebtId : '', expenseType: 'consumption', projectId: '' }); }} className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="normal">Dépense normale</option><option value="loan_given">Prêt accordé (on me doit)</option><option value="repayment">Remboursement d’une dette</option></select></div>
-          {form.flowType === 'loan_given' && <div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><Input label="Personne à qui tu prêtes" required value={form.person} onChange={(event) => setForm({ ...form, person: event.target.value })}/><Input label="Téléphone (facultatif)" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })}/><Input label="Date d’échéance" type="date" required value={form.dueDate} onChange={(event) => setForm({ ...form, dueDate: event.target.value })}/></div>}
+          {form.flowType === 'loan_given' && <div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><div className="sm:col-span-2"><DebtCounterpartyField label="Personne à qui tu prêtes" value={form.person} selectedUid={form.counterpartyUid} onNameChange={(person) => setForm({ ...form, person, counterpartyUid: '' })} onSelect={(account) => setForm({ ...form, person: account.displayName, counterpartyUid: account.uid })}/></div><Input label="Téléphone (facultatif)" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })}/><Input label="Date d’échéance" type="date" required value={form.dueDate} onChange={(event) => setForm({ ...form, dueDate: event.target.value })}/></div>}
           {form.flowType === 'repayment' && <div><label className="mb-1 block text-sm font-medium text-slate-700">Dette à rembourser</label><select required value={form.repaymentDebtId} onChange={(event) => setForm({ ...form, repaymentDebtId: event.target.value })} className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="">Choisir une dette</option>{activePayableDebts.map((debt) => <option key={debt.id} value={debt.id}>{debt.person} · {formatCurrency(Number(debt.remaining) || 0)} restant</option>)}</select>{!activePayableDebts.length && <p className="mt-1 text-xs text-slate-500">Aucune dette active à rembourser.</p>}</div>}
           <Input
             label="Montant (FCFA)"

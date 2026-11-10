@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { ChevronDown, Clock3, ExternalLink, LocateFixed, MapPin } from 'lucide-react';
 
 const PAYMENT_METHODS = [
@@ -92,6 +93,48 @@ export function OptionalTransactionFields({ value, onChange, kind = 'expense' })
       : 'Lieu détecté et enregistré.'));
     setLocating(false);
   };
+
+  const detectLocation = async () => {
+    // Dans l'APK, la permission doit être demandée par Android/Capacitor.
+    // La PWA conserve le parcours navigateur existant ci-dessous.
+    if (Capacitor.isNativePlatform()) {
+      clearLocationWatch(watchRef.current, timeoutRef.current);
+      watchRef.current = null;
+      timeoutRef.current = null;
+      finishedRef.current = false;
+      setLocating(true);
+      setLocationMessage('Vérification de l’autorisation de localisation…');
+      try {
+        const { Geolocation } = await import('@capacitor/geolocation');
+        let permission = await Geolocation.checkPermissions();
+        if (permission.location !== 'granted' && permission.coarseLocation !== 'granted') {
+          setLocationMessage('Autorise Pata à accéder à ta position dans la fenêtre Android.');
+          permission = await Geolocation.requestPermissions({ permissions: ['location', 'coarseLocation'] });
+        }
+        if (permission.location !== 'granted' && permission.coarseLocation !== 'granted') {
+          throw new Error('Accès à la localisation refusé. Autorise la position pour Pata dans les paramètres Android, puis réessaie.');
+        }
+        setLocationMessage('Autorisation accordée. Recherche de ta position GPS…');
+        const position = await Geolocation.getCurrentPosition({
+          enableHighAccuracy: true,
+          timeout: 60000,
+          maximumAge: 120000,
+        });
+        await finishLocation({ coords: position.coords });
+      } catch (error) {
+        setLocating(false);
+        const message = String(error?.message || '');
+        if (/location services|disabled|OS-PLUG-GLOC-0007/i.test(message)) {
+          setLocationMessage('La localisation du téléphone est désactivée. Active-la dans les réglages rapides Android, puis réessaie.');
+        } else if (/permission|denied|OS-PLUG-GLOC-0003|OS-PLUG-GLOC-0018/i.test(message)) {
+          setLocationMessage('Accès à la position refusé. Ouvre les paramètres Android > Applications > Pata > Autorisations > Position, autorise l’accès, puis réessaie.');
+        } else {
+          setLocationMessage('La position n’a pas pu être obtenue. Vérifie que le GPS est activé et réessaie dans quelques instants.');
+        }
+        console.warn('[PATA NATIVE LOCATION]', error?.message || error);
+      }
+      return;
+    }
 
   const detectLocation = () => {
     if (typeof window === 'undefined' || !navigator.geolocation) {

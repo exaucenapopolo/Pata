@@ -78,6 +78,8 @@ let manifest = fs.readFileSync(manifestPath, 'utf8');
 const permissions = [
   'android.permission.RECEIVE_SMS',
   'android.permission.POST_NOTIFICATIONS',
+  'android.permission.ACCESS_COARSE_LOCATION',
+  'android.permission.ACCESS_FINE_LOCATION',
   'android.permission.INTERNET',
 ];
 for (const permission of permissions) {

@@ -10,37 +10,37 @@ const slides = [
   {
     eyebrow: 'TES FINANCES, AU MÊME ENDROIT',
     title: 'Ton argent, mieux organisé.',
-    description: 'Suis tes dépenses, tes revenus, tes budgets et ton solde dans un espace clair, pensé pour t’aider à garder le contrôle.',
+    description: 'Retrouve tes revenus, tes dépenses, ton budget et ton solde dans un seul espace. Les informations essentielles restent faciles à consulter.',
     note: 'Tu vois rapidement où tu en es et ce qu’il te reste.',
   },
   {
     eyebrow: 'UN CONSEIL QUI TE COMPREND',
     title: 'Comprends mieux tes habitudes.',
-    description: 'Échange avec Mč, pose tes questions avec tes mots et demande des explications sur tes dépenses ou tes projets.',
-    note: 'Des réponses simples pour prendre de meilleures décisions.',
+    description: 'Pose tes questions avec tes mots. L’assistant analyse les informations de ton suivi et t’aide à comprendre tes habitudes financières.',
+    note: 'Des explications claires et des pistes concrètes, à partir de ton activité dans Pata.',
   },
   {
     eyebrow: 'LE SUIVI MOBILE MONEY AUTOMATIQUE',
     title: 'Moins de saisie, plus de suivi.',
-    description: 'Avec l’application Android et Premium, les confirmations MTN MoMo et Orange Money sont détectées et les opérations sont enregistrées automatiquement.',
-    note: 'Tes dépenses et tes entrées d’argent se mettent à jour sans tout ressaisir.',
+    description: 'L’application Android peut reconnaître les SMS de confirmation MTN MoMo et Orange Money pour préparer l’enregistrement des opérations.',
+    note: 'Tu gardes une trace des opérations sans devoir tout recopier.',
   },
   {
     eyebrow: 'TES PROJETS PRENNENT FORME',
     title: 'Fais grandir ton épargne.',
-    description: 'Fixe un objectif, mets de l’argent de côté et suis chaque progression jusqu’à ce que ton projet devienne réalité.',
-    note: 'Tu sais ce qui est déjà épargné et ce qu’il reste à réunir.',
+    description: 'Crée un objectif, suis les versements et visualise la progression de ton épargne.',
+    note: 'Une vue plus claire pour ajuster ton budget et tes priorités.',
   },
   {
     eyebrow: 'AVANCER À PLUSIEURS',
     title: 'Tes cotisations sous contrôle.',
-    description: 'Crée ou rejoins un groupe, consulte les contributions, les échéances et l’ordre des bénéficiaires.',
+    description: 'Organise une tontine, suis les contributions et retrouve les échéances ainsi que l’ordre des bénéficiaires.',
     note: 'Les informations importantes restent faciles à retrouver.',
   },
   {
     eyebrow: 'DES CHOIX PLUS ÉCLAIRÉS',
     title: 'Mesure tes progrès.',
-    description: 'Consulte tes bilans, compare différentes périodes et repère les habitudes qui influencent ton budget.',
+    description: 'Compare tes périodes, repère les postes les plus importants et suis l’évolution de tes finances.',
     note: 'Un meilleur aperçu pour ajuster tes décisions au bon moment.',
   },
 ];
@@ -133,7 +133,7 @@ export default function HomePage() {
         >
           {slides.map((item, index) => (
             <article key={item.eyebrow} className="flex h-full w-full shrink-0 snap-start flex-col items-center justify-center px-1 text-center">
-              <div className="mb-2 flex h-[clamp(138px,29dvh,214px)] w-full max-w-[350px] shrink-0 items-center justify-center">
+              <div className="mb-2 flex h-[clamp(150px,31dvh,228px)] w-full max-w-[350px] shrink-0 items-center justify-center">
                 <OnboardingIllustration index={index} />
               </div>
               <p className="text-[9px] font-bold tracking-[.17em] text-[#0b5c46] sm:text-[10px]">{item.eyebrow}</p>

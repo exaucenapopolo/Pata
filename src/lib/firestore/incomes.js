@@ -24,7 +24,7 @@ export async function createIncome(uid, data) {
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok || !result.success) throw new Error(result.error || 'Impossible d’enregistrer ce revenu.');
-  return { id: result.id };
+  return result;
 }
 
 export async function deleteIncome(uid, id) {
