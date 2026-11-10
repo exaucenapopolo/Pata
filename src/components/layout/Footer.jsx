@@ -7,7 +7,7 @@ export function Footer() {
       <div className="mt-2 flex flex-wrap justify-center gap-x-4 gap-y-1">
         <Link href="/confidentialite" className="hover:text-slate-900 hover:underline">Politique de confidentialité</Link>
         <Link href="/conditions" className="hover:text-slate-900 hover:underline">Conditions d’utilisation</Link>
-        <Link href="/support" className="hover:text-slate-900 hover:underline">Assistance WhatsApp · +1 (242) 454-2961</Link>
+        <Link href="/support" className="hover:text-slate-900 hover:underline">Assistance WhatsApp · +237 681 14 46 38</Link>
       </div>
     </footer>
   );

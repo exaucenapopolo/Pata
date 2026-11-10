@@ -12,21 +12,21 @@ import { PataSms } from '@/lib/sms/nativePlugin';
 import { Button } from '@/components/ui/Button';
 
 const DIAGNOSTIC_LABELS = {
-  permission_missing: 'Réception SMS bloquée : permission manquante',
+  permission_missing: 'Autorisation de réception des SMS non accordée',
   disabled: 'Détection automatique désactivée',
-  premium_expired: 'Abonnement Premium expiré',
-  sms_read_error: 'Android n’a pas pu lire le SMS reçu',
-  unrecognized: 'SMS reçu, mais format non reconnu',
-  duplicate: 'SMS déjà présent dans la file locale',
-  account_link_required: 'SMS reconnu : appareil à relier au compte',
-  recognized_waiting_sync: 'SMS reconnu : synchronisation programmée',
-  sync_credentials_missing: 'Identifiants de synchronisation manquants',
-  registered: 'Transaction enregistrée dans Pata',
-  already_registered: 'Transaction déjà enregistrée : aucun doublon créé',
-  awaiting_review: 'Retrait détecté : en attente de ta classification',
-  server_rejected: 'Le serveur a refusé cet import',
-  queue_full: 'File locale pleine : les SMS déjà en attente ont été conservés',
-  previously_refused: 'Cette transaction avait déjà été refusée dans Pata',
+  premium_expired: 'Ton abonnement Premium a expiré',
+  sms_read_error: 'Le message reçu n’a pas pu être lu',
+  unrecognized: 'Message reçu, mais opération non reconnue',
+  duplicate: 'Cette opération est déjà en attente',
+  account_link_required: 'Opération détectée : connexion au compte à terminer',
+  recognized_waiting_sync: 'Opération détectée : enregistrement en cours',
+  sync_credentials_missing: 'Impossible de relier l’application à ton compte',
+  registered: 'Opération enregistrée dans Pata',
+  already_registered: 'Opération déjà enregistrée : aucun doublon créé',
+  awaiting_review: 'Retrait détecté : à classer',
+  server_rejected: 'Cette opération n’a pas pu être enregistrée',
+  queue_full: 'Plusieurs opérations attendent leur enregistrement. Relance la synchronisation.',
+  previously_refused: 'Cette opération a déjà été refusée dans Pata',
   network_retry: 'Connexion indisponible : nouvelle tentative prévue',
 };
 
@@ -78,7 +78,7 @@ export function SmsImportSettings() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Paramètres SMS indisponibles.');
+        throw new Error('Impossible de charger les réglages SMS. Réessaie dans un instant.');
       }
 
       setPremium(data.isPremium === true);
@@ -123,7 +123,7 @@ export function SmsImportSettings() {
         });
         const tokenData = await tokenResponse.json().catch(() => ({}));
         if (!tokenResponse.ok || !tokenData.success || !tokenData.deviceToken) {
-          throw new Error(tokenData.error || 'Impossible de relier cet appareil à la synchronisation automatique.');
+          throw new Error('Impossible de relier cet appareil à ton compte. Réessaie dans un instant.');
         }
         deviceToken = tokenData.deviceToken;
       }
@@ -154,7 +154,7 @@ export function SmsImportSettings() {
           : 'L’option est activée sur ton compte, mais cet appareil n’est pas encore correctement relié. Actualise les paramètres pour réessayer.');
       }
     } catch (error) {
-      setMessage(error.message || 'Impossible de charger les paramètres SMS.');
+      setMessage('Impossible de charger les réglages SMS. Réessaie dans un instant.');
     } finally {
       setLoading(false);
     }
@@ -183,7 +183,7 @@ export function SmsImportSettings() {
         const permissionResult = await PataSms.requestSmsPermission();
         setPermission(permissionResult.granted === true);
         if (!permissionResult.granted) {
-          throw new Error(permissionResult.reason || 'Android n’a pas accordé RECEIVE_SMS. Vérifie les autorisations de l’application.');
+          throw new Error('Pata n’a pas encore l’autorisation de recevoir les SMS. Vérifie les autorisations de Pata dans les paramètres Android.');
         }
         // Les notifications système sont facultatives : leur refus ne bloque pas l’import.
         try {
@@ -204,7 +204,7 @@ export function SmsImportSettings() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Impossible de modifier ce réglage.');
+        throw new Error('Impossible de modifier ce réglage. Réessaie dans un instant.');
       }
 
       setServerEnabled(nextEnabled);
@@ -230,12 +230,12 @@ export function SmsImportSettings() {
           ? 'Le compte est activé, mais Android bloque encore la permission SMS. Le partage manuel reste disponible.'
           : 'Le compte est activé, mais le rattachement de cet appareil n’est pas terminé. Appuie sur « Actualiser les paramètres ».');
       } else if (nextEnabled) {
-        setMessage('Détection automatique activée. Pata analyse localement les SMS reconnus et synchronise les opérations quand une connexion est disponible.');
+        setMessage('Détection automatique activée. Pata reconnaît les confirmations sur ton téléphone et ajoute les opérations à ton suivi dès que la connexion est disponible.');
       } else {
         setMessage('Import SMS désactivé. Les nouveaux SMS ne seront plus traités automatiquement.');
       }
     } catch (error) {
-      setMessage(error.message || 'Impossible de modifier l’import SMS.');
+      setMessage('Impossible de modifier ce réglage. Vérifie les autorisations de Pata puis réessaie.');
     } finally {
       setSaving(false);
       const status = await PataSms.getStatus().catch(() => null);
@@ -253,14 +253,14 @@ export function SmsImportSettings() {
       const status = await PataSms.getStatus();
       applyNativeStatus(status);
       if (scheduled > 0) {
-        setMessage(scheduled + ' SMS en attente remis à la synchronisation. Le traitement continue en arrière-plan ; actualise le diagnostic pour vérifier le résultat.');
+        setMessage(scheduled + ' opération(s) remises en attente. Le suivi reprendra automatiquement.');
       } else if (!enabled || !deviceLinked) {
         setMessage('Aucune synchronisation ne peut démarrer : active l’import et vérifie que cet appareil est relié au compte.');
       } else {
         setMessage('Aucun SMS local en attente de synchronisation sur cet appareil.');
       }
     } catch (error) {
-      setMessage(error.message || 'Impossible de relancer la synchronisation.');
+      setMessage('Impossible de relancer le suivi pour le moment. Vérifie ta connexion puis réessaie.');
     } finally {
       setRetrying(false);
     }
@@ -292,7 +292,7 @@ export function SmsImportSettings() {
             <h3 className="text-sm font-bold text-slate-900">Import Mobile Money par SMS</h3>
             <p className="mt-1 text-xs leading-5 text-slate-600">
               Pata analyse les confirmations MTN MoMo et Orange Money sur le téléphone.
-              Le SMS brut, le numéro de l’expéditeur et le solde ne sont pas envoyés au serveur.
+              Le message original reste sur ton téléphone. Pata utilise uniquement les informations nécessaires au suivi de l’opération.
             </p>
           </div>
         </div>
@@ -356,14 +356,14 @@ export function SmsImportSettings() {
         </div>}
         <div className="flex items-center gap-2 text-xs text-slate-700">
           <Link2 size={15} className={deviceLinked ? 'text-emerald-700' : 'text-amber-700'}/>
-          <span>Rattachement au compte : <strong>{deviceLinked ? 'appareil relié' : serverEnabled ? 'à terminer' : 'non actif'}</strong></span>
+          <span>Synchronisation du compte : <strong>{deviceLinked ? 'appareil relié' : serverEnabled ? 'à terminer' : 'non actif'}</strong></span>
         </div>
       </div>}
 
       {isNative && <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
         <div className="flex items-center justify-between gap-3">
-          <p className="text-xs font-semibold text-slate-800">Diagnostic de la réception SMS</p>
-          <span className="text-[10px] tabular-nums text-slate-500">{pendingCount} en attente</span>
+          <p className="text-xs font-semibold text-slate-800">Dernière activité</p>
+          <span className="text-[10px] tabular-nums text-slate-500">{pendingCount} opération(s) en attente</span>
         </div>
         <p className="mt-2 text-xs font-semibold text-slate-800">{diagnosticLabel}</p>
         <p className="mt-1 text-[11px] text-slate-600">
@@ -376,7 +376,7 @@ export function SmsImportSettings() {
         </p>
         {diagnostic?.message && <p className="mt-1 text-[11px] leading-5 text-slate-600">{diagnostic.message}</p>}
         {pendingCount > 0 && <p className="mt-1 text-[11px] leading-5 text-slate-600">
-          Ces éléments sont conservés sur le téléphone jusqu’à ce que le serveur les accepte.
+          Ces opérations restent sur le téléphone jusqu’à leur enregistrement dans ton compte.
         </p>}
         <div className="mt-3 flex flex-wrap gap-2">
           <Button type="button" size="sm" variant="outline" disabled={retrying || saving || !enabled || !deviceLinked} onClick={retryPending}>
@@ -394,8 +394,7 @@ export function SmsImportSettings() {
       </p>}
       {premiumUntil && <p className="text-[10px] text-slate-400">Premium jusqu’au {new Date(premiumUntil).toLocaleDateString('fr-FR')}.</p>}
       <p className="text-[10px] leading-4 text-slate-400">
-        Android peut limiter RECEIVE_SMS selon l’installateur et la version du système. En cas de permission indisponible,
-        le partage manuel d’un SMS reste disponible.
+        Besoin d’aide pour activer la détection sur ton téléphone ? Contacte notre assistance, nous t’accompagnerons dans les réglages.
       </p>
     </div>
   );

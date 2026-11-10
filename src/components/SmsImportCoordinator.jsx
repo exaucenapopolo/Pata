@@ -109,7 +109,7 @@ export function SmsImportCoordinator() {
           }
         } else {
           await PataSms.clearSharedSms();
-          setNotice('Ce SMS ne correspond pas à un reçu MTN MoMo ou Orange Money reconnu. Aucun texte n’a été envoyé au serveur.');
+          setNotice('Ce message ne correspond pas à une confirmation Mobile Money reconnue. Aucune opération n’a été ajoutée.');
         }
       }
       await loadPending();

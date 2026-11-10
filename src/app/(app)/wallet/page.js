@@ -94,11 +94,11 @@ export default function WalletPage() {
       });
       const data = await res.json();
       if (!data.success || !data.checkoutUrl) {
-        throw new Error(data.error || 'Paiement indisponible.');
+        throw new Error('Recharge indisponible pour le moment. Réessaie dans quelques instants.');
       }
       window.location.href = data.checkoutUrl;
     } catch (err) {
-      setError(err.message || 'Erreur.');
+      setError('Impossible de lancer la recharge pour le moment. Vérifie ta connexion puis réessaie.');
       setSubmitting(false);
     }
   };

@@ -32,6 +32,10 @@ const BENEFITS = [
     ['Prévisions de durée de vie du capital', '1 création par mois', 'Sans limite'],
     ['Analyse de scénarios et recommandations', true, true],
   ]},
+  { group: 'Suivi Mobile Money', items: [
+    ['Détection des confirmations Mobile Money', false, true],
+    ['Enregistrement automatique des opérations détectées', false, true],
+  ]},
   { group: 'Organisation et suivi', items: [
     ['Dépenses récurrentes programmées', true, true],
     ['Bilans hebdomadaires automatiques', true, true],
@@ -161,7 +165,7 @@ export default function PremiumPage() {
               <p className="mt-1 text-xs leading-5 text-emerald-900/80">Tu conserves les mêmes outils, avec plus de capacité pour les utiliser et organiser tes finances.</p>
             </div>
           </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-xl bg-white/85 p-3">
               <Check size={16} className="text-emerald-700"/>
               <p className="mt-2 text-xs font-semibold text-slate-800">Plus de capacité</p>
@@ -176,6 +180,11 @@ export default function PremiumPage() {
               <Check size={16} className="text-emerald-700"/>
               <p className="mt-2 text-xs font-semibold text-slate-800">Gestion de projets</p>
               <p className="mt-1 text-[11px] leading-4 text-slate-500">Crée des projets, réserve des revenus et suis les dépenses associées.</p>
+            </div>
+            <div className="rounded-xl bg-white/85 p-3">
+              <Check size={16} className="text-emerald-700"/>
+              <p className="mt-2 text-xs font-semibold text-slate-800">Mobile Money automatique</p>
+              <p className="mt-1 text-[11px] leading-4 text-slate-500">Avec l’application Android, les confirmations sont détectées et les opérations ajoutées à ton suivi sans ressaisie.</p>
             </div>
           </div>
         </section>
@@ -244,7 +253,7 @@ export default function PremiumPage() {
 
       <div className="flex items-start gap-2.5 rounded-xl bg-slate-50 px-3.5 py-3">
         <ShieldCheck size={16} className="mt-0.5 shrink-0 text-brand-700"/>
-        <p className="text-[11px] leading-5 text-slate-500">Le paiement est vérifié côté serveur. Ton accès n’est prolongé qu’après confirmation. Tu peux continuer à utiliser gratuitement les fonctions essentielles de Pata.</p>
+        <p className="text-[11px] leading-5 text-slate-500">Ton abonnement est activé après confirmation du paiement. Tu peux continuer à utiliser gratuitement les fonctions essentielles de Pata.</p>
       </div>
     </div>
   );

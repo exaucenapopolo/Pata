@@ -165,3 +165,40 @@ html.dark .text-\[\#075b43\], html.dark .text-\[\#0b5c46\] { color: #8ed6b3 !imp
     transition-duration: .01ms !important;
   }
 }
+
+
+/* Illustrations d’accueil : mouvements doux et lisibles, sans bibliothèque d’icônes. */
+@keyframes pata-onboard-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+@keyframes pata-onboard-pulse {
+  0%, 100% { opacity: .72; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.12); }
+}
+@keyframes pata-onboard-rise {
+  0%, 100% { transform: scaleY(.82); }
+  50% { transform: scaleY(1); }
+}
+@keyframes pata-onboard-draw {
+  from { stroke-dashoffset: 180; }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes pata-onboard-fill {
+  0%, 100% { transform: scaleY(.82); }
+  50% { transform: scaleY(1); }
+}
+.onboard-float { transform-box: fill-box; transform-origin: center; animation: pata-onboard-float 3.8s ease-in-out infinite; }
+.onboard-pulse { transform-box: fill-box; transform-origin: center; animation: pata-onboard-pulse 2.6s ease-in-out infinite; }
+.onboard-rise { transform-box: fill-box; transform-origin: center bottom; animation: pata-onboard-rise 2.8s ease-in-out infinite; }
+.onboard-draw { stroke-dasharray: 180; stroke-dashoffset: 180; animation: pata-onboard-draw 2.4s ease-out forwards; }
+.onboard-fill { transform-box: fill-box; transform-origin: center bottom; animation: pata-onboard-fill 3.4s ease-in-out infinite; }
+.onboard-delay-1 { animation-delay: .45s; }
+.onboard-delay-2 { animation-delay: .9s; }
+.onboard-delay-3 { animation-delay: 1.35s; }
+@media (prefers-reduced-motion: reduce) {
+  .onboard-float, .onboard-pulse, .onboard-rise, .onboard-draw, .onboard-fill {
+    animation: none !important;
+    stroke-dashoffset: 0;
+  }
+}

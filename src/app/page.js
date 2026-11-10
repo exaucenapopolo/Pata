@@ -1,36 +1,190 @@
 'use client';
-import {useEffect,useRef,useState} from 'react';
-import {useRouter} from 'next/navigation';
-import {ArrowLeft,ArrowRight,BrainCircuit,CheckCircle2,CircleDollarSign,ClipboardList,PiggyBank,ShieldCheck,Smartphone,Users} from 'lucide-react';
-import {useAuth} from '@/hooks/useAuth';
-const ONBOARDING_KEY='pata-onboarding-completed-v1';
-const slides=[
-{eyebrow:'UNE ASSISTANTE QUI COMPREND TES FINANCES',title:'Parle de ton argent simplement.',description:'Pose tes questions à Mč. Elle t’aide à comprendre tes dépenses, préparer un budget réaliste et repérer les tendances de tes finances à partir des données de ton compte.',detail:'Des explications et des pistes concrètes, sans devoir maîtriser les tableaux.',icon:BrainCircuit,accent:'bg-[#eaf3ee]'},
-{eyebrow:'TES OPÉRATIONS, SANS TOUT RESSAISIR',title:'Les confirmations Mobile Money deviennent un suivi.',description:'Sur Android, Pata peut reconnaître les SMS de confirmation MTN MoMo et Orange Money pour détecter les entrées et sorties d’argent et préparer leur enregistrement, après les autorisations nécessaires.',detail:'Tu gardes le contrôle des opérations reconnues et de leur synchronisation.',icon:Smartphone,accent:'bg-[#edf3f9]'},
-{eyebrow:'UNE DISCIPLINE QUI SE CONSTRUIT',title:'Garde le cap, jour après jour.',description:'Suis tes dépenses, fixe des limites par catégorie et consulte des rappels ou des bilans pour voir où tu en es. Une méthode régulière aide à prendre de meilleures décisions.',detail:'Budgets, suivi quotidien, rapports et conseils réunis dans le même espace.',icon:ClipboardList,accent:'bg-[#f4f1e9]'},
-{eyebrow:'DES OBJECTIFS QUI AVANCENT',title:'Donne un but à ton épargne.',description:'Crée des objectifs, suis les versements et observe les progrès de chaque projet. La tirelire et les outils de prévision t’aident à organiser les sommes que tu souhaites protéger.',detail:'Tu vois ce qui est déjà mis de côté et ce qu’il reste à atteindre.',icon:PiggyBank,accent:'bg-[#edf5ef]'},
-{eyebrow:'AVANCER AUSSI ENSEMBLE',title:'Organise tes cotisations en toute visibilité.',description:'Crée ou rejoins un groupe, consulte les contributions, les échéances et l’ordre des bénéficiaires. Tu peux suivre les étapes de la cotisation au même endroit.',detail:'Pata rassemble le suivi personnel et les engagements collectifs.',icon:Users,accent:'bg-[#f0eff8]'}];
-function getRegisterPath(){if(typeof window==='undefined')return '/register';const ref=new URLSearchParams(window.location.search).get('ref')||'';return /^[A-Fa-f0-9]{12}$/.test(ref)?'/register?ref='+encodeURIComponent(ref):'/register';}
-function Spinner(){return <main className="grid min-h-[100dvh] place-items-center bg-[#f5f8f6]"><span className="h-8 w-8 animate-spin rounded-full border-2 border-[#0b5c46] border-t-transparent"/></main>;}
-export default function HomePage(){
- const {user,loading}=useAuth(),router=useRouter(),carouselRef=useRef(null);const [ready,setReady]=useState(false),[slide,setSlide]=useState(0);
- useEffect(()=>{if(loading)return;if(user){router.replace('/dashboard');return;}try{if(localStorage.getItem(ONBOARDING_KEY)==='1'){router.replace(new URLSearchParams(window.location.search).has('ref')?getRegisterPath():'/login');return;}}catch{/* Storage indisponible. */}setReady(true);},[loading,user,router]);
- const finish=(destination='/login')=>{try{localStorage.setItem(ONBOARDING_KEY,'1');}catch{/* Sans stockage, la navigation reste possible. */}router.replace(destination);};
- const moveSlide=(next)=>{const i=Math.max(0,Math.min(slides.length-1,next));setSlide(i);carouselRef.current?.children?.[i]?.scrollIntoView({behavior:'smooth',block:'nearest',inline:'start'});};
- const onScroll=e=>{const w=e.currentTarget.clientWidth||1;setSlide(Math.max(0,Math.min(slides.length-1,Math.round(e.currentTarget.scrollLeft/w))));};
- if(loading||user||!ready)return <Spinner/>;
- return <main className="relative flex min-h-[100dvh] flex-col overflow-hidden bg-[#f5f8f6] px-4 pb-8 pt-[max(1.25rem,env(safe-area-inset-top))] text-slate-900 sm:px-6">
- <header className="mx-auto flex w-full max-w-xl items-center justify-between"><div className="flex items-center gap-2.5"><img src="/android-chrome-192x192.png" alt="Pata" className="h-10 w-10 rounded-xl"/><span className="text-xl font-extrabold tracking-tight text-[#075b43]">Pata</span></div><button type="button" onClick={()=>finish('/login')} className="rounded-full px-3 py-2 text-xs font-semibold text-slate-500 hover:bg-white">Passer</button></header>
- <section className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center py-7">
- <div className="mb-5 flex items-center justify-between"><p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#0b5c46]">Découvrir Pata</p><span className="text-xs font-semibold tabular-nums text-slate-400">{slide+1} / {slides.length}</span></div>
- <div ref={carouselRef} onScroll={onScroll} className="flex snap-x snap-mandatory overflow-x-auto scroll-smooth rounded-[2rem] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
- {slides.map((item,index)=>{const Icon=item.icon;return <article key={item.eyebrow} className="w-full shrink-0 snap-start px-0.5">
- <div className="flex min-h-[245px] items-center justify-center rounded-[1.75rem] border border-white bg-white p-7 shadow-[0_18px_55px_-38px_rgba(15,23,42,.35)] sm:min-h-[280px]"><div className={'relative flex h-36 w-36 items-center justify-center rounded-[2.25rem] '+item.accent}><span className="absolute -right-3 -top-3 flex h-11 w-11 items-center justify-center rounded-2xl border border-white bg-white text-[#0b5c46] shadow-sm"><CheckCircle2 size={20}/></span><Icon size={66} strokeWidth={1.45} className="text-[#0b5c46]"/>{index===1&&<span className="absolute -bottom-3 -left-5 rounded-xl border border-slate-100 bg-white px-3 py-2 text-[10px] font-semibold text-slate-600 shadow-sm">Mobile Money</span>}{index===2&&<span className="absolute -bottom-3 -right-5 rounded-xl border border-slate-100 bg-white px-3 py-2 text-[10px] font-semibold text-slate-600 shadow-sm">Suivi régulier</span>}{index===3&&<span className="absolute -bottom-3 -right-5 rounded-xl border border-slate-100 bg-white px-3 py-2 text-[10px] font-semibold text-slate-600 shadow-sm">Objectif suivi</span>}{index===4&&<span className="absolute -bottom-3 -right-5 rounded-xl border border-slate-100 bg-white px-3 py-2 text-[10px] font-semibold text-slate-600 shadow-sm">En groupe</span>}</div></div>
- <p className="mt-7 text-[10px] font-bold tracking-[.16em] text-[#0b5c46]">{item.eyebrow}</p><h1 className="mt-3 max-w-lg text-[2rem] font-bold leading-[1.12] tracking-tight text-slate-950 sm:text-4xl">{item.title}</h1><p className="mt-4 text-sm leading-6 text-slate-600 sm:text-base sm:leading-7">{item.description}</p><div className="mt-5 flex items-start gap-2.5 rounded-2xl border border-[#dfe9e2] bg-white/75 p-3.5"><ShieldCheck size={17} className="mt-0.5 shrink-0 text-[#0b5c46]"/><p className="text-xs leading-5 text-slate-600">{item.detail}</p></div>
- </article>;})}
- </div>
- <div className="mt-7 flex items-center justify-between gap-4"><div className="flex items-center gap-1.5">{slides.map((item,index)=><button key={item.eyebrow} type="button" aria-label={'Afficher la présentation '+(index+1)} onClick={()=>moveSlide(index)} className={'h-1.5 rounded-full transition-all '+(slide===index?'w-7 bg-[#0b5c46]':'w-2 bg-slate-300')}/>)}</div>{slide>0&&<button type="button" onClick={()=>moveSlide(slide-1)} className="inline-flex h-10 items-center gap-1 rounded-xl px-3 text-xs font-semibold text-slate-600 hover:bg-white"><ArrowLeft size={15}/> Précédent</button>}</div>
- {slide<slides.length-1?<button type="button" onClick={()=>moveSlide(slide+1)} className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-[#0b5c46] text-sm font-bold text-white hover:bg-[#084b39]">Suivant <ArrowRight size={17}/></button>:<div className="mt-5 grid gap-2 sm:grid-cols-2"><button type="button" onClick={()=>finish(getRegisterPath())} className="flex h-12 items-center justify-center gap-2 rounded-2xl bg-[#0b5c46] text-sm font-bold text-white hover:bg-[#084b39]">Créer mon compte <ArrowRight size={17}/></button><button type="button" onClick={()=>finish('/login')} className="h-12 rounded-2xl border border-slate-200 bg-white text-sm font-bold text-slate-700 hover:bg-slate-50">J’ai déjà un compte</button></div>}
- </section><footer className="mx-auto flex w-full max-w-xl items-center justify-center gap-2 border-t border-slate-200/80 pt-4 text-[10px] text-slate-400"><CircleDollarSign size={13}/> Pata · Organiser, comprendre et suivre ton argent.</footer>
- </main>;
+
+import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/hooks/useAuth';
+import OnboardingIllustration from '@/components/OnboardingIllustrations';
+
+const ONBOARDING_KEY = 'pata-onboarding-completed-v1';
+const slides = [
+  {
+    eyebrow: 'TES FINANCES, AU MÊME ENDROIT',
+    title: 'Ton argent, mieux organisé.',
+    description: 'Suis tes dépenses, tes revenus, tes budgets et ton solde dans un espace clair, pensé pour t’aider à garder le contrôle.',
+    note: 'Tu vois rapidement où tu en es et ce qu’il te reste.',
+  },
+  {
+    eyebrow: 'UN CONSEIL QUI TE COMPREND',
+    title: 'Comprends mieux tes habitudes.',
+    description: 'Échange avec Mč, pose tes questions avec tes mots et demande des explications sur tes dépenses ou tes projets.',
+    note: 'Des réponses simples pour prendre de meilleures décisions.',
+  },
+  {
+    eyebrow: 'LE SUIVI MOBILE MONEY AUTOMATIQUE',
+    title: 'Moins de saisie, plus de suivi.',
+    description: 'Avec l’application Android et Premium, les confirmations MTN MoMo et Orange Money sont détectées et les opérations sont enregistrées automatiquement.',
+    note: 'Tes dépenses et tes entrées d’argent se mettent à jour sans tout ressaisir.',
+  },
+  {
+    eyebrow: 'TES PROJETS PRENNENT FORME',
+    title: 'Fais grandir ton épargne.',
+    description: 'Fixe un objectif, mets de l’argent de côté et suis chaque progression jusqu’à ce que ton projet devienne réalité.',
+    note: 'Tu sais ce qui est déjà épargné et ce qu’il reste à réunir.',
+  },
+  {
+    eyebrow: 'AVANCER À PLUSIEURS',
+    title: 'Tes cotisations sous contrôle.',
+    description: 'Crée ou rejoins un groupe, consulte les contributions, les échéances et l’ordre des bénéficiaires.',
+    note: 'Les informations importantes restent faciles à retrouver.',
+  },
+  {
+    eyebrow: 'DES CHOIX PLUS ÉCLAIRÉS',
+    title: 'Mesure tes progrès.',
+    description: 'Consulte tes bilans, compare différentes périodes et repère les habitudes qui influencent ton budget.',
+    note: 'Un meilleur aperçu pour ajuster tes décisions au bon moment.',
+  },
+];
+
+function getRegisterPath() {
+  if (typeof window === 'undefined') return '/register';
+  const ref = new URLSearchParams(window.location.search).get('ref') || '';
+  return /^[A-Fa-f0-9]{12}$/.test(ref) ? '/register?ref=' + encodeURIComponent(ref) : '/register';
+}
+
+function Spinner() {
+  return (
+    <main className="grid h-[100dvh] place-items-center overflow-hidden bg-[#f5f8f6]">
+      <span className="h-8 w-8 animate-spin rounded-full border-2 border-[#0b5c46] border-t-transparent" />
+    </main>
+  );
+}
+
+export default function HomePage() {
+  const { user, loading } = useAuth();
+  const router = useRouter();
+  const carouselRef = useRef(null);
+  const [ready, setReady] = useState(false);
+  const [slide, setSlide] = useState(0);
+
+  useEffect(() => {
+    if (loading) return;
+    if (user) {
+      router.replace('/dashboard');
+      return;
+    }
+    try {
+      if (localStorage.getItem(ONBOARDING_KEY) === '1') {
+        router.replace(new URLSearchParams(window.location.search).has('ref') ? getRegisterPath() : '/login');
+        return;
+      }
+    } catch {
+      // La présentation reste accessible si le stockage local est indisponible.
+    }
+    setReady(true);
+  }, [loading, user, router]);
+
+  const finish = (destination = '/login') => {
+    try {
+      localStorage.setItem(ONBOARDING_KEY, '1');
+    } catch {
+      // La navigation reste possible sans stockage local.
+    }
+    router.replace(destination);
+  };
+
+  const moveSlide = (next) => {
+    const index = Math.max(0, Math.min(slides.length - 1, next));
+    setSlide(index);
+    const target = carouselRef.current?.children?.[index];
+    target?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
+  };
+
+  const onScroll = (event) => {
+    const width = event.currentTarget.clientWidth || 1;
+    setSlide(Math.max(0, Math.min(slides.length - 1, Math.round(event.currentTarget.scrollLeft / width))));
+  };
+
+  if (loading || user || !ready) return <Spinner />;
+
+  return (
+    <main className="flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-[#f5f8f6] px-4 pb-[max(.7rem,env(safe-area-inset-bottom))] pt-[max(.65rem,env(safe-area-inset-top))] text-slate-900 sm:px-6">
+      <header className="mx-auto flex w-full max-w-xl shrink-0 items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <img src="/android-chrome-192x192.png" alt="Pata" className="h-9 w-9 rounded-xl" />
+          <span className="text-xl font-extrabold tracking-tight text-[#075b43]">Pata</span>
+        </div>
+        <button type="button" onClick={() => finish('/login')} className="rounded-full px-3 py-2 text-xs font-semibold text-slate-500 transition hover:bg-white">
+          Passer
+        </button>
+      </header>
+
+      <section className="mx-auto flex min-h-0 w-full max-w-xl flex-1 flex-col py-2">
+        <div className="mb-2 flex shrink-0 items-center justify-between">
+          <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#0b5c46]">Découvrir Pata</p>
+          <span className="text-xs font-semibold tabular-nums text-slate-400">{slide + 1} / {slides.length}</span>
+        </div>
+
+        <div
+          ref={carouselRef}
+          onScroll={onScroll}
+          aria-label="Présentation des fonctionnalités de Pata"
+          className="flex min-h-0 flex-1 snap-x snap-mandatory overflow-x-auto overflow-y-hidden overscroll-x-contain scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          style={{ WebkitOverflowScrolling: 'touch' }}
+        >
+          {slides.map((item, index) => (
+            <article key={item.eyebrow} className="flex h-full w-full shrink-0 snap-start flex-col items-center justify-center px-1 text-center">
+              <div className="mb-2 flex h-[clamp(138px,29dvh,214px)] w-full max-w-[350px] shrink-0 items-center justify-center">
+                <OnboardingIllustration index={index} />
+              </div>
+              <p className="text-[9px] font-bold tracking-[.17em] text-[#0b5c46] sm:text-[10px]">{item.eyebrow}</p>
+              <h1 className="mt-2 max-w-lg text-[clamp(1.55rem,5.5vw,2.1rem)] font-bold leading-[1.12] tracking-tight text-slate-950">
+                {item.title}
+              </h1>
+              <p className="mt-3 max-w-md text-[13px] leading-[1.55rem] text-slate-600 sm:text-sm">{item.description}</p>
+              <p className="mt-3 max-w-sm text-[11px] font-medium leading-5 text-slate-500 sm:text-xs">{item.note}</p>
+            </article>
+          ))}
+        </div>
+
+        <div className="mt-2 flex shrink-0 items-center justify-between gap-3">
+          <div className="flex items-center gap-1.5" aria-label="Progression de la présentation">
+            {slides.map((item, index) => (
+              <button
+                key={item.eyebrow}
+                type="button"
+                aria-label={'Afficher la page ' + (index + 1)}
+                aria-current={slide === index ? 'step' : undefined}
+                onClick={() => moveSlide(index)}
+                className={'h-1.5 rounded-full transition-all duration-300 ' + (slide === index ? 'w-7 bg-[#0b5c46]' : 'w-1.5 bg-slate-300')}
+              />
+            ))}
+          </div>
+          {slide > 0 && (
+            <button type="button" onClick={() => moveSlide(slide - 1)} className="rounded-xl px-3 py-2 text-xs font-semibold text-slate-500 transition hover:bg-white">
+              ← Précédent
+            </button>
+          )}
+        </div>
+
+        {slide < slides.length - 1 ? (
+          <button type="button" onClick={() => moveSlide(slide + 1)} className="mt-3 flex h-11 w-full shrink-0 items-center justify-center gap-2 rounded-2xl bg-[#0b5c46] text-sm font-bold text-white shadow-[0_8px_20px_-12px_rgba(11,92,70,.8)] transition hover:bg-[#084b39]">
+            Suivant <span aria-hidden="true">→</span>
+          </button>
+        ) : (
+          <div className="mt-3 grid shrink-0 gap-2 sm:grid-cols-2">
+            <button type="button" onClick={() => finish(getRegisterPath())} className="flex h-11 items-center justify-center gap-2 rounded-2xl bg-[#0b5c46] text-sm font-bold text-white transition hover:bg-[#084b39]">
+              Créer mon compte <span aria-hidden="true">→</span>
+            </button>
+            <button type="button" onClick={() => finish('/login')} className="h-11 rounded-2xl border border-slate-200 bg-white text-sm font-bold text-slate-700 transition hover:bg-slate-50">
+              J’ai déjà un compte
+            </button>
+          </div>
+        )}
+      </section>
+
+      <footer className="mx-auto flex w-full max-w-xl shrink-0 items-center justify-center border-t border-slate-200/80 pt-2 text-center text-[10px] text-slate-400">
+        Pata · Organiser, comprendre et suivre ton argent.
+      </footer>
+    </main>
+  );
 }
