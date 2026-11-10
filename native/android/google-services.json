@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "397563058226-22coje5tm7plp80mujhui9mjk78562h8.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.pata.app",
+            "certificate_hash": "0bac9bf84355bfec8cf53cd33c6236db82c22ee2"
+          }
+        },
+        {
           "client_id": "397563058226-382nnf95k6an3i0ma7d6leted695lt1b.apps.googleusercontent.com",
           "client_type": 3
         }
