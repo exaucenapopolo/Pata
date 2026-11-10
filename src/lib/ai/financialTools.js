@@ -2,10 +2,10 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb } from '@/lib/firebase/admin';
 
 const EXPENSE_CATEGORIES = [
-  'food', 'transport', 'housing', 'internet', 'health', 'leisure',
-  'investment', 'contribution', 'savings', 'other',
+  'food', 'transport', 'housing', 'internet', 'airtime', 'health', 'leisure',
+  'investment', 'contribution', 'savings', 'debt_repayment', 'loan_given', 'other',
 ];
-const INCOME_CATEGORIES = ['salary', 'business', 'gift', 'other_income'];
+const INCOME_CATEGORIES = ['salary', 'business', 'sales', 'commission', 'rental', 'pension', 'gift', 'debt_repayment_received', 'debt_borrowed', 'other_income'];
 const FREQUENCIES = ['daily', 'weekly', 'monthly'];
 const FREE_EXPENSE_LIMIT = 60;
 const FREE_CREATE_LIMITS = { incomes: 2, budgets: 2, goals: 1, vitalForecasts: 1, durationForecasts: 1 };
@@ -147,7 +147,19 @@ function getExpenseTypeForBudget(expense) {
 
 export async function createExpenseForUser(uid, input, { countQuota = true, sourceOverride = null, idempotencyKey = null, externalFunding = false, skipBudgetConfirmation = false } = {}) {
   const amount = asPositiveMoney(input.amount, 'Dépense');
-  const categoryId = await assertExpenseCategory(uid, input.categoryId || input.category || 'other');
+  const flowType = cleanText(input.flowType || (input.repaymentDebtId ? 'repayment' : 'normal'), 30);
+  if (!['normal', 'loan_given', 'repayment'].includes(flowType)) throw new Error('Type de mouvement financier invalide.');
+  const categoryId = await assertExpenseCategory(uid, input.categoryId || input.category || (flowType === 'loan_given' ? 'loan_given' : flowType === 'repayment' ? 'debt_repayment' : 'other'));
+  if (flowType === 'normal' && ['loan_given', 'debt_repayment'].includes(categoryId)) throw new Error('Utilise le type de mouvement correspondant pour enregistrer un prêt ou un remboursement.');
+  if (flowType === 'loan_given' && categoryId !== 'loan_given') throw new Error('Catégorie de prêt accordé invalide.');
+  if (flowType === 'repayment' && categoryId !== 'debt_repayment') throw new Error('Catégorie de remboursement invalide.');
+  const person = cleanText(input.person, 100);
+  const phone = cleanText(input.phone, 30);
+  const dueDate = String(input.dueDate || '').trim();
+  const repaymentDebtId = cleanText(input.repaymentDebtId, 150);
+  if (flowType === 'loan_given' && (!person || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate))) throw new Error('Indique le nom de la personne et la date d’échéance du prêt.');
+  if (flowType === 'repayment' && (!repaymentDebtId || categoryId !== 'debt_repayment')) throw new Error('Choisis la dette à rembourser avant de continuer.');
+  if (flowType !== 'repayment' && repaymentDebtId) throw new Error('Ce remboursement n’est pas associé à une dette valide.');
   const expenseType = cleanText(input.expenseType || 'consumption', 30);
   if (!['consumption', 'project', 'savings', 'investment'].includes(expenseType)) throw new Error('Choisis une nature de sortie valide.');
   const projectId = cleanText(input.projectId, 150);
@@ -165,6 +177,8 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
   const now = new Date();
   const currentMonth = monthKey(now);
   const expenseCollection = subcol(uid, 'expenses');
+  const newDebtRef = flowType === 'loan_given' ? subcol(uid, 'debts').doc() : null;
+  const repaymentDebtRef = flowType === 'repayment' ? subcol(uid, 'debts').doc(repaymentDebtId) : null;
   const idempotencyRef = idempotencyKey
     ? subcol(uid, 'ai_actions').doc(String(idempotencyKey).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 140))
     : null;
@@ -173,11 +187,28 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
     const budgetQuery = subcol(uid, 'budgets').where('month', '==', String(date).slice(0, 7));
     const readTasks = [transaction.get(userRef), transaction.get(incomesQuery), transaction.get(expensesQuery), transaction.get(budgetQuery)];
     if (idempotencyRef) readTasks.push(transaction.get(idempotencyRef));
-    const [userSnap, incomesSnap, expensesSnap, budgetsSnap, idempotencySnap] = await Promise.all(readTasks);
+    if (newDebtRef) readTasks.push(transaction.get(subcol(uid, 'debts').where('status', 'in', ['active', 'partial', 'late'])));
+    if (repaymentDebtRef) readTasks.push(transaction.get(repaymentDebtRef));
+    const readResults = await Promise.all(readTasks);
+    const [userSnap, incomesSnap, expensesSnap, budgetsSnap] = readResults;
+    let readIndex = 4;
+    const idempotencySnap = idempotencyRef ? readResults[readIndex++] : null;
+    const activeDebtsSnap = newDebtRef ? readResults[readIndex++] : null;
+    const repaymentDebtSnap = repaymentDebtRef ? readResults[readIndex] : null;
     if (idempotencyRef && idempotencySnap?.exists) return idempotencySnap.data().result;
     if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
+    if (repaymentDebtRef) {
+      if (!repaymentDebtSnap?.exists) throw new Error('Cette dette n’existe plus. Actualise la liste puis réessaie.');
+      const debt = repaymentDebtSnap.data() || {};
+      if (debt.type !== 'i_owe' || !['active', 'partial', 'late'].includes(debt.status)) throw new Error('Cette dette ne peut pas recevoir de remboursement.');
+      if (amount > (Number(debt.remaining) || 0)) throw new Error('Le remboursement dépasse le solde restant de cette dette.');
+    }
 
     const userData = userSnap.data();
+    const activeDebtCount = Number.isSafeInteger(Number(userData.activeDebtCount)) && userData.activeDebtCount !== null
+      ? Number(userData.activeDebtCount) : (activeDebtsSnap?.size || 0);
+    if (newDebtRef && !isPremium(userData) && activeDebtCount >= 2) throw new Error('Le compte gratuit est limité à 2 dettes ou prêts actifs. Passe à Premium pour en suivre davantage.');
+    let repaymentCompleted = false;
     let projectName = '';
     if (expenseType === 'project') {
       if (!isPremium(userData)) throw new Error('La gestion des projets est réservée à Pata Premium.');
@@ -192,7 +223,7 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
         lastResetMonth: currentMonth,
       };
     }
-    if (countQuota && !isPremium(userData) && (Number(nextStats.expenses) || 0) >= FREE_EXPENSE_LIMIT) {
+    if (flowType !== 'loan_given' && countQuota && !isPremium(userData) && (Number(nextStats.expenses) || 0) >= FREE_EXPENSE_LIMIT) {
       throw new Error(`Limite gratuite atteinte (${FREE_EXPENSE_LIMIT} dépenses par mois). Passe Premium pour continuer.`);
     }
 
@@ -244,14 +275,14 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
     const warnings = [];
     const budgetRows = budgetsSnap?.docs?.map((doc) => ({ id: doc.id, ...doc.data() })) || [];
     for (const budget of budgetRows) {
-      if (expenseType !== 'consumption' || budget.categoryId !== categoryId) continue;
+      if (flowType === 'loan_given' || expenseType !== 'consumption' || budget.categoryId !== categoryId) continue;
       const sourceId = budget.incomeSourceId || 'all';
       const planned = sourceId === 'all'
         ? amount
         : (plannedBySource.get(sourceId) || 0);
       if (planned <= 0) continue;
       const spentBefore = expenses
-        .filter((expense) => getExpenseTypeForBudget(expense) === 'consumption'
+        .filter((expense) => !expense.neutralFlow && getExpenseTypeForBudget(expense) === 'consumption'
           && String(expense.date || '').slice(0, 7) === String(date).slice(0, 7)
           && expense.categoryId === categoryId
           && (sourceId === 'all' || expense.incomeSourceId === sourceId))
@@ -299,6 +330,10 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
         incomeSourceId: income.id,
         incomeSourceName: income.source || 'Revenu sans nom',
         expenseType,
+        flowType,
+        neutralFlow: flowType === 'loan_given',
+        ...(flowType === 'loan_given' ? { person, phone: phone || null, dueDate, debtId: newDebtRef.id } : {}),
+        ...(flowType === 'repayment' ? { repaymentDebtId } : {}),
         projectId: expenseType === 'project' ? projectId : null,
         projectName: expenseType === 'project' ? projectName : null,
         ...(smsImportId ? { smsImportId } : {}),
@@ -309,17 +344,28 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
       created.push({ expenseId: expenseRef.id, incomeSourceId: income.id, incomeSourceName: income.source || 'Revenu sans nom', amount: allocated });
     });
 
-    if (countQuota && !isPremium(userData)) {
-      nextStats = { ...nextStats, expenses: (Number(nextStats.expenses) || 0) + 1, lastResetMonth: currentMonth };
+    if (flowType === 'loan_given') {
+      transaction.create(newDebtRef, { type: 'owed_to_me', person, phone: phone || null, amount, remaining: amount, createdAt: FieldValue.serverTimestamp(), dueDate, status: dueDate < todayDouala() ? 'late' : 'active', note, transactionId: created[0]?.expenseId || null });
+    } else if (repaymentDebtRef) {
+      const debt = repaymentDebtSnap.data() || {};
+      const remaining = Math.max(0, (Number(debt.remaining) || 0) - amount);
+      const status = remaining <= 0 ? 'paid' : debt.dueDate && debt.dueDate < todayDouala() ? 'late' : 'partial';
+      repaymentCompleted = remaining <= 0;
+      const repaymentRef = repaymentDebtRef.collection('repayments').doc();
+      transaction.create(repaymentRef, { date, amount, transactionId: created[0]?.expenseId || null, source: input.smsImportId ? 'sms' : 'manual' });
+      transaction.update(repaymentDebtRef, { remaining, status, updatedAt: FieldValue.serverTimestamp() });
     }
-    transaction.set(userRef, {
-      lifetimeExpenseAmount: FieldValue.increment(amount),
-      lifetimeExpenseCount: FieldValue.increment(1),
-      ...(countQuota && !isPremium(userData) ? { monthlyStats: nextStats } : {}),
-    }, { merge: true });
+    if (flowType !== 'loan_given') {
+      if (countQuota && !isPremium(userData)) nextStats = { ...nextStats, expenses: (Number(nextStats.expenses) || 0) + 1, lastResetMonth: currentMonth };
+      transaction.set(userRef, { lifetimeExpenseAmount: FieldValue.increment(amount), lifetimeExpenseCount: FieldValue.increment(1), ...(countQuota && !isPremium(userData) ? { monthlyStats: nextStats } : {}), ...(repaymentCompleted ? { activeDebtCount: FieldValue.increment(-1) } : {}) }, { merge: true });
+    } else if (newDebtRef) {
+      transaction.set(userRef, { activeDebtCount: activeDebtCount + 1 }, { merge: true });
+    }
 
     const result = {
-      success: true, amount, date, categoryId, expenseType,
+      success: true, amount, date, categoryId, expenseType, flowType,
+      ...(newDebtRef ? { debtId: newDebtRef.id } : {}),
+      ...(repaymentDebtRef ? { repaymentDebtId } : {}),
       projectId: expenseType === 'project' ? projectId : null,
       projectName: projectName || null,
       allocations: created,
@@ -358,6 +404,7 @@ export async function updateExpenseForUser(uid, expenseId, input) {
     if (!expenseSnap.exists) throw new Error('Dépense introuvable.');
 
     const previousData = expenseSnap.data();
+    if (previousData.flowType === 'loan_given' || previousData.repaymentDebtId) throw new Error('Modifie ou supprime ce mouvement depuis le module Dettes & prêts pour conserver le suivi du solde.');
     const amount = requestedAmount ?? asPositiveMoney(previousData.amount, 'Dépense');
     const categoryId = validatedRequestedCategory === undefined
       ? (cleanText(previousData.categoryId, 80) || 'other')
@@ -503,6 +550,8 @@ export async function deleteExpenseForUser(uid, expenseId) {
   await adminDb.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(expenseRef);
     if (!snapshot.exists) throw new Error('Dépense introuvable.');
+    const data = snapshot.data() || {};
+    if (data.flowType === 'loan_given' || data.repaymentDebtId) throw new Error('Ce mouvement est lié au module Dettes & prêts. Gère-le depuis cette rubrique pour préserver les soldes.');
     transaction.delete(expenseRef);
   });
   return { success: true, expenseId: id, message: 'Dépense supprimée.' };

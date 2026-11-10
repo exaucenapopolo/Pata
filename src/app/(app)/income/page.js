@@ -17,6 +17,7 @@ import { CategoryManager } from '@/components/ui/CategoryManager';
 import { CategoryImage } from '@/components/ui/CategoryImage';
 import { useAuth } from '@/hooks/useAuth';
 import { useIncomes } from '@/hooks/useIncomes';
+import { useDebts } from '@/hooks/useDebts';
 import { useExpenses } from '@/hooks/useExpenses';
 import { useProfile } from '@/hooks/useProfile';
 import { useProjects } from '@/hooks/useProjects';
@@ -46,7 +47,7 @@ const currentTime = () => {
   const d = new Date();
   return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 };
-const emptyIncomeForm = () => ({ id: null, amount: '', source: 'Salaire', categoryId: 'salary', note: '', date: todayIso(), projectId: '', time: currentTime(), locationLabel: '', latitude: null, longitude: null, locationAccuracy: null, paymentMethod: '', details: '' });
+const emptyIncomeForm = () => ({ id: null, amount: '', source: 'Salaire', categoryId: 'salary', note: '', date: todayIso(), projectId: '', time: currentTime(), locationLabel: '', latitude: null, longitude: null, locationAccuracy: null, paymentMethod: '', details: '', flowType: 'normal', person: '', phone: '', dueDate: '', repaymentDebtId: '' });
 
 const FREQUENCIES = [
   { id: 'daily', label: 'Par jour', multiplier: 30 },
@@ -57,12 +58,15 @@ const FREQUENCIES = [
 export default function IncomePage() {
   const { user } = useAuth();
   const { incomes } = useIncomes();
+  const { debts } = useDebts();
+  const activeReceivableDebts = debts.filter((debt) => debt.type === 'owed_to_me' && ['active', 'partial', 'late'].includes(debt.status) && Number(debt.remaining) > 0);
   const { expenses } = useExpenses();
   const { profile, save } = useProfile();
   const { projects } = useProjects();
   const premiumExpiry = profile?.premiumUntil?.toDate ? profile.premiumUntil.toDate() : new Date(profile?.premiumUntil || 0);
   const isPremium = Number.isFinite(premiumExpiry.getTime()) && premiumExpiry > new Date();
   const { customCategories } = useCustomCategories('expense');
+  const { customCategories: customIncomeCategories } = useCustomCategories('income');
   const { rules, updatePercent, saveRules, resetRules, total, isValid, loading: rulesLoading } = useBudgetRules();
 
   const [month, setMonth] = useState(todayMonth());
@@ -95,14 +99,20 @@ export default function IncomePage() {
   const [savingDuration, setSavingDuration] = useState(false);
 
   useEffect(() => {
-    const openFromShortcut = () => { setForm(emptyIncomeForm()); setError(''); setOpen(true); };
-    window.addEventListener('pata:income-new', openFromShortcut);
+    const openFromShortcut = (flowType = 'normal', debtId = '') => {
+      const categoryId = flowType === 'debt_borrowed' ? 'debt_borrowed' : flowType === 'repayment_received' ? 'debt_repayment_received' : 'salary';
+      setForm({ ...emptyIncomeForm(), flowType: ['debt_borrowed', 'repayment_received'].includes(flowType) ? flowType : 'normal', repaymentDebtId: debtId, categoryId });
+      setError('');
+      setOpen(true);
+    };
+    const eventHandler = () => openFromShortcut();
+    window.addEventListener('pata:income-new', eventHandler);
     const params = new URLSearchParams(window.location.search);
     if (params.get('new') === '1') {
-      openFromShortcut();
+      openFromShortcut(params.get('flowType') || 'normal', params.get('debtId') || '');
       window.history.replaceState(null, '', window.location.pathname);
     }
-    return () => window.removeEventListener('pata:income-new', openFromShortcut);
+    return () => window.removeEventListener('pata:income-new', eventHandler);
   }, []);
 
   useEffect(() => {
@@ -199,12 +209,12 @@ export default function IncomePage() {
   };
 
   const monthIncomes = useMemo(() => incomesWithBalance.filter((i) => i.month === month).sort((a, b) => (a.date < b.date ? 1 : -1)), [incomesWithBalance, month]);
-  const totalIncome = monthIncomes.reduce((s, i) => s + (Number(i.remaining) || 0), 0);
+  const totalIncome = monthIncomes.filter((income) => !income.neutralFlow).reduce((s, i) => s + (Number(i.remaining) || 0), 0);
   const breakdown = useMemo(() => computeBudgetBreakdown(totalIncome, rules), [totalIncome, rules]);
 
   const vitalNeeds = profile?.vitalNeeds || {};
   const allCategories = useMemo(() => {
-    const defaults = EXPENSE_CATEGORIES.map(c => ({...c, isCustom: false}));
+    const defaults = EXPENSE_CATEGORIES.filter((category) => category.id !== 'loan_given').map(c => ({...c, isCustom: false}));
     const customs = customCategories.map(c => ({...c, isCustom: true, label: c.name}));
     return [...defaults, ...customs];
   }, [customCategories]);
@@ -361,6 +371,7 @@ export default function IncomePage() {
       locationAccuracy: income.locationAccuracy ?? null,
       paymentMethod: income.paymentMethod || '',
       details: income.details || '',
+      flowType: income.flowType || 'normal', person: income.person || '', phone: income.phone || '', dueDate: income.dueDate || '', repaymentDebtId: income.repaymentDebtId || '',
     });
     setError('');
     setOpen(true);
@@ -371,11 +382,16 @@ export default function IncomePage() {
     const amount = Number(form.amount);
     if (!amount || amount <= 0) return setError('Montant invalide.');
     if (!form.source.trim()) return setError('Indique le nom ou la source de ce revenu.');
+    if (form.flowType === 'debt_borrowed' && (!form.person.trim() || !form.dueDate)) return setError('Indique la personne et la date d’échéance de la dette.');
+    if (form.flowType === 'repayment_received' && !form.repaymentDebtId) return setError('Choisis la créance remboursée.');
     setSaving(true);
     try {
       const payload = {
-        amount, source: form.source, categoryId: form.categoryId, note: form.note,
-        date: form.date, month: form.date.slice(0, 7), projectId: isPremium ? form.projectId : '', time: form.time,
+        amount, source: form.flowType === 'debt_borrowed' ? form.person : form.source,
+        categoryId: form.flowType === 'debt_borrowed' ? 'debt_borrowed' : form.flowType === 'repayment_received' ? 'debt_repayment_received' : form.categoryId,
+        flowType: form.flowType || 'normal', person: form.person, phone: form.phone, dueDate: form.dueDate,
+        repaymentDebtId: form.flowType === 'repayment_received' ? form.repaymentDebtId : '', note: form.note,
+        date: form.date, month: form.date.slice(0, 7), projectId: form.flowType === 'normal' && isPremium ? form.projectId : '', time: form.time,
         locationLabel: form.locationLabel, latitude: form.latitude, longitude: form.longitude,
         locationAccuracy: form.locationAccuracy, paymentMethod: form.paymentMethod, details: form.details,
       };
@@ -605,6 +621,8 @@ export default function IncomePage() {
                     <span className="min-w-0">
                       <span className="flex flex-wrap items-center gap-2"><strong className="truncate text-sm text-slate-900">{inc.source}</strong>{inc.isExhausted && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">Épuisé</span>}</span>
                       <span className="mt-0.5 block text-xs text-slate-500">{formatDate(inc.date)} · {INCOME_CATEGORIES.find(c => c.id === inc.categoryId)?.label || 'Revenu'}</span>
+                      {inc.neutralFlow && <span className="mt-1 inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">Mouvement neutre · Dette contractée</span>}
+                      {inc.repaymentDebtId && <span className="mt-1 inline-flex rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Remboursement reçu</span>}
                       <span className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-slate-400">{inc.time && <span className="inline-flex items-center gap-1"><Clock3 size={10}/>{inc.time}</span>}{inc.locationLabel && <span className="inline-flex max-w-[150px] items-center gap-1 truncate"><MapPin size={10}/>{inc.locationLabel}</span>}</span>
                     </span>
                   </span>
@@ -690,10 +708,10 @@ export default function IncomePage() {
               </div>
               {selectedIncome.latitude != null && selectedIncome.longitude != null && <a href={'https://www.google.com/maps?q=' + selectedIncome.latitude + ',' + selectedIncome.longitude} target="_blank" rel="noreferrer" className="block rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-brand-800 hover:bg-brand-50">Voir la position sur la carte</a>}
               <AssistantShortcut label="Analyser ce revenu avec Mč" prompt={`Analyse ce revenu enregistré dans Pata : source ${selectedIncome.source || 'non précisée'}, montant ${selectedIncome.amount} FCFA, date ${selectedIncome.date || 'non précisée'}, catégorie ${selectedIncome.categoryId || 'non précisée'}. Explique son importance dans mon équilibre financier et propose des conseils concrets. Ne modifie aucune donnée.`}/>
-              <div className="flex flex-wrap gap-2">
+              {selectedIncome.neutralFlow || selectedIncome.debtId || selectedIncome.repaymentDebtId ? <p className="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">Ce mouvement est lié au suivi des Dettes & prêts. Pour préserver le solde restant et l’historique, sa modification ou sa suppression se gère dans cette rubrique.</p> : <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="outline" className="flex-1" onClick={() => openEditIncome(selectedIncome)}><Pencil size={14}/> Modifier</Button>
                 <Button type="button" variant="outline" className="flex-1 border-red-200 text-red-700 hover:bg-red-50" onClick={() => { setDeleteId(selectedIncome.id); setSelectedIncome(null); }}><Trash2 size={14}/> Supprimer</Button>
-              </div>
+              </div>}
             </div>
           );
         })()}
@@ -701,16 +719,14 @@ export default function IncomePage() {
 
       <Modal open={open} onClose={() => setOpen(false)} title={form.id ? "Modifier le revenu" : "Nouveau revenu"}>
         <form onSubmit={onSubmit} className="space-y-3">
+          <div><label className="mb-1 block text-sm font-medium text-slate-700">Type d’opération</label><select value={form.flowType || 'normal'} disabled={!!form.id} onChange={(event) => { const flowType = event.target.value; const categoryId = flowType === 'debt_borrowed' ? 'debt_borrowed' : flowType === 'repayment_received' ? 'debt_repayment_received' : 'salary'; setForm({ ...form, flowType, categoryId, repaymentDebtId: flowType === 'repayment_received' ? form.repaymentDebtId : '', projectId: '' }); }} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="normal">Revenu normal</option><option value="debt_borrowed">Dette contractée (argent emprunté)</option><option value="repayment_received">Remboursement reçu</option></select></div>
+          {form.flowType === 'debt_borrowed' && <div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><Input label="Personne qui te prête" required value={form.person} onChange={(event) => setForm({ ...form, person: event.target.value, source: event.target.value })}/><Input label="Téléphone (facultatif)" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })}/><Input label="Date d’échéance" type="date" required value={form.dueDate} onChange={(event) => setForm({ ...form, dueDate: event.target.value })}/></div>}
+          {form.flowType === 'repayment_received' && <div><label className="mb-1 block text-sm font-medium text-slate-700">Créance remboursée</label><select required value={form.repaymentDebtId} onChange={(event) => setForm({ ...form, repaymentDebtId: event.target.value })} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="">Choisir une créance</option>{activeReceivableDebts.map((debt) => <option key={debt.id} value={debt.id}>{debt.person} · {formatCurrency(Number(debt.remaining) || 0)} restant</option>)}</select>{!activeReceivableDebts.length && <p className="mt-1 text-xs text-slate-500">Aucune créance active à encaisser.</p>}</div>}
           <Input label="Montant (FCFA)" type="number" min="0" step="1" required value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">Type de revenu</label>
-            <select value={form.categoryId} onChange={(e) => { const catId = e.target.value; const cat = INCOME_CATEGORIES.find(c => c.id === catId); setForm({ ...form, categoryId: catId, source: cat.label }); }} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm">
-              {INCOME_CATEGORIES.map((c) => (<option key={c.id} value={c.id}>{c.label}</option>))}
-            </select>
-          </div>
-          <Input label="Nom / Source" required value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} />
+          {form.flowType === 'normal' ? <div><p className="mb-2 text-sm font-medium text-slate-700">Catégorie de revenu</p><CategoryManager type="income" value={form.categoryId} onChange={(id) => { const category = [...INCOME_CATEGORIES, ...customIncomeCategories].find((item) => item.id === id); setForm({ ...form, categoryId: id, source: category?.label || category?.name || form.source }); }}/></div> : <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">Catégorie : <strong>{form.flowType === 'debt_borrowed' ? 'Dette contractée (mouvement neutre)' : 'Remboursement reçu (revenu normal)'}</strong></p>}
+{form.flowType === 'normal' && <Input label="Nom / Source" required value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} />}
           <Input label="Date" type="date" required value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
-          {isPremium && <div><label className="mb-1 block text-sm font-medium text-slate-700">Affecter ce revenu à un projet (facultatif)</label><select value={form.projectId || ''} onChange={(e) => setForm({ ...form, projectId: e.target.value })} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="">Aucun projet — revenu général</option>{projects.filter((item) => item.status === 'active').map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select><p className="mt-1 text-[11px] leading-4 text-slate-500">Un revenu affecté à un projet est réservé à celui-ci et n’est pas proposé pour les dépenses générales.</p></div>}
+          {isPremium && form.flowType === 'normal' && <div><label className="mb-1 block text-sm font-medium text-slate-700">Affecter ce revenu à un projet (facultatif)</label><select value={form.projectId || ''} onChange={(e) => setForm({ ...form, projectId: e.target.value })} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="">Aucun projet — revenu général</option>{projects.filter((item) => item.status === 'active').map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select><p className="mt-1 text-[11px] leading-4 text-slate-500">Un revenu affecté à un projet est réservé à celui-ci et n’est pas proposé pour les dépenses générales.</p></div>}
           <Input label="Note (facultatif)" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
           <OptionalTransactionFields value={form} onChange={(next) => setForm(next)} kind="income" />
           {error && <p className="text-sm text-red-600">{error}</p>}

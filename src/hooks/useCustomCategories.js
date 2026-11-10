@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { subscribeCategories } from '@/lib/firestore/categories';
-import { EXPENSE_CATEGORIES, GOAL_CATEGORIES } from '@/lib/constants';
+import { EXPENSE_CATEGORIES, GOAL_CATEGORIES, INCOME_CATEGORIES } from '@/lib/constants';
 
 export function useCustomCategories(type) {
   const { user } = useAuth();
@@ -20,7 +20,7 @@ export function useCustomCategories(type) {
   }, [user, type]);
 
   const all = useMemo(() => {
-    const defaults = type === 'goal' ? GOAL_CATEGORIES : EXPENSE_CATEGORIES;
+    const defaults = type === 'goal' ? GOAL_CATEGORIES : type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
     return [
       ...defaults.map((c) => ({ ...c, isCustom: false })),
       ...custom.map((c) => ({ ...c, isCustom: true })),

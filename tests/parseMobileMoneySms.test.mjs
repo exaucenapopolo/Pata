@@ -4,6 +4,27 @@ import { parseMobileMoneySms } from '../src/lib/sms/parseMobileMoneySms.mjs';
 
 const receivedAt = new Date('2026-11-09T10:20:00+01:00');
 
+test('reconnaît Ref:, Réf:, Réf. et Référence comme préfixes d’identifiant', () => {
+  for (const prefix of ['Ref:', 'Réf:', 'Réf.', 'Référence:']) {
+    const result = parseMobileMoneySms(
+      `Orange Money : Paiement réussi. ARNO. Montant transaction : 2 000 FCFA. ${prefix} MP180329.1942.A015. Nouveau solde : 10 000 FCFA.`,
+      { receivedAt }
+    );
+    assert.equal(result?.transactionId, 'MP180329.1942.A015', prefix);
+    assert.equal(result?.direction, 'expense', prefix);
+  }
+});
+
+test('reconnaît l’achat de crédit téléphonique comme une sortie Airtime', () => {
+  const result = parseMobileMoneySms(
+    'MTN MoMo : Achat de crédit téléphonique réussi. Montant : 500 FCFA. Ref: MP180329.1942.A015.',
+    { sender: 'MTN', receivedAt }
+  );
+  assert.equal(result?.eventType, 'payment');
+  assert.equal(result?.direction, 'expense');
+  assert.equal(result?.amount, 500);
+});
+
 test('parse un SMS de paiement marchand Orange Money sans exiger de modèle unique', () => {
   const result = parseMobileMoneySms(
     'Orange Money : Paiement réussi. ARNO Yaoundé. Informations détaillées : Montant transaction : 2 018 FCFA. Référence : MP180329.1942.A015. Nouveau solde : 12 500 FCFA.',

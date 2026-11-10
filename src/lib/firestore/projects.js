@@ -33,6 +33,13 @@ export async function createProject(uid, data) {
   return postProjectAction('create', data);
 }
 
+export async function deleteProject(uid, projectId, mode = 'detach') {
+  const user = auth.currentUser;
+  if (!user || user.uid !== uid) throw new Error('Session expirée. Reconnecte-toi puis réessaie.');
+  if (!['detach', 'delete'].includes(mode)) throw new Error('Choix de suppression invalide.');
+  return postProjectAction('delete', { projectId, mode });
+}
+
 export async function updateProject(uid, projectId, patch) {
   const user = auth.currentUser;
   if (!user || user.uid !== uid) throw new Error('Session expirée. Reconnecte-toi puis réessaie.');

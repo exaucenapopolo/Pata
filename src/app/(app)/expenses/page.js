@@ -13,9 +13,10 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
 import { useProjects } from '@/hooks/useProjects';
-import { createProject, updateProject } from '@/lib/firestore/projects';
+import { createProject, updateProject, deleteProject } from '@/lib/firestore/projects';
 import { useExpenses } from '@/hooks/useExpenses';
 import { useIncomes } from '@/hooks/useIncomes';
+import { useDebts } from '@/hooks/useDebts';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { createExpense, updateExpense, deleteExpense } from '@/lib/firestore/expenses';
 import { createAutomation } from '@/lib/firestore/automations';
@@ -50,6 +51,7 @@ const emptyForm = () => ({
   details: '',
   incomeSourceId: 'all',
   incomeSourceName: 'Tous les revenus',
+  flowType: 'normal', person: '', phone: '', dueDate: '', repaymentDebtId: '',
 });
 
 export default function ExpensesPage() {
@@ -60,6 +62,8 @@ export default function ExpensesPage() {
   const premiumDate = profile?.premiumUntil?.toDate ? profile.premiumUntil.toDate() : new Date(profile?.premiumUntil || 0);
   const isPremium = Number.isFinite(premiumDate.getTime()) && premiumDate > new Date();
   const { incomes } = useIncomes();
+  const { debts } = useDebts();
+  const activePayableDebts = debts.filter((debt) => debt.type === 'i_owe' && ['active', 'partial', 'late'].includes(debt.status) && Number(debt.remaining) > 0);
   const { customCategories } = useCustomCategories('expense');
   
   const [showCustomPeriod, setShowCustomPeriod] = useState(false);
@@ -77,6 +81,9 @@ export default function ExpensesPage() {
   const [projectActionId, setProjectActionId] = useState('');
   const [projectActionError, setProjectActionError] = useState('');
   const [showCompletedProjects, setShowCompletedProjects] = useState(false);
+  const [projectToDelete, setProjectToDelete] = useState(null);
+  const [projectDeleteMode, setProjectDeleteMode] = useState('detach');
+  const [projectDeleting, setProjectDeleting] = useState(false);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -92,7 +99,9 @@ export default function ExpensesPage() {
     window.addEventListener('pata:expense-new', openFromShortcut);
     const params = new URLSearchParams(window.location.search);
     if (params.get('new') === '1') {
-      openFromShortcut();
+      const flowType = params.get('flowType') || 'normal';
+      setForm({ ...emptyForm(), flowType: ['loan_given', 'repayment'].includes(flowType) ? flowType : 'normal', repaymentDebtId: params.get('debtId') || '', categoryId: flowType === 'loan_given' ? 'loan_given' : flowType === 'repayment' ? 'debt_repayment' : 'food' });
+      setError(''); setOpen(true);
       window.history.replaceState(null, '', window.location.pathname);
     }
     return () => window.removeEventListener('pata:expense-new', openFromShortcut);
@@ -138,7 +147,7 @@ export default function ExpensesPage() {
     return expenses
       .filter((e) => e.date >= startDate && e.date <= endDate)
       .filter((e) => filterCategory === 'all' || e.categoryId === filterCategory)
-      .filter((e) => filterType === 'all' || (e.expenseType || 'consumption') === filterType)
+      .filter((e) => filterType === 'all' || (filterType === 'neutral' ? e.neutralFlow === true : !e.neutralFlow && (e.expenseType || 'consumption') === filterType))
       .sort((a, b) => (a.date < b.date ? 1 : -1));
   }, [expenses, startDate, endDate, filterCategory, filterType]);
 
@@ -151,17 +160,17 @@ export default function ExpensesPage() {
     return Object.entries(map).sort(([a], [b]) => (a < b ? 1 : -1));
   }, [filtered]);
 
-  const total = filtered.reduce((s, e) => s + (e.amount || 0), 0);
+  const total = filtered.filter((expense) => !expense.neutralFlow).reduce((s, e) => s + (e.amount || 0), 0);
   const typeTotals = useMemo(() => expenses
-    .filter((e) => e.date >= startDate && e.date <= endDate)
+    .filter((e) => !e.neutralFlow && e.date >= startDate && e.date <= endDate)
     .reduce((totals, e) => {
       const type = ['consumption', 'project', 'savings', 'investment'].includes(e.expenseType) ? e.expenseType : 'consumption';
       totals[type] += Number(e.amount) || 0;
       return totals;
     }, { consumption: 0, project: 0, savings: 0, investment: 0 }), [expenses, startDate, endDate]);
   const projectTotals = useMemo(() => projects.map((project) => {
-    const linkedExpenses = expenses.filter((item) => item.projectId === project.id);
-    const linkedIncomes = incomes.filter((item) => item.projectId === project.id);
+    const linkedExpenses = expenses.filter((item) => !item.neutralFlow && item.projectId === project.id);
+    const linkedIncomes = incomes.filter((item) => !item.neutralFlow && item.projectId === project.id);
     return {
       ...project,
       spent: linkedExpenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
@@ -197,6 +206,7 @@ export default function ExpensesPage() {
       details: exp.details || '',
       incomeSourceId: exp.incomeSourceId || 'all',
       incomeSourceName: exp.incomeSourceName || 'Tous les revenus',
+      flowType: exp.flowType || 'normal', person: exp.person || '', phone: exp.phone || '', dueDate: exp.dueDate || '', repaymentDebtId: exp.repaymentDebtId || '',
     });
     setError('');
     setOpen(true);
@@ -207,15 +217,19 @@ export default function ExpensesPage() {
     setError('');
     const amount = Number(form.amount);
     if (!amount || amount <= 0) return setError('Montant invalide.');
-    if (form.expenseType === 'project' && (!isPremium || !form.projectId)) return setError(isPremium ? 'Sélectionne un projet.' : 'La gestion des dépenses par projet nécessite Pata Premium.');
+    if (form.flowType === 'loan_given' && (!form.person.trim() || !form.dueDate)) return setError('Indique la personne et la date d’échéance du prêt.');
+    if (form.flowType === 'repayment' && !form.repaymentDebtId) return setError('Choisis la dette à rembourser.');
+    if (form.flowType === 'normal' && form.expenseType === 'project' && (!isPremium || !form.projectId)) return setError(isPremium ? 'Sélectionne un projet.' : 'La gestion des dépenses par projet nécessite Pata Premium.');
     
     setSaving(true);
     try {
       const payload = {
         amount,
-        categoryId: form.categoryId,
-        expenseType: form.expenseType || 'consumption',
-        projectId: form.expenseType === 'project' ? form.projectId : '',
+        categoryId: form.flowType === 'loan_given' ? 'loan_given' : form.flowType === 'repayment' ? 'debt_repayment' : form.categoryId,
+        flowType: form.flowType || 'normal', person: form.person, phone: form.phone, dueDate: form.dueDate,
+        repaymentDebtId: form.flowType === 'repayment' ? form.repaymentDebtId : '',
+        expenseType: form.flowType === 'normal' ? (form.expenseType || 'consumption') : 'consumption',
+        projectId: form.flowType === 'normal' && form.expenseType === 'project' ? form.projectId : '',
         date: form.date,
         note: form.note,
         incomeSourceId: form.incomeSourceId,
@@ -250,6 +264,14 @@ export default function ExpensesPage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleProjectDelete = async () => {
+    if (!projectToDelete) return;
+    setProjectDeleting(true); setProjectActionError('');
+    try { await deleteProject(user.uid, projectToDelete.id, projectDeleteMode); setProjectToDelete(null); setProjectDeleteMode('detach'); }
+    catch (err) { setProjectActionError(err.message || 'Impossible de supprimer ce projet.'); }
+    finally { setProjectDeleting(false); }
   };
 
   const handleProjectStatusChange = async (project, status) => {
@@ -336,7 +358,7 @@ export default function ExpensesPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Dépenses</h1>
           <p className="text-sm text-slate-500">
-            Total des sorties affichées : <span className="font-semibold text-slate-800">{formatCurrency(total)}</span>
+            Total des dépenses comptabilisées (hors prêts accordés) : <span className="font-semibold text-slate-800">{formatCurrency(total)}</span>
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -369,7 +391,7 @@ export default function ExpensesPage() {
               <div className="flex items-start justify-between gap-2"><div className="min-w-0"><h3 className="truncate text-sm font-bold text-slate-900">{project.name}</h3><p className="mt-1 line-clamp-2 text-xs text-slate-500">{project.description || 'Projet personnel'}</p><span className="mt-2 inline-flex rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600">{project.status === 'completed' ? 'Terminé' : project.status === 'archived' ? 'Archivé' : 'En cours'}</span></div><Briefcase size={17} className="shrink-0 text-slate-400"/></div>
               <div className="mt-3 grid grid-cols-2 gap-2 text-xs"><div><span className="block text-slate-500">Sorties liées</span><strong>{formatCurrency(project.spent)}</strong></div><div><span className="block text-slate-500">Revenus réservés</span><strong>{formatCurrency(project.income)}</strong></div></div>
               {target > 0 && <p className="mt-2 text-[11px] text-slate-500">Budget indicatif : {formatCurrency(target)}</p>}
-              <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt } }))} className="inline-flex h-9 items-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-brand-700 hover:bg-brand-50">Analyser avec Mč</button>{isPremium && project.status === 'active' && <button type="button" onClick={() => handleProjectStatusChange(project, 'completed')} disabled={projectActionId === project.id} className="inline-flex h-9 items-center rounded-lg border border-emerald-200 bg-white px-3 text-xs font-semibold text-emerald-700 disabled:opacity-50">{projectActionId === project.id ? 'Mise à jour…' : 'Marquer comme terminé'}</button>}{isPremium && project.status === 'completed' && <button type="button" onClick={() => handleProjectStatusChange(project, 'active')} disabled={projectActionId === project.id} className="inline-flex h-9 items-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 disabled:opacity-50">Réouvrir</button>}</div>
+              <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => setProjectToDelete(project)} className="inline-flex h-9 items-center rounded-lg border border-red-200 bg-white px-3 text-xs font-semibold text-red-700 hover:bg-red-50">Supprimer</button><button type="button" onClick={() => window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt } }))} className="inline-flex h-9 items-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-brand-700 hover:bg-brand-50">Analyser avec Mč</button>{isPremium && project.status === 'active' && <button type="button" onClick={() => handleProjectStatusChange(project, 'completed')} disabled={projectActionId === project.id} className="inline-flex h-9 items-center rounded-lg border border-emerald-200 bg-white px-3 text-xs font-semibold text-emerald-700 disabled:opacity-50">{projectActionId === project.id ? 'Mise à jour…' : 'Marquer comme terminé'}</button>}{isPremium && project.status === 'completed' && <button type="button" onClick={() => handleProjectStatusChange(project, 'active')} disabled={projectActionId === project.id} className="inline-flex h-9 items-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 disabled:opacity-50">Réouvrir</button>}</div>
             </article>;
           })}
           </div> : <p className="mt-4 rounded-xl border border-dashed border-slate-200 px-3 py-4 text-xs text-slate-500">Aucun projet en cours. Les projets terminés restent accessibles depuis le bouton ci-dessus.</p>}
@@ -413,6 +435,7 @@ export default function ExpensesPage() {
           <option value="project">Projets</option>
           <option value="savings">Épargne</option>
           <option value="investment">Investissements</option>
+          <option value="neutral">Prêts accordés (mouvements neutres)</option>
         </select>
         <select
           value={filterCategory}
@@ -446,7 +469,7 @@ export default function ExpensesPage() {
                   {formatDate(date, { weekday: 'long', day: '2-digit', month: 'long' })}
                 </p>
                 <p className="text-xs font-semibold text-slate-700">
-                  {formatCurrency(items.reduce((s, e) => s + e.amount, 0))}
+                  {formatCurrency(items.filter((expense) => !expense.neutralFlow).reduce((s, e) => s + e.amount, 0))}
                 </p>
               </div>
               <ul className="divide-y divide-slate-100">
@@ -458,7 +481,7 @@ export default function ExpensesPage() {
                         <CategoryImage categoryId={e.categoryId} image={cat?.image} size="md" />
                         <span className="min-w-0 flex-1">
                           <strong className="block truncate text-sm text-slate-800">{cat?.label || 'Autre'}</strong>
-                          <span className="mt-0.5 block text-[10px] font-semibold text-brand-700">{({ consumption: 'Dépense courante', project: 'Sortie de projet', savings: 'Épargne', investment: 'Investissement' })[e.expenseType || 'consumption']}{e.projectName ? ` · ${e.projectName}` : ''}</span>
+                          <span className="mt-0.5 block text-[10px] font-semibold text-brand-700">{e.neutralFlow ? 'Mouvement neutre · Prêt accordé' : e.repaymentDebtId ? 'Remboursement de dette' : ({ consumption: 'Dépense courante', project: 'Sortie de projet', savings: 'Épargne', investment: 'Investissement' })[e.expenseType || 'consumption']}{e.projectName ? ` · ${e.projectName}` : ''}</span>
                           <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-500">
                             {e.note && <span className="max-w-[160px] truncate">{e.note}</span>}
                             {e.time && <span className="inline-flex items-center gap-1"><Clock3 size={11}/>{e.time}</span>}
@@ -469,7 +492,7 @@ export default function ExpensesPage() {
                         <span className="shrink-0 text-right"><strong className="block text-sm font-bold text-slate-900">{formatCurrency(e.amount)}</strong><span className="text-[10px] font-medium text-brand-700">Voir le détail</span></span>
                       </button>
                       <div className="flex shrink-0 items-center gap-0.5">
-                        <button type="button" onClick={() => openEdit(e)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Modifier la dépense" title="Modifier"><Pencil size={15}/></button>
+                        {e.neutralFlow || e.debtId || e.repaymentDebtId ? <span className="px-2 text-[10px] text-slate-400">Suivi protégé</span> : <button type="button" onClick={() => openEdit(e)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Modifier la dépense" title="Modifier"><Pencil size={15}/></button>}
                       </div>
                     </li>
                   );
@@ -482,6 +505,9 @@ export default function ExpensesPage() {
 
       <Modal open={open} onClose={() => setOpen(false)} title={form.id ? 'Modifier la dépense' : 'Nouvelle dépense'}>
         <form onSubmit={onSubmit} className="space-y-4">
+          <div><label className="mb-1 block text-sm font-medium text-slate-700">Type d’opération</label><select value={form.flowType || 'normal'} disabled={!!form.id} onChange={(event) => { const flowType = event.target.value; setForm({ ...form, flowType, categoryId: flowType === 'loan_given' ? 'loan_given' : flowType === 'repayment' ? 'debt_repayment' : 'food', repaymentDebtId: flowType === 'repayment' ? form.repaymentDebtId : '', expenseType: 'consumption', projectId: '' }); }} className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="normal">Dépense normale</option><option value="loan_given">Prêt accordé (on me doit)</option><option value="repayment">Remboursement d’une dette</option></select></div>
+          {form.flowType === 'loan_given' && <div className="grid grid-cols-1 gap-2 sm:grid-cols-2"><Input label="Personne à qui tu prêtes" required value={form.person} onChange={(event) => setForm({ ...form, person: event.target.value })}/><Input label="Téléphone (facultatif)" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })}/><Input label="Date d’échéance" type="date" required value={form.dueDate} onChange={(event) => setForm({ ...form, dueDate: event.target.value })}/></div>}
+          {form.flowType === 'repayment' && <div><label className="mb-1 block text-sm font-medium text-slate-700">Dette à rembourser</label><select required value={form.repaymentDebtId} onChange={(event) => setForm({ ...form, repaymentDebtId: event.target.value })} className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="">Choisir une dette</option>{activePayableDebts.map((debt) => <option key={debt.id} value={debt.id}>{debt.person} · {formatCurrency(Number(debt.remaining) || 0)} restant</option>)}</select>{!activePayableDebts.length && <p className="mt-1 text-xs text-slate-500">Aucune dette active à rembourser.</p>}</div>}
           <Input
             label="Montant (FCFA)"
             type="number"
@@ -492,9 +518,9 @@ export default function ExpensesPage() {
             onChange={(e) => setForm({ ...form, amount: e.target.value })}
           />
           
-          <div>
+          {form.flowType === 'normal' ? <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">Nature de cette sortie d’argent</label>
-            <select value={form.expenseType || 'consumption'} onChange={(e) => setForm({ ...form, expenseType: e.target.value, projectId: e.target.value === 'project' ? form.projectId : '', incomeSourceId: 'all', incomeSourceName: 'Tous les revenus' })} className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm">
+            <select value={form.expenseType || 'consumption'} onChange={(event) => setForm({ ...form, expenseType: event.target.value, projectId: event.target.value === 'project' ? form.projectId : '', incomeSourceId: 'all', incomeSourceName: 'Tous les revenus' })} className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm">
               <option value="consumption">Dépense courante (consommation)</option>
               <option value="project">Dépense liée à un projet</option>
               <option value="savings">Versement d’épargne</option>
@@ -509,23 +535,19 @@ export default function ExpensesPage() {
             </div>}
             {form.expenseType === 'project' && <div className="mt-3">
               <label className="mb-1 block text-sm font-medium text-slate-700">Projet concerné</label>
-              <select required value={form.projectId || ''} onChange={(e) => setForm({ ...form, projectId: e.target.value, incomeSourceId: 'all', incomeSourceName: 'Tous les revenus' })} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm">
+              <select required value={form.projectId || ''} onChange={(event) => setForm({ ...form, projectId: event.target.value, incomeSourceId: 'all', incomeSourceName: 'Tous les revenus' })} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm">
                 <option value="">Choisir un projet</option>
                 {projects.filter((item) => item.status === 'active').map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
               </select>
               {!isPremium && <p className="mt-1 text-xs text-amber-700">La création et l’association de projets nécessitent Pata Premium.</p>}
               {isPremium && !projects.length && <p className="mt-1 text-xs text-slate-500">Crée d’abord un projet dans la rubrique ci-dessus.</p>}
             </div>}
-          </div>
+          </div> : <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">{form.flowType === 'loan_given' ? 'Prêt accordé : le montant diminue ton solde disponible, mais ne constitue pas une dépense budgétaire.' : 'Remboursement : il reste une dépense normale et peut être suivi dans tes budgets.'}</p>}
 
-          <div>
+          {form.flowType === 'normal' ? <div>
             <p className="mb-2 text-sm font-medium text-slate-700">Catégorie</p>
-            <CategoryManager
-              type="expense"
-              value={form.categoryId}
-              onChange={(id) => setForm({ ...form, categoryId: id })}
-            />
-          </div>
+            <CategoryManager type="expense" value={form.categoryId} onChange={(id) => setForm({ ...form, categoryId: id })}/>
+          </div> : <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">Catégorie : <strong>{form.flowType === 'loan_given' ? 'Prêt accordé (mouvement neutre)' : 'Remboursement de dette (dépense normale)'}</strong></p>}
 
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">D'où vient cet argent ?</label>
@@ -580,6 +602,15 @@ export default function ExpensesPage() {
         </form>
       </Modal>
 
+      <Modal open={!!projectToDelete} onClose={() => { if (!projectDeleting) { setProjectToDelete(null); setProjectDeleteMode('detach'); } }} title="Supprimer ce projet">
+        {projectToDelete && <div className="space-y-4">
+          <p className="text-sm leading-5 text-slate-600">Tu vas supprimer « {projectToDelete.name} ». Que souhaites-tu faire des opérations associées ?</p>
+          <label className="flex cursor-pointer gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3"><input type="radio" name="project-delete-mode" checked={projectDeleteMode === 'detach'} onChange={() => setProjectDeleteMode('detach')} className="mt-1"/><span><strong className="block text-sm text-emerald-900">Détacher les opérations (recommandé)</strong><span className="mt-1 block text-xs leading-5 text-emerald-800">Les opérations restent dans l’historique et perdent simplement le lien avec le projet.</span></span></label>
+          <label className="flex cursor-pointer gap-3 rounded-xl border border-red-200 bg-red-50 p-3"><input type="radio" name="project-delete-mode" checked={projectDeleteMode === 'delete'} onChange={() => setProjectDeleteMode('delete')} className="mt-1"/><span><strong className="block text-sm text-red-900">Supprimer aussi les opérations liées</strong><span className="mt-1 block text-xs leading-5 text-red-800">Les revenus et dépenses associés seront supprimés définitivement.</span></span></label>
+          <div className="flex gap-2"><Button type="button" variant="outline" className="flex-1" disabled={projectDeleting} onClick={() => { setProjectToDelete(null); setProjectDeleteMode('detach'); }}>Annuler</Button><Button type="button" className="flex-1" disabled={projectDeleting} onClick={handleProjectDelete}>{projectDeleting ? 'Suppression…' : 'Confirmer la suppression'}</Button></div>
+        </div>}
+      </Modal>
+
       <Modal open={projectModalOpen} onClose={() => setProjectModalOpen(false)} title="Créer un projet">
         <form onSubmit={handleCreateProject} className="space-y-3">
           <Input label="Nom du projet" required maxLength={100} value={projectForm.name} onChange={(e) => setProjectForm({ ...projectForm, name: e.target.value })} placeholder="Ex. Construction de ma maison"/>
@@ -612,11 +643,11 @@ export default function ExpensesPage() {
               </div>
               {selectedExpense.latitude != null && selectedExpense.longitude != null && <a href={'https://www.google.com/maps?q=' + selectedExpense.latitude + ',' + selectedExpense.longitude} target="_blank" rel="noreferrer" className="block rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-brand-800 hover:bg-brand-50">Voir la position sur la carte</a>}
               <AssistantShortcut label="Analyser cette dépense avec Mč" prompt={`Analyse cette dépense dans Pata : ${selectedExpense.amount} FCFA, catégorie ${category?.label || selectedExpense.categoryId}, date ${selectedExpense.date || 'non précisée'}, lieu ${selectedExpense.locationLabel || 'non renseigné'}, note ${selectedExpense.note || 'aucune'}. Explique son impact sur mon budget et donne un conseil concret sans modifier mes données.`}/>
-              <div className="grid grid-cols-2 gap-2">
+              {selectedExpense.neutralFlow || selectedExpense.debtId || selectedExpense.repaymentDebtId ? <p className="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">Ce mouvement est lié au module Dettes & prêts. Sa modification et sa suppression sont protégées pour conserver le solde et l’historique des remboursements.</p> : <><div className="grid grid-cols-2 gap-2">
                 <Button type="button" variant="outline" onClick={() => { setSelectedExpense(null); openEdit(selectedExpense); }}><Pencil size={14}/> Modifier</Button>
                 <Button type="button" variant="outline" onClick={() => { setDeleteId(selectedExpense.id); setSelectedExpense(null); }} className="border-red-200 text-red-700 hover:bg-red-50"><Trash2 size={14}/> Supprimer</Button>
               </div>
-              <Button type="button" className="w-full" onClick={() => { setRecurringExpense(selectedExpense); setRecurringFrequency('daily'); setRecurringError(''); setSelectedExpense(null); }}><Repeat size={14}/> Rendre récurrente</Button>
+              <Button type="button" className="w-full" onClick={() => { setRecurringExpense(selectedExpense); setRecurringFrequency('daily'); setRecurringError(''); setSelectedExpense(null); }}><Repeat size={14}/> Rendre récurrente</Button></>}
             </div>
           );
         })()}

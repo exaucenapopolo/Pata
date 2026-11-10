@@ -1528,6 +1528,42 @@ async function handleNotificationScheduler(request) {
     let failed = 0;
     for (const userDoc of usersSnapshot.docs) {
       const userData = userDoc.data();
+      try {
+        const openDebts = await userDoc.ref.collection('debts').where('status', 'in', ['active', 'partial', 'late']).get();
+        for (const debtDoc of openDebts.docs) {
+          const debt = debtDoc.data() || {};
+          const dueDate = String(debt.dueDate || '');
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate) || !(Number(debt.remaining) > 0)) continue;
+          const daysUntil = Math.round((Date.parse(dueDate + 'T00:00:00Z') - Date.parse(today + 'T00:00:00Z')) / 86400000);
+          if (daysUntil < 0 && debt.status !== 'late') await debtDoc.ref.update({ status: 'late', updatedAt: FieldValue.serverTimestamp() });
+          let reminderKey = '';
+          let title = '';
+          let body = '';
+          if (daysUntil === 3) {
+            reminderKey = 'before-3-' + today;
+            title = 'Une échéance approche';
+            body = (debt.type === 'owed_to_me' ? (debt.person + ' doit te rembourser') : ('Tu dois rembourser ' + debt.person)) + ' dans 3 jours : ' + Number(debt.remaining).toLocaleString('fr-FR') + ' FCFA. Consulte le suivi dans Pata.';
+          } else if (daysUntil === 0) {
+            reminderKey = 'due-' + today;
+            title = 'Échéance aujourd’hui';
+            body = 'Échéance prévue aujourd’hui pour ' + debt.person + ' : ' + Number(debt.remaining).toLocaleString('fr-FR') + ' FCFA. Mets à jour le suivi après le remboursement ou la réception.';
+          } else if (daysUntil < 0 && Math.abs(daysUntil) % 7 === 0) {
+            reminderKey = 'overdue-' + today;
+            title = 'Rappel de dette en retard';
+            body = (debt.type === 'owed_to_me' ? 'Le remboursement attendu de ' : 'Le remboursement dû à ') + debt.person + ' est en retard de ' + Math.abs(daysUntil) + ' jour(s). Solde restant : ' + Number(debt.remaining).toLocaleString('fr-FR') + ' FCFA.';
+          }
+          if (!reminderKey || debt.lastReminderKey === reminderKey) continue;
+          const notification = { title, body, url: '/debts', tag: 'pata-debt-' + debtDoc.id + '-' + reminderKey, source: 'debt_reminder' };
+          const pushResult = await sendPataPushToUser(userDoc.ref, notification, appUrl, userData);
+          await userDoc.ref.collection('notifications').doc('debt-' + debtDoc.id + '-' + reminderKey).set({
+            title, body, target: '/debts', date: today, delivered: pushResult.fcmSent + pushResult.webPushSent,
+            source: 'debt_reminder', read: false, readAt: null, createdAt: FieldValue.serverTimestamp(),
+          });
+          await debtDoc.ref.update({ lastReminderKey: reminderKey, lastReminderAt: FieldValue.serverTimestamp() });
+        }
+      } catch (debtReminderError) {
+        console.warn('[PATA DEBT REMINDER]', userDoc.id, debtReminderError.message || debtReminderError);
+      }
       if (userData.notificationsDailyDate === today) { skipped += 1; continue; }
       try {
         const monthStart = `${month}-01`;
@@ -1538,8 +1574,8 @@ async function handleNotificationScheduler(request) {
           userDoc.ref.collection('automations').get(),
           userDoc.ref.collection('goals').limit(20).get(),
         ]);
-        const todayExpenses = todayExpensesSnap.docs.map((doc) => doc.data()).filter((item) => !item.expenseType || item.expenseType === 'consumption');
-        const monthExpenses = monthExpensesSnap.docs.map((doc) => doc.data()).filter((item) => !item.expenseType || item.expenseType === 'consumption');
+        const todayExpenses = todayExpensesSnap.docs.map((doc) => doc.data()).filter((item) => !item.neutralFlow && (!item.expenseType || item.expenseType === 'consumption'));
+        const monthExpenses = monthExpensesSnap.docs.map((doc) => doc.data()).filter((item) => !item.neutralFlow && (!item.expenseType || item.expenseType === 'consumption'));
         const totalToday = todayExpenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
         const categoryTotals = {};
         monthExpenses.forEach((item) => { categoryTotals[item.categoryId || 'other'] = (categoryTotals[item.categoryId || 'other'] || 0) + (Number(item.amount) || 0); });
@@ -1690,6 +1726,10 @@ function getDoualaDateKey(date = new Date()) {
   }).format(date);
 }
 
+function getDoualaToday() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Douala', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+}
+
 function getDoualaMonthKey(date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Douala', year: 'numeric', month: '2-digit' }).formatToParts(date);
   return `${parts.find((part) => part.type === 'year')?.value}-${parts.find((part) => part.type === 'month')?.value}`;
@@ -1752,62 +1792,134 @@ async function handleCreateIncome(request) {
     const body = await request.json();
     const projectId = String(body.projectId || '').trim().slice(0, 150);
     const amount = Math.round(Number(body.amount));
-    const source = String(body.source || 'Revenu').trim().slice(0, 100);
-    const categoryId = String(body.categoryId || 'salary').trim().slice(0, 80);
-    const date = String(body.date || new Date().toISOString().slice(0, 10));
+    const flowType = String(body.flowType || (body.repaymentDebtId ? 'repayment_received' : 'normal')).trim();
+    if (!['normal', 'debt_borrowed', 'repayment_received'].includes(flowType)) return errorResponse('Type de mouvement financier invalide.', 400);
+    const person = String(body.person || '').trim().slice(0, 100);
+    const phone = String(body.phone || '').trim().slice(0, 30);
+    const dueDate = String(body.dueDate || '').trim();
+    const repaymentDebtId = String(body.repaymentDebtId || '').trim().slice(0, 150);
+    const source = String(body.source || (flowType === 'debt_borrowed' ? person : 'Revenu')).trim().slice(0, 100);
+    const categoryId = String(body.categoryId || (flowType === 'debt_borrowed' ? 'debt_borrowed' : flowType === 'repayment_received' ? 'debt_repayment_received' : 'salary')).trim().slice(0, 80);
+    const today = getDoualaToday();
+    const date = String(body.date || today);
     const month = String(body.month || date.slice(0, 7));
     const note = String(body.note || '').trim().slice(0, 250);
     const optionalMetadata = readOptionalIncomeMetadata(body);
     if (!Number.isSafeInteger(amount) || amount <= 0) return errorResponse('Indique un montant de revenu valide.', 400);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{4}-\d{2}$/.test(month) || month !== date.slice(0, 7)) return errorResponse('La date du revenu est invalide.', 400);
+    if (flowType === 'debt_borrowed' && (!person || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate))) return errorResponse('Indique le nom de la personne et la date d’échéance de la dette.', 400);
+    if (flowType === 'repayment_received' && (!repaymentDebtId || projectId)) return errorResponse('Choisis la créance à rembourser.', 400);
+    if (flowType !== 'repayment_received' && repaymentDebtId) return errorResponse('Remboursement associé invalide.', 400);
+    if (flowType === 'debt_borrowed' && projectId) return errorResponse('Une dette contractée ne peut pas être affectée à un projet.', 400);
+    if (projectId.includes('/') || repaymentDebtId.includes('/')) return errorResponse('Identifiant invalide.', 400);
+
     const userRef = adminDb.collection('users').doc(uid);
     const smsImportId = /^sms_[a-f0-9]{64}$/.test(String(body.smsImportId || '')) ? String(body.smsImportId) : null;
     const incomeRef = userRef.collection('incomes').doc(smsImportId || undefined);
+    const newDebtRef = flowType === 'debt_borrowed' ? userRef.collection('debts').doc() : null;
+    const repaymentDebtRef = flowType === 'repayment_received' ? userRef.collection('debts').doc(repaymentDebtId) : null;
+    const builtInCategories = new Set(['salary', 'business', 'sales', 'commission', 'rental', 'pension', 'gift', 'debt_repayment_received', 'debt_borrowed', 'other_income']);
+    if (flowType === 'normal' && ['debt_repayment_received', 'debt_borrowed'].includes(categoryId)) return errorResponse('Utilise le type de mouvement correspondant pour enregistrer une dette ou un remboursement.', 400);
+    if (flowType === 'debt_borrowed' && categoryId !== 'debt_borrowed') return errorResponse('Catégorie de dette contractée invalide.', 400);
+    if (flowType === 'repayment_received' && categoryId !== 'debt_repayment_received') return errorResponse('Catégorie de remboursement reçu invalide.', 400);
+    if (flowType === 'normal' && !builtInCategories.has(categoryId)) {
+      const customCategory = await userRef.collection('categories').doc(categoryId).get();
+      if (!customCategory.exists || customCategory.data()?.type !== 'income') return errorResponse('Catégorie de revenu introuvable.', 400);
+    }
+
     const result = await adminDb.runTransaction(async (transaction) => {
-      const [userSnap, existingIncomeSnap] = await Promise.all([
-        transaction.get(userRef),
-        smsImportId ? transaction.get(incomeRef) : Promise.resolve(null),
-      ]);
+      const reads = [transaction.get(userRef), transaction.get(incomeRef)];
+      if (newDebtRef) reads.push(transaction.get(userRef.collection('debts').where('status', 'in', ['active', 'partial', 'late'])));
+      if (repaymentDebtRef) reads.push(transaction.get(repaymentDebtRef));
+      const snapshots = await Promise.all(reads);
+      const userSnap = snapshots[0];
+      const existingIncomeSnap = snapshots[1];
+      const activeDebtsSnap = newDebtRef ? snapshots[2] : null;
+      const repaymentDebtSnap = repaymentDebtRef ? snapshots[newDebtRef ? 3 : 2] : null;
       if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
       if (existingIncomeSnap?.exists) {
         if (existingIncomeSnap.data()?.smsImportId !== smsImportId) throw new Error('Identifiant d’import déjà utilisé.');
         return { id: incomeRef.id, duplicate: true };
       }
       const userData = userSnap.data();
+      const premiumAccount = isPremiumAccount(userData);
+      const activeDebtCount = Number.isSafeInteger(Number(userData.activeDebtCount)) && userData.activeDebtCount !== null
+        ? Number(userData.activeDebtCount) : (activeDebtsSnap?.size || 0);
+      if (newDebtRef && !premiumAccount && activeDebtCount >= 2) throw new Error('Le compte gratuit est limité à 2 dettes ou prêts actifs. Passe à Premium pour en suivre davantage.');
+      let repaymentDebt = null;
+      let repaymentCompleted = false;
+      if (repaymentDebtRef) {
+        if (!repaymentDebtSnap?.exists) throw new Error('Cette créance n’existe plus. Actualise la liste puis réessaie.');
+        repaymentDebt = repaymentDebtSnap.data() || {};
+        if (repaymentDebt.type !== 'owed_to_me' || !['active', 'partial', 'late'].includes(repaymentDebt.status)) throw new Error('Cette créance ne peut pas recevoir de remboursement.');
+        if (amount > (Number(repaymentDebt.remaining) || 0)) throw new Error('Le remboursement dépasse le montant qui reste à recevoir.');
+      }
       let projectName = '';
       if (projectId) {
         if (!isPremiumAccount(userData)) throw new Error('L’association d’un revenu à un projet est réservée à Pata Premium.');
-        if (projectId.includes('/')) throw new Error('Projet invalide.');
         const projectSnap = await transaction.get(userRef.collection('projects').doc(projectId));
         if (!projectSnap.exists || projectSnap.data()?.status === 'archived') throw new Error('Le projet choisi est introuvable ou archivé.');
         projectName = String(projectSnap.data()?.name || '').slice(0, 100);
       }
+
+      const neutralFlow = flowType === 'debt_borrowed';
       const currentMonth = getDoualaMonthKey();
       const stats = normalizeMonthlyStatsForMonth(userData.monthlyStats || {}, currentMonth);
-      const current = Number(stats.incomes) || 0;
-      if (!isPremiumAccount(userData) && current >= PLAN_LIMITS.FREE.incomes) {
+      if (!neutralFlow && !isPremiumAccount(userData) && (Number(stats.incomes) || 0) >= PLAN_LIMITS.FREE.incomes) {
         throw new Error(`Tu as atteint les ${PLAN_LIMITS.FREE.incomes} revenus autorisés ce mois-ci avec le compte gratuit. Passe à Premium pour en ajouter davantage.`);
       }
-      stats.incomes = current + 1;
-      stats.lastResetMonth = currentMonth;
+      const finalSource = flowType === 'debt_borrowed' ? person : flowType === 'repayment_received' ? `Remboursement reçu · ${repaymentDebt.person || 'Créance'}` : source;
       transaction.create(incomeRef, {
-        amount, source: source || 'Revenu', categoryId, month, date, note,
+        amount, source: finalSource || 'Revenu', categoryId, month, date, note,
+        flowType, neutralFlow,
+        ...(flowType === 'debt_borrowed' ? { person, phone: phone || null, dueDate, debtId: newDebtRef.id } : {}),
+        ...(flowType === 'repayment_received' ? { repaymentDebtId } : {}),
         ...(projectId ? { projectId, projectName } : {}),
         ...(smsImportId ? { smsImportId } : {}),
         ...optionalMetadata,
         createdAt: FieldValue.serverTimestamp(),
       });
-      transaction.update(userRef, {
-        monthlyStats: stats,
-        lifetimeIncomeAmount: FieldValue.increment(amount),
-        lifetimeIncomeCount: FieldValue.increment(1),
-      });
-      return { id: incomeRef.id, current: stats.incomes, limit: PLAN_LIMITS.FREE.incomes, ...(projectId ? { projectId, projectName } : {}) };
+
+      if (newDebtRef) {
+        transaction.create(newDebtRef, {
+          type: 'i_owe', person, phone: phone || null, amount, remaining: amount,
+          createdAt: FieldValue.serverTimestamp(), dueDate, status: dueDate < today ? 'late' : 'active',
+          note, transactionId: incomeRef.id,
+        });
+      } else if (repaymentDebtRef) {
+        const remaining = Math.max(0, (Number(repaymentDebt.remaining) || 0) - amount);
+        const status = remaining <= 0 ? 'paid' : repaymentDebt.dueDate && repaymentDebt.dueDate < today ? 'late' : 'partial';
+        repaymentCompleted = remaining <= 0;
+        const repaymentRef = repaymentDebtRef.collection('repayments').doc();
+        transaction.create(repaymentRef, { date, amount, transactionId: incomeRef.id, source: smsImportId ? 'sms' : 'manual' });
+        transaction.update(repaymentDebtRef, { remaining, status, updatedAt: FieldValue.serverTimestamp() });
+      }
+
+      if (newDebtRef) {
+        transaction.update(userRef, { activeDebtCount: activeDebtCount + 1 });
+      } else if (!neutralFlow) {
+        stats.incomes = (Number(stats.incomes) || 0) + 1;
+        stats.lastResetMonth = currentMonth;
+        transaction.update(userRef, {
+          monthlyStats: stats,
+          lifetimeIncomeAmount: FieldValue.increment(amount),
+          lifetimeIncomeCount: FieldValue.increment(1),
+          ...(repaymentCompleted ? { activeDebtCount: FieldValue.increment(-1) } : {}),
+        });
+      }
+      return {
+        id: incomeRef.id,
+        ...(newDebtRef ? { debtId: newDebtRef.id } : {}),
+        ...(repaymentDebtRef ? { repaymentDebtId } : {}),
+        ...(!neutralFlow ? { current: stats.incomes, limit: PLAN_LIMITS.FREE.incomes } : {}),
+        ...(projectId ? { projectId, projectName } : {}),
+      };
     });
     return NextResponse.json({ success: true, ...result });
   } catch (error) {
-    const status = /atteint|introuvable|invalide/i.test(error.message || '') ? 403 : 500;
-    return errorResponse(error.message || 'Impossible d’enregistrer ce revenu.', status);
+    const message = error.message || 'Impossible d’enregistrer ce revenu.';
+    const status = /atteint|introuvable|invalide|obligatoire|limit|dépasse|depasse|créance|creance|remboursement/i.test(message) ? 400 : 500;
+    return errorResponse(message, status);
   }
 }
 
@@ -1823,10 +1935,13 @@ async function handleUpdateIncome(request) {
     const date = String(body.date || '');
     const month = String(body.month || date.slice(0, 7));
     const note = String(body.note || '').trim().slice(0, 250);
-    const allowedCategories = new Set(['salary', 'business', 'gift', 'other_income']);
+    const allowedCategories = new Set(['salary', 'business', 'sales', 'commission', 'rental', 'pension', 'gift', 'debt_repayment_received', 'other_income']);
     if (!Number.isSafeInteger(amount) || amount <= 0) return errorResponse('Indique un montant de revenu valide.', 400);
     if (!source) return errorResponse('Indique la source de ce revenu.', 400);
-    if (!allowedCategories.has(categoryId)) return errorResponse('Catégorie de revenu invalide.', 400);
+    if (!allowedCategories.has(categoryId)) {
+      const custom = await adminDb.collection('users').doc(uid).collection('categories').doc(categoryId).get();
+      if (!custom.exists || custom.data()?.type !== 'income') return errorResponse('Catégorie de revenu invalide.', 400);
+    }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{4}-\d{2}$/.test(month) || month !== date.slice(0, 7)) return errorResponse('La date du revenu est invalide.', 400);
     const userRef = adminDb.collection('users').doc(uid);
     const incomeRef = userRef.collection('incomes').doc(incomeId);
@@ -1835,6 +1950,7 @@ async function handleUpdateIncome(request) {
       const [userSnap, incomeSnap] = await Promise.all([transaction.get(userRef), transaction.get(incomeRef)]);
       if (!userSnap.exists || !incomeSnap.exists) throw new Error('Revenu introuvable.');
       const previous = incomeSnap.data() || {};
+      if (previous.neutralFlow === true || previous.debtId || previous.repaymentDebtId) throw new Error('Ce mouvement est lié au module Dettes & prêts. Gère-le depuis cette rubrique pour préserver le suivi.');
       transaction.update(incomeRef, {
         amount, source, categoryId, date, month, note,
         ...readOptionalIncomeMetadata(body, previous),
@@ -3349,7 +3465,7 @@ async function handleAdminOverview(request) {
     const nowIso = new Date().toISOString();
     const users = adminDb.collection('users');
     const withdrawals = adminDb.collection('withdrawalRequests');
-    const [userTotals, premiumCount, deposits, subscriptions, paidPayouts, pendingPayouts, latestUsers, latestDeposits, latestWithdrawals, topBalances, topExpenses, leastExpenses, topIncomes, lifetimeExpenses, lifetimeIncomes, savings] = await Promise.all([
+    const [userTotals, premiumCount, deposits, subscriptions, paidPayouts, pendingPayouts, latestUsers, latestDeposits, latestWithdrawals, topBalances, topExpenses, leastExpenses, topIncomes, lifetimeExpenses, lifetimeIncomes, savings, allDebtDocs] = await Promise.all([
       aggregateTotal(users, 'balance'),
       users.where('premiumUntil', '>', nowIso).count().get().then((snap) => snap.data().count).catch(() => 0),
       aggregateTotal(adminDb.collection('deposits').where('status', '==', 'CONFIRMED')),
@@ -3367,7 +3483,13 @@ async function handleAdminOverview(request) {
       aggregateTotal(users, 'lifetimeExpenseAmount'),
       aggregateTotal(users, 'lifetimeIncomeAmount'),
       calculateAdminSavingsOverview(),
+      adminDb.collectionGroup('debts').get().catch((error) => { console.warn('[ADMIN DEBTS]', error.message); return { docs: [] }; }),
     ]);
+    const activeDebts = allDebtDocs.docs.map((doc) => doc.data() || {}).filter((debt) => ['active', 'partial', 'late'].includes(debt.status) && Number(debt.remaining) > 0);
+    const receivableDebts = activeDebts.filter((debt) => debt.type === 'owed_to_me');
+    const payableDebts = activeDebts.filter((debt) => debt.type === 'i_owe');
+    const receivableSummary = { count: receivableDebts.length, total: receivableDebts.reduce((sum, debt) => sum + (Number(debt.remaining) || 0), 0) };
+    const payableSummary = { count: payableDebts.length, total: payableDebts.reduce((sum, debt) => sum + (Number(debt.remaining) || 0), 0) };
     const recentUsers = latestUsers.docs.map(safeAdminUser)
       .sort((a, b) => (Date.parse(b.createdAt || b.lastSeenAt || 0) || 0) - (Date.parse(a.createdAt || a.lastSeenAt || 0) || 0))
       .slice(0, 8);
@@ -3389,6 +3511,10 @@ async function handleAdminOverview(request) {
         lifetimeIncomeVolume: lifetimeIncomes.total,
         protectedSavings: savings.totalProtectedSavings,
         activeSavingsGoals: savings.activeGoals,
+        activeReceivables: receivableSummary.total,
+        receivableDebtCount: receivableSummary.count,
+        activePayables: payableSummary.total,
+        payableDebtCount: payableSummary.count,
       },
       savingsSummary: savings,
       latestUsers: recentUsers,
@@ -4349,6 +4475,51 @@ async function handleUpdateProject(request) {
     });
     return NextResponse.json({ success: true });
   } catch (error) { return errorResponse(error.message || 'Impossible de modifier le projet.', 400); }
+}
+
+async function handleDeleteProject(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const projectId = String(body.projectId || '').trim().slice(0, 150);
+    const mode = body.mode === 'delete' ? 'delete' : 'detach';
+    if (!projectId || projectId.includes('/')) return errorResponse('Projet invalide.', 400);
+    const userRef = adminDb.collection('users').doc(uid);
+    const projectRef = userRef.collection('projects').doc(projectId);
+    const [projectSnap, expensesSnap, incomesSnap] = await Promise.all([
+      projectRef.get(),
+      userRef.collection('expenses').where('projectId', '==', projectId).get(),
+      userRef.collection('incomes').where('projectId', '==', projectId).get(),
+    ]);
+    if (!projectSnap.exists) return errorResponse('Projet introuvable.', 404);
+    const countedExpenses = expensesSnap.docs.filter((doc) => doc.data()?.neutralFlow !== true);
+    const countedIncomes = incomesSnap.docs.filter((doc) => doc.data()?.neutralFlow !== true);
+    const expenseTotal = countedExpenses.reduce((sum, doc) => sum + (Number(doc.data()?.amount) || 0), 0);
+    const incomeTotal = countedIncomes.reduce((sum, doc) => sum + (Number(doc.data()?.amount) || 0), 0);
+    const operations = [...expensesSnap.docs.map((doc) => ({ ref: doc.ref })), ...incomesSnap.docs.map((doc) => ({ ref: doc.ref }))];
+    for (let index = 0; index < operations.length; index += 400) {
+      const batch = adminDb.batch();
+      for (const operation of operations.slice(index, index + 400)) {
+        if (mode === 'detach') batch.update(operation.ref, { projectId: null, projectName: null, updatedAt: FieldValue.serverTimestamp() });
+        else batch.delete(operation.ref);
+      }
+      await batch.commit();
+    }
+    const finalBatch = adminDb.batch();
+    finalBatch.delete(projectRef);
+    if (mode === 'delete') {
+      finalBatch.set(userRef, {
+        lifetimeExpenseAmount: FieldValue.increment(-expenseTotal),
+        lifetimeExpenseCount: FieldValue.increment(-countedExpenses.length),
+        lifetimeIncomeAmount: FieldValue.increment(-incomeTotal),
+        lifetimeIncomeCount: FieldValue.increment(-countedIncomes.length),
+      }, { merge: true });
+    }
+    await finalBatch.commit();
+    return NextResponse.json({ success: true, mode, operationCount: operations.length });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de supprimer le projet.', 400);
+  }
 }
 
 /* ═══════════════════ COTISATIONS / TONTINES ═══════════════════ */
@@ -5614,6 +5785,25 @@ async function handleUserWithdrawalHistory(request) {
   } catch (error) { return errorResponse(error.message || 'Impossible de charger l’historique des retraits.', 401); }
 }
 
+async function handleDebtRepayments(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const url = new URL(request.url);
+    const debtId = String(url.searchParams.get('id') || '').trim().slice(0, 150);
+    if (!debtId || debtId.includes('/')) return errorResponse('Identifiant de dette invalide.', 400);
+    const debtRef = adminDb.collection('users').doc(uid).collection('debts').doc(debtId);
+    const debtSnap = await debtRef.get();
+    if (!debtSnap.exists) return errorResponse('Dette introuvable.', 404);
+    const snapshot = await debtRef.collection('repayments').orderBy('date', 'desc').limit(100).get();
+    return NextResponse.json({
+      success: true,
+      repayments: snapshot.docs.map((document) => ({ id: document.id, ...serializeAdminValue(document.data()) })),
+    });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de charger les remboursements.', 401);
+  }
+}
+
 /* ═══════════════════ ROUTEUR PRINCIPAL ═══════════════════ */
 
 const ROUTES = {
@@ -5686,11 +5876,14 @@ const ROUTES = {
   'cotisations/list': { GET: handleCotisationsList },
   'withdrawals/list': { GET: handleUserWithdrawalHistory },
   'projects/update': { POST: handleUpdateProject },
+  'projects/delete': { POST: handleDeleteProject },
   'budgets/upsert': { POST: handleUpsertBudget },
   'budgets/templates': { GET: handleBudgetTemplates, POST: handleBudgetTemplates, DELETE: handleBudgetTemplates },
   'goals/create': { POST: handleCreateGoal },
   'goals/update': { POST: handleUpdateGoal },
   'goals/delete': { POST: handleDeleteGoal },
+  'debts/list': { GET: async (request) => { try { const { uid } = await authenticate(request); const snapshot = await adminDb.collection('users').doc(uid).collection('debts').orderBy('createdAt', 'desc').get(); return NextResponse.json({ success: true, debts: snapshot.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })) }); } catch (error) { return errorResponse(error.message || 'Impossible de charger les dettes.', 401); } } },
+  'debts/repayments': { GET: handleDebtRepayments },
   'expenses/add':          { POST: handleAddExpense },
   'expenses/update':       { POST: handleUpdateExpense },
   'expenses/delete':       { POST: handleDeleteExpense },

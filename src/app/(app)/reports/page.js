@@ -94,9 +94,12 @@ export default function ReportsPage() {
     const date = item.date || `${item.month || ''}-01`;
     return date >= range.start && date <= range.end;
   }) : [], [incomes, range, rangeValid]);
-  const totalIncome = periodIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-  const totalExpense = periodExpenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-  const expenseTypeTotals = periodExpenses.reduce((totals, item) => {
+  const financialIncomes = periodIncomes.filter((item) => !item.neutralFlow);
+  const financialExpenses = periodExpenses.filter((item) => !item.neutralFlow);
+  const totalIncome = financialIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const totalExpense = financialExpenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const cashBalanceMovement = periodIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0) - periodExpenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const expenseTypeTotals = financialExpenses.reduce((totals, item) => {
     totals[getExpenseType(item)] += Number(item.amount) || 0;
     return totals;
   }, { consumption: 0, project: 0, savings: 0, investment: 0 });
@@ -106,22 +109,22 @@ export default function ReportsPage() {
 
   const categoryData = useMemo(() => {
     const map = new Map();
-    periodExpenses.filter((expense) => getExpenseType(expense) === 'consumption').forEach((expense) => {
+    financialExpenses.filter((expense) => getExpenseType(expense) === 'consumption').forEach((expense) => {
       const category = resolveCategory(expense.categoryId, 'expense', customCategories);
       const current = map.get(expense.categoryId) || { id: expense.categoryId, name: category.label, value: 0, color: category.color || '#94a3b8', count: 0 };
       current.value += Number(expense.amount) || 0; current.count += 1; map.set(expense.categoryId, current);
     });
     return [...map.values()].sort((a, b) => b.value - a.value);
-  }, [periodExpenses, customCategories]);
+  }, [financialExpenses, customCategories]);
 
   const sourceData = useMemo(() => {
     const map = new Map();
-    periodIncomes.forEach((income) => {
+    financialIncomes.forEach((income) => {
       const key = income.source || 'Autre revenu';
       map.set(key, (map.get(key) || 0) + (Number(income.amount) || 0));
     });
     return [...map.entries()].map(([name, value]) => ({ name, value })).sort((a,b) => b.value-a.value);
-  }, [periodIncomes]);
+  }, [financialIncomes]);
 
   const evolution = useMemo(() => {
     if (!rangeValid) return [];
@@ -131,7 +134,7 @@ export default function ReportsPage() {
     if (span <= 45) {
       return Array.from({ length: span }, (_, index) => {
         const date = new Date(start); date.setDate(date.getDate() + index); const key = iso(date);
-        return { label: key.slice(8), revenus: periodIncomes.filter((item) => (item.date || `${item.month}-01`) === key).reduce((sum,item) => sum + Number(item.amount || 0),0), depenses: periodExpenses.filter((item) => item.date === key).reduce((sum,item) => sum + Number(item.amount || 0),0) };
+        return { label: key.slice(8), revenus: financialIncomes.filter((item) => (item.date || `${item.month}-01`) === key).reduce((sum,item) => sum + Number(item.amount || 0),0), depenses: financialExpenses.filter((item) => item.date === key).reduce((sum,item) => sum + Number(item.amount || 0),0) };
       });
     }
     const cursor = new Date(start.getFullYear(), start.getMonth(), 1);
@@ -139,11 +142,11 @@ export default function ReportsPage() {
     const result = [];
     while (cursor <= last) {
       const key = `${cursor.getFullYear()}-${String(cursor.getMonth()+1).padStart(2,'0')}`;
-      result.push({ label: cursor.toLocaleDateString('fr-FR', { month: 'short' }), revenus: periodIncomes.filter((item) => (item.date || `${item.month}-01`).startsWith(key)).reduce((sum,item) => sum + Number(item.amount || 0),0), depenses: periodExpenses.filter((item) => (item.date || '').startsWith(key)).reduce((sum,item) => sum + Number(item.amount || 0),0) });
+      result.push({ label: cursor.toLocaleDateString('fr-FR', { month: 'short' }), revenus: financialIncomes.filter((item) => (item.date || `${item.month}-01`).startsWith(key)).reduce((sum,item) => sum + Number(item.amount || 0),0), depenses: financialExpenses.filter((item) => (item.date || '').startsWith(key)).reduce((sum,item) => sum + Number(item.amount || 0),0) });
       cursor.setMonth(cursor.getMonth()+1);
     }
     return result;
-  }, [range, rangeValid, periodIncomes, periodExpenses]);
+  }, [range, rangeValid, financialIncomes, financialExpenses]);
 
   const periodMonths = useMemo(() => {
     if (!rangeValid) return [];
@@ -156,9 +159,9 @@ export default function ReportsPage() {
   const periodBudgets = budgets.filter((item) => periodMonths.includes(item.month) && Number(item.amount) > 0);
   const budgetAnalysis = useMemo(() => periodBudgets.map((budget) => {
     const category = resolveCategory(budget.categoryId, 'expense', customCategories);
-    const spent = periodExpenses.filter((expense) => getExpenseType(expense) === 'consumption' && expense.categoryId === budget.categoryId && periodMonths.includes(expense.date?.slice(0,7)) && (budget.incomeSourceId === 'all' || !budget.incomeSourceId || expense.incomeSourceId === budget.incomeSourceId)).reduce((sum, expense) => sum + (Number(expense.amount)||0), 0);
+    const spent = financialExpenses.filter((expense) => getExpenseType(expense) === 'consumption' && expense.categoryId === budget.categoryId && periodMonths.includes(expense.date?.slice(0,7)) && (budget.incomeSourceId === 'all' || !budget.incomeSourceId || expense.incomeSourceId === budget.incomeSourceId)).reduce((sum, expense) => sum + (Number(expense.amount)||0), 0);
     return { id: budget.id, category: category.label, month: budget.month, allocated: Number(budget.amount)||0, spent, remaining: Number(budget.amount||0)-spent };
-  }), [periodBudgets, periodExpenses, periodMonths, customCategories]);
+  }), [periodBudgets, financialExpenses, periodMonths, customCategories]);
 
   const goalAnalysis = goals.map((goal) => {
     const deposits = goalDepositTotals[goal.id] || [];
@@ -173,14 +176,14 @@ export default function ReportsPage() {
   const walletAdded = periodWalletDeposits.reduce((sum, item) => sum + (Number(item.amount)||0), 0);
 
   const askAssistant = () => {
-    const prompt = `Réalise une analyse approfondie de mon rapport financier pour la période ${range.label}. Revenus : ${totalIncome} FCFA. Toutes les sorties : ${totalExpense} FCFA. Dépenses courantes : ${expenseTypeTotals.consumption} FCFA. Projets : ${expenseTypeTotals.project} FCFA. Épargne : ${expenseTypeTotals.savings} FCFA. Investissements : ${expenseTypeTotals.investment} FCFA. Différence de trésorerie : ${net} FCFA. Dépenses courantes par catégorie : ${categoryData.map((item) => `${item.name}: ${item.value} FCFA`).join('; ')}. Budgets : ${budgetAnalysis.map((item) => `${item.category} (${item.month}) : ${item.spent}/${item.allocated} FCFA`).join('; ')}. Objectifs : ${goalAnalysis.map((item) => `${item.name}: ${item.saved}/${item.target} FCFA`).join('; ')}. Solde du portefeuille : ${Number(profile?.balance)||0} FCFA. Fais ressortir les tendances, risques et actions concrètes sans inventer de données ni modifier mes opérations.`;
+    const prompt = `Réalise une analyse approfondie de mon rapport financier pour la période ${range.label}. Revenus : ${totalIncome} FCFA (hors dette contractée). Dépenses : ${totalExpense} FCFA (hors prêts accordés). Variation réelle du solde, prêts et dettes compris : ${cashBalanceMovement} FCFA. Dépenses courantes : ${expenseTypeTotals.consumption} FCFA. Projets : ${expenseTypeTotals.project} FCFA. Épargne : ${expenseTypeTotals.savings} FCFA. Investissements : ${expenseTypeTotals.investment} FCFA. Différence de trésorerie : ${net} FCFA. Dépenses courantes par catégorie : ${categoryData.map((item) => `${item.name}: ${item.value} FCFA`).join('; ')}. Budgets : ${budgetAnalysis.map((item) => `${item.category} (${item.month}) : ${item.spent}/${item.allocated} FCFA`).join('; ')}. Objectifs : ${goalAnalysis.map((item) => `${item.name}: ${item.saved}/${item.target} FCFA`).join('; ')}. Solde du portefeuille : ${Number(profile?.balance)||0} FCFA. Fais ressortir les tendances, risques et actions concrètes sans inventer de données ni modifier mes opérations.`;
     window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt } }));
   };
 
   const getRows = () => [
     ['Mouvement', 'Nature', 'Date', 'Libellé', 'Catégorie / source', `Montant (${getPreferredCurrencyCode()})`, 'Détail'],
-    ...periodIncomes.map((item) => ['Revenu', item.projectId ? 'Revenu réservé à un projet' : 'Revenu général', item.date || item.month, item.source || 'Revenu', item.categoryId || '', convertCurrencyAmount(Number(item.amount)||0), item.note || '']),
-    ...periodExpenses.map((item) => ['Sortie', EXPENSE_TYPE_LABELS[getExpenseType(item)], item.date || '', item.note || 'Sortie', resolveCategory(item.categoryId, 'expense', customCategories).label, convertCurrencyAmount(Number(item.amount)||0), item.incomeSourceName || '']),
+    ...periodIncomes.map((item) => ['Revenu', item.neutralFlow ? 'Dette contractée — mouvement neutre' : item.projectId ? 'Revenu réservé à un projet' : 'Revenu général', item.date || item.month, item.source || 'Revenu', item.categoryId || '', convertCurrencyAmount(Number(item.amount)||0), item.note || '']),
+    ...periodExpenses.map((item) => ['Sortie', item.neutralFlow ? 'Prêt accordé — mouvement neutre' : EXPENSE_TYPE_LABELS[getExpenseType(item)], item.date || '', item.note || 'Sortie', resolveCategory(item.categoryId, 'expense', customCategories).label, convertCurrencyAmount(Number(item.amount)||0), item.incomeSourceName || '']),
     ...periodWalletDeposits.map((item) => ['Mouvement', 'Recharge portefeuille', item.createdAt?.toDate ? item.createdAt.toDate().toISOString().slice(0,10) : '', 'Recharge Pata', item.status || '', convertCurrencyAmount(Number(item.amount)||0), item.phone || '']),
     ...budgetAnalysis.map((item) => ['Budget', 'Dépense courante', item.month, item.category, 'Montant consommé / alloué', convertCurrencyAmount(item.spent), `${formatCurrency(item.allocated)} alloués`]),
     ...goalAnalysis.map((item) => ['Objectif', 'Épargne', item.deadline, item.name, 'Épargne cumulée', convertCurrencyAmount(item.saved), `${formatCurrency(item.target)} visés`]),
@@ -224,9 +227,9 @@ export default function ReportsPage() {
       </Card>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Card><p className="text-xs font-medium text-slate-500">Revenus encaissés</p><p className="mt-2 text-xl font-bold text-emerald-700">{formatCurrency(totalIncome)}</p><p className="mt-1 text-xs text-slate-500">{periodIncomes.length} entrée(s)</p></Card>
-        <Card><p className="text-xs font-medium text-slate-500">Toutes les sorties d’argent</p><p className="mt-2 text-xl font-bold text-red-600">{formatCurrency(totalExpense)}</p><p className="mt-1 text-xs text-slate-500">{periodExpenses.length} opération(s)</p></Card>
-        <Card><p className="text-xs font-medium text-slate-500">Différence de trésorerie</p><p className={`mt-2 text-xl font-bold ${net>=0?'text-slate-900':'text-red-600'}`}>{formatCurrency(net)}</p><p className="mt-1 text-xs text-slate-500">{savingsRate===null?'Aucun revenu saisi':`${savingsRate.toFixed(1)} % des revenus`}</p></Card>
+        <Card><p className="text-xs font-medium text-slate-500">Revenus encaissés</p><p className="mt-2 text-xl font-bold text-emerald-700">{formatCurrency(totalIncome)}</p><p className="mt-1 text-xs text-slate-500">{financialIncomes.length} revenu(s) · hors dettes</p></Card>
+        <Card><p className="text-xs font-medium text-slate-500">Dépenses comptabilisées</p><p className="mt-2 text-xl font-bold text-red-600">{formatCurrency(totalExpense)}</p><p className="mt-1 text-xs text-slate-500">{financialExpenses.length} dépense(s) · hors prêts accordés</p></Card>
+        <Card><p className="text-xs font-medium text-slate-500">Variation réelle du solde</p><p className={`mt-2 text-xl font-bold ${cashBalanceMovement>=0?'text-slate-900':'text-red-600'}`}>{formatCurrency(cashBalanceMovement)}</p><p className="mt-1 text-xs text-slate-500">Prêts accordés et dettes contractées compris</p></Card>
         <Card><p className="text-xs font-medium text-slate-500">Sorties moyennes / jour</p><p className="mt-2 text-xl font-bold text-slate-900">{formatCurrency(averageDailyExpense)}</p><p className="mt-1 text-xs text-slate-500">Sur la durée sélectionnée</p></Card>
       </div>
 

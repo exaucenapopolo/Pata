@@ -15,6 +15,8 @@ const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#6366f1', '#ef4444', '#ec4899'
 export function CategoryManager({ type, value, onChange }) {
   const { user } = useAuth();
   const { categories } = useCustomCategories(type);
+  const visibleCategories = categories.filter((category) => !(type === 'expense' && ['loan_given', 'debt_repayment'].includes(category.id))
+    && !(type === 'income' && ['debt_borrowed', 'debt_repayment_received'].includes(category.id)));
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [color, setColor] = useState(COLORS[0]);
@@ -49,7 +51,7 @@ export function CategoryManager({ type, value, onChange }) {
   return (
     <div>
       <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-        {categories.map((cat) => (
+        {visibleCategories.map((cat) => (
           <div key={cat.id} className="group relative">
             <button
               type="button"

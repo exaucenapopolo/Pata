@@ -8,15 +8,23 @@ import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Check, MessageSquareText, X
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/hooks/useAuth';
+import { useDebts } from '@/hooks/useDebts';
 import { subscribeProjects } from '@/lib/firestore/projects';
-import { EXPENSE_CATEGORIES } from '@/lib/constants';
+import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '@/lib/constants';
 import { parseMobileMoneySms } from '@/lib/sms/parseMobileMoneySms.mjs';
-const INCOME_CATEGORIES = [
-  { id: 'salary', label: 'Salaire' },
-  { id: 'business', label: 'Business / Freelance' },
-  { id: 'gift', label: 'Don / Cadeau' },
-  { id: 'other_income', label: 'Autre revenu' },
-];
+function normalizeDebtMatch(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function matchingDebtsForSms(item, debts) {
+  const counterparty = normalizeDebtMatch(item?.counterparty);
+  if (counterparty.length < 3) return [];
+  const expectedType = item.direction === 'income' ? 'owed_to_me' : 'i_owe';
+  return debts.filter((debt) => debt.type === expectedType && ['active', 'partial', 'late'].includes(debt.status) && Number(debt.remaining) > 0)
+    .filter((debt) => [normalizeDebtMatch(debt.person), normalizeDebtMatch(debt.phone)]
+      .filter((candidate) => candidate.length >= 3)
+      .some((candidate) => candidate === counterparty || candidate.includes(counterparty) || counterparty.includes(candidate)));
+}
 
 async function hashTransaction(provider, transactionId) {
   const input = new TextEncoder().encode(provider + ':' + transactionId);
@@ -26,6 +34,7 @@ async function hashTransaction(provider, transactionId) {
 
 export function SmsImportCoordinator() {
   const { user } = useAuth();
+  const { debts } = useDebts();
   const [projects, setProjects] = useState([]);
   const [pending, setPending] = useState([]);
   const [choices, setChoices] = useState({});
@@ -149,6 +158,8 @@ export function SmsImportCoordinator() {
     try {
       const choice = choices[item.id] || {};
       const isIncome = item.direction === 'income';
+      const debtCandidates = matchingDebtsForSms(item, debts);
+      const repaymentDebtId = Object.prototype.hasOwnProperty.call(choice, 'repaymentDebtId') ? choice.repaymentDebtId : (debtCandidates.length === 1 ? debtCandidates[0].id : '');
       if (item.direction === 'withdrawal' && choice.confirmWithdrawal !== true) {
         throw new Error('Confirme explicitement que tu souhaites comptabiliser ce retrait comme une sortie.');
       }
@@ -170,6 +181,7 @@ export function SmsImportCoordinator() {
           projectId: choice.projectId || '',
           confirmWithdrawal: choice.confirmWithdrawal === true,
           confirmBudgetOverrun: warnings[item.id] === true,
+          repaymentDebtId,
         }),
       });
       const result = await response.json().catch(() => ({}));
@@ -226,8 +238,12 @@ export function SmsImportCoordinator() {
             const incoming = item.direction === 'income';
             const choice = choices[item.id] || {};
             const label = item.provider === 'mtn_momo' ? 'MTN MoMo' : 'Orange Money';
-            const categories = incoming ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+            const categories = incoming
+              ? INCOME_CATEGORIES.filter((category) => !['debt_borrowed', 'debt_repayment_received'].includes(category.id))
+              : EXPENSE_CATEGORIES.filter((category) => !['loan_given', 'debt_repayment'].includes(category.id));
             const selectedExpenseType = choice.expenseType || '';
+            const debtCandidates = matchingDebtsForSms(item, debts);
+            const suggestedDebtId = Object.prototype.hasOwnProperty.call(choice, 'repaymentDebtId') ? choice.repaymentDebtId : (debtCandidates.length === 1 ? debtCandidates[0].id : '');
             return (
               <section key={item.id} className="rounded-2xl border border-slate-200 bg-white p-3.5">
                 <div className="flex items-start gap-3">
@@ -245,6 +261,13 @@ export function SmsImportCoordinator() {
                 {item.direction === 'withdrawal' && <label className="mt-3 flex items-start gap-2 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900">
                   <input type="checkbox" checked={choice.confirmWithdrawal === true} onChange={(event) => updateChoice(item.id, { confirmWithdrawal: event.target.checked })} className="mt-0.5"/>
                   Enregistrer explicitement ce retrait comme une sortie. Tu choisiras ensuite sa nature réelle avant de le comptabiliser.
+                </label>}
+                {debtCandidates.length > 0 && <label className="mt-3 block rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-900">
+                  Ce nom correspond à une dette active. Marquer comme remboursement de
+                  <select value={suggestedDebtId} onChange={(event) => updateChoice(item.id, { repaymentDebtId: event.target.value, categoryId: event.target.value ? (incoming ? 'debt_repayment_received' : 'debt_repayment') : (incoming ? 'other_income' : item.suggestedCategoryId || 'other') })} className="mt-2 h-10 w-full rounded-lg border border-emerald-200 bg-white px-3 text-sm font-normal text-slate-800">
+                    <option value="">Ne pas lier à une dette</option>
+                    {debtCandidates.map((debt) => <option key={debt.id} value={debt.id}>{debt.person} · {money.format(Number(debt.remaining) || 0)} FCFA restant</option>)}
+                  </select>
                 </label>}
                 {!incoming && <label className="mt-3 block text-xs font-semibold text-slate-700">
                   Nature de la sortie

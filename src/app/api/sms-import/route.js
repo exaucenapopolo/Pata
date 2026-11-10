@@ -80,7 +80,8 @@ function deviceTokenMatches(deviceToken, storedHash) {
 
 function inferExpenseCategory(counterparty, eventType) {
   const value = String(counterparty || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-  if (/(internet|data|forfait|airtime|credit|telephone|orange|mtn)/.test(value)) return 'internet';
+  if (/(airtime|recharge|top.?up|credit\s+telephonique|credit\s+telephone|recharge\s+(?:de\s+)?credit|appel)/.test(value)) return 'airtime';
+  if (/(internet|data|forfait|wifi|bundle|mtnc\s+bundles)/.test(value)) return 'internet';
   if (/(taxi|yango|uber|transport|bus|voyage|carburant|station)/.test(value)) return 'transport';
   if (/(restaurant|snack|supermarche|marche|boutique alimentaire|epicerie)/.test(value)) return 'food';
   if (/(pharmacie|hopital|clinique|sante|medical)/.test(value)) return 'health';
@@ -696,12 +697,15 @@ export async function POST(request) {
     if (action === 'confirm') {
       const ref = transactionRef(uid, body.id);
       const operationType = String(body.operationType || '');
-      const categoryId = String(body.categoryId || '').trim().slice(0, 80);
+      let categoryId = String(body.categoryId || '').trim().slice(0, 80);
+      const repaymentDebtId = String(body.repaymentDebtId || '').trim().slice(0, 150);
       const expenseType = String(body.expenseType || '').trim();
       const projectId = String(body.projectId || '').trim().slice(0, 150);
       const confirmBudgetOverrun = body.confirmBudgetOverrun === true;
       const confirmWithdrawal = body.confirmWithdrawal === true;
       if (!['income', 'expense'].includes(operationType)) return responseError('Type d’opération invalide.', 400);
+      if (repaymentDebtId && repaymentDebtId.includes('/')) return responseError('Identifiant de dette invalide.', 400);
+      if (repaymentDebtId) categoryId = operationType === 'income' ? 'debt_repayment_received' : 'debt_repayment';
       if (!categoryId) return responseError('Choisis une catégorie avant de confirmer.', 400);
       if (operationType === 'expense' && !['consumption', 'project', 'savings', 'investment'].includes(expenseType)) {
         return responseError('Choisis la nature réelle de cette sortie : dépense courante, projet, épargne ou investissement.', 400);
@@ -736,6 +740,7 @@ export async function POST(request) {
           categoryId,
           operationType,
           ...(operationType === 'expense' ? { expenseType, projectId: expenseType === 'project' ? projectId : null } : {}),
+          ...(repaymentDebtId ? { repaymentDebtId, flowType: operationType === 'income' ? 'repayment_received' : 'repayment' } : {}),
           processingAt: FieldValue.serverTimestamp(),
         });
         return { duplicate: false, item, profile };
@@ -753,9 +758,9 @@ export async function POST(request) {
       const isExpense = operationType === 'expense';
       const isCashWithdrawal = item.eventType === 'withdrawal';
       const categoryLabels = {
-        salary: 'Salaire', business: 'Business / Freelance', gift: 'Don / Cadeau', other_income: 'Autres revenus',
+        salary: 'Salaire', business: 'Business / Freelance', sales: 'Ventes', commission: 'Commission / Prime', rental: 'Loyer / Location reçue', pension: 'Pension / Allocation', gift: 'Don / Cadeau', debt_repayment_received: 'Remboursement reçu', other_income: 'Autres revenus',
         food: 'Nourriture', transport: 'Transport', housing: 'Logement et factures',
-        internet: 'Télécom / Internet', health: 'Santé', leisure: 'Loisirs',
+        internet: 'Télécom / Internet', airtime: 'Airtime / Crédit téléphone', debt_repayment: 'Remboursement de dette', health: 'Santé', leisure: 'Loisirs',
         investment: 'Investissement', contribution: 'Cotisation', savings: 'Épargne', other: 'Autres dépenses',
       };
       const payload = isExpense
@@ -772,6 +777,8 @@ export async function POST(request) {
             incomeSourceName: 'Solde Mobile Money',
             details: item.counterparty || '',
             smsImportId,
+            flowType: repaymentDebtId ? 'repayment' : 'normal',
+            repaymentDebtId,
             confirmBudgetOverrun,
           }
         : {
@@ -785,6 +792,8 @@ export async function POST(request) {
             details: item.counterparty || '',
             paymentMethod: item.provider,
             smsImportId,
+            flowType: repaymentDebtId ? 'repayment_received' : 'normal',
+            repaymentDebtId,
           };
 
       let operationResponse;

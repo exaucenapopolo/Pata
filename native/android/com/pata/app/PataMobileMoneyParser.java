@@ -79,7 +79,7 @@ public final class PataMobileMoneyParser {
 
     private static String detectEvent(String text) {
         if (Pattern.compile("\\b(retrait|retirer|withdrawal|withdraw|cash\\s*out|cashout)\\b").matcher(text).find()) return "withdrawal";
-        if (Pattern.compile("(paiement|payment|marchand|merchant|achat\\s+(reussi|effectue)|bill\\s+paid|facture\\s+payee)").matcher(text).find()) return "payment";
+        if (Pattern.compile("(paiement|payment|marchand|merchant|achat\\s+(reussi|effectue)|recharge|airtime|top.?up|achat\\s+(?:de\\s+)?credit|bill\\s+paid|facture\\s+payee)").matcher(text).find()) return "payment";
         if (Pattern.compile("(vous\\s+(avez\\s+recu|venez\\s+de\\s+recevoir)|transfert\\s+recu|recu\\s+de|reception\\s+de|compte.{0,25}credite|credit.{0,20}compte|depot\\s+(recu|effectue|confirme)|cash\\s*in|cashin|received|credited|incoming\\s+transfer)").matcher(text).find()) return "receive";
         if (Pattern.compile("(vous\\s+avez\\s+envoye|transfert\\s+(?:de.{0,100}vers|effectue|envoye|confirme)|effectue\\s+(un\\s+)?transfert|envoye\\s+(a|au|vers)|compte.{0,25}debite|debite.{0,20}compte|debit|debited|sent\\s+to|paid\\s+to|you\\s+sent|outgoing\\s+transfer|transaction\\s+de.{0,80}effectuee?\\s+par)").matcher(text).find()) return "send";
         return null;
@@ -162,7 +162,7 @@ public final class PataMobileMoneyParser {
 
     private static String detectTransactionId(String text) {
         Pattern[] patterns = new Pattern[] {
-            Pattern.compile("\\b(?:identifiant\\s+de\\s+transaction(?:\\s+financi[eè]re)?|transaction\\s*(?:id|n[°o]|no\\.?|numero|number)|id\\s*(?:de\\s*)?(?:transaction|operation)?|reference|ref\\.?|code\\s*(?:de\\s*)?(?:transaction|operation)|n[°o]\\s*(?:transaction|operation))\\s*[:#\\-]?\\s*([A-Z0-9][A-Z0-9._/-]{3,58})", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("\\b(?:identifiant\\s+de\\s+transaction(?:\\s+financi[eè]re)?|transaction\\s*(?:id|n[°o]|no\\.?|numero|number)|id\\s*(?:de\\s*)?(?:transaction|operation)?|r[eé]f(?:[.]?|érence)?|reference|code\\s*(?:de\\s*)?(?:transaction|operation)|n[°o]\\s*(?:transaction|operation))\\s*[:#\\-]?\\s*([A-Z0-9][A-Z0-9._/-]{3,58})", Pattern.CASE_INSENSITIVE),
             Pattern.compile("\\b((?:MP|BP|TX|OM|MTN)[A-Z0-9]{5,}(?:[.-][A-Z0-9]+){0,5})\\b", Pattern.CASE_INSENSITIVE)
         };
         for (Pattern pattern : patterns) {

@@ -18,7 +18,13 @@ const IMAGES = {
 export const INCOME_CATEGORIES = [
   { id: 'salary', label: 'Salaire', color: '#10b981', image: IMAGES.savings },
   { id: 'business', label: 'Business / Freelance', color: '#3b82f6', image: IMAGES.investment },
+  { id: 'sales', label: 'Ventes', color: '#0d9488', image: IMAGES.investment },
+  { id: 'commission', label: 'Commission / Prime', color: '#6366f1', image: IMAGES.investment },
+  { id: 'rental', label: 'Loyer / Location reçue', color: '#0ea5e9', image: IMAGES.housing },
+  { id: 'pension', label: 'Pension / Allocation', color: '#8b5cf6', image: IMAGES.other },
   { id: 'gift', label: 'Don / Cadeau', color: '#f59e0b', image: IMAGES.other },
+  { id: 'debt_borrowed', label: 'Dette contractée', color: '#64748b', image: IMAGES.other },
+  { id: 'debt_repayment_received', label: 'Remboursement reçu', color: '#059669', image: IMAGES.other },
   { id: 'other_income', label: 'Autre revenu', color: '#94a3b8', image: IMAGES.other },
 ];
 
@@ -49,7 +55,28 @@ export const EXPENSE_CATEGORIES = [
     label: 'Télécom / Internet', 
     color: '#3b82f6', 
     image: IMAGES.internet,
-    keywords: ['téléphone', 'forfait', 'wifi', 'internet', 'crédit', 'orange', 'mtn', 'abonnement']
+    keywords: ['wifi', 'internet', 'box', 'abonnement internet']
+  },
+  {
+    id: 'airtime',
+    label: 'Airtime / Crédit téléphone',
+    color: '#0284c7',
+    image: IMAGES.internet,
+    keywords: ['airtime', 'recharge', 'crédit téléphone', 'crédit téléphonique', 'forfait mobile', 'appel', 'communication']
+  },
+  {
+    id: 'debt_repayment',
+    label: 'Remboursement de dette',
+    color: '#b45309',
+    image: IMAGES.other,
+    keywords: ['remboursement dette', 'rembourser emprunt', 'dette']
+  },
+  {
+    id: 'loan_given',
+    label: 'Prêt accordé',
+    color: '#64748b',
+    image: IMAGES.other,
+    keywords: ['prêt accordé', 'argent prêté', 'créance']
   },
   { 
     id: 'health', 

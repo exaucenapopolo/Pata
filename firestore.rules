@@ -26,7 +26,10 @@ service cloud.firestore {
         allow read: if owner(userId);
         allow create: if false;
         allow update: if false;
-        allow delete: if owner(userId);
+        allow delete: if owner(userId)
+          && (!('neutralFlow' in resource.data) || resource.data.neutralFlow != true)
+          && !('debtId' in resource.data)
+          && !('repaymentDebtId' in resource.data);
       }
 
       match /expenses/{expenseId} {
@@ -37,6 +40,15 @@ service cloud.firestore {
       match /projects/{projectId} {
         allow read: if owner(userId);
         allow create, update, delete: if false;
+      }
+
+      match /debts/{debtId} {
+        allow read: if owner(userId);
+        allow create, update, delete: if false;
+        match /repayments/{repaymentId} {
+          allow read: if owner(userId);
+          allow create, update, delete: if false;
+        }
       }
 
       match /cotisationMemberships/{groupId} {
@@ -78,7 +90,7 @@ service cloud.firestore {
           ])
           && request.resource.data.name is string
           && request.resource.data.name.size() > 0
-          && request.resource.data.type in ['expense', 'goal'];
+          && request.resource.data.type in ['expense', 'income', 'goal'];
         allow update: if owner(userId)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'name', 'type', 'color', 'icon', 'updatedAt'

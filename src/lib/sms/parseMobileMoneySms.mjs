@@ -31,7 +31,7 @@ function parseProvider(text, sender) {
 
 function parseTransactionId(text) {
   const patterns = [
-    /\b(?:identifiant\s+de\s+transaction(?:\s+financi[eè]re)?|transaction\s*(?:id|n[°o]|no\.?|num[eé]ro|number)|id\s*(?:de\s*)?(?:transaction|op[eé]ration)?|r[eé]f[eé]rence|reference|ref\.?|code\s*(?:de\s*)?(?:transaction|op[eé]ration)|n[°o]\s*(?:transaction|op[eé]ration))\s*[:#\-]?\s*([A-Z0-9][A-Z0-9._\/-]{3,58})/i,
+    /\b(?:identifiant\s+de\s+transaction(?:\s+financi[eè]re)?|transaction\s*(?:id|n[°o]|no\.?|num[eé]ro|number)|id\s*(?:de\s*)?(?:transaction|op[eé]ration)?|r[eé]f(?:[.]?|érence)?|reference|code\s*(?:de\s*)?(?:transaction|op[eé]ration)|n[°o]\s*(?:transaction|op[eé]ration))\s*[:#\-]?\s*([A-Z0-9][A-Z0-9._\/-]{3,58})/i,
     /\b((?:MP|BP|TX|OM|MTN)[A-Z0-9]{5,}(?:[.-][A-Z0-9]+){0,5})\b/i,
   ];
   for (const pattern of patterns) {
@@ -45,7 +45,7 @@ function parseTransactionId(text) {
 function parseEventType(text) {
   const value = normalize(text);
   if (/\b(retrait|retirer|withdrawal|withdraw|cash\s*out|cashout)\b/.test(value)) return 'withdrawal';
-  if (/(paiement|payment|marchand|merchant|achat\s+(reussi|effectue)|bill\s+paid|facture\s+payee)/.test(value)) return 'payment';
+  if (/(paiement|payment|marchand|merchant|achat\s+(reussi|effectue)|recharge|airtime|top.?up|achat\s+(?:de\s+)?credit|bill\s+paid|facture\s+payee)/.test(value)) return 'payment';
   if (/(vous\s+(avez\s+recu|venez\s+de\s+recevoir)|transfert\s+recu|recu\s+de|reception\s+de|compte.{0,25}credite|credit.{0,20}compte|depot\s+(recu|effectue|confirme)|cash\s*in|cashin|received|credited|incoming\s+transfer)/.test(value)) return 'receive';
   if (/(vous\s+avez\s+envoye|transfert\s+(?:de.{0,100}vers|effectue|envoye|confirme)|effectue\s+(un\s+)?transfert|envoye\s+(a|au|vers)|compte.{0,25}debite|debite.{0,20}compte|debit|debited|sent\s+to|paid\s+to|you\s+sent|outgoing\s+transfer|transaction\s+de.{0,80}effectuee?\s+par)/.test(value)) return 'send';
   return null;

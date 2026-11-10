@@ -15,6 +15,7 @@ import { CategoryImage } from '@/components/ui/CategoryImage';
 import { AssistantShortcut } from '@/components/ai/AssistantShortcut';
 import { useIncomes } from '@/hooks/useIncomes';
 import { useExpenses } from '@/hooks/useExpenses';
+import { useDebts } from '@/hooks/useDebts';
 import { useGoals } from '@/hooks/useGoals';
 import { useProfile } from '@/hooks/useProfile';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
@@ -92,6 +93,7 @@ export default function DashboardPage() {
 
   const { incomes } = useIncomes();
   const { expenses } = useExpenses();
+  const { debts } = useDebts();
   const { goals } = useGoals();
   const { profile } = useProfile();
   const { customCategories } = useCustomCategories('expense');
@@ -130,26 +132,26 @@ export default function DashboardPage() {
     [incomes, prevStartDate, prevEndDate]
   );
 
-  const totalIncome = incomes.reduce((s, i) => s + (i.amount || 0), 0);
-  const totalExpense = expenses.reduce((s, e) => s + (e.amount || 0), 0);
-  const globalBalance = totalIncome - totalExpense;
+  const totalIncome = incomes.filter((income) => !income.neutralFlow).reduce((s, i) => s + (i.amount || 0), 0);
+  const totalExpense = expenses.filter((expense) => !expense.neutralFlow).reduce((s, e) => s + (e.amount || 0), 0);
+  const globalBalance = incomes.reduce((s, i) => s + (i.amount || 0), 0) - expenses.reduce((s, e) => s + (e.amount || 0), 0);
 
-  const periodIncomeTotal = periodIncomes.reduce((s, i) => s + (i.amount || 0), 0);
-  const periodExpenseTotal = periodExpenses.reduce((s, e) => s + (e.amount || 0), 0);
-  const periodTypeTotals = periodExpenses.reduce((totals, expense) => {
+  const periodIncomeTotal = periodIncomes.filter((income) => !income.neutralFlow).reduce((s, i) => s + (i.amount || 0), 0);
+  const periodExpenseTotal = periodExpenses.filter((expense) => !expense.neutralFlow).reduce((s, e) => s + (e.amount || 0), 0);
+  const periodTypeTotals = periodExpenses.filter((expense) => !expense.neutralFlow).reduce((totals, expense) => {
     totals[getDashboardExpenseType(expense)] += Number(expense.amount) || 0;
     return totals;
   }, { consumption: 0, project: 0, savings: 0, investment: 0 });
-  const periodConsumptionExpenses = useMemo(() => periodExpenses.filter((expense) => getDashboardExpenseType(expense) === 'consumption'), [periodExpenses]);
-  const previousConsumptionExpenses = useMemo(() => prevExpenses.filter((expense) => getDashboardExpenseType(expense) === 'consumption'), [prevExpenses]);
+  const periodConsumptionExpenses = useMemo(() => periodExpenses.filter((expense) => !expense.neutralFlow && getDashboardExpenseType(expense) === 'consumption'), [periodExpenses]);
+  const previousConsumptionExpenses = useMemo(() => prevExpenses.filter((expense) => !expense.neutralFlow && getDashboardExpenseType(expense) === 'consumption'), [prevExpenses]);
   const incomeById = useMemo(() => new Map(incomes.map((income) => [income.id, income])), [incomes]);
   const previousIncomeSpend = useMemo(() => periodExpenses.reduce((sum, expense) => {
     const source = incomeById.get(expense.incomeSourceId);
     return source && String(source.date || source.month || '').slice(0, 10) < startDate
       ? sum + (Number(expense.amount) || 0) : sum;
   }, 0), [periodExpenses, incomeById, startDate]);
-  const prevTotalIncome = prevIncomes.reduce((s, i) => s + (i.amount || 0), 0);
-  const prevTotalExpense = prevExpenses.reduce((s, e) => s + (e.amount || 0), 0);
+  const prevTotalIncome = prevIncomes.filter((income) => !income.neutralFlow).reduce((s, i) => s + (i.amount || 0), 0);
+  const prevTotalExpense = prevExpenses.filter((expense) => !expense.neutralFlow).reduce((s, e) => s + (e.amount || 0), 0);
 
   const byCategory = useMemo(() => {
     const map = {};
@@ -179,8 +181,14 @@ export default function DashboardPage() {
   );
 
   const topExpenses = useMemo(() => {
-    return [...periodExpenses].sort((a, b) => b.amount - a.amount).slice(0, 5);
+    return periodExpenses.filter((expense) => !expense.neutralFlow).sort((a, b) => b.amount - a.amount).slice(0, 5);
   }, [periodExpenses]);
+
+  const openDebts = debts.filter((debt) => ['active', 'partial', 'late'].includes(debt.status) && Number(debt.remaining) > 0);
+  const receivables = openDebts.filter((debt) => debt.type === 'owed_to_me');
+  const payables = openDebts.filter((debt) => debt.type === 'i_owe');
+  const receivableTotal = receivables.reduce((sum, debt) => sum + (Number(debt.remaining) || 0), 0);
+  const payableTotal = payables.reduce((sum, debt) => sum + (Number(debt.remaining) || 0), 0);
 
   const expenseChange = prevTotalExpense > 0 ? ((periodExpenseTotal - prevTotalExpense) / prevTotalExpense) * 100 : null;
   const incomeChange = prevTotalIncome > 0 ? ((periodIncomeTotal - prevTotalIncome) / prevTotalIncome) * 100 : null;
@@ -197,7 +205,7 @@ export default function DashboardPage() {
             <Link href="/reports" className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-white/20 bg-white/10 px-3 text-xs font-semibold text-white transition hover:bg-white/15">Voir mon bilan <ChevronRight size={14}/></Link>
           </div>
         </div>
-        <div className="relative mt-6 border-t border-white/15 pt-4"><p className="text-[11px] font-medium text-emerald-100">Solde global enregistré</p><p className="mt-1 break-words text-3xl font-bold tracking-tight sm:text-4xl">{formatCurrency(globalBalance)}</p><p className="mt-2 text-[10px] text-emerald-100">Total des revenus moins le total des dépenses enregistrées.</p></div>
+        <div className="relative mt-6 border-t border-white/15 pt-4"><p className="text-[11px] font-medium text-emerald-100">Solde global enregistré</p><p className="mt-1 break-words text-3xl font-bold tracking-tight sm:text-4xl">{formatCurrency(globalBalance)}</p><p className="mt-2 text-[10px] text-emerald-100">Variation réelle du solde : revenus et dépenses, prêts et dettes compris.</p></div>
       </section>
       <section>
         <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-bold text-slate-900">Actions rapides</h2><span className="text-[10px] font-medium text-slate-400">Gérer mon argent</span></div>
@@ -207,6 +215,10 @@ export default function DashboardPage() {
           <Link href="/budgets" className="group flex min-h-[112px] flex-col justify-between rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md active:scale-[0.98]"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><PiggyBank size={19}/></span><span><strong className="block text-xs text-slate-900">Gérer mes budgets</strong><span className="mt-0.5 block text-[10px] text-slate-500">Prévoir mes dépenses</span></span></Link>
           <Link href="/goals" className="group flex min-h-[112px] flex-col justify-between rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-md active:scale-[0.98]"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-50 text-violet-700"><Plus size={19}/></span><span><strong className="block text-xs text-slate-900">Créer un objectif</strong><span className="mt-0.5 block text-[10px] text-slate-500">Préparer mon épargne</span></span></Link>
         </div>
+      </section>
+      <section className="grid grid-cols-2 gap-3">
+        <Link href="/debts" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-emerald-200"><p className="text-xs font-semibold text-slate-500">On me doit</p><p className="mt-1 text-xl font-bold text-emerald-700">{formatCurrency(receivableTotal)}</p><p className="mt-1 text-[11px] text-slate-500">{receivables.length} créance(s) active(s)</p></Link>
+        <Link href="/debts" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-amber-200"><p className="text-xs font-semibold text-slate-500">Je dois</p><p className="mt-1 text-xl font-bold text-amber-700">{formatCurrency(payableTotal)}</p><p className="mt-1 text-[11px] text-slate-500">{payables.length} dette(s) active(s)</p></Link>
       </section>
       <section className="pata-feature-carousel overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" aria-roledescription="carrousel de fonctionnalités" aria-label="Fonctionnalités principales de Pata">
         {DASHBOARD_FEATURES.map((feature, index) => {
