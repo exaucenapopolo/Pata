@@ -136,7 +136,6 @@ export function OptionalTransactionFields({ value, onChange, kind = 'expense' })
       return;
     }
 
-  const detectLocation = () => {
     if (typeof window === 'undefined' || !navigator.geolocation) {
       setLocationMessage('La localisation GPS n’est pas prise en charge par ce navigateur.');
       return;
