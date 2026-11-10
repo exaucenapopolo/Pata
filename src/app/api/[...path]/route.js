@@ -2244,6 +2244,7 @@ async function handleCreateIncome(request) {
     const userRef = adminDb.collection('users').doc(uid);
     const smsImportId = /^sms_[a-f0-9]{64}$/.test(String(body.smsImportId || '')) ? String(body.smsImportId) : null;
     const incomeCollection = userRef.collection('incomes');
+    // Sans import SMS, doc() génère un identifiant. Ne jamais lui transmettre undefined : Firestore le rejette comme documentPath invalide.
     const incomeRef = smsImportId ? incomeCollection.doc(smsImportId) : incomeCollection.doc();
     const newDebtRef = flowType === 'debt_borrowed' ? userRef.collection('debts').doc() : null;
     const repaymentDebtRef = flowType === 'repayment_received' ? userRef.collection('debts').doc(repaymentDebtId) : null;

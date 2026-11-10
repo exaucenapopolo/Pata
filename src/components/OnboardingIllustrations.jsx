@@ -45,45 +45,63 @@ function AIVisual() {
   return (
     <div
       role="img"
-      aria-label="Aperçu de l'assistant financier intelligent de Pata"
-      className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-2xl bg-[#eaf3ed] p-2.5 shadow-[0_14px_36px_-18px_rgba(10,50,35,.45)]"
+      aria-label="Aperçu de l’assistant financier Pata"
+      className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-2xl bg-[#e8f2eb] p-2 shadow-[0_16px_36px_-18px_rgba(7,65,43,.45)]"
     >
-      <div className="absolute inset-0 bg-gradient-to-br from-[#f7fbf8] via-[#e8f3ec] to-[#d8e9df]" />
-      <div className="relative flex h-full w-full flex-col overflow-hidden rounded-xl border border-white/80 bg-white/95 p-2.5 text-left shadow-sm">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#075b43] text-[9px] font-extrabold text-white">IA</span>
-            <div className="min-w-0">
-              <p className="truncate text-[9px] font-bold text-slate-900">Assistant Pata</p>
-              <p className="text-[7px] font-medium text-emerald-700">Comprendre. Prévoir. Agir.</p>
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(15,107,63,.18),transparent_48%),linear-gradient(145deg,#f8fbf8,#e4efe7)]" />
+      <div className="relative flex h-full w-full flex-col overflow-hidden rounded-[15px] border border-white/90 bg-[#fbfdfb] p-2.5 text-left shadow-sm">
+        <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[9px] bg-[#0b5c46] text-[11px] font-extrabold tracking-tight text-white">
+            P<span className="text-[#91dfb1]">.</span>
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[9px] font-bold text-slate-900">Assistant Pata</p>
+            <p className="mt-0.5 text-[7px] font-medium text-[#0b7655]">À partir de ton suivi</p>
+          </div>
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+        </div>
+
+        <div className="mt-2 rounded-xl rounded-tr-sm bg-[#edf5ef] px-2 py-2">
+          <p className="text-[7px] font-bold uppercase tracking-[.1em] text-[#4b7660]">Ta question</p>
+          <p className="mt-1 text-[8px] font-semibold leading-[1.3] text-slate-800">
+            Comment mieux organiser mon budget ?
+          </p>
+        </div>
+
+        <div className="mt-2 rounded-xl border border-[#e2ece5] bg-white p-2">
+          <div className="flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-[#0b7655]" />
+            <p className="text-[8px] font-bold text-[#0b5c46]">Une première piste</p>
+          </div>
+          <p className="mt-1.5 text-[7px] leading-[1.4] text-slate-600">
+            Compare tes dépenses aux montants prévus. Tu verras plus facilement où ajuster.
+          </p>
+          <div className="mt-2 space-y-2">
+            <div>
+              <p className="mb-1 text-[7px] font-medium text-slate-500">Transport</p>
+              <div className="h-1 overflow-hidden rounded-full bg-slate-100">
+                <div className="h-full w-[72%] rounded-full bg-[#0b7655]" />
+              </div>
+            </div>
+            <div>
+              <p className="mb-1 text-[7px] font-medium text-slate-500">Alimentation</p>
+              <div className="h-1 overflow-hidden rounded-full bg-slate-100">
+                <div className="h-full w-[54%] rounded-full bg-[#80b99a]" />
+              </div>
             </div>
           </div>
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
         </div>
-        <div className="flex-1 space-y-2 py-2">
-          <div className="ml-auto max-w-[92%] rounded-xl rounded-br-sm bg-[#edf5f0] px-2 py-1.5">
-            <p className="text-[7px] leading-3 text-slate-700">Comment mieux maîtriser mes dépenses ?</p>
-          </div>
-          <div className="max-w-[96%] rounded-xl rounded-bl-sm bg-slate-50 px-2 py-1.5">
-            <p className="text-[7px] font-bold text-[#075b43]">Voici ce que montre ton suivi</p>
-            <p className="mt-1 text-[7px] leading-3 text-slate-600">Le transport et l’alimentation occupent une grande part de tes dépenses.</p>
-            <div className="mt-1.5 space-y-1">
-              <div className="h-1 overflow-hidden rounded-full bg-slate-200"><div className="h-full w-[78%] rounded-full bg-[#0b7655]" /></div>
-              <div className="h-1 overflow-hidden rounded-full bg-slate-200"><div className="h-full w-[54%] rounded-full bg-[#70b996]" /></div>
-              <div className="h-1 overflow-hidden rounded-full bg-slate-200"><div className="h-full w-[28%] rounded-full bg-[#bbd9c8]" /></div>
-            </div>
-          </div>
-          <div className="rounded-lg border border-[#dcece2] bg-[#f7fbf8] px-2 py-1.5">
-            <p className="text-[7px] font-bold uppercase tracking-[.1em] text-[#075b43]">Piste à explorer</p>
-            <p className="mt-0.5 text-[7px] leading-3 text-slate-600">Compare tes dépenses à ton budget et ajuste progressivement.</p>
-          </div>
+
+        <div className="mt-auto rounded-xl bg-[#edf5ef] px-2 py-1.5">
+          <p className="text-[7px] font-semibold leading-[1.35] text-[#315f49]">
+            Un conseil clair pour avancer, à ton rythme.
+          </p>
         </div>
-        <div className="rounded-lg bg-slate-50 px-2 py-1.5 text-[7px] text-slate-400">Écris ta question…</div>
-      </div>
-      <div className="absolute left-3 top-3"><Brand dark /></div>
-      <div className="pointer-events-none absolute bottom-3 left-3 right-3">
-        <p className="text-[10px] font-extrabold leading-tight tracking-tight text-[#075b43]">Ton assistant financier</p>
-        <p className="mt-0.5 text-[7px] leading-3 text-slate-600">Des réponses simples, fondées sur ton suivi.</p>
+
+        <div className="mt-2 flex items-center justify-between rounded-full border border-slate-200 bg-white py-1.5 pl-2.5 pr-1.5">
+          <span className="text-[7px] text-slate-400">Pose ta question…</span>
+          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#0b5c46] text-[10px] font-bold text-white">↑</span>
+        </div>
       </div>
     </div>
   );
