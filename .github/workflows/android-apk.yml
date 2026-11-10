@@ -97,6 +97,56 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Vérifier les prérequis Google et de signature de la release
+        if: ${{ inputs.publish_release == 'true' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[PUBLISH_ANDROID_RELEASE]')) }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          expected_sha1 = "0BAC9BF84355BFEC8CF53CD33C6236DB82C22EE2"
+          config = json.loads(Path("native/android/google-services.json").read_text())
+          android = next(
+              (
+                  client for client in config.get("client", [])
+                  if client.get("client_info", {}).get("android_client_info", {}).get("package_name") == "com.pata.app"
+              ),
+              None,
+          )
+          if not android:
+              raise SystemExit("Client Firebase Android com.pata.app introuvable.")
+          oauth_clients = android.get("oauth_client", [])
+          web_clients = [client for client in oauth_clients if client.get("client_type") == 3]
+          android_clients = [
+              client for client in oauth_clients
+              if client.get("client_type") == 1
+              and client.get("android_info", {}).get("package_name") == "com.pata.app"
+          ]
+          matching_release_client = [
+              client for client in android_clients
+              if "".join(
+                  character for character in client.get("android_info", {}).get("certificate_hash", "").upper()
+                  if character in "0123456789ABCDEF"
+              ) == expected_sha1
+          ]
+          if not web_clients:
+              raise SystemExit("Client OAuth Web absent du google-services.json; connexion Google impossible.")
+          if not matching_release_client:
+              raise SystemExit(
+                  "Le client OAuth Android ne correspond pas au certificat de distribution Pata "
+                  "(SHA-1 attendu: 0B:AC:9B:F8:43:55:BF:EC:8C:F5:3C:D3:3C:62:36:DB:82:C2:2E:E2). "
+                  "Télécharger le nouveau google-services.json depuis Firebase après l'ajout de l'empreinte."
+              )
+          print("Configuration Firebase validée: client Web + client Android com.pata.app et certificat de distribution.")
+          PY
+          for secret_name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!secret_name:-}" ]; then
+              echo "Secret de signature manquant: $secret_name"
+              exit 1
+            fi
+          done
+          echo "Tous les prérequis de publication sont présents."
       - name: Préparer la signature release
         if: ${{ (inputs.publish_release == 'true' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[PUBLISH_ANDROID_RELEASE]'))) && env.ANDROID_KEYSTORE_BASE64 != '' && env.ANDROID_KEYSTORE_PASSWORD != '' && env.ANDROID_KEY_ALIAS != '' && env.ANDROID_KEY_PASSWORD != '' }}
         run: |
@@ -156,8 +206,17 @@ jobs:
           PY
           test -s android/app/pata-release.jks
           keytool -list -keystore android/app/pata-release.jks -storetype JKS -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null
-          keytool -list -v -keystore android/app/pata-release.jks -storetype JKS -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" | grep -E 'SHA1:|SHA256:'
-          echo "Keystore Android validé et bloc buildTypes.release configuré."
+          CERTIFICATE_DETAILS="$(keytool -list -v -keystore android/app/pata-release.jks -storetype JKS -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS")"
+          printf '%s\n' "$CERTIFICATE_DETAILS" | grep -E 'SHA1:|SHA256:'
+          RELEASE_SHA1="$(printf '%s\n' "$CERTIFICATE_DETAILS" | sed -n 's/^[[:space:]]*SHA1: //p' | head -n 1 | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          EXPECTED_RELEASE_SHA1="0BAC9BF84355BFEC8CF53CD33C6236DB82C22EE2"
+          if [ "$RELEASE_SHA1" != "$EXPECTED_RELEASE_SHA1" ]; then
+            echo "La clé de signature configurée ne correspond pas à celle de l'APK actuellement distribuée."
+            echo "Empreinte attendue: 0B:AC:9B:F8:43:55:BF:EC:8C:F5:3C:D3:3C:62:36:DB:82:C2:2E:E2"
+            echo "Empreinte trouvée: $RELEASE_SHA1"
+            exit 1
+          fi
+          echo "Keystore Android validé, certificat de distribution identique et bloc buildTypes.release configuré."
 
       - name: Compiler l'APK release signée
         if: ${{ (inputs.publish_release == 'true' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[PUBLISH_ANDROID_RELEASE]'))) && env.ANDROID_KEYSTORE_BASE64 != '' && env.ANDROID_KEYSTORE_PASSWORD != '' && env.ANDROID_KEY_ALIAS != '' && env.ANDROID_KEY_PASSWORD != '' }}
