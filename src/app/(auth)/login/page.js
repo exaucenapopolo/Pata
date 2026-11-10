@@ -147,6 +147,9 @@ export default function LoginPage() {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
+        <div className="-mt-2 text-right">
+          <Link href="/forgot-password" className="text-xs font-semibold text-brand-600 hover:underline">Mot de passe oublié ?</Link>
+        </div>
         {error && <p className="text-sm text-red-600">{error}</p>}
         <Button type="submit" className="w-full" disabled={loading || googleLoading}>
           {loading ? 'Connexion…' : 'Se connecter'}

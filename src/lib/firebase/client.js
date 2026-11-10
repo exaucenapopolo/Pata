@@ -1,5 +1,6 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { getAuth, initializeAuth, indexedDBLocalPersistence } from 'firebase/auth';
+import { Capacitor } from '@capacitor/core';
 import { getFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
@@ -14,7 +15,20 @@ const firebaseConfig = {
 
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
-export const auth = getAuth(app);
+function createFirebaseAuth() {
+  // Dans l'APK, conserver la session du SDK JavaScript entre les ouvertures.
+  if (typeof window !== 'undefined' && Capacitor.isNativePlatform()) {
+    try {
+      return initializeAuth(app, { persistence: indexedDBLocalPersistence });
+    } catch (error) {
+      if (error?.code === 'auth/already-initialized') return getAuth(app);
+      throw error;
+    }
+  }
+  return getAuth(app);
+}
+
+export const auth = createFirebaseAuth();
 export const db = getFirestore(app);
 
 export async function initAnalytics() {

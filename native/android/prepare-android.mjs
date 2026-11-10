@@ -3,6 +3,20 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 const root = process.cwd();
+
+// Inclure le SDK Google dans le plugin d'authentification natif.
+const variablesGradlePath = path.join(root, 'android/variables.gradle');
+if (!fs.existsSync(variablesGradlePath)) {
+  throw new Error('Le fichier android/variables.gradle est introuvable après la génération Android.');
+}
+let variablesGradle = fs.readFileSync(variablesGradlePath, 'utf8');
+if (!/\brgcfaIncludeGoogle\s*=/.test(variablesGradle)) {
+  const extBlock = variablesGradle.match(/\bext\s*\{/);
+  if (!extBlock) throw new Error('Le bloc ext de android/variables.gradle est introuvable.');
+  const insertAt = extBlock.index + extBlock[0].length;
+  variablesGradle = variablesGradle.slice(0, insertAt) + '\n    rgcfaIncludeGoogle = true' + variablesGradle.slice(insertAt);
+  fs.writeFileSync(variablesGradlePath, variablesGradle);
+}
 const javaSource = path.join(root, 'native/android/com/pata/app');
 const javaTarget = path.join(root, 'android/app/src/main/java/com/pata/app');
 fs.mkdirSync(javaTarget, { recursive: true });
@@ -112,8 +126,8 @@ if (fs.existsSync(gradlePath)) {
     if (depth !== 0) throw new Error('Bloc dependencies Gradle mal formé.');
     gradle = gradle.slice(0, close - 1) + '\n' + dependency + '\n' + gradle.slice(close - 1);
   }
-  gradle = gradle.replace(/versionCode\s+\d+/, 'versionCode 10');
-  gradle = gradle.replace(/versionName\s+["'][^"']+["']/, 'versionName "1.0.9"');
+  gradle = gradle.replace(/versionCode\s+\d+/, 'versionCode 11');
+  gradle = gradle.replace(/versionName\s+["'][^"']+["']/, 'versionName "1.1.0"');
   fs.writeFileSync(gradlePath, gradle);
 }
-console.log('Pata Android 1.0.9 : import SMS préservé et notifications FCM natives activées.');
+console.log('Pata Android 1.1.0 : connexion Google native, import SMS et notifications conservés.');

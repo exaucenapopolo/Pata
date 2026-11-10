@@ -1,7 +1,7 @@
 {
-  "version": "1.0.9",
-  "versionCode": 10,
-  "downloadAvailable": true,
+  "version": "1.1.0",
+  "versionCode": 11,
+  "downloadAvailable": false,
   "apkUrl": "https://github.com/exaucenapopolo/Pata/releases/latest/download/Pata-Android.apk",
-  "releaseNotes": "Notifications système natives Android via Firebase, diffusions PWA/Web Push préservées et import SMS Mobile Money conservé."
+  "releaseNotes": "Connexion Google native, ajout et réinitialisation du mot de passe, import SMS Mobile Money conservé."
 }

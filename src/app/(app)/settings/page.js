@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Save, LogOut, Download, FileText, FileSpreadsheet, Bell, ShieldCheck, LockKeyhole, ChevronRight, UserRound, Crown, Sun, Moon, Gift, MessageSquareText, Smartphone } from 'lucide-react';
+import { Save, LogOut, Download, FileText, FileSpreadsheet, Bell, ShieldCheck, LockKeyhole, KeyRound, ChevronRight, UserRound, Crown, Sun, Moon, Gift, MessageSquareText, Smartphone } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -19,6 +19,7 @@ import { useAllBudgets } from '@/hooks/useAllBudgets';
 import { convertCurrencyAmount, getPreferredCurrencyCode } from '@/lib/utils';
 import { NotificationSettings } from '@/components/NotificationSettings';
 import { PinSecuritySettings } from '@/components/security/PinSecuritySettings';
+import { PasswordSettings } from '@/components/security/PasswordSettings';
 import { ReferralsSettings } from '@/components/ReferralsSettings';
 import { SmsImportSettings } from '@/components/SmsImportSettings';
 
@@ -198,6 +199,7 @@ export default function SettingsPage() {
         <h2 className="px-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Sécurité et notifications</h2>
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white divide-y divide-slate-100">
           <SettingRow icon={LockKeyhole} title="Code secret" description="Verrouille l’accès à ton espace personnel" value="PIN à 4 chiffres" onClick={() => setActivePanel('security')} />
+          <SettingRow icon={KeyRound} title="Mot de passe" description={user?.providerData?.some((provider) => provider.providerId === 'password') ? "Modifier ou réinitialiser ton mot de passe" : "Ajouter un mot de passe à ton compte"} onClick={() => setActivePanel('password')} />
           <SettingRow icon={Bell} title="Notifications" description="Alertes et rappels sur cet appareil" onClick={() => setActivePanel('notifications')} />
           <SettingRow icon={MessageSquareText} title="Import SMS Mobile Money" description="Détecter les opérations MTN MoMo et Orange Money" onClick={() => setActivePanel('smsImport')} />
         </div>
@@ -222,6 +224,7 @@ export default function SettingsPage() {
         profile: 'Informations personnelles',
         subscription: 'Mon abonnement',
         security: 'Code secret',
+        password: 'Mot de passe',
         notifications: 'Notifications',
         smsImport: 'Import SMS Mobile Money',
         appearance: 'Apparence de Pata',
@@ -276,6 +279,7 @@ export default function SettingsPage() {
         )}
 
         {activePanel === 'security' && <PinSecuritySettings />}
+        {activePanel === 'password' && <PasswordSettings />}
         {activePanel === 'smsImport' && <SmsImportSettings />}
         {activePanel === 'notifications' && (
           <div className="space-y-3">

@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
 import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
@@ -8,8 +9,7 @@ import {
   signOut,
   GoogleAuthProvider,
   signInWithPopup,
-  setPersistence,
-  browserLocalPersistence,
+  signInWithCredential,
 } from 'firebase/auth';
 import { auth } from '@/lib/firebase/client';
 
@@ -29,14 +29,6 @@ googleProvider.setCustomParameters({ prompt: 'select_account' });
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-
-  // Force la persistance locale dès le chargement : la session survit aux
-  // rechargements et à la fermeture du navigateur (défaut Firebase, mais explicite).
-  useEffect(() => {
-    setPersistence(auth, browserLocalPersistence).catch(() => {
-      /* persistance déjà active — aucune action requise */
-    });
-  }, []);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -60,34 +52,37 @@ export function AuthProvider({ children }) {
 
   const loginWithGoogle = async () => {
     try {
+      if (Capacitor.isNativePlatform()) {
+        // Ouvrir Google dans l'interface Android native, puis reprendre la
+        // session dans Firebase JS pour garder le même compte et les mêmes données.
+        const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
+        const nativeResult = await FirebaseAuthentication.signInWithGoogle({ skipNativeAuth: true });
+        const idToken = nativeResult?.credential?.idToken;
+        if (!idToken) throw new Error('Google n’a pas pu confirmer la connexion. Réessaie.');
+        const googleCredential = GoogleAuthProvider.credential(idToken);
+        const result = await signInWithCredential(auth, googleCredential);
+        return result.user;
+      }
+      // Le site et la PWA conservent leur parcours de connexion actuel.
       const result = await signInWithPopup(auth, googleProvider);
       return result.user;
     } catch (err) {
-      // Annulation volontaire : on ne remonte pas d'erreur
       if (POPUP_DISMISSED_CODES.has(err.code)) return null;
-      // Popup bloquée par le navigateur
       if (err.code === 'auth/popup-blocked') {
-        const e = new Error(
-          'Le navigateur a bloqué la fenêtre Google. Autorise les popups pour ce site, puis réessaie.'
-        );
-        e.code = err.code;
-        throw e;
+        const e = new Error('Le navigateur a bloqué la fenêtre Google. Autorise les fenêtres de connexion, puis réessaie.');
+        e.code = err.code; throw e;
       }
-      // Domaine non autorisé
       if (err.code === 'auth/unauthorized-domain') {
-        const e = new Error(
-          'Ce domaine n\u2019est pas autorisé dans Firebase. Ajoute-le dans Authentication → Settings → Authorized domains.'
-        );
-        e.code = err.code;
-        throw e;
+        const e = new Error('La connexion Google n’est pas autorisée pour cette adresse. Réessaie depuis le site Pata.');
+        e.code = err.code; throw e;
       }
-      // Compte désactivé / annulé côté Google
       if (err.code === 'auth/account-exists-with-different-credential') {
-        const e = new Error(
-          'Un compte existe déjà avec cet email via une autre méthode de connexion.'
-        );
-        e.code = err.code;
-        throw e;
+        const e = new Error('Un compte existe déjà avec cet email. Utilise la méthode de connexion déjà associée à ce compte.');
+        e.code = err.code; throw e;
+      }
+      if (Capacitor.isNativePlatform()) {
+        const e = new Error('La connexion Google sur cet appareil n’est pas encore configurée. Utilise temporairement ton adresse e-mail et ton mot de passe, ou connecte-toi sur le site Pata.');
+        e.code = err.code || 'auth/native-google-failed'; throw e;
       }
       throw err;
     }

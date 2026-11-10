@@ -82,6 +82,12 @@ jobs:
           cd android
           ./gradlew --no-daemon assembleDebug
 
+      - name: Afficher les empreintes du certificat Android de test
+        run: |
+          if [ -f "$HOME/.android/debug.keystore" ]; then
+            keytool -list -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey | grep -E 'SHA1:|SHA256:'
+          fi
+
       - name: Publier l'APK de vérification
         uses: actions/upload-artifact@v4
         with:
@@ -149,6 +155,7 @@ jobs:
           PY
           test -s android/app/pata-release.jks
           keytool -list -keystore android/app/pata-release.jks -storetype JKS -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null
+          keytool -list -v -keystore android/app/pata-release.jks -storetype JKS -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" | grep -E 'SHA1:|SHA256:'
           echo "Keystore Android validé et bloc buildTypes.release configuré."
 
       - name: Compiler l'APK release signée
@@ -178,8 +185,8 @@ jobs:
         if: ${{ (inputs.publish_release == 'true' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[PUBLISH_ANDROID_RELEASE]'))) && env.ANDROID_KEYSTORE_BASE64 != '' && env.ANDROID_KEYSTORE_PASSWORD != '' && env.ANDROID_KEY_ALIAS != '' && env.ANDROID_KEY_PASSWORD != '' }}
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: android-v1.0.9
-          name: Pata Android 1.0.9
+          tag_name: android-v1.1.0
+          name: Pata Android 1.1.0
           target_commitish: main
           generate_release_notes: true
           overwrite_files: true
