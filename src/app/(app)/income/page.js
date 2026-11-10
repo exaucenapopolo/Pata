@@ -144,7 +144,7 @@ export default function IncomePage() {
     });
   }, [incomes, expenses]);
 
-  const activeIncomes = useMemo(() => incomesWithBalance.filter(i => !i.isExhausted), [incomesWithBalance]);
+  const activeIncomes = useMemo(() => incomesWithBalance.filter(i => !i.neutralFlow && !i.isExhausted), [incomesWithBalance]);
   const totalAvailable = activeIncomes.reduce((s, i) => s + i.remaining, 0);
   const currentMonthKey = todayMonth();
   const premiumUntilDate = profile?.premiumUntil?.toDate ? profile.premiumUntil.toDate() : new Date(profile?.premiumUntil || 0);

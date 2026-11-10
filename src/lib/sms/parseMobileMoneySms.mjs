@@ -186,6 +186,12 @@ function parseCounterparty(text) {
   return null;
 }
 
+function inferSuggestedCategory(text, eventType) {
+  const value = normalize(text);
+  if (eventType === 'payment' && /(airtime|recharge|top.?up|credit\s+telephonique|credit\s+telephone|achat\\s+(?:de\\s+)?credit|appel)/.test(value)) return 'airtime';
+  return null;
+}
+
 function parseBalance(text) {
   const match = text.match(/(?:nouveau\s+)?solde(?:\s+disponible)?\s*[:\-]?\s*([0-9][0-9\s\u00a0.,']{0,22})\s*(?:FCFA|F\s*\.?\s*CFA|XAF|CFA)\b/i);
   return match ? parseMoney(match[1]) : null;
@@ -212,5 +218,6 @@ export function parseMobileMoneySms(rawText, options = {}) {
     provider, transactionId, amount, eventType, direction,
     date: dateTime.date, time: dateTime.time,
     counterparty: parseCounterparty(text), balance: parseBalance(text),
+    suggestedCategoryId: inferSuggestedCategory(text, eventType),
   };
 }

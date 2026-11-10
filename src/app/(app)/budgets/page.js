@@ -29,7 +29,8 @@ export default function BudgetsPage() {
   const { incomes } = useIncomes();
   const { budgets } = useBudgets(month, selectedIncome);
   const { expenses } = useExpenses();
-  const { categories: expenseCategories } = useCustomCategories('expense');
+  const { categories: allExpenseCategories } = useCustomCategories('expense');
+  const expenseCategories = useMemo(() => allExpenseCategories.filter((category) => category.id !== 'loan_given'), [allExpenseCategories]);
 
   const [editing, setEditing] = useState(null);
   const [amount, setAmount] = useState('');
@@ -60,7 +61,7 @@ export default function BudgetsPage() {
   const monthIncomes = useMemo(() => incomes.filter(i => i.month === month), [incomes, month]);
 
   const monthExpenses = useMemo(() => {
-    let filtered = expenses.filter((e) => e.date?.startsWith(month));
+    let filtered = expenses.filter((e) => !e.neutralFlow && e.date?.startsWith(month));
     // En vue globale, inclure toutes les parts des dépenses réparties entre plusieurs revenus.
     if (selectedIncome !== 'all') {
       filtered = filtered.filter(e => e.incomeSourceId === selectedIncome);

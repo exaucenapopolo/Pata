@@ -61,6 +61,8 @@ public final class PataMobileMoneyParser {
                 calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE)));
             String counterparty = detectCounterparty(body);
             if (counterparty != null) result.put("counterparty", counterparty);
+            String suggestedCategoryId = detectSuggestedCategory(normalized, event);
+            if (suggestedCategoryId != null) result.put("suggestedCategoryId", suggestedCategoryId);
             Integer balance = detectBalance(normalized);
             if (balance != null) result.put("balance", balance);
             return result;
@@ -158,6 +160,13 @@ public final class PataMobileMoneyParser {
         } catch (Exception error) {
             return null;
         }
+    }
+
+    private static String detectSuggestedCategory(String text, String event) {
+        if ("payment".equals(event)
+            && Pattern.compile("(airtime|recharge|top.?up|credit\\s+telephonique|credit\\s+telephone|achat\\s+(?:de\\s+)?credit|appel)")
+                .matcher(text).find()) return "airtime";
+        return null;
     }
 
     private static String detectTransactionId(String text) {

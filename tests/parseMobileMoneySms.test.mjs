@@ -23,6 +23,7 @@ test('reconnaît l’achat de crédit téléphonique comme une sortie Airtime', 
   assert.equal(result?.eventType, 'payment');
   assert.equal(result?.direction, 'expense');
   assert.equal(result?.amount, 500);
+  assert.equal(result?.suggestedCategoryId, 'airtime');
 });
 
 test('parse un SMS de paiement marchand Orange Money sans exiger de modèle unique', () => {

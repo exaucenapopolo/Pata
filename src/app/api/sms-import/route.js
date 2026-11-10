@@ -78,7 +78,8 @@ function deviceTokenMatches(deviceToken, storedHash) {
   return supplied.length === expected.length && timingSafeEqual(supplied, expected);
 }
 
-function inferExpenseCategory(counterparty, eventType) {
+function inferExpenseCategory(counterparty, eventType, suggestedCategoryId = null) {
+  if (suggestedCategoryId === 'airtime') return 'airtime';
   const value = String(counterparty || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   if (/(airtime|recharge|top.?up|credit\s+telephonique|credit\s+telephone|recharge\s+(?:de\s+)?credit|appel)/.test(value)) return 'airtime';
   if (/(internet|data|forfait|wifi|bundle|mtnc\s+bundles)/.test(value)) return 'internet';
@@ -397,7 +398,7 @@ async function handleAutomaticDeviceImport(body) {
         status: 'PENDING',
         source: 'automatic',
         requiresReview: true,
-        suggestedCategoryId: inferExpenseCategory(parsed.counterparty, parsed.eventType),
+        suggestedCategoryId: inferExpenseCategory(parsed.counterparty, parsed.eventType, parsed.suggestedCategoryId),
         counterparty: parsed.counterparty || null,
         createdAt: existing.createdAt || FieldValue.serverTimestamp(),
         deviceReceivedAt: FieldValue.serverTimestamp(),
@@ -436,9 +437,10 @@ async function handleAutomaticDeviceImport(body) {
   }
   if (claim.requiresReview) {
     const providerName = parsed.provider === 'mtn_momo' ? 'MTN MoMo' : 'Orange Money';
-    const categoryId = inferExpenseCategory(parsed.counterparty, parsed.eventType);
+    const categoryId = inferExpenseCategory(parsed.counterparty, parsed.eventType, parsed.suggestedCategoryId);
     const categoryLabels = {
       internet: 'Télécom / Internet',
+      airtime: 'Airtime / Crédit téléphone',
       transport: 'Transport',
       food: 'Nourriture',
       health: 'Santé',
@@ -491,7 +493,7 @@ async function handleAutomaticDeviceImport(body) {
       const result = await createSmsIncome(uid, hash, parsed, providerName);
       operationId = result.id;
     } else {
-      const categoryId = inferExpenseCategory(counterparty, parsed.eventType);
+      const categoryId = inferExpenseCategory(counterparty, parsed.eventType, parsed.suggestedCategoryId);
       const result = await createExpenseForUser(uid, {
         amount: parsed.amount,
         categoryId,
@@ -523,10 +525,11 @@ async function handleAutomaticDeviceImport(body) {
       budgetWarnings, lastError: FieldValue.delete(),
     }, { merge: true });
 
-    const notificationCategoryId = parsed.direction === 'income' ? 'other_income' : inferExpenseCategory(counterparty, parsed.eventType);
+    const notificationCategoryId = parsed.direction === 'income' ? 'other_income' : inferExpenseCategory(counterparty, parsed.eventType, parsed.suggestedCategoryId);
     const notificationCategoryLabels = {
       other_income: 'Autres revenus',
       internet: 'Internet et téléphone',
+      airtime: 'Airtime / Crédit téléphone',
       transport: 'Transport',
       food: 'Alimentation',
       health: 'Santé',
@@ -674,7 +677,7 @@ export async function POST(request) {
         if (existingSnap.exists) return { duplicate: true, status: existingSnap.data()?.status || 'PENDING' };
         transaction.create(ref, {
           ...parsed,
-          suggestedCategoryId: parsed.direction === 'income' ? null : inferExpenseCategory(parsed.counterparty, parsed.eventType),
+          suggestedCategoryId: parsed.direction === 'income' ? null : inferExpenseCategory(parsed.counterparty, parsed.eventType, parsed.suggestedCategoryId),
           status: 'PENDING',
           createdAt: FieldValue.serverTimestamp(),
           source: sourceMode,
