@@ -4,7 +4,8 @@ import { adminAuth, adminDb, adminMessaging } from '@/lib/firebase/admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { createExpenseForUser } from '@/lib/ai/financialTools';
 import { sendPataEmail, renderPataEmail, escapeEmailHtml } from '@/lib/email/resend';
-import { sendPataWebPush, isExpiredWebPushError } from '@/lib/notifications/webPush.mjs';
+import { sendPataWebPush } from '@/lib/notifications/webPush.mjs';
+import { dispatchPushNotification } from '@/lib/notifications/dispatcher.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -131,6 +132,7 @@ async function createSmsIncome(uid, transactionHash, item, providerName) {
 }
 
 async function notifyAutomaticSmsTransaction(uid, profile, transaction) {
+  const safeProfile = profile && typeof profile === 'object' ? profile : {};
   const requiresReview = transaction.requiresReview === true;
   const eventLabel = transaction.eventType === 'withdrawal' ? 'retrait'
     : transaction.eventType === 'payment' ? 'paiement' : 'transfert';
@@ -144,87 +146,141 @@ async function notifyAutomaticSmsTransaction(uid, profile, transaction) {
       + (transaction.counterparty ? ' · ' + transaction.counterparty : '')
       + ' a été détecté. Il n’est pas encore comptabilisé : ouvre Pata pour choisir sa catégorie et sa nature.'
     : 'Pata a enregistré automatiquement un ' + kind + ' de ' + amount + ' via ' + transaction.providerName + '.';
-  const target = transaction.target;
   const notificationId = 'sms-' + transaction.transactionHash;
+  const configuredAppUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://www.pata-yam.site';
+  let appUrl = 'https://www.pata-yam.site';
+  try { appUrl = new URL(configuredAppUrl).origin; } catch { /* conserver l’adresse officielle de Pata */ }
+  let target = '/dashboard';
+  try {
+    const parsedTarget = new URL(String(transaction.target || '/dashboard'), appUrl);
+    if (parsedTarget.origin === appUrl) target = parsedTarget.pathname + parsedTarget.search + parsedTarget.hash;
+  } catch { /* conserver /dashboard */ }
+  const pushTag = notificationId.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 32);
   const userRef = adminDb.collection('users').doc(uid);
   const notificationRef = userRef.collection('notifications').doc(notificationId);
 
   await notificationRef.set({
-    title, body, target, source: 'sms_import', operationType: transaction.direction,
-    operationId: transaction.operationId, provider: transaction.provider,
-    amount: transaction.amount, read: false, readAt: null,
+    title,
+    body,
+    target,
+    source: 'sms_import',
+    operationType: transaction.direction,
+    operationId: transaction.operationId || null,
+    provider: transaction.provider,
+    amount: transaction.amount,
+    date: transaction.date || null,
+    time: transaction.time || null,
+    categoryId: transaction.categoryId || null,
+    categoryLabel: transaction.categoryLabel || null,
+    counterparty: transaction.counterparty || null,
+    requiresReview,
+    read: false,
+    readAt: null,
     createdAt: FieldValue.serverTimestamp(),
   }, { merge: true });
 
-  let fcmSent = 0;
-  let fcmFailed = 0;
-  const tokens = profile.notificationsEnabled === true && Array.isArray(profile.pushTokens)
-    ? [...new Set(profile.pushTokens.filter((token) => typeof token === 'string' && token.length > 20))]
+  const tokens = Array.isArray(safeProfile.pushTokens)
+    ? [...new Set(safeProfile.pushTokens.filter((token) => typeof token === 'string' && token.length > 20))]
     : [];
-  const appUrl = 'https://www.pata-yam.site';
-  for (const token of tokens) {
-    try {
-      await adminMessaging.send({
-        token,
-        notification: { title, body },
-        data: { title, body, url: target, tag: notificationId, source: 'sms_import' },
-        android: {
-          priority: 'high',
-          notification: { channelId: 'pata_general', icon: 'ic_stat_pata', color: '#0b5c46' },
+  const knownWebPushCount = Math.max(0, Number(safeProfile.webPushDeviceCount) || 0);
+  let webPushSnapshot = null;
+  if (knownWebPushCount > 0 || safeProfile.notificationsEnabled === true) {
+    webPushSnapshot = await userRef.collection('webPushSubscriptions').get().catch((error) => {
+      console.warn('[PATA SMS WEB PUSH LOOKUP]', uid, error.message || error);
+      return null;
+    });
+  }
+  const webPushTargets = (webPushSnapshot?.docs || [])
+    .map((subscriptionDoc) => {
+      const saved = subscriptionDoc.data() || {};
+      if (!saved.endpoint || !saved.keys?.p256dh || !saved.keys?.auth) return null;
+      return {
+        id: subscriptionDoc.id,
+        ref: subscriptionDoc.ref,
+        subscription: {
+          endpoint: saved.endpoint,
+          expirationTime: saved.expirationTime ?? null,
+          keys: saved.keys,
         },
-        webpush: {
-          headers: { TTL: '86400', Urgency: 'high' },
-          notification: {
-            title, body,
-            icon: appUrl + '/android-chrome-192x192.png',
-            badge: appUrl + '/android-chrome-192x192.png',
-            tag: notificationId,
-            renotify: false,
-          },
-          fcmOptions: { link: new URL(target, appUrl).toString() },
+      };
+    })
+    .filter(Boolean);
+
+  const pushResult = await dispatchPushNotification({
+    tokens,
+    subscriptions: webPushTargets,
+    sendFcm: (token) => adminMessaging.send({
+      token,
+      notification: { title, body },
+      data: { title, body, url: target, tag: pushTag, source: 'sms_import' },
+      android: {
+        priority: 'high',
+        notification: { channelId: 'pata_general', icon: 'ic_stat_pata', color: '#0b5c46' },
+      },
+      webpush: {
+        headers: { TTL: '86400', Urgency: 'high' },
+        notification: {
+          title,
+          body,
+          icon: appUrl + '/android-chrome-192x192.png',
+          badge: appUrl + '/android-chrome-192x192.png',
+          tag: pushTag,
+          renotify: false,
         },
-      });
-      fcmSent += 1;
-    } catch (error) {
-      fcmFailed += 1;
-      console.warn('[PATA SMS FCM PUSH]', uid, error.code || error.message);
-      if (['messaging/registration-token-not-registered', 'messaging/invalid-registration-token'].includes(error.code)) {
-        await userRef.update({ pushTokens: FieldValue.arrayRemove(token) }).catch(() => {});
-      }
-    }
+        fcmOptions: { link: new URL(target, appUrl).toString() },
+      },
+    }),
+    sendWebPush: (entry) => sendPataWebPush(entry.subscription, {
+      title,
+      body,
+      url: target,
+      tag: pushTag,
+    }),
+  });
+
+  if (pushResult.invalidTokens.length) {
+    await userRef.set({ pushTokens: FieldValue.arrayRemove(...pushResult.invalidTokens) }, { merge: true }).catch(() => {});
+  }
+  if (pushResult.expiredSubscriptions.length) {
+    await Promise.all(pushResult.expiredSubscriptions.map((entry) => entry.ref.delete().catch(() => {})));
+  }
+  if (pushResult.invalidTokens.length || pushResult.expiredSubscriptions.length) {
+    const [freshProfile, countSnapshot] = await Promise.all([
+      userRef.get().catch(() => null),
+      userRef.collection('webPushSubscriptions').count().get().catch(() => null),
+    ]);
+    const freshData = freshProfile?.exists ? freshProfile.data() || {} : safeProfile;
+    const remainingTokens = Array.isArray(freshData.pushTokens)
+      ? freshData.pushTokens.filter((token) => typeof token === 'string' && token.length > 20 && !pushResult.invalidTokens.includes(token))
+      : tokens.filter((token) => !pushResult.invalidTokens.includes(token));
+    const countValue = Number(countSnapshot?.data()?.count);
+    const webPushCount = Number.isFinite(countValue)
+      ? countValue
+      : Math.max(0, (webPushSnapshot?.size ?? knownWebPushCount) - pushResult.expiredSubscriptions.length);
+    await userRef.set({
+      webPushDeviceCount: webPushCount,
+      notificationsEnabled: remainingTokens.length + webPushCount > 0,
+      notificationsUpdatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true }).catch(() => {});
+  }
+  if (pushResult.fcmSent + pushResult.webPushSent > 0) {
+    await userRef.set({
+      lastPushAcceptedAt: FieldValue.serverTimestamp(),
+      lastPushErrorCode: FieldValue.delete(),
+      lastPushErrorAt: FieldValue.delete(),
+    }, { merge: true }).catch(() => {});
+  } else if (pushResult.attempted > 0 && pushResult.failed > 0) {
+    await userRef.set({
+      lastPushErrorCode: 'push/delivery-failed',
+      lastPushErrorAt: FieldValue.serverTimestamp(),
+    }, { merge: true }).catch(() => {});
+  }
+  for (const error of pushResult.errors) {
+    console.warn('[PATA SMS PUSH]', uid, error.channel, error.code);
   }
 
-  let webPushSent = 0;
-  let webPushFailed = 0;
-  const webPushSnapshot = profile.notificationsEnabled === true
-    ? await userRef.collection('webPushSubscriptions').get().catch((error) => {
-        console.warn('[PATA SMS WEB PUSH LOOKUP]', uid, error.message || error);
-        return null;
-      })
-    : null;
-  const webPushDocs = webPushSnapshot?.docs || [];
-  for (const subscriptionDoc of webPushDocs) {
-    const saved = subscriptionDoc.data() || {};
-    try {
-      await sendPataWebPush({
-        endpoint: saved.endpoint,
-        expirationTime: saved.expirationTime ?? null,
-        keys: saved.keys,
-      }, { title, body, url: target, tag: notificationId });
-      webPushSent += 1;
-    } catch (error) {
-      webPushFailed += 1;
-      console.warn('[PATA SMS WEB PUSH]', uid, error.statusCode || error.message);
-      if (isExpiredWebPushError(error)) await subscriptionDoc.ref.delete().catch(() => {});
-    }
-  }
-  if (webPushDocs.length) {
-    const count = await userRef.collection('webPushSubscriptions').count().get().catch(() => null);
-    await userRef.set({ webPushDeviceCount: Number(count?.data()?.count) || 0 }, { merge: true }).catch(() => {});
-  }
-
-  let email = typeof profile.email === 'string' ? profile.email : '';
-  let displayName = String(profile.displayName || '');
+  let email = typeof safeProfile.email === 'string' ? safeProfile.email : '';
+  let displayName = String(safeProfile.displayName || '');
   if (!email) {
     try {
       const authUser = await adminAuth.getUser(uid);
@@ -253,9 +309,9 @@ async function notifyAutomaticSmsTransaction(uid, profile, transaction) {
       ['Opérateur', safeProvider],
       ['Date', dateLabel],
       ['Heure', timeLabel],
-      ['Catégorie proposée', categoryLabel],
+      ['Catégorie', categoryLabel],
       ['Correspondant / marchand', counterpartyLabel],
-      ['Statut', requiresReview ? 'En attente de classification — non comptabilisé' : 'Enregistré automatiquement dans Pata'],
+      ['Statut', requiresReview ? 'En attente de classification — non comptabilisé' : 'Enregistré dans Pata'],
     ];
     const detailsTable = '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;border:1px solid #e2e8f0;border-radius:12px;">' +
       rows.map(([label, value]) =>
@@ -273,7 +329,7 @@ async function notifyAutomaticSmsTransaction(uid, profile, transaction) {
         '<p style="margin:0 0 16px;color:#334155;font-size:14px;line-height:1.75;">Bonjour ' + safeName +
         (requiresReview
           ? ', une opération Mobile Money vient d’être reconnue sur ton téléphone. Elle n’a pas été comptabilisée : ouvre Pata pour choisir sa nature et sa catégorie avant de la confirmer.</p>'
-          : ', une confirmation Mobile Money vient d’être reconnue sur ton téléphone et l’opération a été ajoutée automatiquement à ton compte Pata.</p>') +
+          : ', une confirmation Mobile Money vient d’être reconnue sur ton téléphone et l’opération a été ajoutée à ton compte Pata.</p>') +
         detailsTable +
         '<p style="margin:16px 0 0;color:#475569;font-size:13px;line-height:1.7;">' +
           (requiresReview
@@ -289,7 +345,7 @@ async function notifyAutomaticSmsTransaction(uid, profile, transaction) {
         to: email,
         subject: operationLabel + ' · ' + amount,
         html,
-        idempotencyKey: 'pata-sms-' + uid + '-' + transaction.transactionHash,
+        idempotencyKey: 'pata-sms-' + uid + '-' + transaction.transactionHash + '-' + (requiresReview ? 'review' : 'confirmed'),
       });
       emailSent = true;
       emailStatus = 'sent';
@@ -301,14 +357,16 @@ async function notifyAutomaticSmsTransaction(uid, profile, transaction) {
 
   return {
     inAppSent: true,
-    fcmSent, fcmFailed, webPushSent, webPushFailed,
-    pushSent: fcmSent + webPushSent,
-    pushFailed: fcmFailed + webPushFailed,
-    emailSent, emailStatus,
+    fcmSent: pushResult.fcmSent,
+    fcmFailed: pushResult.fcmFailed,
+    webPushSent: pushResult.webPushSent,
+    webPushFailed: pushResult.webPushFailed,
+    pushSent: pushResult.fcmSent + pushResult.webPushSent,
+    pushFailed: pushResult.failed,
+    emailSent,
+    emailStatus,
   };
 }
-
-
 async function handleAutomaticDeviceImport(body) {
   const uid = String(body.uid || '').trim().slice(0, 150);
   const deviceToken = String(body.deviceToken || '');
