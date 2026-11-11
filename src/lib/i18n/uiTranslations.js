@@ -1481,4 +1481,21 @@ export const extendedTranslations = {
   "Par participant": "Per participant",
   "Dépôts": "Deposits",
   "Aucun objectif ni tirelire enregistré.": "No goals or savings pots have been recorded.",
+
+  // Onboarding visuals and accessibility labels
+  "Visuel Pata consacré au suivi du budget": "Pata visual about budget tracking",
+  "Visuel Pata consacré à l’import automatique des SMS Mobile Money": "Pata visual about automatic Mobile Money SMS import",
+  "Visuel Pata consacré aux objectifs d’épargne": "Pata visual about savings goals",
+  "Visuel Pata consacré aux tontines et cotisations": "Pata visual about savings groups and contributions",
+  "Visuel Pata consacré à l’analyse des finances": "Pata visual about financial analysis",
+  "Aperçu de l’assistant financier Pata": "Preview of the Pata financial assistant",
+  "À partir de ton suivi": "Based on your records",
+  "Une première piste": "A first suggestion",
+  "Ta question": "Your question",
+  "Comment mieux gérer mon budget ?": "How can I manage my budget better?",
+  "Compare tes dépenses au prévu pour repérer quoi ajuster.": "Compare your spending with your plan to see what you could adjust.",
+  "Alimentation": "Food",
+  "Un conseil clair, à ton rythme.": "Clear advice, at your own pace.",
+  "Pose ta question…": "Ask your question…",
+  "Fenêtre de dialogue": "Dialog window",
 };
