@@ -7,6 +7,8 @@ import { Card, CardTitle } from '@/components/ui/Card';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { Button } from '@/components/ui/Button';
 import { MonthPicker } from '@/components/ui/MonthPicker';
+import { useLanguage } from '@/context/LanguageContext';
+import { translateText } from '@/lib/i18n/translations';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -24,6 +26,8 @@ const todayMonth = () => getLocalMonth();
 
 export default function BudgetsPage() {
   const { user } = useAuth();
+  const { language } = useLanguage();
+  const isEnglish = language === 'en';
   const { profile } = useProfile();
   const [month, setMonth] = useState(todayMonth());
   const [selectedIncome, setSelectedIncome] = useState('all');
@@ -117,14 +121,14 @@ export default function BudgetsPage() {
   const openSuggestedBudget = () => {
     const items = buildBudgetSuggestions({ incomes, expenses, categories: expenseCategories, persona: budgetPersona, month });
     if (!items.length) {
-      setTemplateMessage('Enregistre quelques revenus ou dépenses pour que Pata puisse calculer un budget personnalisé.');
+      setTemplateMessage(isEnglish ? 'Record some income or expenses so Pata can calculate a personalized budget.' : 'Enregistre quelques revenus ou dépenses pour que Pata puisse calculer un budget personnalisé.');
       return;
     }
-    const roleLabels = { employee: 'salarié', student: 'élève ou étudiant', self_employed: 'indépendant', family: 'foyer', retired: 'retraité' };
+    const roleLabels = isEnglish ? { employee: 'employee', student: 'student', self_employed: 'self-employed', family: 'household', retired: 'retired' } : { employee: 'salarié', student: 'élève ou étudiant', self_employed: 'indépendant', family: 'foyer', retired: 'retraité' };
     setEditingTemplateId(null);
-    setTemplateName('Budget conseillé — ' + roleLabels[budgetPersona]);
+    setTemplateName((isEnglish ? 'Suggested budget — ' : 'Budget conseillé — ') + roleLabels[budgetPersona]);
     setTemplateItems(items.map((item) => ({ categoryId: item.categoryId, label: item.label, amount: String(item.amount) })));
-    setTemplateMessage('Pata a préparé une première répartition avec ton historique. Modifie librement les montants avant de valider.');
+    setTemplateMessage(isEnglish ? 'Pata has prepared an initial allocation using your history. Adjust the amounts before confirming.' : 'Pata a préparé une première répartition avec ton historique. Modifie librement les montants avant de valider.');
     setApplySuggestedAfterSave(true);
     setTemplateModalOpen(true);
   };
@@ -167,7 +171,7 @@ export default function BudgetsPage() {
       amount: Math.max(0, Math.round(Number(item.amount) || 0)),
     }));
     if (!items.length || items.some((item) => !item.categoryId)) {
-      setTemplateMessage('Le modèle doit contenir au moins une catégorie.');
+      setTemplateMessage(isEnglish ? 'The template must contain at least one category.' : 'Le modèle doit contenir au moins une catégorie.');
       return;
     }
     setSavingTemplate(true);
@@ -177,17 +181,17 @@ export default function BudgetsPage() {
       setTemplates(await getBudgetTemplates());
       if (applySuggestedAfterSave && !editingTemplateId) {
         const applied = await applyBudgetTemplate(savedTemplateId, month, selectedIncome);
-        setTemplateMessage('Budget conseillé enregistré et appliqué à ' + month + ' : ' + (applied.createdCount || 0) + ' enveloppe(s) créée(s), ' + (applied.updatedCount || 0) + ' mise(s) à jour. Tu peux encore ajuster chaque montant.');
+        setTemplateMessage(isEnglish ? `Suggested budget saved and applied to ${month}: ${applied.createdCount || 0} budget limit(s) created, ${applied.updatedCount || 0} updated. You can still adjust each amount.` : 'Budget conseillé enregistré et appliqué à ' + month + ' : ' + (applied.createdCount || 0) + ' enveloppe(s) créée(s), ' + (applied.updatedCount || 0) + ' mise(s) à jour. Tu peux encore ajuster chaque montant.');
       } else {
         setTemplateMessage(editingTemplateId
-          ? 'Modèle mis à jour. Les versions déjà appliquées ne sont pas modifiées.'
-          : 'Modèle enregistré. Cette création compte dans le quota de budgets du compte gratuit.');
+          ? (isEnglish ? 'Template updated. Previously applied versions are unchanged.' : 'Modèle mis à jour. Les versions déjà appliquées ne sont pas modifiées.')
+          : (isEnglish ? 'Template saved. This creation counts toward the free plan budget limit.' : 'Modèle enregistré. Cette création compte dans le quota de budgets du compte gratuit.'));
       }
       setTemplateModalOpen(false);
       setEditingTemplateId(null);
       setApplySuggestedAfterSave(false);
     } catch (error) {
-      setTemplateMessage(error.message || 'Impossible d’enregistrer ce modèle.');
+      setTemplateMessage(isEnglish ? 'Could not save this template.' : (error.message || 'Impossible d’enregistrer ce modèle.'));
     } finally {
       setSavingTemplate(false);
     }
@@ -197,29 +201,29 @@ export default function BudgetsPage() {
     if (!Array.isArray(template.items) || !template.items.length) return;
     const existingCount = template.items.filter((item) => budgets.some((budget) => normalizeExpenseCategoryId(budget.categoryId) === normalizeExpenseCategoryId(item.categoryId))).length;
     const confirmed = existingCount > 0
-      ? window.confirm('Appliquer « ' + template.name + ' » à ' + month + ' ? Les montants positifs seront créés ou mis à jour. Les catégories à zéro supprimeront leur enveloppe de ce mois. Les autres budgets resteront inchangés.')
+      ? window.confirm(isEnglish ? `Apply “${template.name}” to ${month}? Positive amounts will be created or updated. Categories set to zero will have their budget limit removed for this month. Other budgets will remain unchanged.` : 'Appliquer « ' + template.name + ' » à ' + month + ' ? Les montants positifs seront créés ou mis à jour. Les catégories à zéro supprimeront leur enveloppe de ce mois. Les autres budgets resteront inchangés.')
       : true;
     if (!confirmed) return;
     setApplyingTemplate(template.id);
     setTemplateMessage('');
     try {
       const result = await applyBudgetTemplate(template.id, month, selectedIncome);
-      setTemplateMessage('Modèle appliqué à ' + month + ' : ' + (result.createdCount || 0) + ' enveloppe(s) créée(s), ' + (result.updatedCount || 0) + ' mise(s) à jour, ' + (result.deletedCount || 0) + ' mise(s) à zéro retirée(s).');
+      setTemplateMessage(isEnglish ? `Template applied to ${month}: ${result.createdCount || 0} budget limit(s) created, ${result.updatedCount || 0} updated, ${result.deletedCount || 0} zeroed limit(s) removed.` : 'Modèle appliqué à ' + month + ' : ' + (result.createdCount || 0) + ' enveloppe(s) créée(s), ' + (result.updatedCount || 0) + ' mise(s) à jour, ' + (result.deletedCount || 0) + ' mise(s) à zéro retirée(s).');
     } catch (error) {
-      setTemplateMessage(error.message || 'Le modèle n’a pas pu être appliqué. Aucun changement partiel n’a été effectué.');
+      setTemplateMessage(isEnglish ? 'The template could not be applied. No partial changes were made.' : (error.message || 'Le modèle n’a pas pu être appliqué. Aucun changement partiel n’a été effectué.'));
     } finally {
       setApplyingTemplate('');
     }
   };
 
   const deleteTemplate = async (template) => {
-    if (!window.confirm('Supprimer le modèle « ' + template.name + ' » ? Cela ne supprimera aucun budget déjà appliqué.')) return;
+    if (!window.confirm(isEnglish ? `Delete the template “${template.name}”? Budgets already applied will not be deleted.` : 'Supprimer le modèle « ' + template.name + ' » ? Cela ne supprimera aucun budget déjà appliqué.')) return;
     try {
       await removeBudgetTemplate(template.id);
       setTemplates((current) => current.filter((item) => item.id !== template.id));
-      setTemplateMessage('Modèle supprimé. Les budgets déjà appliqués sont conservés.');
+      setTemplateMessage(isEnglish ? 'Template deleted. Budgets already applied have been kept.' : 'Modèle supprimé. Les budgets déjà appliqués sont conservés.');
     } catch (error) {
-      setTemplateMessage(error.message || 'Impossible de supprimer ce modèle.');
+      setTemplateMessage(isEnglish ? 'Could not delete this template.' : (error.message || 'Impossible de supprimer ce modèle.'));
     }
   };
 
@@ -242,7 +246,7 @@ export default function BudgetsPage() {
       }
       setEditing(null);
     } catch (error) {
-      setSaveError(error.message || 'Impossible d’enregistrer ce budget.');
+      setSaveError(isEnglish ? 'Could not save this budget.' : (error.message || 'Impossible d’enregistrer ce budget.'));
     } finally {
       setSaving(false);
     }
@@ -260,7 +264,9 @@ export default function BudgetsPage() {
         </div>
         <div className="flex w-full flex-wrap gap-2 sm:w-auto">
           <Button type="button" variant="outline" size="sm" onClick={() => {
-            const prompt = 'Analyse mon budget Pata du mois ' + month + '. Profil : ' + budgetPersona + '. Revenus enregistrés : ' + monthIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0) + ' FCFA. Répartition actuelle : ' + enriched.map((item) => item.label + ' : prévu ' + item.allocated + ' FCFA, dépensé ' + item.spent + ' FCFA').join('; ') + '. Repère les catégories qui consomment le plus, les enveloppes trop élevées ou trop basses et propose des ajustements réalistes adaptés à ce profil. Ne modifie rien sans mon accord.';
+            const prompt = isEnglish
+              ? `Analyze my Pata budget for ${month}. Profile: ${budgetPersona}. Recorded income: ${monthIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0)} XAF. Current allocation: ${enriched.map((item) => `${translateText(item.label, 'en')}: planned ${item.allocated} XAF, spent ${item.spent} XAF`).join('; ')}. Identify the categories with the highest spending, budget limits that are too high or too low, and realistic adjustments for this profile. Do not change anything without my approval.`
+              : 'Analyse mon budget Pata du mois ' + month + '. Profil : ' + budgetPersona + '. Revenus enregistrés : ' + monthIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0) + ' FCFA. Répartition actuelle : ' + enriched.map((item) => item.label + ' : prévu ' + item.allocated + ' FCFA, dépensé ' + item.spent + ' FCFA').join('; ') + '. Repère les catégories qui consomment le plus, les enveloppes trop élevées ou trop basses et propose des ajustements réalistes adaptés à ce profil. Ne modifie rien sans mon accord.';
             window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt } }));
           }}><MessageCircle size={15}/> Analyser avec l’IA</Button>
           <select value={budgetPersona} onChange={(event) => setBudgetPersona(event.target.value)} aria-label="Profil pour la proposition de budget" className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-xs">
@@ -329,7 +335,7 @@ export default function BudgetsPage() {
             <button type="button" onClick={() => setDetails(c)} className="mb-2 flex w-full items-start justify-between text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-300">
               <div className="flex items-center gap-2">
                 <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: c.color }} />
-                <p className="text-sm font-semibold text-slate-800">{c.label}</p>
+                <p className="text-sm font-semibold text-slate-800">{translateText(c.label, language)}</p>
               </div>
               <span className="inline-flex items-center gap-1 text-xs text-slate-400">Détails <ChevronRight size={14} /></span>
             </button>
@@ -359,8 +365,8 @@ export default function BudgetsPage() {
                 }
               >
                 {c.remaining < 0
-                  ? `${formatCurrency(Math.abs(c.remaining))} dépassé`
-                  : `${formatCurrency(c.remaining)} restant`}
+                  ? (isEnglish ? `${formatCurrency(Math.abs(c.remaining))} over budget` : `${formatCurrency(Math.abs(c.remaining))} dépassé`)
+                  : (isEnglish ? `${formatCurrency(c.remaining)} remaining` : `${formatCurrency(c.remaining)} restant`)}
               </p>
             </div>
             <ProgressBar
@@ -410,7 +416,7 @@ export default function BudgetsPage() {
         </form>
       </Modal>
 
-      <Modal open={!!details} onClose={() => setDetails(null)} title={details ? `Détail du budget — ${details.label}` : ''}>
+      <Modal open={!!details} onClose={() => setDetails(null)} title={details ? (isEnglish ? `Budget details — ${translateText(details.label, 'en')}` : `Détail du budget — ${details.label}`) : ''}>
         {details && (
           <div className="space-y-4">
             <div className="grid grid-cols-3 gap-2">
@@ -436,7 +442,7 @@ export default function BudgetsPage() {
                 </ul>
               )}
             </div>
-            <Button type="button" className="w-full" onClick={() => { const prompt = `Aide-moi à améliorer mon budget ${details.label} pour ${month}. Montant prévu : ${details.allocated} FCFA. Dépenses enregistrées : ${details.spent} FCFA. Reste : ${details.remaining} FCFA. Analyse les opérations et propose des changements réalistes sans modifier mes données.`; window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt } })); setDetails(null); }}>
+            <Button type="button" className="w-full" onClick={() => { const prompt = isEnglish ? `Help me improve my ${details.label} budget for ${month}. Planned amount: ${details.allocated} XAF. Recorded expenses: ${details.spent} XAF. Remaining: ${details.remaining} XAF. Analyze the transactions and suggest realistic changes without modifying my data.` : `Aide-moi à améliorer mon budget ${details.label} pour ${month}. Montant prévu : ${details.allocated} FCFA. Dépenses enregistrées : ${details.spent} FCFA. Reste : ${details.remaining} FCFA. Analyse les opérations et propose des changements réalistes sans modifier mes données.`; window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt } })); setDetails(null); }}>
               <MessageCircle size={15} /> Demander conseil à Mč
             </Button>
           </div>
@@ -446,7 +452,7 @@ export default function BudgetsPage() {
       <Modal
         open={!!editing}
         onClose={() => setEditing(null)}
-        title={editing ? `Budget — ${editing.label}` : ''}
+        title={editing ? `Budget — ${translateText(editing.label, language)}` : ''}
       >
         {editing && (
           <form onSubmit={onSave} className="space-y-3">
@@ -454,8 +460,8 @@ export default function BudgetsPage() {
               <Landmark size={16} />
               <span>
                 {selectedIncome === 'all' 
-                  ? 'Budget Global (Tous les revenus)' 
-                  : `Revenu : ${monthIncomes.find(i => i.id === selectedIncome)?.source}`}
+                  ? (isEnglish ? 'Overall budget (all income)' : 'Budget Global (Tous les revenus)')
+                  : (isEnglish ? `Income: ${monthIncomes.find(i => i.id === selectedIncome)?.source}` : `Revenu : ${monthIncomes.find(i => i.id === selectedIncome)?.source}`)}
               </span>
             </div>
             <Input
