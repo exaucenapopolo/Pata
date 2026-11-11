@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CalendarDays, Check, Clock3, FileText, Pencil, Plus, Receipt, Trash2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { useLanguage } from '@/context/LanguageContext';
+import { translateText } from '@/lib/i18n/translations';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { formatCurrency, formatDate } from '@/lib/utils';
@@ -84,6 +86,9 @@ function monthlyEquivalent(bill) {
 
 export default function BillsPage() {
   const { user } = useAuth();
+  const { language } = useLanguage();
+  const isEnglish = language === 'en';
+  const t = (value) => translateText(value, language);
   const [bills, setBills] = useState([]);
   const [loading, setLoading] = useState(true);
   const [feedback, setFeedback] = useState('');
@@ -191,21 +196,21 @@ export default function BillsPage() {
     try {
       let result = await payBill(payload);
       if (result.confirmationRequired) {
-        const accepted = window.confirm(result.message || 'Cette dépense risque de dépasser un budget. Veux-tu tout de même l’enregistrer ?');
+        const accepted = window.confirm(t(result.message || 'Cette dépense risque de dépasser un budget. Veux-tu tout de même l’enregistrer ?'));
         if (!accepted) return;
         result = await payBill({ ...payload, confirmBudgetOverrun: true });
       }
       if (result.alreadyPaid) {
-        setFeedback('Cette échéance a déjà été enregistrée comme payée.');
+        setFeedback(t('Cette échéance a déjà été enregistrée comme payée.'));
       } else {
-        setFeedback(result.completed
+        setFeedback(t(result.completed
           ? 'Paiement enregistré dans tes dépenses. Cette facture ponctuelle est terminée.'
-          : 'Paiement enregistré dans tes dépenses. Prochaine échéance : ' + formatDate(result.nextDueDate) + '.');
+          : 'Paiement enregistré dans tes dépenses. Prochaine échéance : ' + formatDate(result.nextDueDate) + '.'));
       }
       setFeedbackError(false);
       setPayingBill(null);
     } catch (error) {
-      setFeedback(error.message || 'Impossible d’enregistrer ce paiement.');
+      setFeedback(t(error.message || 'Impossible d’enregistrer ce paiement.'));
       setFeedbackError(true);
     } finally {
       setSaving(false);
@@ -213,14 +218,14 @@ export default function BillsPage() {
   };
 
   const disableBill = async (bill) => {
-    if (!window.confirm('Désactiver « ' + bill.name + ' » ? Son historique restera conservé.')) return;
+    if (!window.confirm(isEnglish ? 'Disable “' + bill.name + '”? Its history will be kept.' : 'Désactiver « ' + bill.name + ' » ? Son historique restera conservé.')) return;
     setSaving(true);
     try {
       await deactivateBill(bill.id);
-      setFeedback('Facture désactivée. Son historique est conservé.');
+      setFeedback(t('Facture désactivée. Son historique est conservé.'));
       setFeedbackError(false);
     } catch (error) {
-      setFeedback(error.message || 'Impossible de désactiver cette facture.');
+      setFeedback(t(error.message || 'Impossible de désactiver cette facture.'));
       setFeedbackError(true);
     } finally {
       setSaving(false);

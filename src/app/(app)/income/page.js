@@ -304,7 +304,7 @@ export default function IncomePage() {
   };
 
   const deleteVital = async () => {
-    if (!confirm('Voulez-vous vraiment supprimer toutes vos prévisions vitales ?')) return;
+    if (!confirm(isEnglish ? 'Do you really want to delete all your essential spending forecasts?' : 'Voulez-vous vraiment supprimer toutes vos prévisions vitales ?')) return;
     await deleteVitalForecast();
   };
 
@@ -401,12 +401,15 @@ export default function IncomePage() {
           const check = await checkFinancialOperation({
             operationType: 'debt_borrowed', amount, date: form.date, categoryId: 'debt_borrowed',
           });
-          if (check.warnings?.length && !window.confirm(
-            'Petit rappel de Pata :\n\n' + check.warnings.join('\n\n')
-            + '\n\nTu peux respecter ton engagement et annuler, ou continuer quand même. Souhaites-tu poursuivre ?'
-          )) return;
+          if (check.warnings?.length) {
+            const warningDetails = check.warnings.map((warning) => translateText(warning, language)).join('\n\n');
+            const reminder = isEnglish
+              ? 'A reminder from Pata:\n\n' + warningDetails + '\n\nYou can keep your commitment and cancel, or continue anyway. Would you like to continue?'
+              : 'Petit rappel de Pata :\n\n' + warningDetails + '\n\nTu peux respecter ton engagement et annuler, ou continuer quand même. Souhaites-tu poursuivre ?';
+            if (!window.confirm(reminder)) return;
+          }
         } catch {
-          if (!window.confirm('Pata n’a pas pu vérifier tes engagements pour le moment. Tu peux réessayer ou continuer sans cette vérification. Souhaites-tu poursuivre ?')) return;
+          if (!window.confirm(isEnglish ? 'Pata could not check your commitments right now. You can try again or continue without this check. Would you like to continue?' : 'Pata n’a pas pu vérifier tes engagements pour le moment. Tu peux réessayer ou continuer sans cette vérification. Souhaites-tu poursuivre ?')) return;
         }
       }
       const payload = {
@@ -427,7 +430,7 @@ export default function IncomePage() {
       } else {
         const result = await createIncome(user.uid, payload);
         if (result.linkedDebt?.status === 'quota_reached') {
-          window.alert('Ta dette est bien enregistrée. Le quota gratuit de 2 liaisons de comptes par mois est atteint ; elle reste suivie normalement dans ton compte.');
+          window.alert(translateText('Ta dette est bien enregistrée. Le quota gratuit de 2 liaisons de comptes par mois est atteint ; elle reste suivie normalement dans ton compte.', language));
         }
         setShowCotisationReminder(true);
       }
@@ -443,7 +446,7 @@ export default function IncomePage() {
   };
 
   const onResetRules = async () => {
-    if (!confirm('Réinitialiser les pourcentages par défaut ?')) return;
+    if (!confirm(isEnglish ? 'Reset the allocation percentages to their defaults?' : 'Réinitialiser les pourcentages par défaut ?')) return;
     await resetRules(); setRulesSavedAt(new Date());
   };
 
@@ -456,7 +459,7 @@ export default function IncomePage() {
     const stats = profile?.monthlyStats || {};
     const usedBudgets = stats.lastResetMonth === currentMonthKey ? Number(stats.budgets) || 0 : 0;
     if (!premiumActive && usedBudgets + newBudgetCount > 2) {
-      alert(`Il te reste ${Math.max(0, 2 - usedBudgets)} création(s) de budget sur ton compte gratuit ce mois-ci, mais cette répartition en nécessite ${newBudgetCount}. Les budgets déjà existants peuvent être modifiés sans consommer une nouvelle création.`);
+      alert(isEnglish ? `You have ${Math.max(0, 2 - usedBudgets)} free budget creation(s) left this month, but this allocation requires ${newBudgetCount}. Existing budgets can be edited without using another creation.` : `Il te reste ${Math.max(0, 2 - usedBudgets)} création(s) de budget sur ton compte gratuit ce mois-ci, mais cette répartition en nécessite ${newBudgetCount}. Les budgets déjà existants peuvent être modifiés sans consommer une nouvelle création.`);
       return;
     }
     setSavingApplied(true);

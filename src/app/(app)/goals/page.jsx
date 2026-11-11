@@ -25,6 +25,7 @@ import { createGoal, updateGoal, deleteGoal, toggleGoalPin } from '@/lib/firesto
 import { computeGoalPlan, resolveFrequencyDays, GOAL_LATE_PENALTY_RATE } from '@/lib/goalCalc';
 import { adviceIconColor } from '@/lib/advisor';
 import { formatCurrency, formatDate, resolveCategory } from '@/lib/utils';
+import { translateText } from '@/lib/i18n/translations';
 import { playSuccess } from '@/lib/sound';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
@@ -670,14 +671,14 @@ export default function GoalsPage() {
       if (data.success) {
         alert(isEnglish ? `Request submitted for ${formatCurrency(data.amount)}. Payment will be made after review.` : `Demande envoyée pour ${formatCurrency(data.amount)}. Le paiement sera effectué après vérification.`);
         setConfirmGoal(null); setConfirmType(null); setSelected(null);
-      } else { alert(data.error); }
-    } catch { alert('Erreur.'); } finally { setConfirmBusy(false); }
+      } else { alert(translateText(data.error || 'Erreur.', language)); }
+    } catch (error) { alert(translateText(error.message || 'Erreur.', language)); } finally { setConfirmBusy(false); }
   };
 
   const handleDeleteGoal = async () => {
     if (!deleteGoalId) return;
     try { await deleteGoal(user.uid, deleteGoalId); setDeleteGoalId(null); }
-    catch (error) { window.alert(error.message || 'Impossible de supprimer cette épargne.'); }
+    catch (error) { window.alert(translateText(error.message || 'Impossible de supprimer cette épargne.', language)); }
   };
 
   return (

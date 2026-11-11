@@ -1536,4 +1536,15 @@ export const extendedTranslations = {
   "La limite est de {limit} caractères. Le texte a été raccourci pour éviter un dépassement.": "The limit is {limit} characters. The text was shortened to prevent overflow.",
   "La limite est de {limit} caractères. Raccourcis ton message avant l’envoi.": "The limit is {limit} characters. Shorten your message before sending.",
   "{count} characters left": "{count} characters left",
+
+  // Native browser confirmations and user feedback
+  "Paiement enregistré dans tes dépenses. Prochaine échéance : {date}.": "Payment recorded in your expenses. Next due date: {date}.",
+  "Impossible d’enregistrer ce paiement.": "Could not record this payment.",
+  "Petit rappel de Pata :": "A reminder from Pata:",
+  "Souhaites-tu continuer ?": "Would you like to continue?",
+  "Do you really want to delete all your essential spending forecasts?": "Do you really want to delete all your essential spending forecasts?",
+  "Your free plan can create 2 budgets per month. This allocation requires {required} and you have {remaining} remaining. Upgrade to Premium or reduce the number of categories before applying this forecast.": "Your free plan can create 2 budgets per month. This allocation requires {required} and you have {remaining} remaining. Upgrade to Premium or reduce the number of categories before applying this forecast.",
+  "You have {remaining} free budget creation(s) left this month, but this allocation requires {required}. Existing budgets can be edited without using another creation.": "You have {remaining} free budget creation(s) left this month, but this allocation requires {required}. Existing budgets can be edited without using another creation.",
+  "Could not save the language. Check your connection and try again.": "Could not save the language. Check your connection and try again.",
+  "Impossible d’enregistrer la langue. Vérifie ta connexion puis réessaie.": "Could not save the language. Check your connection and try again.",
 };

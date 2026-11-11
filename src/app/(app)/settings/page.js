@@ -245,7 +245,7 @@ export default function SettingsPage() {
             </div>
             <Input label="Nom affiché" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
             <Input label="Adresse e-mail" value={user?.email || ''} disabled />
-            <Select label="Langue" value={language} onChange={(e) => setLanguage(e.target.value).catch(() => alert('Impossible d’enregistrer la langue. Vérifie ta connexion puis réessaie.'))}>
+            <Select label="Langue" value={language} onChange={(e) => setLanguage(e.target.value).catch(() => alert(isEnglish ? 'Could not save the language. Check your connection and try again.' : 'Impossible d’enregistrer la langue. Vérifie ta connexion puis réessaie.'))}>
               <option value="fr">Français</option>
               <option value="en">English</option>
             </Select>

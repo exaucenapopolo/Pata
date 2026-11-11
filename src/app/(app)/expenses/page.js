@@ -26,6 +26,7 @@ import { OptionalTransactionFields } from '@/components/transactions/OptionalTra
 import { DebtCounterpartyField } from '@/components/debts/DebtCounterpartyField';
 import { AssistantShortcut } from '@/components/ai/AssistantShortcut';
 import { checkFinancialOperation } from '@/lib/firestore/financialTargets';
+import { translateText } from '@/lib/i18n/translations';
 
 const todayIso = () => {
   const d = new Date();
@@ -61,6 +62,7 @@ export default function ExpensesPage() {
   const { user } = useAuth();
   const { language } = useLanguage();
   const isEnglish = language === 'en';
+  const t = (value) => translateText(value, language);
   const { profile } = useProfile();
   const { projects } = useProjects();
   const { expenses, loading } = useExpenses();
@@ -242,12 +244,15 @@ export default function ExpensesPage() {
             operationType, amount, date: form.date, categoryId: form.categoryId,
             expenseType: form.expenseType || 'consumption',
           });
-          if (check.warnings?.length && !window.confirm(
-            'Petit rappel de Pata :\n\n' + check.warnings.join('\n\n')
-            + '\n\nTu peux respecter ton engagement et annuler, ou continuer quand même. Souhaites-tu poursuivre ?'
-          )) return;
+          if (check.warnings?.length) {
+            const warningDetails = check.warnings.map((warning) => t(warning)).join('\n\n');
+            const reminder = isEnglish
+              ? 'A reminder from Pata:\n\n' + warningDetails + '\n\nYou can keep your commitment and cancel, or continue anyway. Would you like to continue?'
+              : 'Petit rappel de Pata :\n\n' + warningDetails + '\n\nTu peux respecter ton engagement et annuler, ou continuer quand même. Souhaites-tu poursuivre ?';
+            if (!window.confirm(reminder)) return;
+          }
         } catch {
-          if (!window.confirm('Pata n’a pas pu vérifier tes engagements pour le moment. Tu peux réessayer ou continuer sans cette vérification. Souhaites-tu poursuivre ?')) return;
+          if (!window.confirm(isEnglish ? 'Pata could not check your commitments right now. You can try again or continue without this check. Would you like to continue?' : 'Pata n’a pas pu vérifier tes engagements pour le moment. Tu peux réessayer ou continuer sans cette vérification. Souhaites-tu poursuivre ?')) return;
         }
       }
       const payload = {
@@ -274,7 +279,7 @@ export default function ExpensesPage() {
       if (form.id) {
         let result = await updateExpense(user.uid, form.id, payload);
         if (result.confirmationRequired) {
-          const accepted = window.confirm(`${result.message}\n\nSouhaites-tu continuer ?`);
+          const accepted = window.confirm(t(`${result.message}\n\nSouhaites-tu continuer ?`));
           if (!accepted) return;
           result = await updateExpense(user.uid, form.id, { ...payload, confirmBudgetOverrun: true });
         }
@@ -286,10 +291,10 @@ export default function ExpensesPage() {
           result = await createExpense(user.uid, { ...payload, confirmBudgetOverrun: true });
         }
         if (result.pendingConfirmation) {
-          window.alert('Remboursement enregistré en attente. Le créancier doit confirmer la réception avant la mise à jour des deux comptes.');
+          window.alert(t('Remboursement enregistré en attente. Le créancier doit confirmer la réception avant la mise à jour des deux comptes.'));
         }
         if (result.linkedDebt?.status === 'quota_reached') {
-          window.alert('Ta dette est bien enregistrée. Le quota gratuit de 2 liaisons de comptes par mois est atteint ; elle reste suivie normalement dans ton compte.');
+          window.alert(t('Ta dette est bien enregistrée. Le quota gratuit de 2 liaisons de comptes par mois est atteint ; elle reste suivie normalement dans ton compte.'));
         }
       }
       setOpen(false);
@@ -347,7 +352,7 @@ export default function ExpensesPage() {
       await deleteExpense(user.uid, deleteId);
       setDeleteId(null);
     } catch (err) {
-      window.alert(err.message || 'Impossible de supprimer cette dépense.');
+      window.alert(t(err.message || 'Impossible de supprimer cette dépense.'));
     }
   };
 
