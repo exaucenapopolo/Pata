@@ -23,6 +23,15 @@ const validDate = (value) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.
 const money = (value) => Math.max(0, Math.round(Number(value) || 0));
 const addDays = (date, days) => { const result = new Date(date + 'T12:00:00'); result.setDate(result.getDate() + days); return result; };
 const iso = (date) => [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
+const coveredHistoryDays = (items, endDate) => {
+  const earliest = items.map((item) => String(item.date || '').slice(0, 10))
+    .filter(validDate).sort()[0];
+  if (!earliest) return 90;
+  const startMs = Date.parse(earliest + 'T00:00:00Z');
+  const endMs = Date.parse(endDate + 'T00:00:00Z');
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return 1;
+  return Math.min(90, Math.max(1, Math.floor((endMs - startMs) / 86400000) + 1));
+};
 
 export function getPeriodBounds(periodType = 'month', periodKey = '') {
   const today = iso(new Date());
@@ -66,11 +75,11 @@ export function buildFinancialSuggestions({ periodType = 'month', periodKey = ''
     && (item.flowType === 'debt_borrowed' || item.categoryId === 'debt_borrowed'));
   const granted = expenses.filter((item) => inHistory(item)
     && (item.flowType === 'loan_given' || item.categoryId === 'loan_given'));
-  const historyDays = 90;
-  const monthlyIncome = ordinaryIncomes.reduce((sum, item) => sum + money(item.amount), 0) / 3;
-  const monthlyExpense = consumption.reduce((sum, item) => sum + money(item.amount), 0) / 3;
-  const monthlyBorrowed = borrowed.reduce((sum, item) => sum + money(item.amount), 0) / 3;
-  const monthlyGranted = granted.reduce((sum, item) => sum + money(item.amount), 0) / 3;
+  const historyDays = coveredHistoryDays([...ordinaryIncomes, ...consumption, ...borrowed, ...granted], bounds.end);
+  const monthlyIncome = ordinaryIncomes.reduce((sum, item) => sum + money(item.amount), 0) / historyDays * 30;
+  const monthlyExpense = consumption.reduce((sum, item) => sum + money(item.amount), 0) / historyDays * 30;
+  const monthlyBorrowed = borrowed.reduce((sum, item) => sum + money(item.amount), 0) / historyDays * 30;
+  const monthlyGranted = granted.reduce((sum, item) => sum + money(item.amount), 0) / historyDays * 30;
   const dailyHistoryIncome = ordinaryIncomes.reduce((sum, item) => sum + money(item.amount), 0) / historyDays;
   const dailyHistoryExpense = consumption.reduce((sum, item) => sum + money(item.amount), 0) / historyDays;
   const dailyHistoryBorrowed = borrowed.reduce((sum, item) => sum + money(item.amount), 0) / historyDays;
@@ -89,7 +98,7 @@ export function buildFinancialSuggestions({ periodType = 'month', periodKey = ''
   const topCategories = [...categoryTotals.entries()].map(([categoryId, amount]) => ({
     categoryId,
     label: EXPENSE_CATEGORIES.find((item) => item.id === categoryId)?.label || categoryId,
-    amount: Math.round(amount / 3),
+    amount: Math.round(amount / historyDays * 30),
   })).sort((a, b) => b.amount - a.amount).slice(0, 4);
   const resolutions = [];
   if (payableDebt > 0 || borrowed.length > 0) resolutions.push('reduce_debt_before_borrowing');
@@ -130,8 +139,9 @@ export function buildBudgetSuggestions({ incomes = [], expenses = [], categories
     && item.flowType !== 'loan_given' && item.flowType !== 'repayment'
     && !['loan_given', 'debt_repayment'].includes(item.categoryId)
     && (!item.expenseType || item.expenseType === 'consumption'));
-  const averageMonthlyIncome = normalIncomes.reduce((sum, item) => sum + money(item.amount), 0) / 3;
-  const averageMonthlyExpense = normalExpenses.reduce((sum, item) => sum + money(item.amount), 0) / 3;
+  const historyDays = coveredHistoryDays([...normalIncomes, ...normalExpenses], end);
+  const averageMonthlyIncome = normalIncomes.reduce((sum, item) => sum + money(item.amount), 0) / historyDays * 30;
+  const averageMonthlyExpense = normalExpenses.reduce((sum, item) => sum + money(item.amount), 0) / historyDays * 30;
   const base = Math.round(averageMonthlyIncome > 0 ? averageMonthlyIncome : averageMonthlyExpense);
   if (!base) return [];
   const historyByCategory = new Map();

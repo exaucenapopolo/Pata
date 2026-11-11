@@ -234,14 +234,18 @@ export default function ExpensesPage() {
     try {
       if (!form.id && form.flowType !== 'repayment' && form.expenseType !== 'project') {
         const operationType = form.flowType === 'loan_given' ? 'loan_given' : 'expense';
-        const check = await checkFinancialOperation({
-          operationType, amount, date: form.date, categoryId: form.categoryId,
-          expenseType: form.expenseType || 'consumption',
-        });
-        if (check.warnings?.length && !window.confirm(
-          'Petit rappel de Pata :\n\n' + check.warnings.join('\n\n')
-          + '\n\nTu peux respecter ton engagement et annuler, ou continuer quand même. Souhaites-tu poursuivre ?'
-        )) return;
+        try {
+          const check = await checkFinancialOperation({
+            operationType, amount, date: form.date, categoryId: form.categoryId,
+            expenseType: form.expenseType || 'consumption',
+          });
+          if (check.warnings?.length && !window.confirm(
+            'Petit rappel de Pata :\n\n' + check.warnings.join('\n\n')
+            + '\n\nTu peux respecter ton engagement et annuler, ou continuer quand même. Souhaites-tu poursuivre ?'
+          )) return;
+        } catch {
+          if (!window.confirm('Pata n’a pas pu vérifier tes engagements pour le moment. Tu peux réessayer ou continuer sans cette vérification. Souhaites-tu poursuivre ?')) return;
+        }
       }
       const payload = {
         amount,
