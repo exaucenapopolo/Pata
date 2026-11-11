@@ -5,6 +5,7 @@ import { getIncomeRemaining, getWithdrawalFundingSuggestion, incomeMatchesMobile
 test('reconnaît uniquement les revenus du même opérateur Mobile Money', () => {
   assert.equal(incomeMatchesMobileMoneyProvider({ paymentMethod: 'mtn_momo' }, 'mtn_momo'), true);
   assert.equal(incomeMatchesMobileMoneyProvider({ source: 'MTN Mobile Money' }, 'mtn_momo'), true);
+  assert.equal(incomeMatchesMobileMoneyProvider({ source: 'MTN Mómo' }, 'mtn_momo'), true);
   assert.equal(incomeMatchesMobileMoneyProvider({ source: 'Orange Money' }, 'mtn_momo'), false);
   assert.equal(incomeMatchesMobileMoneyProvider({ cashPocket: true, source: 'Espèces · MTN MoMo' }, 'mtn_momo'), false);
 });
