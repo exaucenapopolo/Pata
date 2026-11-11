@@ -787,7 +787,7 @@ export async function POST(request) {
             flowType: isCashWithdrawal ? 'cash_withdrawal' : repaymentDebtId ? 'repayment' : 'normal',
             repaymentDebtId,
             incomeSourceId: isCashWithdrawal ? (item.withdrawalSourceIncomeId || 'external') : 'external',
-            incomeSourceName: item.withdrawalSourceIncomeId === 'external' ? providerName + ' (solde non suivi)' : providerName,
+            incomeSourceName: '',
             cashWithdrawalProvider: item.provider,
             externalFundingLabel: providerName + ' (solde non suivi)',
             confirmBudgetOverrun,
