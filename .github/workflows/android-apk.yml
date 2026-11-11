@@ -246,8 +246,8 @@ jobs:
         if: ${{ (inputs.publish_release == 'true' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[PUBLISH_ANDROID_RELEASE]'))) && env.ANDROID_KEYSTORE_BASE64 != '' && env.ANDROID_KEYSTORE_PASSWORD != '' && env.ANDROID_KEY_ALIAS != '' && env.ANDROID_KEY_PASSWORD != '' }}
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: android-v1.1.1
-          name: Pata Android 1.1.1
+          tag_name: android-v1.1.2
+          name: Pata Android 1.1.2
           target_commitish: main
           generate_release_notes: true
           overwrite_files: true

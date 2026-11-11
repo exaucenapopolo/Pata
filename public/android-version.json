@@ -1,7 +1,7 @@
 {
-  "version": "1.1.1",
-  "versionCode": 12,
-  "downloadAvailable": true,
+  "version": "1.1.2",
+  "versionCode": 13,
+  "downloadAvailable": false,
   "apkUrl": "https://github.com/exaucenapopolo/Pata/releases/latest/download/Pata-Android.apk",
-  "releaseNotes": "Autorisation de localisation Android, suivi des dettes et prêts entre comptes Pata, confirmations de remboursement et améliorations de stabilité."
+  "releaseNotes": "Améliorations du code PIN, des dettes et prêts, des objectifs financiers, de l’assistant Mč et de la stabilité générale."
 }
