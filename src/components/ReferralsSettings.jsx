@@ -62,7 +62,7 @@ export function ReferralsSettings() {
     } finally {
       setLoading(false);
     }
-  }, [user, activeGoals]);
+  }, [user, activeGoals, isEnglish]);
 
   useEffect(() => { refresh(); }, [refresh]);
 

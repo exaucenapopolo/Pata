@@ -221,7 +221,7 @@ export default function IncomePage() {
   const totalIncome = monthIncomes.filter((income) => !income.neutralFlow).reduce((s, i) => s + (Number(i.remaining) || 0), 0);
   const breakdown = useMemo(() => computeBudgetBreakdown(totalIncome, rules), [totalIncome, rules]);
 
-  const vitalNeeds = profile?.vitalNeeds || {};
+  const vitalNeeds = useMemo(() => profile?.vitalNeeds || {}, [profile?.vitalNeeds]);
   const allCategories = useMemo(() => {
     const defaults = EXPENSE_CATEGORIES.filter((category) => category.id !== 'loan_given').map(c => ({...c, isCustom: false}));
     const customs = customCategories.map(c => ({...c, isCustom: true, label: c.name}));

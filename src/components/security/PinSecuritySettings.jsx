@@ -40,7 +40,7 @@ export function PinSecuritySettings() {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, isEnglish]);
 
   useEffect(() => { refresh(); }, [refresh]);
 

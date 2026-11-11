@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Check, Clock3, Loader2, RefreshCw, X } from 'lucide-react';
 import { listDebtRequests, respondDebtRequest } from '@/lib/firestore/debts';
 import { formatCurrency, formatDate } from '@/lib/utils';
@@ -15,7 +15,7 @@ export default function DebtRequestsPanel({ uid }) {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     if (!uid) return;
     setLoading(true);
     setError('');
@@ -26,9 +26,9 @@ export default function DebtRequestsPanel({ uid }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [uid, isEnglish]);
 
-  useEffect(() => { refresh(); }, [uid]);
+  useEffect(() => { refresh(); }, [refresh]);
 
   const handleDecision = async (item, decision) => {
     setActionId(item.id);

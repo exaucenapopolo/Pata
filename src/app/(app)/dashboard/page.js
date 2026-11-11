@@ -271,7 +271,7 @@ export default function DashboardPage() {
       customCategories,
       userName,
     }),
-    [periodConsumptionExpenses, previousConsumptionExpenses, periodIncomeTotal, prevTotalIncome, goals, customCategories, userName, activePeriodTarget, periodBorrowedTotal, previousBorrowedTotal, debts, language]
+    [periodConsumptionExpenses, previousConsumptionExpenses, periodIncomeTotal, prevTotalIncome, previousIncomeSpend, goals, customCategories, userName, activePeriodTarget, periodBorrowedTotal, previousBorrowedTotal, debts, language]
   );
 
   const topExpenses = useMemo(() => {

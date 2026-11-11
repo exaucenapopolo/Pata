@@ -59,7 +59,7 @@ export function PinGate() {
       if (active) { setError(isEnglish ? 'Security check is unavailable.' : (err.message || 'Vérification de sécurité indisponible.')); setLocked(false); }
     }).finally(() => { if (active) setChecking(false); });
     return () => { active = false; };
-  }, [user, storageKey]);
+  }, [user, storageKey, isEnglish]);
 
   useEffect(() => {
     if (!user || !enabled) return undefined;
@@ -107,7 +107,7 @@ export function PinGate() {
     };
     window.addEventListener('pata:pin-updated', refreshPinStatus);
     return () => window.removeEventListener('pata:pin-updated', refreshPinStatus);
-  }, [user]);
+  }, [user, isEnglish]);
 
   useEffect(() => () => {
     if (feedbackTimer.current) window.clearTimeout(feedbackTimer.current);
@@ -135,7 +135,7 @@ export function PinGate() {
       if (feedbackTimer.current) window.clearTimeout(feedbackTimer.current);
       feedbackTimer.current = window.setTimeout(() => setFeedback(''), 650);
     } finally { setBusy(false); }
-  }, [user, pin, busy, storageKey, feedback]);
+  }, [user, pin, busy, storageKey, feedback, isEnglish]);
 
   useEffect(() => {
     if (locked && enabled && pin.length === 4 && !busy) void unlock();
