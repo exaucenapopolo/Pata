@@ -9,39 +9,33 @@ const ONBOARDING_KEY = 'pata-onboarding-completed-v1';
 const slides = [
   {
     eyebrow: 'TES FINANCES, AU MÊME ENDROIT',
-    title: 'Ton argent, mieux organisé.',
-    description: 'Retrouve tes revenus, tes dépenses, ton budget et ton solde dans un seul espace. Les informations essentielles restent faciles à consulter.',
-    note: 'Tu vois rapidement où tu en es et ce qu’il te reste.',
+    title: 'Tout ton budget en un regard.',
+    description: 'Revenus, dépenses et solde réunis pour savoir où tu en es.',
   },
   {
-    eyebrow: 'UN CONSEIL QUI TE COMPREND',
-    title: 'Comprends mieux tes habitudes.',
-    description: 'Pose tes questions avec tes mots. L’assistant analyse les informations de ton suivi et t’aide à comprendre tes habitudes financières.',
-    note: 'Des explications claires et des pistes concrètes, à partir de ton activité dans Pata.',
+    eyebrow: 'UN ASSISTANT QUI T’AIDE',
+    title: 'Comprends mieux tes finances.',
+    description: 'Pose tes questions. Mč analyse ton suivi et t’aide à trouver quoi ajuster.',
   },
   {
-    eyebrow: 'LE SUIVI MOBILE MONEY AUTOMATIQUE',
+    eyebrow: 'SUIVI MOBILE MONEY',
     title: 'Moins de saisie, plus de suivi.',
-    description: 'L’application Android peut reconnaître les SMS de confirmation MTN MoMo et Orange Money pour préparer l’enregistrement des opérations.',
-    note: 'Tu gardes une trace des opérations sans devoir tout recopier.',
+    description: 'Sur Android, les SMS MTN MoMo et Orange Money facilitent l’enregistrement de tes opérations.',
   },
   {
-    eyebrow: 'TES PROJETS PRENNENT FORME',
-    title: 'Fais grandir ton épargne.',
-    description: 'Crée un objectif, suis les versements et visualise la progression de ton épargne.',
-    note: 'Une vue plus claire pour ajuster ton budget et tes priorités.',
+    eyebrow: 'ÉPARGNE ET PROJETS',
+    title: 'Avance vers ce qui compte.',
+    description: 'Fixe un objectif, suis tes versements et vois tes progrès.',
   },
   {
-    eyebrow: 'AVANCER À PLUSIEURS',
+    eyebrow: 'TONTINES ET COTISATIONS',
     title: 'Tes cotisations sous contrôle.',
-    description: 'Organise une tontine, suis les contributions et retrouve les échéances ainsi que l’ordre des bénéficiaires.',
-    note: 'Les informations importantes restent faciles à retrouver.',
+    description: 'Suis les contributions, les échéances et l’ordre des bénéficiaires.',
   },
   {
-    eyebrow: 'DES CHOIX PLUS ÉCLAIRÉS',
+    eyebrow: 'ANALYSES ET DÉCISIONS',
     title: 'Mesure tes progrès.',
-    description: 'Compare tes périodes, repère les postes les plus importants et suis l’évolution de tes finances.',
-    note: 'Un meilleur aperçu pour ajuster tes décisions au bon moment.',
+    description: 'Compare tes périodes et repère les dépenses à ajuster.',
   },
 ];
 
@@ -110,7 +104,7 @@ export default function HomePage() {
     <main className="relative h-[100dvh] min-h-[100svh] w-full overflow-hidden bg-[#081a13] text-white">
       <div className="absolute inset-0">
         <div ref={carouselRef} onScroll={onScroll} aria-label="Présentation des fonctionnalités de Pata" className="flex h-full w-full snap-x snap-mandatory overflow-x-auto overflow-y-hidden overscroll-x-contain scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" style={{ WebkitOverflowScrolling: 'touch' }}>
-          {slides.map((item, index) => <article key={item.eyebrow} className="relative h-full w-full shrink-0 snap-start overflow-hidden"><OnboardingIllustration index={index} /></article>)}
+          {slides.map((item, index) => <article key={item.eyebrow} className="relative h-full w-full shrink-0 snap-start overflow-hidden"><OnboardingIllustration index={index} content={item} /></article>)}
         </div>
       </div>
       <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between px-4 pt-[max(.75rem,env(safe-area-inset-top))] sm:px-6">
