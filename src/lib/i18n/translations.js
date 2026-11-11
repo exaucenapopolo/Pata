@@ -1,7 +1,10 @@
+import { extendedTranslations } from './uiTranslations';
+
 export const DEFAULT_LANGUAGE = 'fr';
 export const SUPPORTED_LANGUAGES = ['fr', 'en'];
 
 export const translations = {
+  ...extendedTranslations,
   'Le paiement est limité au reste de ta part et suit les règles de la cotisation. Aucun frais du prestataire n’est appliqué à ce transfert interne.': 'The payment is limited to the remaining amount of your share and follows the contribution rules. No provider fee is applied to this internal transfer.',
   'Une personne ne peut être rattachée qu’une seule fois à un parrain. Les comptes déjà existants et les tentatives d’auto-parrainage sont refusés.': 'A person can only be linked to one referrer. Existing accounts and self-referral attempts are rejected.',
   'Besoin d’aide pour activer la détection sur ton téléphone ? Contacte notre assistance, nous t’accompagnerons dans les réglages.': 'Need help enabling detection on your phone? Contact support and we will guide you through the settings.',
