@@ -343,7 +343,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
 
   const handleDeleteChat = async (e, chatId) => {
     e.stopPropagation();
-    if (confirm('Supprimer cette conversation ?')) {
+    if (confirm(language === 'en' ? 'Delete this conversation?' : 'Supprimer cette conversation ?')) {
       await deleteChat(user.uid, chatId);
       if (activeChatId === chatId) startNewChat();
     }
@@ -428,8 +428,8 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
 
     let text = rawText.replace(/@audio/gi, '').replace(/@image/gi, '').replace(/@vision/gi, '').trim();
 
-    if (hasVision && !text) text = 'Analyse cette image.';
-    if (hasImageGen && !text) return alert("Décris l'image que tu veux générer.");
+    if (hasVision && !text) text = language === 'en' ? 'Analyze this image.' : 'Analyse cette image.';
+    if (hasImageGen && !text) return alert(language === 'en' ? 'Describe the image you want to generate.' : "Décris l'image que tu veux générer.");
 
     setLoading(true);
     const clientRequestId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;

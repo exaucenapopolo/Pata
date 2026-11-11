@@ -2,17 +2,31 @@
 
 import { Sparkles } from 'lucide-react';
 import { AssistantButton } from '@/components/ai/AssistantButton';
+import { useLanguage } from '@/context/LanguageContext';
 
 export function LegalSummaryButton({ documentTitle }) {
+  const { language } = useLanguage();
+  const isEnglish = language === 'en';
+
   const openSummary = () => {
     const documentElement = window.document.querySelector('[data-legal-document]');
     const documentText = String(documentElement?.innerText || '').trim();
     if (!documentText) {
-      window.alert("Le contenu du document n'est pas disponible pour le moment.");
+      window.alert(isEnglish ? 'The document content is not available right now.' : "Le contenu du document n'est pas disponible pour le moment.");
       return;
     }
 
-    const prompt = [
+    const prompt = isEnglish ? [
+      `Briefly explain "${documentTitle}" in Pata.`,
+      "Read the content below and explain it in plain English without inventing information.",
+      "Start with a very short paragraph of 1 to 2 sentences beginning with **In brief —**.",
+      "Give at most 3 essential points: commitments, fees or obligations, data and user choices.",
+      "Explain difficult terms. Do not produce a long report, repeat the document or provide legal advice.",
+      "Short answer: 120 words maximum.",
+      "",
+      "DOCUMENT CONTENT:",
+      documentText.slice(0, 5000),
+    ].join("\n\n") : [
       `Explique brièvement « ${documentTitle} » de Pata.`,
       "Lis le contenu ci-dessous et explique-le en français simple, sans inventer d’information.",
       "Commence par un paragraphe très court de 1 à 2 phrases qui débute par **En bref —**.",
