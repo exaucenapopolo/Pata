@@ -1,6 +1,7 @@
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { translateText } from './i18n/translations';
+import { getDateLocale } from './i18n/dateLocale.mjs';
 // 🟢 IMPORT CRITIQUE AJOUTÉ
 import { 
   DEFAULT_CURRENCY, 
@@ -36,7 +37,7 @@ export function convertCurrencyAmount(amount, currency = null) {
 }
 
 export function getPreferredLocale() {
-  if (typeof document !== 'undefined' && document.documentElement?.lang === 'en') return 'en-GB';
+  if (typeof document !== 'undefined') return getDateLocale(document.documentElement?.lang || 'fr');
   return DEFAULT_LOCALE;
 }
 
