@@ -20,8 +20,9 @@ test('Capacitor inclut le plugin FCM natif de la version 6', () => {
 test('la préparation Android copie la configuration Firebase et conserve la version attendue', () => {
   assert.ok(prepare.includes('native/android/google-services.json'));
   assert.ok(prepare.includes('android/app/google-services.json'));
-  assert.ok(prepare.includes('versionCode 12'));
-  assert.ok(prepare.includes('versionName "1.1.1"'));
+  const androidVersion = JSON.parse(fs.readFileSync(new URL('../public/android-version.json', import.meta.url), 'utf8'));
+  assert.ok(prepare.includes(`versionCode ${androidVersion.versionCode}`));
+  assert.ok(prepare.includes(`versionName "${androidVersion.version}"`));
   assert.ok(prepare.includes('rgcfaIncludeGoogle = true'));
   assert.equal(pkg.dependencies['@capacitor-firebase/authentication'], '6.3.1');
 });
