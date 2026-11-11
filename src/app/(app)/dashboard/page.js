@@ -168,6 +168,10 @@ export default function DashboardPage() {
     () => incomes.filter((i) => i.date >= startDate && i.date <= endDate),
     [incomes, startDate, endDate]
   );
+  const prevIncomes = useMemo(
+    () => incomes.filter((i) => i.date >= prevStartDate && i.date <= prevEndDate),
+    [incomes, prevStartDate, prevEndDate]
+  );
   const periodBorrowedTotal = useMemo(
     () => periodIncomes.filter((item) => item.flowType === 'debt_borrowed' || item.categoryId === 'debt_borrowed')
       .reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
@@ -177,10 +181,6 @@ export default function DashboardPage() {
     () => prevIncomes.filter((item) => item.flowType === 'debt_borrowed' || item.categoryId === 'debt_borrowed')
       .reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
     [prevIncomes]
-  );
-  const prevIncomes = useMemo(
-    () => incomes.filter((i) => i.date >= prevStartDate && i.date <= prevEndDate),
-    [incomes, prevStartDate, prevEndDate]
   );
 
   const totalIncome = incomes.filter((income) => !income.neutralFlow).reduce((s, i) => s + (i.amount || 0), 0);
