@@ -150,9 +150,10 @@ export default function ReportsPage() {
   const categoryData = useMemo(() => {
     const map = new Map();
     financialExpenses.filter((expense) => getExpenseType(expense) === 'consumption').forEach((expense) => {
-      const category = resolveCategory(expense.categoryId, 'expense', customCategories);
-      const current = map.get(expense.categoryId) || { id: expense.categoryId, name: category.label, value: 0, color: category.color || '#94a3b8', count: 0 };
-      current.value += Number(expense.amount) || 0; current.count += 1; map.set(expense.categoryId, current);
+      const categoryId = normalizeExpenseCategoryId(expense.categoryId);
+      const category = resolveCategory(categoryId, 'expense', customCategories);
+      const current = map.get(categoryId) || { id: categoryId, name: category.label, value: 0, color: category.color || '#94a3b8', count: 0 };
+      current.value += Number(expense.amount) || 0; current.count += 1; map.set(categoryId, current);
     });
     return [...map.values()].sort((a, b) => b.value - a.value);
   }, [financialExpenses, customCategories]);
