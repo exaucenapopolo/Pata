@@ -145,7 +145,29 @@ export default function ReportsPage() {
   }, { consumption: 0, project: 0, savings: 0, investment: 0 });
   const net = totalIncome - totalExpense;
   const savingsRate = totalIncome > 0 ? (net / totalIncome) * 100 : null;
-  const averageDailyExpense = rangeValid ? totalExpense / Math.max(1, Math.round((new Date(`${range.end}T00:00:00`) - new Date(`${range.start}T00:00:00`)) / 86400000) + 1) : 0;
+  const periodDayCount = rangeValid ? Math.max(1, Math.round((new Date(`${range.end}T00:00:00`) - new Date(`${range.start}T00:00:00`)) / 86400000) + 1) : 0;
+  const averageDailyExpense = periodDayCount ? totalExpense / periodDayCount : 0;
+  const averageWeeklyExpense = periodDayCount ? totalExpense / (periodDayCount / 7) : 0;
+  const averageMonthlyExpense = periodDayCount ? totalExpense / (periodDayCount / 30.4375) : 0;
+  const highestSpendingDay = useMemo(() => {
+    const days = new Map();
+    financialExpenses.forEach((expense) => {
+      const date = String(expense.date || '').slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+      const current = days.get(date) || { date, total: 0, count: 0, categories: new Map() };
+      const amount = Number(expense.amount) || 0;
+      const categoryId = normalizeExpenseCategoryId(expense.categoryId || 'other');
+      current.total += amount;
+      current.count += 1;
+      current.categories.set(categoryId, (current.categories.get(categoryId) || 0) + amount);
+      days.set(date, current);
+    });
+    const ranked = [...days.values()].sort((a, b) => b.total - a.total || a.date.localeCompare(b.date));
+    if (!ranked.length) return null;
+    const peak = ranked[0];
+    const [topCategoryId, topCategoryAmount] = [...peak.categories.entries()].sort((a, b) => b[1] - a[1])[0] || ['other', 0];
+    return { ...peak, topCategoryId, topCategoryAmount };
+  }, [financialExpenses]);
 
   const categoryData = useMemo(() => {
     const map = new Map();
@@ -271,8 +293,48 @@ export default function ReportsPage() {
         <Card><p className="text-xs font-medium text-slate-500">Revenus encaissés</p><p className="mt-2 text-xl font-bold text-emerald-700">{formatCurrency(totalIncome)}</p><p className="mt-1 text-xs text-slate-500">{financialIncomes.length} revenu(s) · hors dettes</p></Card>
         <Card><p className="text-xs font-medium text-slate-500">Dépenses comptabilisées</p><p className="mt-2 text-xl font-bold text-red-600">{formatCurrency(totalExpense)}</p><p className="mt-1 text-xs text-slate-500">{financialExpenses.length} dépense(s) · hors prêts accordés</p></Card>
         <Card><p className="text-xs font-medium text-slate-500">Variation réelle du solde</p><p className={`mt-2 text-xl font-bold ${cashBalanceMovement>=0?'text-slate-900':'text-red-600'}`}>{formatCurrency(cashBalanceMovement)}</p><p className="mt-1 text-xs text-slate-500">Prêts accordés et dettes contractées compris</p></Card>
-        <Card><p className="text-xs font-medium text-slate-500">Sorties moyennes / jour</p><p className="mt-2 text-xl font-bold text-slate-900">{formatCurrency(averageDailyExpense)}</p><p className="mt-1 text-xs text-slate-500">Sur la durée sélectionnée</p></Card>
+        <Card>
+          <p className="text-xs font-medium text-slate-500">Moyennes des dépenses</p>
+          <div className="mt-2 space-y-1.5 text-xs">
+            <div className="flex items-center justify-between gap-2"><span className="text-slate-500">Par jour</span><strong className="text-sm text-slate-900">{formatCurrency(averageDailyExpense)}</strong></div>
+            <div className="flex items-center justify-between gap-2"><span className="text-slate-500">Par semaine</span><strong className="text-sm text-slate-900">{formatCurrency(averageWeeklyExpense)}</strong></div>
+            <div className="flex items-center justify-between gap-2"><span className="text-slate-500">Par mois</span><strong className="text-sm text-slate-900">{formatCurrency(averageMonthlyExpense)}</strong></div>
+          </div>
+          <p className="mt-1 text-[10px] leading-4 text-slate-500">Rythme moyen ramené à la durée choisie</p>
+        </Card>
       </div>
+
+      <Card>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold text-slate-500">Journée où tu as le plus dépensé</p>
+            {highestSpendingDay ? (
+              <>
+                <h2 className="mt-1 text-lg font-bold text-slate-900">{formatDate(highestSpendingDay.date)}</h2>
+                <p className="mt-1 text-sm text-slate-700">{formatCurrency(highestSpendingDay.total)} sur {highestSpendingDay.count} opération(s).</p>
+              </>
+            ) : (
+              <p className="mt-2 text-sm text-slate-500">Aucune dépense enregistrée sur cette période.</p>
+            )}
+          </div>
+          {highestSpendingDay && (
+            <div className="min-w-[150px] rounded-xl bg-slate-50 p-3">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Catégorie principale ce jour-là</p>
+              <p className="mt-1 text-sm font-bold text-slate-900">{resolveCategory(highestSpendingDay.topCategoryId, 'expense', customCategories).label}</p>
+              <p className="mt-1 text-xs text-slate-600">{formatCurrency(highestSpendingDay.topCategoryAmount)}</p>
+            </div>
+          )}
+        </div>
+        {highestSpendingDay && (
+          <div className="mt-3 border-t border-slate-100 pt-3">
+            <p className="text-xs font-semibold text-slate-800">Comment éviter un pic similaire ?</p>
+            <p className="mt-1 text-xs leading-5 text-slate-600">
+              La catégorie indiquée explique la plus grande part des sorties de cette journée ; elle ne suffit pas à établir la cause de chaque achat.
+              Pour mieux maîtriser ce type de journée, repère les opérations qui étaient prévues, fixe une limite quotidienne réaliste et reporte les achats non urgents lorsque ton budget est déjà entamé.
+            </p>
+          </div>
+        )}
+      </Card>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[

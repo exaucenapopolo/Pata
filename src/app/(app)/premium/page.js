@@ -15,7 +15,7 @@ const BENEFITS = [
     ['Enregistrer des dépenses', '60 par mois', 'Sans limite'],
     ['Enregistrer des revenus', '2 par mois', 'Sans limite'],
     ['Créer des budgets', '2 par mois', 'Sans limite'],
-    ['Créer des objectifs d’épargne', '2 par mois', 'Sans limite'],
+    ['Créer des objectifs d’épargne', '1 par mois', 'Sans limite'],
     ['Prévisions vitales', '1 création par mois', 'Sans limite'],
     ['Suivre les soldes de chaque revenu', true, true],
     ['Modifier et supprimer les opérations', true, true],
@@ -41,6 +41,8 @@ const BENEFITS = [
     ['Bilans hebdomadaires automatiques', true, true],
     ['Historique et comparaison des périodes', true, true],
     ['Suivi des dates de consommation des revenus', true, true],
+    ['Suivi des dettes et des prêts actifs', '2 actifs', 'Sans limite'],
+    ['Rappels des échéances de dettes', true, true],
     ['Créer et suivre des projets de dépenses', false, true],
     ['Réserver des revenus à un projet', false, true],
     ['Analyser les projets avec Mč', false, true],
@@ -69,6 +71,7 @@ export default function PremiumPage() {
   const [discountEligible, setDiscountEligible] = useState(false);
   const [checkingDiscount, setCheckingDiscount] = useState(true);
   const [showAllBenefits, setShowAllBenefits] = useState(false);
+  const [benefitFilter, setBenefitFilter] = useState('compare');
 
   useEffect(() => {
     let active = true;
@@ -234,18 +237,53 @@ export default function PremiumPage() {
         </button>
         {showAllBenefits && (
           <div className="space-y-5 border-t border-slate-100 p-4 sm:p-5">
-            {BENEFITS.map((group) => (
-              <section key={group.group} className="space-y-2.5">
-                <h3 className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">{group.group}</h3>
-                {group.items.map(([label, free, premium]) => (
-                  <div key={label} className="grid grid-cols-[1.2fr_1fr_1fr] items-start gap-2 border-b border-slate-100 py-2.5 last:border-0">
-                    <p className="text-xs leading-4 text-slate-700">{label}</p>
-                    <div><p className="mb-1 text-[9px] font-bold uppercase tracking-wide text-slate-400">Gratuit</p><Value value={free}/></div>
-                    <div><p className="mb-1 text-[9px] font-bold uppercase tracking-wide text-brand-700">Premium</p><Value value={premium}/></div>
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Filtrer les avantages">
+              {[
+                ['compare', 'Comparer les deux'],
+                ['free', 'Version gratuite'],
+                ['premium', 'Version Premium'],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={benefitFilter === value}
+                  onClick={() => setBenefitFilter(value)}
+                  className={'min-h-9 rounded-lg border px-3 py-2 text-xs font-semibold transition ' + (
+                    benefitFilter === value
+                      ? 'border-brand-700 bg-brand-700 text-white'
+                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {BENEFITS.map((group) => {
+              const visibleItems = group.items.filter(([, free, paid]) => (
+                benefitFilter === 'compare' || (benefitFilter === 'free' ? free !== false : paid !== false)
+              ));
+              if (!visibleItems.length) return null;
+              const grid = benefitFilter === 'compare'
+                ? 'grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)]'
+                : 'grid grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]';
+              return (
+                <section key={group.group} className="space-y-2.5">
+                  <h3 className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">{group.group}</h3>
+                  <div className={grid + ' items-center gap-2 border-b border-slate-200 pb-2'}>
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Fonctionnalité</p>
+                    {benefitFilter !== 'premium' && <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Gratuit</p>}
+                    {benefitFilter !== 'free' && <p className="text-[10px] font-bold uppercase tracking-wide text-brand-700">Premium</p>}
                   </div>
-                ))}
-              </section>
-            ))}
+                  {visibleItems.map(([label, free, paid]) => (
+                    <div key={label} className={grid + ' items-start gap-2 border-b border-slate-100 py-2.5 last:border-0'}>
+                      <p className="text-xs leading-4 text-slate-700">{label}</p>
+                      {benefitFilter !== 'premium' && <div><Value value={free}/></div>}
+                      {benefitFilter !== 'free' && <div><Value value={paid}/></div>}
+                    </div>
+                  ))}
+                </section>
+              );
+            })}
             <p className="text-[10px] leading-4 text-slate-500">Les fonctions d’intelligence artificielle restent soumises à leur disponibilité et aux règles de sécurité de Pata. Premium permet une utilisation plus large, sans garantir une disponibilité illimitée.</p>
           </div>
         )}
