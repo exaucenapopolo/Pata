@@ -232,7 +232,7 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
     const expenses = expensesSnap.docs.map((doc) => doc.data());
     const balances = buildIncomeBalances(incomes, expenses);
     const selectedSource = externalFunding
-      ? { id: 'external', source: 'Solde Mobile Money' }
+      ? { id: 'external', source: cleanText(input.externalFundingLabel, 80) || 'Solde Mobile Money' }
       : sourceOverride || resolveSource(incomes, input.incomeSourceId, input.incomeSourceName);
 
     const eligibleBalances = balances.filter((income) => !income.projectId || income.projectId === projectId);

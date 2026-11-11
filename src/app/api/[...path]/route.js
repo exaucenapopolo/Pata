@@ -1992,6 +1992,49 @@ async function handleNotificationScheduler(request) {
       } catch (debtReminderError) {
         console.warn('[PATA DEBT REMINDER]', userDoc.id, debtReminderError.message || debtReminderError);
       }
+      try {
+        const billsSnapshot = await userDoc.ref.collection('bills').get();
+        for (const billDoc of billsSnapshot.docs) {
+          const bill = billDoc.data() || {};
+          if (bill.active === false) continue;
+          const dueDate = String(bill.nextDueDate || '');
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) continue;
+          const daysUntil = Math.round((Date.parse(dueDate + 'T00:00:00Z') - Date.parse(today + 'T00:00:00Z')) / 86400000);
+          const reminderDays = Math.max(0, Number(bill.reminderDaysBefore ?? 3) || 0);
+          let reminderKey = '';
+          let title = '';
+          let body = '';
+          if (daysUntil > 0 && daysUntil === reminderDays) {
+            reminderKey = 'before-' + reminderDays + '-' + today;
+            title = 'Une facture approche';
+            body = String(bill.name || 'Une facture') + ' arrive à échéance dans ' + daysUntil + ' jour(s).' +
+              (Number(bill.amount) > 0 ? ' Montant estimé : ' + Number(bill.amount).toLocaleString('fr-FR') + ' FCFA.' : '') +
+              ' Prévois ce paiement dans ton budget.';
+          } else if (daysUntil === 0) {
+            reminderKey = 'due-' + today;
+            title = 'Une facture est à payer aujourd’hui';
+            body = String(bill.name || 'Ta facture') + ' arrive à échéance aujourd’hui.' +
+              (Number(bill.amount) > 0 ? ' Montant estimé : ' + Number(bill.amount).toLocaleString('fr-FR') + ' FCFA.' : '') +
+              ' Ouvre Pata pour vérifier puis enregistrer le paiement.';
+          } else if (daysUntil < 0 && (Math.abs(daysUntil) === 1 || Math.abs(daysUntil) % 7 === 0)) {
+            reminderKey = 'overdue-' + today;
+            title = 'Une facture est en retard';
+            body = String(bill.name || 'Une facture') + ' aurait dû être payée le ' + dueDate + '.' +
+              (Number(bill.amount) > 0 ? ' Montant estimé : ' + Number(bill.amount).toLocaleString('fr-FR') + ' FCFA.' : '') +
+              ' Mets son statut à jour dans Pata.';
+          }
+          if (!reminderKey || bill.lastReminderKey === reminderKey) continue;
+          const notification = { title, body, url: '/bills', tag: 'pata-bill-' + billDoc.id + '-' + reminderKey, source: 'bill_reminder' };
+          const pushResult = await sendPataPushToUser(userDoc.ref, notification, appUrl, userData);
+          await userDoc.ref.collection('notifications').doc('bill-' + billDoc.id + '-' + reminderKey).set({
+            title, body, target: '/bills', date: today, delivered: pushResult.fcmSent + pushResult.webPushSent,
+            source: 'bill_reminder', read: false, readAt: null, createdAt: FieldValue.serverTimestamp(),
+          });
+          await billDoc.ref.update({ lastReminderKey: reminderKey, lastReminderAt: FieldValue.serverTimestamp() });
+        }
+      } catch (billReminderError) {
+        console.warn('[PATA BILL REMINDER]', userDoc.id, billReminderError.message || billReminderError);
+      }
       if (userData.notificationsDailyDate === today) { skipped += 1; continue; }
       try {
         const monthStart = `${month}-01`;
@@ -6563,6 +6606,215 @@ async function handleDebtRepayments(request) {
 
 /* ═══════════════════ ROUTEUR PRINCIPAL ═══════════════════ */
 
+
+/* ═══════════════════ FACTURES RÉCURRENTES ═══════════════════ */
+
+const PATA_BILL_TYPES = new Set(['electricity', 'water', 'rent', 'television', 'internet', 'telephone', 'taxes', 'insurance', 'school', 'other']);
+const PATA_BILL_FREQUENCIES = new Set(['weekly', 'monthly', 'quarterly', 'yearly', 'once']);
+const PATA_BILL_REMINDERS = new Set([0, 1, 3, 7, 14]);
+const PATA_BILL_EXPENSE_CATEGORIES = new Set(['food', 'transport', 'housing', 'internet', 'health', 'leisure', 'gift_donation', 'contribution', 'other']);
+
+function normalizePataBill(body, previous = {}) {
+  const name = String(body.name === undefined ? previous.name || '' : body.name).trim().slice(0, 100);
+  const billType = String(body.billType === undefined ? previous.billType || 'other' : body.billType).trim();
+  const rawAmount = body.amount === undefined ? previous.amount : body.amount;
+  const amount = rawAmount === '' || rawAmount == null ? 0 : Math.round(Number(rawAmount));
+  const isVariable = body.isVariable === undefined ? previous.isVariable === true : body.isVariable === true;
+  const frequency = String(body.frequency === undefined ? previous.frequency || 'monthly' : body.frequency).trim();
+  const nextDueDate = String(body.nextDueDate === undefined ? previous.nextDueDate || '' : body.nextDueDate).trim();
+  const dueDay = Number(body.dueDay === undefined ? previous.dueDay || nextDueDate.slice(8, 10) : body.dueDay);
+  const reminderDaysBefore = Number(body.reminderDaysBefore === undefined ? previous.reminderDaysBefore ?? 3 : body.reminderDaysBefore);
+  const expenseCategoryId = String(body.expenseCategoryId === undefined ? previous.expenseCategoryId || 'other' : body.expenseCategoryId).trim();
+  if (!name) throw new Error('Donne un nom à cette facture.');
+  if (!PATA_BILL_TYPES.has(billType)) throw new Error('Choisis un type de facture valide.');
+  if (!Number.isSafeInteger(amount) || amount < 0 || amount > 1000000000 || (!isVariable && amount <= 0)) {
+    throw new Error('Indique un montant estimé valide ou active le montant variable.');
+  }
+  if (!PATA_BILL_FREQUENCIES.has(frequency)) throw new Error('Choisis une fréquence de paiement valide.');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(nextDueDate)) throw new Error('Indique la prochaine date de paiement.');
+  const parsedDate = new Date(nextDueDate + 'T00:00:00Z');
+  if (Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== nextDueDate) throw new Error('La date de paiement est invalide.');
+  if (!Number.isInteger(dueDay) || dueDay < 1 || dueDay > 31) throw new Error('Le jour de paiement doit être compris entre 1 et 31.');
+  if (!PATA_BILL_REMINDERS.has(reminderDaysBefore)) throw new Error('Choisis un délai de rappel valide.');
+  if (!PATA_BILL_EXPENSE_CATEGORIES.has(expenseCategoryId)) throw new Error('Choisis une catégorie de dépense valide.');
+  return {
+    name, billType, amount, isVariable, frequency, nextDueDate, dueDay,
+    reminderDaysBefore, expenseCategoryId,
+    providerName: String(body.providerName === undefined ? previous.providerName || '' : body.providerName).trim().slice(0, 100),
+    accountReference: String(body.accountReference === undefined ? previous.accountReference || '' : body.accountReference).trim().slice(0, 100),
+    note: String(body.note === undefined ? previous.note || '' : body.note).trim().slice(0, 250),
+    active: body.active === undefined ? previous.active !== false : body.active !== false,
+  };
+}
+
+function getNextPataBillDate(currentDate, frequency, dueDay) {
+  if (frequency === 'once') return null;
+  const parts = String(currentDate).split('-').map(Number);
+  if (parts.length !== 3 || parts.some((part) => !Number.isInteger(part))) throw new Error('Date de facture invalide.');
+  const [year, month, day] = parts;
+  if (frequency === 'weekly') {
+    const next = new Date(Date.UTC(year, month - 1, day + 7));
+    return next.toISOString().slice(0, 10);
+  }
+  const monthStep = frequency === 'quarterly' ? 3 : frequency === 'yearly' ? 12 : 1;
+  const firstDay = new Date(Date.UTC(year, month - 1 + monthStep, 1));
+  const targetYear = firstDay.getUTCFullYear();
+  const targetMonth = firstDay.getUTCMonth();
+  const lastDay = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
+  const targetDay = Math.min(Math.max(1, Number(dueDay) || day), lastDay);
+  return [
+    targetYear,
+    String(targetMonth + 1).padStart(2, '0'),
+    String(targetDay).padStart(2, '0'),
+  ].join('-');
+}
+
+async function handleBillsList(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const snapshot = await adminDb.collection('users').doc(uid).collection('bills').orderBy('nextDueDate', 'asc').get();
+    return NextResponse.json({ success: true, bills: snapshot.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })) });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de charger les factures.', 401);
+  }
+}
+
+async function handleBillsCreate(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const data = normalizePataBill(body);
+    const ref = adminDb.collection('users').doc(uid).collection('bills').doc();
+    await ref.set({ ...data, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+    return NextResponse.json({ success: true, bill: { id: ref.id, ...data } });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible d’enregistrer cette facture.', 400);
+  }
+}
+
+async function handleBillsUpdate(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const billId = String(body.billId || '').trim();
+    if (!billId || billId.includes('/')) return errorResponse('Facture introuvable.', 400);
+    const ref = adminDb.collection('users').doc(uid).collection('bills').doc(billId);
+    const snapshot = await ref.get();
+    if (!snapshot.exists) return errorResponse('Facture introuvable.', 404);
+    const data = normalizePataBill(body, snapshot.data() || {});
+    await ref.update({ ...data, updatedAt: FieldValue.serverTimestamp() });
+    return NextResponse.json({ success: true, bill: { id: billId, ...data } });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de modifier cette facture.', 400);
+  }
+}
+
+async function handleBillsDelete(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const billId = String(body.billId || '').trim();
+    if (!billId || billId.includes('/')) return errorResponse('Facture introuvable.', 400);
+    const ref = adminDb.collection('users').doc(uid).collection('bills').doc(billId);
+    const snapshot = await ref.get();
+    if (!snapshot.exists) return errorResponse('Facture introuvable.', 404);
+    await ref.update({ active: false, updatedAt: FieldValue.serverTimestamp() });
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de désactiver cette facture.', 400);
+  }
+}
+
+async function handleBillsPay(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const billId = String(body.billId || '').trim();
+    if (!billId || billId.includes('/')) return errorResponse('Facture introuvable.', 400);
+    const userRef = adminDb.collection('users').doc(uid);
+    const billRef = userRef.collection('bills').doc(billId);
+    const billSnapshot = await billRef.get();
+    if (!billSnapshot.exists) return errorResponse('Facture introuvable.', 404);
+    const bill = billSnapshot.data() || {};
+    if (bill.active === false) return errorResponse('Cette facture est désactivée.', 400);
+    const dueDate = String(body.dueDate || bill.nextDueDate || '').trim();
+    if (dueDate !== String(bill.nextDueDate || '')) return errorResponse('Cette échéance a changé. Actualise la liste des factures.', 409);
+    if (bill.lastPaidDueDate === dueDate) return NextResponse.json({ success: true, alreadyPaid: true, nextDueDate: bill.nextDueDate });
+    const paidDate = String(body.paidDate || getDoualaToday());
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(paidDate)) return errorResponse('La date de paiement est invalide.', 400);
+    const amount = Math.round(Number(body.amount));
+    if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 1000000000) return errorResponse('Indique le montant réellement payé.', 400);
+    const categoryId = String(bill.expenseCategoryId || 'other');
+    if (!PATA_BILL_EXPENSE_CATEGORIES.has(categoryId)) return errorResponse('La catégorie de cette facture est invalide.', 400);
+    const paymentSource = String(body.paymentSource || 'cash');
+    const allowedSources = new Set(['tracked', 'cash', 'mtn_momo', 'orange_money', 'bank_transfer', 'other']);
+    if (!allowedSources.has(paymentSource)) return errorResponse('Choisis un moyen de paiement valide.', 400);
+    const externalFunding = paymentSource !== 'tracked';
+    const sourceLabels = {
+      cash: 'Espèces',
+      mtn_momo: 'Solde MTN MoMo',
+      orange_money: 'Solde Orange Money',
+      bank_transfer: 'Compte bancaire',
+      other: 'Autre solde externe',
+    };
+    const paymentMethod = paymentSource === 'tracked' ? '' : paymentSource;
+    const externalFundingLabel = sourceLabels[paymentSource] || 'Solde suivi dans Pata';
+    const idempotencyKey = ('bill_pay_' + billId + '_' + dueDate).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 140);
+    const expenseResult = await createExpenseForUser(uid, {
+      amount,
+      categoryId,
+      note: ('Facture payée : ' + String(bill.name || 'Facture') + (bill.providerName ? ' · ' + bill.providerName : '')).slice(0, 250),
+      date: paidDate,
+      expenseType: 'consumption',
+      paymentMethod,
+      incomeSourceId: 'all',
+      incomeSourceName: 'Tous les revenus',
+      externalFundingLabel,
+    }, {
+      externalFunding,
+      idempotencyKey,
+      skipBudgetConfirmation: body.confirmBudgetOverrun === true,
+    });
+    if (expenseResult.confirmationRequired) return NextResponse.json(expenseResult);
+    if (!expenseResult.success) return errorResponse(expenseResult.message || 'La dépense de facture n’a pas été enregistrée.', 400);
+    const paymentRef = billRef.collection('payments').doc(idempotencyKey);
+    let nextDueDate = null;
+    await adminDb.runTransaction(async (transaction) => {
+      const latestSnapshot = await transaction.get(billRef);
+      if (!latestSnapshot.exists) throw new Error('Cette facture n’existe plus.');
+      const latest = latestSnapshot.data() || {};
+      if (latest.lastPaidDueDate === dueDate) {
+        nextDueDate = latest.nextDueDate || null;
+        return;
+      }
+      if (String(latest.nextDueDate || '') !== dueDate) throw new Error('Cette échéance a déjà été modifiée. Vérifie la facture avant de recommencer.');
+      nextDueDate = getNextPataBillDate(dueDate, latest.frequency || 'monthly', latest.dueDay);
+      transaction.set(paymentRef, {
+        amount,
+        paidDate,
+        dueDate,
+        paymentSource,
+        expenseId: expenseResult.expenseId || (expenseResult.expenseIds || [])[0] || null,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      transaction.update(billRef, {
+        lastPaidDueDate: dueDate,
+        lastPaidAmount: amount,
+        lastPaidAt: FieldValue.serverTimestamp(),
+        nextDueDate: nextDueDate || dueDate,
+        active: nextDueDate ? latest.active !== false : false,
+        lastReminderKey: null,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    });
+    return NextResponse.json({ success: true, expenseId: expenseResult.expenseId || null, nextDueDate, completed: !nextDueDate });
+  } catch (error) {
+    const message = error.message || 'Impossible d’enregistrer le paiement de cette facture.';
+    const status = /insuffisants|invalide|introuvable|modifiée|existe plus|échéance/i.test(message) ? 400 : 500;
+    return errorResponse(message, status);
+  }
+}
+
 const ROUTES = {
   'fapshi/checkout':       { POST: handleFapshiCheckout },
   'fapshi/webhook':        { POST: handleFapshiWebhook },
@@ -6610,6 +6862,11 @@ const ROUTES = {
   'notifications/inbox': { GET: handleNotificationsInbox },
   'notifications/read': { POST: handleNotificationRead },
   'notifications/scheduler': { GET: handleNotificationScheduler, POST: handleNotificationScheduler },
+  'bills/list': { GET: handleBillsList },
+  'bills/create': { POST: handleBillsCreate },
+  'bills/update': { POST: handleBillsUpdate },
+  'bills/delete': { POST: handleBillsDelete },
+  'bills/pay': { POST: handleBillsPay },
   'currency/rates':        { GET: handleCurrencyRates },
   'usage/reserve':         { POST: handleReserveQuota },
   'forecasts/vital/save': { POST: handleSaveVitalForecast },
