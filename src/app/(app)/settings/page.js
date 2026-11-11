@@ -16,7 +16,7 @@ import { useGoals } from '@/hooks/useGoals';
 import { useDeposits } from '@/hooks/useDeposits';
 import { subscribeAutomations } from '@/lib/firestore/automations';
 import { useAllBudgets } from '@/hooks/useAllBudgets';
-import { convertCurrencyAmount, getPreferredCurrencyCode } from '@/lib/utils';
+import { convertCurrencyAmount, getPreferredCurrencyCode, getPreferredLocale } from '@/lib/utils';
 import { NotificationSettings } from '@/components/NotificationSettings';
 import { PinSecuritySettings } from '@/components/security/PinSecuritySettings';
 import { PasswordSettings } from '@/components/security/PasswordSettings';
@@ -107,7 +107,7 @@ export default function SettingsPage() {
     const table = rows.map((row, index) => `<tr>${row.map((cell) => `<${index === 0 ? 'th' : 'td'}>${String(cell ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]))}</${index === 0 ? 'th' : 'td'}>`).join('')}</tr>`).join('');
     const popup = window.open('', '_blank', 'width=1000,height=800');
     if (!popup) { alert('Autorise les fenêtres contextuelles pour télécharger le rapport PDF.'); return; }
-    popup.document.write(`<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Export Pata</title><style>body{font:12px Arial,sans-serif;color:#172033;padding:28px}h1{font-size:22px}p{color:#64748b}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #dbe2ea;padding:7px;text-align:left}th{background:#edf2f7}tr:nth-child(even){background:#f8fafc}@media print{button{display:none}}</style></head><body><h1>Rapport de données Pata</h1><p>Compte : ${String(profile?.displayName || user?.email || '').replace(/[&<>"']/g, '')} · Généré le ${new Date().toLocaleDateString('fr-FR')}</p><p>Les montants sont convertis dans la devise d’affichage ${getPreferredCurrencyCode()} pour faciliter la lecture. Les valeurs de référence de Pata restent enregistrées en XAF.</p><table>${table}</table><script>window.onload=()=>window.print()</script></body></html>`);
+    popup.document.write(`<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Export Pata</title><style>body{font:12px Arial,sans-serif;color:#172033;padding:28px}h1{font-size:22px}p{color:#64748b}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #dbe2ea;padding:7px;text-align:left}th{background:#edf2f7}tr:nth-child(even){background:#f8fafc}@media print{button{display:none}}</style></head><body><h1>Rapport de données Pata</h1><p>Compte : ${String(profile?.displayName || user?.email || '').replace(/[&<>"']/g, '')} · Généré le ${new Date().toLocaleDateString(getPreferredLocale())}</p><p>Les montants sont convertis dans la devise d’affichage ${getPreferredCurrencyCode()} pour faciliter la lecture. Les valeurs de référence de Pata restent enregistrées en XAF.</p><table>${table}</table><script>window.onload=()=>window.print()</script></body></html>`);
     popup.document.close();
   };
 
@@ -193,7 +193,7 @@ export default function SettingsPage() {
         <h2 className="px-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Compte et abonnement</h2>
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white divide-y divide-slate-100">
           <SettingRow icon={UserRound} title="Informations personnelles" description="Nom affiché, adresse e-mail et devise" onClick={() => setActivePanel('profile')} />
-          <SettingRow icon={Crown} title="Mon abonnement" description={isPremium ? `Premium actif jusqu’au ${expiry.toLocaleDateString('fr-FR')}` : 'Tu utilises actuellement la version gratuite'} value={isPremium ? 'Premium' : 'Gratuit'} onClick={() => setActivePanel('subscription')} />
+          <SettingRow icon={Crown} title="Mon abonnement" description={isPremium ? `Premium actif jusqu’au ${expiry.toLocaleDateString(getPreferredLocale())}` : 'Tu utilises actuellement la version gratuite'} value={isPremium ? 'Premium' : 'Gratuit'} onClick={() => setActivePanel('subscription')} />
         </div>
       </section>
 
@@ -266,7 +266,7 @@ export default function SettingsPage() {
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-[10px] font-bold uppercase tracking-[0.13em] text-slate-500">Forfait utilisé actuellement</p>
               <div className="mt-2 flex items-center justify-between gap-3">
-                <div><h3 className="text-lg font-bold text-slate-900">{isPremium ? 'Pata Premium' : 'Pata gratuit'}</h3><p className="mt-1 text-xs text-slate-500">{isPremium ? `Accès actif jusqu’au ${expiry.toLocaleDateString('fr-FR')} · ${Math.max(0, Math.ceil((expiry.getTime() - Date.now()) / 86400000))} jour(s) restant(s)` : 'Les fonctions essentielles restent accessibles gratuitement.'}</p></div>
+                <div><h3 className="text-lg font-bold text-slate-900">{isPremium ? 'Pata Premium' : 'Pata gratuit'}</h3><p className="mt-1 text-xs text-slate-500">{isPremium ? `Accès actif jusqu’au ${expiry.toLocaleDateString(getPreferredLocale())} · ${Math.max(0, Math.ceil((expiry.getTime() - Date.now()) / 86400000))} jour(s) restant(s)` : 'Les fonctions essentielles restent accessibles gratuitement.'}</p></div>
                 <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${isPremium ? 'bg-emerald-100 text-emerald-800' : 'bg-white text-slate-600'}`}>{isPremium ? 'ACTIF' : 'GRATUIT'}</span>
               </div>
             </div>

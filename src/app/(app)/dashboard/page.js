@@ -19,10 +19,12 @@ import { useDebts } from '@/hooks/useDebts';
 import { useGoals } from '@/hooks/useGoals';
 import { useProfile } from '@/hooks/useProfile';
 import { useAuth } from '@/hooks/useAuth';
+import { useLanguage } from '@/context/LanguageContext';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { generateAdvice, adviceIconColor } from '@/lib/advisor';
 import { formatCurrency, formatDate, resolveCategory, getFirstOfMonth, getLastOfMonth, normalizeExpenseCategoryId } from '@/lib/utils';
 import { buildFinancialSuggestions, FINANCIAL_RESOLUTIONS, getPeriodBounds, getPeriodKey } from '@/lib/financialPlanning';
+import { translateText } from '@/lib/i18n/translations';
 
 const getDashboardExpenseType = (expense) => ['consumption', 'project', 'savings', 'investment'].includes(expense?.expenseType)
   ? expense.expenseType : 'consumption';
@@ -90,6 +92,8 @@ export default function DashboardPage() {
   const [targetError, setTargetError] = useState('');
   const [targetSaved, setTargetSaved] = useState(false);
   const { user } = useAuth();
+  const { language } = useLanguage();
+  const isEnglish = language === 'en';
   const targetPeriodKey = getPeriodKey(targetPeriodType, new Date());
   const targetPeriodBounds = getPeriodBounds(targetPeriodType, targetPeriodKey);
 
@@ -337,7 +341,7 @@ export default function DashboardPage() {
         <div className="relative flex flex-wrap items-start justify-between gap-4">
           <div><p className="text-xs font-semibold tracking-wide text-emerald-100">TON ESPACE FINANCIER</p><h1 className="mt-2 text-xl font-bold tracking-tight sm:text-2xl">Bonjour {userName}</h1><p className="mt-1 max-w-sm text-xs leading-5 text-emerald-100 sm:text-sm">Voici ce qui se passe dans tes finances. Garde une vue claire sur ton argent.</p></div>
           <div className="flex flex-wrap items-center gap-2">
-            <AssistantShortcut label="Conseil personnalisé" prompt="Fais un bilan de ma situation financière à partir des informations de mon tableau de bord Pata. Explique les points forts, les risques et trois actions prioritaires adaptées à mes revenus, dépenses, budgets et objectifs. Ne modifie aucune donnée." />
+            <AssistantShortcut label="Conseil personnalisé" prompt="Fais un bilan de ma situation financière à partir des informations de mon tableau de bord Pata. Explique les points forts, les risques et trois actions prioritaires adaptées à mes revenus, dépenses, budgets et objectifs. Ne modifie aucune donnée." promptEn="Review my financial situation using the information on my Pata dashboard. Explain my strengths, risks and three priority actions based on my income, expenses, budgets and goals. Do not change any data." />
             <Link href="/reports" className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-white/20 bg-white/10 px-3 text-xs font-semibold text-white transition hover:bg-white/15">Voir mon bilan <ChevronRight size={14}/></Link>
           </div>
         </div>
@@ -419,7 +423,9 @@ export default function DashboardPage() {
           {targetError && <p role="alert" className="mt-3 text-xs text-red-600">{targetError}</p>}
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
             <button type="button" onClick={() => {
-              const prompt = 'Analyse mes objectifs financiers pour ' + targetPeriodType + ' (' + targetPeriodBounds.start + ' au ' + targetPeriodBounds.end + '). Historique sur 90 jours : revenus mensuels moyens ' + targetSuggestions.history.averageMonthlyIncome + ' FCFA, dépenses courantes moyennes ' + targetSuggestions.history.averageMonthlyExpense + ' FCFA, emprunts mensuels moyens ' + targetSuggestions.history.averageMonthlyBorrowed + ' FCFA, prêts accordés mensuels moyens ' + targetSuggestions.history.averageMonthlyGrantedLoans + ' FCFA. Principales catégories : ' + targetSuggestions.topCategories.map((item) => item.label + ' ' + item.amount + ' FCFA/mois').join(', ') + '. Objectifs choisis : revenus ' + targetDraft.incomeTarget + ', dépenses ' + targetDraft.expenseLimit + ', nouvelles dettes ' + targetDraft.debtLimit + ', prêts accordés ' + targetDraft.loanGivenLimit + ' FCFA. Résolutions cochées : ' + targetDraft.resolutions.join(', ') + '. Donne-moi des conseils concrets et adaptés : actions pour augmenter mes revenus, réduire mes dépenses dans les catégories où je dépense le plus, respecter mes plafonds et tenir mes engagements. Explique des actions réalistes, sans culpabiliser ni modifier mes données.';
+              const prompt = isEnglish
+                ? `Analyze my financial goals for ${targetPeriodType} (${targetPeriodBounds.start} to ${targetPeriodBounds.end}). Last 90 days: average monthly income ${targetSuggestions.history.averageMonthlyIncome} XAF, average everyday expenses ${targetSuggestions.history.averageMonthlyExpense} XAF, average monthly borrowing ${targetSuggestions.history.averageMonthlyBorrowed} XAF, and average monthly loans given ${targetSuggestions.history.averageMonthlyGrantedLoans} XAF. Main categories: ${targetSuggestions.topCategories.map((item) => translateText(item.label, 'en') + ' ' + item.amount + ' XAF/month').join(', ')}. My chosen targets: income ${targetDraft.incomeTarget}, expenses ${targetDraft.expenseLimit}, new debts ${targetDraft.debtLimit}, and loans given ${targetDraft.loanGivenLimit} XAF. Selected resolutions: ${targetDraft.resolutions.join(', ')}. Give me practical advice tailored to my situation: ways to increase income, reduce spending in my highest-cost categories, stay within my limits and keep my commitments. Be realistic and supportive. Do not change any data.`
+                : 'Analyse mes objectifs financiers pour ' + targetPeriodType + ' (' + targetPeriodBounds.start + ' au ' + targetPeriodBounds.end + '). Historique sur 90 jours : revenus mensuels moyens ' + targetSuggestions.history.averageMonthlyIncome + ' FCFA, dépenses courantes moyennes ' + targetSuggestions.history.averageMonthlyExpense + ' FCFA, emprunts mensuels moyens ' + targetSuggestions.history.averageMonthlyBorrowed + ' FCFA, prêts accordés mensuels moyens ' + targetSuggestions.history.averageMonthlyGrantedLoans + ' FCFA. Principales catégories : ' + targetSuggestions.topCategories.map((item) => item.label + ' ' + item.amount + ' FCFA/mois').join(', ') + '. Objectifs choisis : revenus ' + targetDraft.incomeTarget + ', dépenses ' + targetDraft.expenseLimit + ', nouvelles dettes ' + targetDraft.debtLimit + ', prêts accordés ' + targetDraft.loanGivenLimit + ' FCFA. Résolutions cochées : ' + targetDraft.resolutions.join(', ') + '. Donne-moi des conseils concrets et adaptés : actions pour augmenter mes revenus, réduire mes dépenses dans les catégories où je dépense le plus, respecter mes plafonds et tenir mes engagements. Explique des actions réalistes, sans culpabiliser ni modifier mes données.';
               window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt } }));
             }} className="min-h-10 rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-brand-800 hover:bg-slate-50">Analyser avec l’IA</button>
             <button type="button" onClick={saveFinancialTargets} disabled={targetSaving} className="min-h-10 rounded-xl bg-brand-700 px-4 text-xs font-bold text-white transition hover:bg-brand-800 disabled:opacity-50">{targetSaving ? 'Enregistrement…' : 'Valider et enregistrer'}</button>

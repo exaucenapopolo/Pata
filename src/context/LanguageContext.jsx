@@ -20,7 +20,7 @@ function translateDom(root, language, originalText, originalAttributes) {
   let node;
   while ((node = walker.nextNode())) {
     const parent = node.parentElement;
-    if (!parent || parent.closest('script,style,code,pre,textarea,[contenteditable="true"],svg')) continue;
+    if (!parent || parent.closest('script,style,code,pre,textarea,[contenteditable="true"]')) continue;
     const current = node.nodeValue || '';
     const record = originalText.get(node);
     const source = record && current === record.translated ? record.original : current;
@@ -59,14 +59,20 @@ export function LanguageProvider({ children }) {
 
   useEffect(() => {
     if (!user) {
-      setLanguageState(DEFAULT_LANGUAGE);
+      try {
+        setLanguageState(normalizeLanguage(window.localStorage.getItem('pata-language')));
+      } catch {
+        setLanguageState(DEFAULT_LANGUAGE);
+      }
       return undefined;
     }
     return onSnapshot(
       doc(db, 'users', user.uid),
       (snapshot) => {
         const storedLanguage = snapshot.exists() ? snapshot.data()?.language : DEFAULT_LANGUAGE;
-        setLanguageState(normalizeLanguage(storedLanguage));
+        const normalized = normalizeLanguage(storedLanguage);
+        setLanguageState(normalized);
+        try { window.localStorage.setItem('pata-language', normalized); } catch { /* stockage local indisponible */ }
       },
       (error) => {
         console.error('[PATA LANGUAGE]', error?.message || error);
@@ -85,7 +91,7 @@ export function LanguageProvider({ children }) {
         if (mutation.type === 'characterData') {
           const target = mutation.target;
           const parent = target.parentElement;
-          if (!parent || parent.closest('script,style,code,pre,textarea,[contenteditable="true"],svg')) return;
+          if (!parent || parent.closest('script,style,code,pre,textarea,[contenteditable="true"]')) return;
           const current = target.nodeValue || '';
           const record = originalText.current.get(target);
           const source = record && current === record.translated ? record.original : current;
@@ -98,7 +104,7 @@ export function LanguageProvider({ children }) {
           mutation.addedNodes?.forEach((added) => {
             if (added.nodeType === Node.TEXT_NODE) {
               const parent = added.parentElement;
-              if (!parent || parent.closest('script,style,code,pre,textarea,[contenteditable="true"],svg')) return;
+              if (!parent || parent.closest('script,style,code,pre,textarea,[contenteditable="true"]')) return;
               const current = added.nodeValue || '';
               const translated = translateText(current, language);
               originalText.current.set(added, { original: current, translated });
@@ -127,6 +133,7 @@ export function LanguageProvider({ children }) {
     setIsLanguageSaving(true);
     try {
       await updateUserProfile(user.uid, { language: normalized });
+      try { window.localStorage.setItem('pata-language', normalized); } catch { /* stockage local indisponible */ }
       setLanguageState(normalized);
     } finally {
       setIsLanguageSaving(false);

@@ -3719,6 +3719,7 @@ async function handleAIChat(request) {
     const decoded = await authenticate(request);
     uid = decoded.uid;
     const body = await request.json();
+    const requestedLanguage = body.language === 'en' ? 'en' : 'fr';
     const mode = body.mode === 'audio' ? 'audio' : 'text';
     const incomingMessages = Array.isArray(body.messages) ? body.messages : [];
     if (!incomingMessages.length) return errorResponse('Messages requis.', 400);
@@ -3742,7 +3743,7 @@ async function handleAIChat(request) {
 
     const quota = await reserveDailyAIQuota(uid);
     if (!quota.allowed) {
-      return errorResponse("Tu as utilisé tes 3 utilisations gratuites de l’assistante aujourd’hui. Tu pourras recommencer demain ou découvrir Premium.", 403);
+      return errorResponse(requestedLanguage === 'en' ? 'You have used your 3 free assistant messages for today. You can try again tomorrow or explore Premium.' : "Tu as utilisé tes 3 utilisations gratuites de l’assistante aujourd’hui. Tu pourras recommencer demain ou découvrir Premium.", 403);
     }
     if (quota.reserved) reservedQuota = quota.date;
 
@@ -3868,7 +3869,24 @@ async function handleAIChat(request) {
 
     const userName = userData.profile?.displayName?.split(' ')[0] || 'Utilisateur';
     const userContext = buildCompactAIContext(userData, intent);
-    const systemPrompt = `Tu es Mč, l’assistante de gestion financière de Pata. Tu échanges en ${userData.profile?.language === 'en' ? 'anglais' : 'français'} avec ${userName}.
+    const isEnglish = userData.profile?.language === 'en';
+    const systemPrompt = isEnglish
+      ? `You are Mč, Pata's personal finance assistant. Speak with ${userName} in English.
+Be direct, natural and helpful. For simple questions, stay brief (1–3 sentences, about 60 words maximum). Do not turn every request into a report, repeat the question, or always end with another offer.
+
+Pata helps users track income, expenses, debts and loans, budgets, savings, goals, group contributions, projects, wallet balances and reports. Borrowed money is a neutral cash inflow linked to a debt to repay; it is never earned income. Users can record a debt, identify an individual or bank lender, assign borrowing to a project and track monthly goals. Financial reference amounts are stored in XAF; the profile currency changes display only. The Pata wallet is an internal balance, not a bank account.
+
+FINANCIAL RULES: distinguish everyday consumption, project outflows, savings and investments. Savings and investments are not consumption. Cash balance calculations include all outflows. For an expense, use the exact source ID specified by the user; if no source is specified, use only the available permitted allocation. Recorded income cannot be edited: it may only be supplemented with another entry or deleted when explicitly requested. A budget is never income. Funds reserved for a project must remain assigned to that project. A financial action is successful only after a tool confirms success; never guess an amount, ID or result. Ask for clarification when an operation is ambiguous. An existing income entry cannot be edited: offer a new entry or deletion only when explicitly requested. For a dated savings goal, a late fee is calculated only on the amount actually unpaid at the due date, never on the full target; flexible savings pots are excluded. For group contributions, distinguish principal, the 5% service fee and payments actually confirmed.
+
+PATA RULES TO PRESERVE: a dated goal may incur a 7% late fee calculated on the amount actually unpaid at the due date, never on the full target; flexible savings pots are exempt. The separate early-cancellation fee for a dated goal is 10% of the amount already saved. For group contributions, distinguish principal, any late fees and the 5% service fee per payment; only payments confirmed by the provider count as paid. Premium costs XAF 2,500 for 30 days; an eligible referral offer may reduce the first month to XAF 1,250. For analysis, lead with the key number; do not create a report for a short question.
+
+For simple app questions, explain the visible steps: Expenses, Income, Budgets, Goals, Contributions, Wallet, Reports, Premium and Settings. Projects are available from Expenses with Premium. Special commands @Audio, @Image and @Vision are handled separately; do not redirect them or remove their functionality.
+
+Use category and transaction labels in the user's selected language when explaining them. Preserve IDs and exact saved values when using financial tools; never change a custom category name or invent a translation that changes its meaning.
+
+Data relevant only to this request:
+${userContext}`
+      : `Tu es Mč, l’assistante de gestion financière de Pata. Tu échanges en français avec ${userName}.
 Réponds directement et naturellement. Pour une question simple, reste bref (1 à 3 phrases, environ 60 mots maximum). Ne transforme pas chaque demande en rapport et ne répète pas la question. Ne termine pas systématiquement par une proposition supplémentaire.
 
 Pata aide à suivre les revenus, dépenses, dettes et prêts, budgets, épargne, objectifs, cotisations, projets, portefeuille et rapports. Un emprunt est une entrée de trésorerie neutre avec une dette à rembourser : ce n’est jamais un revenu gagné. Tu peux enregistrer une dette, préciser s’il s’agit d’une personne ou d’une banque, affecter l’emprunt à un projet et suivre tes objectifs mensuels. Les montants financiers de référence sont en FCFA; la devise du profil ne change que l’affichage. Le portefeuille Pata est un solde interne, pas un compte bancaire.
@@ -3905,7 +3923,7 @@ ${userContext}`;
         if (tokenLimitError && !retriedForTokenLimit && !hasSuccessfulToolExecution && toolResults.length === 0) {
           retriedForTokenLimit = true;
           modelMessages = [
-            { role: 'system', content: systemPrompt.slice(0, 2600) + '\\nRéponds brièvement et utilise uniquement les données déjà fournies.' },
+            { role: 'system', content: systemPrompt.slice(0, 2600) + (isEnglish ? '\\nKeep the answer brief and use only the data already provided.' : '\\nRéponds brièvement et utilise uniquement les données déjà fournies.') },
             { role: 'user', content: latestUserText.slice(-900) },
           ];
           completion = await completeWithGroq(modelMessages, {
@@ -3916,7 +3934,7 @@ ${userContext}`;
           });
         } else if (hasSuccessfulToolExecution) {
           const successful = [...toolResults].reverse().find((item) => item.success);
-          reply = successful?.result?.message || 'L’opération a été enregistrée dans Pata. Le service de réponse a rencontré une erreur, mais l’enregistrement est confirmé.';
+          reply = successful?.result?.message || (isEnglish ? 'The transaction was recorded in Pata. The response service encountered an error, but the recording is confirmed.' : 'L’opération a été enregistrée dans Pata. Le service de réponse a rencontré une erreur, mais l’enregistrement est confirmé.');
           break;
         } else {
           throw completionError;
@@ -3959,23 +3977,23 @@ ${userContext}`;
     }
 
     if (toolResults.some((item) => item.tool === 'activate_premium_from_balance' && item.success)) {
-      quickActions.push({ label: 'Voir mon abonnement', href: '/premium' });
+      quickActions.push({ label: isEnglish ? 'View my subscription' : 'Voir mon abonnement', href: '/premium' });
     } else if (toolResults.some((item) => item.tool === 'activate_premium_from_balance' && !item.success)) {
-      quickActions.push({ label: 'Recharger mon portefeuille', href: '/wallet' });
+      quickActions.push({ label: isEnglish ? 'Top up my wallet' : 'Recharger mon portefeuille', href: '/wallet' });
     }
-    if (toolResults.some((item) => item.tool === 'get_subscription_status')) quickActions.push({ label: 'Gérer Premium', href: '/premium' });
+    if (toolResults.some((item) => item.tool === 'get_subscription_status')) quickActions.push({ label: isEnglish ? 'Manage Premium' : 'Gérer Premium', href: '/premium' });
 
     const lastUserText = String(history[history.length - 1]?.content || '').toLowerCase();
     const navigationActions = [
-      { pattern: /dépense|depense|achat|payer|enregistr.*sortie/, label: 'Ouvrir Dépenses', href: '/expenses' },
-      { pattern: /revenu|salaire|source d'argent|prévision vitale|prevision vitale/, label: 'Ouvrir Revenus', href: '/income' },
-      { pattern: /dette|emprunt|prêt|pret|créance|creance/, label: 'Ouvrir Dettes & prêts', href: '/debts' },
-      { pattern: /budget|enveloppe|catégorie.*dépass|categorie.*depass/, label: 'Voir mes Budgets', href: '/budgets' },
-      { pattern: /objectif|épargne|epargne|tirelire/, label: 'Voir mes Objectifs', href: '/goals' },
-      { pattern: /portefeuille|recharg|solde pata|mobile money/, label: 'Ouvrir le Portefeuille', href: '/wallet' },
-      { pattern: /rapport|bilan|comparaison.*période|comparaison.*periode/, label: 'Consulter les Rapports', href: '/reports' },
-      { pattern: /premium|abonnement|renouvel/, label: 'Gérer Premium', href: '/premium' },
-      { pattern: /devise|paramètre|parametre|notification/, label: 'Ouvrir les Paramètres', href: '/settings' },
+      { pattern: /dépense|depense|expense|spend|purchase|payer|pay|enregistr.*sortie/, label: isEnglish ? 'Open Expenses' : 'Ouvrir Dépenses', href: '/expenses' },
+      { pattern: /revenu|income|revenue|salaire|salary|source d'argent|prévision vitale|prevision vitale|forecast/, label: isEnglish ? 'Open Income' : 'Ouvrir Revenus', href: '/income' },
+      { pattern: /dette|debt|emprunt|borrow|prêt|loan|pret|créance|creance/, label: isEnglish ? 'Open Debts & Loans' : 'Ouvrir Dettes & prêts', href: '/debts' },
+      { pattern: /budget|enveloppe|category|catégorie.*dépass|categorie.*depass/, label: isEnglish ? 'View Budgets' : 'Voir mes Budgets', href: '/budgets' },
+      { pattern: /objectif|goal|épargne|epargne|saving|tirelire/, label: isEnglish ? 'View Goals' : 'Voir mes Objectifs', href: '/goals' },
+      { pattern: /portefeuille|wallet|top.?up|recharg|balance|solde pata|mobile money/, label: isEnglish ? 'Open Wallet' : 'Ouvrir le Portefeuille', href: '/wallet' },
+      { pattern: /rapport|report|bilan|comparison|comparaison.*période|comparaison.*periode/, label: isEnglish ? 'View Reports' : 'Consulter les Rapports', href: '/reports' },
+      { pattern: /premium|subscription|abonnement|renouvel|renew/, label: isEnglish ? 'Manage Premium' : 'Gérer Premium', href: '/premium' },
+      { pattern: /devise|currency|paramètre|parametre|settings|notification/, label: isEnglish ? 'Open Settings' : 'Ouvrir les Paramètres', href: '/settings' },
     ];
     const contextualAction = navigationActions.find((item) => item.pattern.test(lastUserText));
     if (contextualAction && !quickActions.some((item) => item.href === contextualAction.href)) quickActions.push({ label: contextualAction.label, href: contextualAction.href });
@@ -3983,7 +4001,7 @@ ${userContext}`;
 
     if (!reply) {
       const lastResult = toolResults[toolResults.length - 1]?.result;
-      reply = lastResult?.message || lastResult?.error || 'J’ai terminé le traitement, mais je n’ai pas pu générer le récapitulatif. Consulte les données enregistrées dans Pata.';
+      reply = lastResult?.message || lastResult?.error || (isEnglish ? 'I finished processing, but could not generate a summary. Check the data saved in Pata.' : 'J’ai terminé le traitement, mais je n’ai pas pu générer le récapitulatif. Consulte les données enregistrées dans Pata.');
     }
 
     if (mode === 'audio') {
@@ -3991,7 +4009,7 @@ ${userContext}`;
         const audioBase64 = await generateAudioWithGemini(reply);
         return NextResponse.json({ success: true, audio: audioBase64, isAudio: true, textReply: reply, reply, toolResults, quickActions, quota: { remaining: quota.remaining, isPremium: quota.isPremium } });
       } catch (ttsError) {
-        return NextResponse.json({ success: true, reply, audioError: 'Impossible de générer l’audio.', toolResults, quickActions, quota: { remaining: quota.remaining, isPremium: quota.isPremium } });
+        return NextResponse.json({ success: true, reply, audioError: isEnglish ? 'Could not generate audio.' : 'Impossible de générer l’audio.', toolResults, quickActions, quota: { remaining: quota.remaining, isPremium: quota.isPremium } });
       }
     }
 
@@ -4014,11 +4032,12 @@ async function handleAIImage(request) {
     const decoded = await authenticate(request);
     uid = decoded.uid;
     const body = await request.json();
+    const requestedLanguage = body.language === 'en' ? 'en' : 'fr';
     const prompt = String(body.prompt || '').trim();
     if (!prompt) return errorResponse('Prompt manquant.', 400);
 
     const quota = await reserveDailyAIQuota(uid);
-    if (!quota.allowed) return errorResponse(`Tu as utilisé tes 3 utilisations gratuites de l’assistante aujourd’hui. Tu pourras recommencer demain ou découvrir Premium.`, 403);
+    if (!quota.allowed) return errorResponse(requestedLanguage === 'en' ? 'You have used your 3 free assistant messages for today. You can try again tomorrow or explore Premium.' : `Tu as utilisé tes 3 utilisations gratuites de l’assistante aujourd’hui. Tu pourras recommencer demain ou découvrir Premium.`, 403);
     if (quota.reserved) reservedDate = quota.date;
 
     const imageUrl = await generateImageWithPollinations(prompt);
@@ -4041,10 +4060,11 @@ async function handleAIVision(request) {
     uid = decoded.uid;
     const body = await request.json();
     const { messages, imageBase64 } = body;
-    if (!imageBase64) return errorResponse('Image manquante.', 400);
+    const requestedLanguage = body.language === 'en' ? 'en' : 'fr';
+    if (!imageBase64) return errorResponse(requestedLanguage === 'en' ? 'Image is missing.' : 'Image manquante.', 400);
 
     const quota = await reserveDailyAIQuota(uid);
-    if (!quota.allowed) return errorResponse(`Tu as utilisé tes 3 utilisations gratuites de l’assistante aujourd’hui. Tu pourras recommencer demain ou découvrir Premium.`, 403);
+    if (!quota.allowed) return errorResponse(requestedLanguage === 'en' ? 'You have used your 3 free assistant messages for today. You can try again tomorrow or explore Premium.' : `Tu as utilisé tes 3 utilisations gratuites de l’assistante aujourd’hui. Tu pourras recommencer demain ou découvrir Premium.`, 403);
     if (quota.reserved) reservedDate = quota.date;
 
     const visionProfile = await adminDb.collection('users').doc(uid).get();

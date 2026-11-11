@@ -16,6 +16,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { CategoryManager } from '@/components/ui/CategoryManager';
 import { CategoryImage } from '@/components/ui/CategoryImage';
 import { useAuth } from '@/hooks/useAuth';
+import { useLanguage } from '@/context/LanguageContext';
 import { useIncomes } from '@/hooks/useIncomes';
 import { useDebts } from '@/hooks/useDebts';
 import { useExpenses } from '@/hooks/useExpenses';
@@ -28,6 +29,7 @@ import { upsertBudget } from '@/lib/firestore/budgets';
 import { computeBudgetBreakdown } from '@/lib/budgetRules';
 import { INCOME_CATEGORIES, EXPENSE_CATEGORIES, CAMEROON_BANKS } from '@/lib/constants';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import { translateText } from '@/lib/i18n/translations';
 import { saveVitalForecast, deleteVitalForecast, saveDurationForecast as saveDurationForecastRecord, deleteDurationForecast } from '@/lib/firestore/forecasts';
 import { useBudgets } from '@/hooks/useBudgets';
 import { OptionalTransactionFields } from '@/components/transactions/OptionalTransactionFields';
@@ -59,6 +61,8 @@ const FREQUENCIES = [
 
 export default function IncomePage() {
   const { user } = useAuth();
+  const { language } = useLanguage();
+  const isEnglish = language === 'en';
   const { incomes } = useIncomes();
   const { debts } = useDebts();
   const activeReceivableDebts = debts.filter((debt) => debt.type === 'owed_to_me' && ['active', 'partial', 'late'].includes(debt.status) && Number(debt.remaining) > 0);
@@ -208,8 +212,8 @@ export default function IncomePage() {
     await deleteDurationForecast(id);
   };
 
-  const analyzeWithAssistant = (prompt) => {
-    window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt } }));
+  const analyzeWithAssistant = (prompt, promptEn = prompt) => {
+    window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt: isEnglish ? promptEn : prompt } }));
   };
 
   const monthIncomes = useMemo(() => incomesWithBalance.filter((i) => i.month === month).sort((a, b) => (a.date < b.date ? 1 : -1)), [incomesWithBalance, month]);
@@ -478,7 +482,7 @@ export default function IncomePage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <AssistantShortcut label="Analyser mes revenus" prompt="Analyse mes sources de revenus dans Pata. Aide-moi à comprendre leur régularité, leur répartition et les risques de dépendance à une seule source. Propose des pistes adaptées sans modifier mes opérations." />
+          <AssistantShortcut label="Analyser mes revenus" prompt="Analyse mes sources de revenus dans Pata. Aide-moi à comprendre leur régularité, leur répartition et les risques de dépendance à une seule source. Propose des pistes adaptées sans modifier mes opérations." promptEn="Analyze my income sources in Pata. Help me understand how regular they are, how they are distributed and the risks of relying on a single source. Suggest practical improvements without changing my transactions." />
           <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm" />
         </div>
       </div>
@@ -575,7 +579,10 @@ export default function IncomePage() {
               <Button onClick={applyVitalToBudget} className="w-full" disabled={savingApplied || isSavedOverBudget}>
                 <ArrowRight size={14} /> {savingApplied ? 'Enregistrement...' : 'Transformer en Revenu & Budgets'}
               </Button>
-              <Button variant="outline" onClick={() => analyzeWithAssistant(`Analyse en profondeur mes Prévisions vitales. Nom : ${profile?.vitalBudgetName || 'Budget'}. Budget total : ${Number(totalBudget) || 0} FCFA. Détail mensuel par catégorie : ${allCategories.map((category) => { const need = vitalNeeds[category.id]; if (!need?.amount) return null; const frequency = FREQUENCIES.find((item) => item.id === need.frequency); return `${category.label}: ${Number(need.amount) * (frequency?.multiplier || 1)} FCFA/mois`; }).filter(Boolean).join('; ')}. Explique les points de vigilance et propose des améliorations concrètes sans modifier mes données.`)} className="w-full">
+              <Button variant="outline" onClick={() => analyzeWithAssistant(
+                `Analyse en profondeur mes Prévisions vitales. Nom : ${profile?.vitalBudgetName || 'Budget'}. Budget total : ${Number(totalBudget) || 0} FCFA. Détail mensuel par catégorie : ${allCategories.map((category) => { const need = vitalNeeds[category.id]; if (!need?.amount) return null; const frequency = FREQUENCIES.find((item) => item.id === need.frequency); return `${category.label}: ${Number(need.amount) * (frequency?.multiplier || 1)} FCFA/mois`; }).filter(Boolean).join('; ')}. Explique les points de vigilance et propose des améliorations concrètes sans modifier mes données.`,
+                `Analyze my essential spending forecast in depth. Name: ${profile?.vitalBudgetName || 'Budget'}. Total budget: ${Number(totalBudget) || 0} XAF. Monthly breakdown by category: ${allCategories.map((category) => { const need = vitalNeeds[category.id]; if (!need?.amount) return null; const frequency = FREQUENCIES.find((item) => item.id === need.frequency); return `${translateText(category.label, 'en')}: ${Number(need.amount) * (frequency?.multiplier || 1)} XAF/month`; }).filter(Boolean).join('; ')}. Explain what I should watch and suggest practical improvements without changing any data.`
+              )} className="w-full">
                 Continuer l’analyse avec Mč
               </Button>
             </div>
@@ -608,7 +615,10 @@ export default function IncomePage() {
           </div>
           
           {durationError && <p className="sm:col-span-2 text-xs text-red-600">{durationError}</p>}
-          <div className="sm:col-span-2 flex flex-wrap gap-2"><Button type="submit" disabled={savingDuration} className="w-full sm:w-auto">{savingDuration ? 'Enregistrement…' : 'Enregistrer cette estimation'}</Button><Button type="button" variant="outline" onClick={() => analyzeWithAssistant(`Explique-moi simplement cette estimation de durée du capital. Capital disponible : ${Number(durationCapital) || 0} FCFA. Dépense : ${Number(durationExpense) || 0} FCFA ${durationFrequency === 'daily' ? 'par jour' : durationFrequency === 'weekly' ? 'par semaine' : 'par mois'}. Équivalent quotidien : ${Math.round(dailyRate)} FCFA. Durée estimée : ${calculatedDurationDays ?? 'non calculable'} jour(s). Précise les hypothèses et signale si ma dépense par période dépasse mon capital.`)}>Comprendre avec Mč</Button></div>
+          <div className="sm:col-span-2 flex flex-wrap gap-2"><Button type="submit" disabled={savingDuration} className="w-full sm:w-auto">{savingDuration ? 'Enregistrement…' : 'Enregistrer cette estimation'}</Button><Button type="button" variant="outline" onClick={() => analyzeWithAssistant(
+                `Explique-moi simplement cette estimation de durée du capital. Capital disponible : ${Number(durationCapital) || 0} FCFA. Dépense : ${Number(durationExpense) || 0} FCFA ${durationFrequency === 'daily' ? 'par jour' : durationFrequency === 'weekly' ? 'par semaine' : 'par mois'}. Équivalent quotidien : ${Math.round(dailyRate)} FCFA. Durée estimée : ${calculatedDurationDays ?? 'non calculable'} jour(s). Précise les hypothèses et signale si ma dépense par période dépasse mon capital.`,
+                `Explain this money-duration estimate in simple terms. Available capital: ${Number(durationCapital) || 0} XAF. Spending: ${Number(durationExpense) || 0} XAF ${durationFrequency === 'daily' ? 'per day' : durationFrequency === 'weekly' ? 'per week' : 'per month'}. Daily equivalent: ${Math.round(dailyRate)} XAF. Estimated duration: ${calculatedDurationDays ?? 'not calculable'} days. Explain the assumptions and point out whether my spending per period exceeds my available capital.`
+              )}>Comprendre avec Mč</Button></div>
         </form>
         {durationForecasts.length > 0 && (
           <div className="mt-5 space-y-2 border-t border-slate-100 pt-4">
@@ -621,7 +631,10 @@ export default function IncomePage() {
                 </div>
                 <div className="mt-2 flex flex-wrap items-end justify-between gap-2">
                   <div><p className="text-xs text-slate-500">Durée estimée</p><p className="text-base font-bold text-brand-700">{forecast.canCoverPeriod === false ? 'Capital insuffisant' : formatDuration(forecast.estimatedDays)}</p><p className="text-[11px] text-slate-500">{forecast.canCoverPeriod === false ? 'Une échéance complète ne peut pas être couverte.' : `Jusqu’au ${formatDate(forecast.estimatedEndDate)}`}</p></div>
-                  <Button type="button" size="sm" variant="outline" onClick={() => analyzeWithAssistant(`Analyse cette prévision de durée du capital et donne-moi des conseils concrets. Nom : ${forecast.name}. Capital : ${forecast.capital} FCFA. Dépense quotidienne : ${forecast.dailyExpense} FCFA. Hebdomadaire : ${forecast.weeklyExpense} FCFA. Mensuelle : ${forecast.monthlyExpense} FCFA. Moyenne par jour : ${forecast.averageDaily} FCFA. Durée estimée : ${forecast.estimatedDays} jours, jusqu’au ${forecast.estimatedEndDate}.`)}>Analyser avec Mč</Button>
+                  <Button type="button" size="sm" variant="outline" onClick={() => analyzeWithAssistant(
+                    `Analyse cette prévision de durée du capital et donne-moi des conseils concrets. Nom : ${forecast.name}. Capital : ${forecast.capital} FCFA. Dépense quotidienne : ${forecast.dailyExpense} FCFA. Hebdomadaire : ${forecast.weeklyExpense} FCFA. Mensuelle : ${forecast.monthlyExpense} FCFA. Moyenne par jour : ${forecast.averageDaily} FCFA. Durée estimée : ${forecast.estimatedDays} jours, jusqu’au ${forecast.estimatedEndDate}.`,
+                    `Analyze this money-duration forecast and give me practical advice. Name: ${forecast.name}. Capital: ${forecast.capital} XAF. Daily spending: ${forecast.dailyExpense} XAF. Weekly spending: ${forecast.weeklyExpense} XAF. Monthly spending: ${forecast.monthlyExpense} XAF. Daily average: ${forecast.averageDaily} XAF. Estimated duration: ${forecast.estimatedDays} days, until ${forecast.estimatedEndDate}.`
+                  )}>Analyser avec Mč</Button>
                 </div>
               </div>
             ))}
@@ -732,7 +745,7 @@ export default function IncomePage() {
                 <div className="py-3 text-sm"><p className="text-slate-500">Note</p><p className="mt-1 whitespace-pre-wrap text-slate-800">{selectedIncome.note || 'Aucune note'}</p></div>
               </div>
               {selectedIncome.latitude != null && selectedIncome.longitude != null && <a href={'https://www.google.com/maps?q=' + selectedIncome.latitude + ',' + selectedIncome.longitude} target="_blank" rel="noreferrer" className="block rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-brand-800 hover:bg-brand-50">Voir la position sur la carte</a>}
-              <AssistantShortcut label="Analyser ce revenu avec Mč" prompt={`Analyse ce revenu enregistré dans Pata : source ${selectedIncome.source || 'non précisée'}, montant ${selectedIncome.amount} FCFA, date ${selectedIncome.date || 'non précisée'}, catégorie ${selectedIncome.categoryId || 'non précisée'}. Explique son importance dans mon équilibre financier et propose des conseils concrets. Ne modifie aucune donnée.`}/>
+              <AssistantShortcut label="Analyser ce revenu avec Mč" prompt={`Analyse ce revenu enregistré dans Pata : source ${selectedIncome.source || 'non précisée'}, montant ${selectedIncome.amount} FCFA, date ${selectedIncome.date || 'non précisée'}, catégorie ${selectedIncome.categoryId || 'non précisée'}. Explique son importance dans mon équilibre financier et propose des conseils concrets. Ne modifie aucune donnée.`} promptEn={`Analyze this income entry in Pata: source ${selectedIncome.source || 'not specified'}, amount ${selectedIncome.amount} XAF, date ${selectedIncome.date || 'not specified'}, category ${translateText([...INCOME_CATEGORIES, ...customIncomeCategories].find((item) => item.id === selectedIncome.categoryId)?.label || selectedIncome.categoryId || 'not specified', 'en')}. Explain its importance to my financial balance and suggest practical advice. Do not change any data.`}/>
               {selectedIncome.cashPocket ? <p className="rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900">Cet argent provient d’un retrait Mobile Money déjà enregistré. Il ne constitue pas un revenu : il représente ton argent disponible en espèces. Relie les prochaines dépenses payées en espèces à cette source pour suivre son solde sans compter le retrait comme une dépense.</p> : selectedIncome.flowType === 'debt_borrowed' && selectedIncome.debtId ? <div className="space-y-2"><p className="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">Cet emprunt reste un mouvement neutre. Tu peux uniquement modifier son affectation à un projet ; le montant, le créancier, l’échéance et le suivi de remboursement restent protégés.</p><Button type="button" variant="outline" className="w-full" onClick={() => openEditIncome(selectedIncome)}><Pencil size={14}/> Modifier l’affectation au projet</Button></div> : selectedIncome.neutralFlow || selectedIncome.debtId || selectedIncome.repaymentDebtId ? <p className="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">Ce mouvement est lié au suivi des Dettes & prêts. Pour préserver le solde restant et l’historique, sa modification ou sa suppression se gère dans cette rubrique.</p> : <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="outline" className="flex-1" onClick={() => openEditIncome(selectedIncome)}><Pencil size={14}/> Modifier</Button>
                 <Button type="button" variant="outline" className="flex-1 border-red-200 text-red-700 hover:bg-red-50" onClick={() => { setDeleteId(selectedIncome.id); setSelectedIncome(null); }}><Trash2 size={14}/> Supprimer</Button>

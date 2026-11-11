@@ -4,13 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Bell, Check, ChevronDown, ExternalLink, Loader2, RefreshCw, X } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { getPreferredLocale } from '@/lib/utils';
 
 function formatDate(value) {
   if (!value) return '';
   const date = new Date(value);
   return Number.isNaN(date.getTime())
     ? ''
-    : date.toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
+    : date.toLocaleString(getPreferredLocale(), { dateStyle: 'short', timeStyle: 'short' });
 }
 
 function renderMessageWithLinks(value) {

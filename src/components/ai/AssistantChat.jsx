@@ -8,42 +8,75 @@ import {
   Sparkles, Copy, CheckCheck
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { useLanguage } from '@/context/LanguageContext';
 import { subscribeChats, createChat, updateChatMessages, deleteChat, updateChatTitle } from '@/lib/firestore/ai_chats';
 
-const SUGGESTIONS = [
-  "Quel est mon bilan financier ?",
-  "Comment mieux épargner ?",
-  "Où est-ce que je dépense le plus ?",
-  "Ajoute une dépense de 2000 FCFA pour le transport",
-  "Crée un objectif d'épargne de 50 000 FCFA pour Noël",
-  "Programme 500 FCFA de transport chaque jour",
-  "J'ai 100 000 FCFA de revenus, aide-moi à faire un budget",
-];
+const SUGGESTIONS = {
+  fr: [
+    "Quel est mon bilan financier ?",
+    "Comment mieux épargner ?",
+    "Où est-ce que je dépense le plus ?",
+    "Ajoute une dépense de 2 000 FCFA pour le transport",
+    "Crée un objectif d'épargne de 50 000 FCFA pour Noël",
+    "Programme 500 FCFA de transport chaque jour",
+    "J'ai 100 000 FCFA de revenus, aide-moi à faire un budget",
+  ],
+  en: [
+    "What is my financial summary?",
+    "How can I save more effectively?",
+    "Which categories do I spend the most on?",
+    "Add an expense of XAF 2,000 for transport",
+    "Create a savings goal of XAF 50,000 for Christmas",
+    "Schedule XAF 500 for transport every day",
+    "I have XAF 100,000 in income. Help me create a budget.",
+  ],
+};
 
 const MENTIONS = [
   { id: 'audio', label: 'Audio', icon: Volume2, color: 'text-blue-500', description: 'Répondre en vocal' },
-  { id: 'image', label: 'Image', icon: Sparkles, color: 'text-brand-500', description: 'Générer une image' },
-  { id: 'vision', label: 'Vision', icon: ImageIcon, color: 'text-purple-500', description: 'Analyser une image' },
+  { id: 'image', label: 'Image', icon: Sparkles, color: 'text-brand-500', description: 'Generate an image' },
+  { id: 'vision', label: 'Vision', icon: ImageIcon, color: 'text-purple-500', description: 'Analyze an image' },
 ];
 
-function cleanAssistantText(value) {
-  return String(value || '')
-    .replace(/\bapply_budget_plan\b/gi, 'préparer un budget')
-    .replace(/\badd_expense\b/gi, 'enregistrer une dépense')
-    .replace(/\bupdate_expense\b/gi, 'modifier une dépense')
-    .replace(/\bdelete_expense\b/gi, 'supprimer une dépense')
-    .replace(/\badd_income\b/gi, 'enregistrer un revenu')
-    .replace(/\bcreate_goal\b/gi, 'créer un objectif')
-    .replace(/\badd_automation\b/gi, 'programmer une opération récurrente')
-    .replace(/\bget_subscription_status\b/gi, 'consulter ton abonnement')
-    .replace(/\bactivate_premium_from_balance\b/gi, 'activer Premium avec ton solde')
-    .replace(/\bcreate_duration_forecast\b/gi, 'enregistrer une prévision de durée')
-    .replace(/\bpause_automation\b/gi, 'mettre en pause une opération programmée')
-    .replace(/\bresume_automation\b/gi, 'reprendre une opération programmée')
-    .replace(/\bupdate_goal\b/gi, 'modifier un objectif')
-    .replace(/\bremember_user_context\b/gi, 'mémoriser cette préférence')
-    .replace(/\bincomeSourceId\b|\bcategoryId\b|\bpremiumUntil\b/gi, 'information de ton compte')
-    .replace(/\bFirestore\b|\bJSON\b|\bAPI\b|\btool call\b/gi, 'service de Pata');
+function cleanAssistantText(value, language = 'fr') {
+  const replacements = language === 'en'
+    ? [
+        [/\bapply_budget_plan\b/gi, 'prepare a budget'],
+        [/\badd_expense\b/gi, 'record an expense'],
+        [/\bupdate_expense\b/gi, 'edit an expense'],
+        [/\bdelete_expense\b/gi, 'delete an expense'],
+        [/\badd_income\b/gi, 'record income'],
+        [/\bcreate_goal\b/gi, 'create a savings goal'],
+        [/\badd_automation\b/gi, 'schedule a recurring transaction'],
+        [/\bget_subscription_status\b/gi, 'check your subscription'],
+        [/\bactivate_premium_from_balance\b/gi, 'activate Premium using your balance'],
+        [/\bcreate_duration_forecast\b/gi, 'save a duration forecast'],
+        [/\bpause_automation\b/gi, 'pause a scheduled transaction'],
+        [/\bresume_automation\b/gi, 'resume a scheduled transaction'],
+        [/\bupdate_goal\b/gi, 'edit a goal'],
+        [/\bremember_user_context\b/gi, 'remember this preference'],
+        [/\bincomeSourceId\b|\bcategoryId\b|\bpremiumUntil\b/gi, 'account information'],
+        [/\bFirestore\b|\bJSON\b|\bAPI\b|\btool call\b/gi, 'Pata service'],
+      ]
+    : [
+        [/\bapply_budget_plan\b/gi, 'préparer un budget'],
+        [/\badd_expense\b/gi, 'enregistrer une dépense'],
+        [/\bupdate_expense\b/gi, 'modifier une dépense'],
+        [/\bdelete_expense\b/gi, 'supprimer une dépense'],
+        [/\badd_income\b/gi, 'enregistrer un revenu'],
+        [/\bcreate_goal\b/gi, 'créer un objectif'],
+        [/\badd_automation\b/gi, 'programmer une opération récurrente'],
+        [/\bget_subscription_status\b/gi, 'consulter ton abonnement'],
+        [/\bactivate_premium_from_balance\b/gi, 'activer Premium avec ton solde'],
+        [/\bcreate_duration_forecast\b/gi, 'enregistrer une prévision de durée'],
+        [/\bpause_automation\b/gi, 'mettre en pause une opération programmée'],
+        [/\bresume_automation\b/gi, 'reprendre une opération programmée'],
+        [/\bupdate_goal\b/gi, 'modifier un objectif'],
+        [/\bremember_user_context\b/gi, 'mémoriser cette préférence'],
+        [/\bincomeSourceId\b|\bcategoryId\b|\bpremiumUntil\b/gi, 'information de ton compte'],
+        [/\bFirestore\b|\bJSON\b|\bAPI\b|\btool call\b/gi, 'service de Pata'],
+      ];
+  return replacements.reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), String(value || ''));
 }
 
 function renderInline(value, keyPrefix = 'inline') {
@@ -67,9 +100,9 @@ function isTableDivider(line) {
   return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
 }
 
-function MessageContent({ text }) {
+function MessageContent({ text, language = 'fr' }) {
   if (!text) return null;
-  const lines = cleanAssistantText(text).replace(/\r/g, '').split('\n');
+  const lines = cleanAssistantText(text, language).replace(/\r/g, '').split('\n');
   const blocks = [];
   let index = 0;
 
@@ -78,7 +111,7 @@ function MessageContent({ text }) {
     const trimmed = current.trim();
     if (!trimmed) { index += 1; continue; }
 
-    const summaryMatch = trimmed.match(/^\*\*En bref(?:\s*[—–-])?\*\*\s*(.*)$/i);
+    const summaryMatch = trimmed.match(/^\*\*(?:En bref|In brief)(?:\s*[—–-])?\*\*\s*(.*)$/i);
     if (summaryMatch) {
       blocks.push(
         <div key={`summary-${blocks.length}`} className="my-2 rounded-xl border border-brand-100 bg-brand-50/70 px-3 py-3">
@@ -183,14 +216,14 @@ function formatConversationTime(value) {
   if (value == null) return '';
   const date = value?.toDate ? value.toDate() : (value instanceof Date ? value : new Date(value || 0));
   if (!Number.isFinite(date.getTime())) return '';
-  return new Intl.DateTimeFormat('fr-FR', {
+  return new Intl.DateTimeFormat(language === 'en' ? 'en-GB' : 'fr-FR', {
     timeZone: 'Africa/Douala',
     hour: '2-digit',
     minute: '2-digit',
   }).format(date);
 }
 
-function groupChatsByDate(chats) {
+function groupChatsByDate(chats, language = 'fr') {
   const todayKey = toDoualaDateKey(new Date());
   const yesterdayKey = todayKey ? getRelativeDateKey(todayKey, -1) : null;
   const beforeYesterdayKey = todayKey ? getRelativeDateKey(todayKey, -2) : null;
@@ -203,10 +236,10 @@ function groupChatsByDate(chats) {
   });
 
   return Array.from(groups, ([key, items]) => {
-    let label = 'Date inconnue';
-    if (key === todayKey) label = "Aujourd’hui";
-    else if (key === yesterdayKey) label = 'Hier';
-    else if (key === beforeYesterdayKey) label = 'Avant-hier';
+    let label = language === 'en' ? 'Unknown date' : 'Date inconnue';
+    if (key === todayKey) label = language === 'en' ? 'Today' : "Aujourd’hui";
+    else if (key === yesterdayKey) label = language === 'en' ? 'Yesterday' : 'Hier';
+    else if (key === beforeYesterdayKey) label = language === 'en' ? 'Day before yesterday' : 'Avant-hier';
     else if (key !== 'unknown') {
       label = new Intl.DateTimeFormat('fr-FR', {
         timeZone: 'UTC',
@@ -219,20 +252,30 @@ function groupChatsByDate(chats) {
   });
 }
 
-function getSuggestedPrompts(text = '') {
-  const value = String(text).toLowerCase();
+function getSuggestedPrompts(text = '', language = 'fr') {
+  const value = String(text).toLocaleLowerCase(language === 'en' ? 'en' : 'fr');
   const suggestions = [];
-  if (/budget|dépense|catégorie/.test(value)) suggestions.push('Aide-moi à réduire mes dépenses dans ce poste.');
-  if (/revenu|source|solde/.test(value)) suggestions.push('Montre-moi les revenus qui disposent encore d’un solde.');
-  if (/épargne|objectif/.test(value)) suggestions.push('Aide-moi à améliorer mon plan d’épargne.');
-  if (/prévision|vital|durée/.test(value)) suggestions.push('Analyse mes prévisions plus en profondeur.');
-  if (/premium|abonnement/.test(value)) suggestions.push('Vérifie la durée restante de mon abonnement.');
-  if (!suggestions.length) suggestions.push('Fais-moi une recommandation adaptée à ma situation actuelle.');
+  if (language === 'en') {
+    if (/budget|expense|spend|category/.test(value)) suggestions.push('How can I reduce spending in this category?');
+    if (/income|revenue|source|balance/.test(value)) suggestions.push('Show me which income sources still have money available.');
+    if (/saving|savings|goal/.test(value)) suggestions.push('Help me improve my savings plan.');
+    if (/forecast|duration|run out|last/.test(value)) suggestions.push('Analyze my forecasts in more detail.');
+    if (/premium|subscription/.test(value)) suggestions.push('How much time is left on my subscription?');
+    if (!suggestions.length) suggestions.push('Give me a recommendation based on my current financial situation.');
+  } else {
+    if (/budget|dépense|catégorie/.test(value)) suggestions.push('Aide-moi à réduire mes dépenses dans ce poste.');
+    if (/revenu|source|solde/.test(value)) suggestions.push('Montre-moi les revenus qui disposent encore d’un solde.');
+    if (/épargne|objectif/.test(value)) suggestions.push('Aide-moi à améliorer mon plan d’épargne.');
+    if (/prévision|vital|durée/.test(value)) suggestions.push('Analyse mes prévisions plus en profondeur.');
+    if (/premium|abonnement/.test(value)) suggestions.push('Vérifie la durée restante de mon abonnement.');
+    if (!suggestions.length) suggestions.push('Fais-moi une recommandation adaptée à ma situation actuelle.');
+  }
   return [...new Set(suggestions)].slice(0, 2);
 }
 
 export function AssistantChat({ open, onClose, initialPrompt = "" }) {
   const { user } = useAuth();
+  const { language } = useLanguage();
   const [chats, setChats] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -246,7 +289,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
   const [imageModal, setImageModal] = useState(null);
   const [editingTitleId, setEditingTitleId] = useState(null);
   const [titleInput, setTitleInput] = useState('');
-  const groupedChats = useMemo(() => groupChatsByDate(chats), [chats]);
+  const groupedChats = useMemo(() => groupChatsByDate(chats, language), [chats, language]);
   
   const [showMentions, setShowMentions] = useState(false);
   const textareaRef = useRef(null);
@@ -338,7 +381,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
     const limit = raw.includes('CONTENU DU DOCUMENT :') ? 5000 : 1800;
     const val = raw.slice(0, limit);
     setInput(val);
-    setInputError(raw.length > limit ? `La limite est de ${limit.toLocaleString('fr-FR')} caractères. Le texte a été raccourci pour éviter un dépassement.` : '');
+    setInputError(raw.length > limit ? (language === 'en' ? `The limit is ${limit.toLocaleString('en-GB')} characters. The text was shortened to prevent overflow.` : `La limite est de ${limit.toLocaleString('fr-FR')} caractères. Le texte a été raccourci pour éviter un dépassement.`) : '');
     if (val.endsWith('@')) {
       setShowMentions(true);
     } else if (showMentions && !val.includes('@')) {
@@ -375,7 +418,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
   const sendMessage = async (rawText) => {
     if ((!rawText.trim() && !imageFile) || loading) return;
     const allowedLength = rawText.includes('CONTENU DU DOCUMENT :') ? 5000 : 1800;
-    if (rawText.length > allowedLength) { setInput(rawText.slice(0, allowedLength)); setInputError(`La limite est de ${allowedLength.toLocaleString('fr-FR')} caractères. Raccourcis ton message avant l’envoi.`); return; }
+    if (rawText.length > allowedLength) { setInput(rawText.slice(0, allowedLength)); setInputError(language === 'en' ? `The limit is ${allowedLength.toLocaleString('en-GB')} characters. Shorten your message before sending.` : `La limite est de ${allowedLength.toLocaleString('fr-FR')} caractères. Raccourcis ton message avant l’envoi.`); return; }
     setInputError('');
     
     const hasAudio = /@audio/i.test(rawText);
@@ -406,7 +449,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
         setImageFile(null);
         const res = await fetch('/api/ai/image', {
           method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ prompt: text }),
+          body: JSON.stringify({ prompt: text, language }),
         });
         const data = await res.json();
         if (!data.success) throw new Error(data.error);
@@ -432,7 +475,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
         
         const res = await fetch('/api/ai/vision', {
           method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ messages: cleanMessagesForVision, imageBase64: currentImage.base64 }),
+          body: JSON.stringify({ messages: cleanMessagesForVision, imageBase64: currentImage.base64, language }),
         });
         const data = await res.json();
         if (!res.ok || !data.success) throw new Error(data.error || "Je n'ai pas pu analyser l'image.");
@@ -458,7 +501,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
 
       const res = await fetch('/api/ai/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ messages: cleanMessages, mode, clientRequestId }),
+        body: JSON.stringify({ messages: cleanMessages, mode, clientRequestId, language }),
       });
       const data = await res.json();
       
@@ -575,11 +618,11 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
                      <BrainCircuit size={32} />
                    </div>
                    <p className="text-sm text-slate-600 px-4">
-                     Bonjour {user?.displayName?.split(' ')[0] || 'toi'}. Tape <strong>@</strong> dans le champ pour choisir une action spéciale (Audio, Image).
+                     {language === 'en' ? 'Hello' : 'Bonjour'} {user?.displayName?.split(' ')[0] || (language === 'en' ? 'there' : 'toi')}. {language === 'en' ? 'Type' : 'Tape'} <strong>@</strong> {language === 'en' ? 'in the message box to choose a special action (Audio, Image).' : 'dans le champ pour choisir une action spéciale (Audio, Image).'}
                    </p>
                  </div>
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-6">
-                   {SUGGESTIONS.map((s, i) => (
+                   {SUGGESTIONS[language === 'en' ? 'en' : 'fr'].map((s, i) => (
                      <button key={i} onClick={() => applySuggestion(s)} className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 text-left text-[13px] text-slate-700 hover:border-brand-300 hover:bg-brand-50 transition-colors">
                        {s}
                      </button>
@@ -605,7 +648,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
                         <Download size={14} />
                       </a>
                     </div>
-                    <button type="button" onClick={() => sendPromptSuggestion('@image Crée une nouvelle image sur le même sujet que la précédente, avec une composition différente.')} className="mt-2 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-brand-700 hover:bg-brand-50">Créer une autre image</button>
+                    <button type="button" onClick={() => sendPromptSuggestion(language === 'en' ? '@image Create a new image on the same topic as the previous one, with a different composition.' : '@image Crée une nouvelle image sur le même sujet que la précédente, avec une composition différente.')} className="mt-2 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-brand-700 hover:bg-brand-50">Créer une autre image</button>
                   </div>
                 )}
 
@@ -627,7 +670,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
                       ) : (
                         <p className="mb-2 text-xs text-slate-500 italic">Le fichier vocal n’est plus disponible, mais le texte de la réponse reste accessible.</p>
                       )}
-                      <MessageContent text={m.content} />
+                      <MessageContent text={m.content} language={language} />
                     </div>
                     <div className="mt-1.5 flex flex-wrap items-center gap-2 px-1">
                       <button type="button" onClick={() => copyMessage(m.content)} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800">
@@ -636,7 +679,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
                       {Array.isArray(m.quickActions) && m.quickActions.map((action, actionIndex) => (
                         <a key={`${action.href}-${actionIndex}`} href={action.href} className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-brand-700 hover:border-brand-300 hover:bg-brand-50">{action.label}</a>
                       ))}
-                      {getSuggestedPrompts(m.content).map((prompt, promptIndex) => (
+                      {getSuggestedPrompts(m.content, language).map((prompt, promptIndex) => (
                         <button key={`${i}-${promptIndex}`} type="button" onClick={() => sendPromptSuggestion(prompt)} className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-left text-[11px] font-medium text-slate-600 hover:border-brand-300 hover:text-brand-700">{prompt}</button>
                       ))}
                     </div>
@@ -650,7 +693,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
                       onTouchEnd={() => { if (longPressTimer.current) clearTimeout(longPressTimer.current); }}
                       onTouchMove={() => { if (longPressTimer.current) clearTimeout(longPressTimer.current); }}
                     >
-                      <MessageContent text={m.content} />
+                      <MessageContent text={m.content} language={language} />
                     </div>
                     <div className="mt-1.5 flex flex-wrap items-center gap-2 px-1">
                       <button type="button" onClick={() => copyMessage(m.content)} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800">
@@ -659,7 +702,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
                       {Array.isArray(m.quickActions) && m.quickActions.map((action, actionIndex) => (
                         <a key={`${action.href}-${actionIndex}`} href={action.href} className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-brand-700 hover:border-brand-300 hover:bg-brand-50">{action.label}</a>
                       ))}
-                      {getSuggestedPrompts(m.content).map((prompt, promptIndex) => (
+                      {getSuggestedPrompts(m.content, language).map((prompt, promptIndex) => (
                         <button key={`${i}-${promptIndex}`} type="button" onClick={() => sendPromptSuggestion(prompt)} className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-left text-[11px] font-medium text-slate-600 hover:border-brand-300 hover:text-brand-700">{prompt}</button>
                       ))}
                     </div>

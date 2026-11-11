@@ -11,6 +11,7 @@ import { CategoryManager } from '@/components/ui/CategoryManager';
 import { CategoryImage } from '@/components/ui/CategoryImage';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAuth } from '@/hooks/useAuth';
+import { useLanguage } from '@/context/LanguageContext';
 import { useProfile } from '@/hooks/useProfile';
 import { useProjects } from '@/hooks/useProjects';
 import { createProject, updateProject, deleteProject } from '@/lib/firestore/projects';
@@ -58,6 +59,8 @@ const emptyForm = () => ({
 
 export default function ExpensesPage() {
   const { user } = useAuth();
+  const { language } = useLanguage();
+  const isEnglish = language === 'en';
   const { profile } = useProfile();
   const { projects } = useProjects();
   const { expenses, loading } = useExpenses();
@@ -393,7 +396,7 @@ export default function ExpensesPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <AssistantShortcut label="Analyser mes dépenses" prompt="Analyse mes dépenses enregistrées dans Pata. Mets en évidence les catégories qui pèsent le plus, les évolutions utiles et les pistes réalistes pour mieux gérer mon argent. Ne modifie aucune opération sans me demander confirmation." />
+          <AssistantShortcut label="Analyser mes dépenses" prompt="Analyse mes dépenses enregistrées dans Pata. Mets en évidence les catégories qui pèsent le plus, les évolutions utiles et les pistes réalistes pour mieux gérer mon argent. Ne modifie aucune opération sans me demander confirmation." promptEn="Analyze my recorded expenses in Pata. Highlight the categories that cost me the most, useful spending trends and realistic ways to manage my money better. Do not change any transaction without asking for my confirmation." />
           <Button onClick={openNew} className="shadow-sm">
             <Plus size={16} /> Nouvelle dépense
           </Button>
@@ -417,7 +420,9 @@ export default function ExpensesPage() {
           {displayedProjects.map((project) => {
             const target = Number(project.targetAmount) || 0;
             const balance = project.totalFunding - project.spent;
-            const prompt = `Analyse mon projet « ${project.name} » dans Pata. Budget indicatif : ${target} FCFA. Revenus ordinaires réservés : ${project.income} FCFA. Emprunts affectés (dettes à rembourser, pas des revenus gagnés) : ${project.borrowedFunding} FCFA. Total des fonds affectés : ${project.totalFunding} FCFA. Sorties liées : ${project.spent} FCFA. Solde affecté théorique : ${balance} FCFA. Explique la progression et les points à surveiller. Distingue ces sorties des dépenses courantes et les emprunts des revenus ordinaires. Ne modifie aucune donnée.`;
+            const prompt = isEnglish
+              ? `Analyze my Pata project "${project.name}". Estimated budget: ${target} XAF. Regular income reserved: ${project.income} XAF. Loans assigned to the project (debts to repay, not earned income): ${project.borrowedFunding} XAF. Total assigned funds: ${project.totalFunding} XAF. Related outflows: ${project.spent} XAF. Theoretical assigned balance: ${balance} XAF. Explain the progress and what I should monitor. Distinguish project outflows from everyday expenses and borrowed funds from regular income. Do not change any data.`
+              : `Analyse mon projet « ${project.name} » dans Pata. Budget indicatif : ${target} FCFA. Revenus ordinaires réservés : ${project.income} FCFA. Emprunts affectés (dettes à rembourser, pas des revenus gagnés) : ${project.borrowedFunding} FCFA. Total des fonds affectés : ${project.totalFunding} FCFA. Sorties liées : ${project.spent} FCFA. Solde affecté théorique : ${balance} FCFA. Explique la progression et les points à surveiller. Distingue ces sorties des dépenses courantes et les emprunts des revenus ordinaires. Ne modifie aucune donnée.`;
             return <article key={project.id} className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
               <div className="flex items-start justify-between gap-2"><div className="min-w-0"><h3 className="truncate text-sm font-bold text-slate-900">{project.name}</h3><p className="mt-1 line-clamp-2 text-xs text-slate-500">{project.description || 'Projet personnel'}</p><span className="mt-2 inline-flex rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600">{project.status === 'completed' ? 'Terminé' : project.status === 'archived' ? 'Archivé' : 'En cours'}</span></div><Briefcase size={17} className="shrink-0 text-slate-400"/></div>
               <div className="mt-3 grid grid-cols-2 gap-2 text-xs"><div><span className="block text-slate-500">Sorties liées</span><strong>{formatCurrency(project.spent)}</strong></div><div><span className="block text-slate-500">Revenus ordinaires</span><strong>{formatCurrency(project.income)}</strong></div><div><span className="block text-slate-500">Emprunts affectés</span><strong>{formatCurrency(project.borrowedFunding)}</strong></div><div><span className="block text-slate-500">Total financé</span><strong>{formatCurrency(project.totalFunding)}</strong></div></div>
@@ -673,7 +678,7 @@ export default function ExpensesPage() {
                 <div className="py-3 text-sm"><p className="text-slate-500">Note</p><p className="mt-1 whitespace-pre-wrap text-slate-800">{selectedExpense.note || 'Aucune note'}</p></div>
               </div>
               {selectedExpense.latitude != null && selectedExpense.longitude != null && <a href={'https://www.google.com/maps?q=' + selectedExpense.latitude + ',' + selectedExpense.longitude} target="_blank" rel="noreferrer" className="block rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-brand-800 hover:bg-brand-50">Voir la position sur la carte</a>}
-              <AssistantShortcut label="Analyser cette dépense avec Mč" prompt={`Analyse cette dépense dans Pata : ${selectedExpense.amount} FCFA, catégorie ${category?.label || selectedExpense.categoryId}, date ${selectedExpense.date || 'non précisée'}, lieu ${selectedExpense.locationLabel || 'non renseigné'}, note ${selectedExpense.note || 'aucune'}. Explique son impact sur mon budget et donne un conseil concret sans modifier mes données.`}/>
+              <AssistantShortcut label="Analyser cette dépense avec Mč" prompt={`Analyse cette dépense dans Pata : ${selectedExpense.amount} FCFA, catégorie ${category?.label || selectedExpense.categoryId}, date ${selectedExpense.date || 'non précisée'}, lieu ${selectedExpense.locationLabel || 'non renseigné'}, note ${selectedExpense.note || 'aucune'}. Explique son impact sur mon budget et donne un conseil concret sans modifier mes données.`} promptEn={`Analyze this expense in Pata: ${selectedExpense.amount} XAF, category ${category?.label || selectedExpense.categoryId}, date ${selectedExpense.date || 'not specified'}, location ${selectedExpense.locationLabel || 'not provided'}, note ${selectedExpense.note || 'none'}. Explain its impact on my budget and give me one practical recommendation without changing any data.`}/>
               {selectedExpense.cashWithdrawal ? <p className="rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900">Ce mouvement a transféré de l’argent du portefeuille Mobile Money vers ta poche espèces. Il est neutre : il ne représente ni une consommation ni une dépense budgétaire. Les dépenses ultérieures payées en espèces doivent être rattachées à la source Espèces.</p> : selectedExpense.neutralFlow || selectedExpense.debtId || selectedExpense.repaymentDebtId ? <p className="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">Ce mouvement est lié au module Dettes & prêts. Sa modification et sa suppression sont protégées pour conserver le solde et l’historique des remboursements.</p> : <><div className="grid grid-cols-2 gap-2">
                 <Button type="button" variant="outline" onClick={() => { setSelectedExpense(null); openEdit(selectedExpense); }}><Pencil size={14}/> Modifier</Button>
                 <Button type="button" variant="outline" onClick={() => { setDeleteId(selectedExpense.id); setSelectedExpense(null); }} className="border-red-200 text-red-700 hover:bg-red-50"><Trash2 size={14}/> Supprimer</Button>
@@ -698,7 +703,9 @@ export default function ExpensesPage() {
             </label>
             <p className="text-xs leading-5 text-slate-500">La première occurrence sera programmée après la dépense choisie. Tu pourras ensuite gérer cette opération dans les automatisations.</p>
             <button type="button" className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700" onClick={() => {
-              const prompt = `Je souhaite rendre cette dépense récurrente. Montant : ${recurringExpense.amount} FCFA. Catégorie : ${recurringExpense.categoryId}. Note : ${recurringExpense.note || 'aucune'}. Fréquence choisie : ${recurringFrequency}. Explique les avantages, les risques de solde insuffisant et comment modifier ou arrêter cette programmation. Ne crée rien sans mon accord.`;
+              const prompt = isEnglish
+                ? `I am considering making this expense recurring. Amount: ${recurringExpense.amount} XAF. Category: ${recurringExpense.categoryId}. Note: ${recurringExpense.note || 'none'}. Selected frequency: ${recurringFrequency}. Explain the benefits, the risk of insufficient funds and how to change or stop the schedule. Do not create anything without my approval.`
+                : `Je souhaite rendre cette dépense récurrente. Montant : ${recurringExpense.amount} FCFA. Catégorie : ${recurringExpense.categoryId}. Note : ${recurringExpense.note || 'aucune'}. Fréquence choisie : ${recurringFrequency}. Explique les avantages, les risques de solde insuffisant et comment modifier ou arrêter cette programmation. Ne crée rien sans mon accord.`;
               window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt } }));
             }}>Demander conseil à Mč</button>
             {recurringError && <p role="alert" className="text-sm text-red-600">{recurringError}</p>}

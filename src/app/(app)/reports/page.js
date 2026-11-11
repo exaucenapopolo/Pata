@@ -12,10 +12,11 @@ import { useIncomes } from '@/hooks/useIncomes';
 import { useAllBudgets } from '@/hooks/useAllBudgets';
 import { useGoals } from '@/hooks/useGoals';
 import { useProfile } from '@/hooks/useProfile';
+import { useLanguage } from '@/context/LanguageContext';
 import { useDeposits } from '@/hooks/useDeposits';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { useWeeklyReport } from '@/hooks/useWeeklyReport';
-import { convertCurrencyAmount, formatCurrency, formatDate, getPreferredCurrencyCode, resolveCategory, normalizeExpenseCategoryId } from '@/lib/utils';
+import { convertCurrencyAmount, formatCurrency, formatDate, getPreferredCurrencyCode, getPreferredLocale, resolveCategory, normalizeExpenseCategoryId } from '@/lib/utils';
 
 const iso = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 const monthFirst = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-01`;
@@ -32,6 +33,8 @@ const getExpenseType = (item) => Object.prototype.hasOwnProperty.call(EXPENSE_TY
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 
 export default function ReportsPage() {
+  const { language } = useLanguage();
+  const isEnglish = language === 'en';
   const { expenses } = useExpenses();
   const { incomes } = useIncomes();
   const { budgets } = useAllBudgets();
@@ -125,7 +128,7 @@ export default function ReportsPage() {
     if (periodType === 'custom') return { start: customStart, end: customEnd, label: `Du ${formatDate(customStart)} au ${formatDate(customEnd)}` };
     const [y, m] = month.split('-').map(Number);
     const date = new Date(y, m - 1, 1);
-    return { start: monthFirst(date), end: monthLast(date), label: date.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }) };
+    return { start: monthFirst(date), end: monthLast(date), label: date.toLocaleDateString(getPreferredLocale(), { month: 'long', year: 'numeric' }) };
   }, [periodType, selectedDay, selectedWeekDate, year, customStart, customEnd, month]);
 
   const rangeValid = Boolean(range.start && range.end && range.start <= range.end);
@@ -210,7 +213,7 @@ export default function ReportsPage() {
     const result = [];
     while (cursor <= last) {
       const key = `${cursor.getFullYear()}-${String(cursor.getMonth()+1).padStart(2,'0')}`;
-      result.push({ label: cursor.toLocaleDateString('fr-FR', { month: 'short' }), revenus: financialIncomes.filter((item) => (item.date || `${item.month}-01`).startsWith(key)).reduce((sum,item) => sum + Number(item.amount || 0),0), depenses: financialExpenses.filter((item) => (item.date || '').startsWith(key)).reduce((sum,item) => sum + Number(item.amount || 0),0) });
+      result.push({ label: cursor.toLocaleDateString(getPreferredLocale(), { month: 'short' }), revenus: financialIncomes.filter((item) => (item.date || `${item.month}-01`).startsWith(key)).reduce((sum,item) => sum + Number(item.amount || 0),0), depenses: financialExpenses.filter((item) => (item.date || '').startsWith(key)).reduce((sum,item) => sum + Number(item.amount || 0),0) });
       cursor.setMonth(cursor.getMonth()+1);
     }
     return result;
@@ -244,7 +247,9 @@ export default function ReportsPage() {
   const walletAdded = periodWalletDeposits.reduce((sum, item) => sum + (Number(item.amount)||0), 0);
 
   const askAssistant = () => {
-    const prompt = `Réalise une analyse approfondie de mon rapport financier pour la période ${range.label}. Revenus : ${totalIncome} FCFA (hors dette contractée). Dépenses : ${totalExpense} FCFA (hors prêts accordés). Variation réelle du solde, prêts et dettes compris : ${cashBalanceMovement} FCFA. Dépenses courantes : ${expenseTypeTotals.consumption} FCFA. Projets : ${expenseTypeTotals.project} FCFA. Épargne : ${expenseTypeTotals.savings} FCFA. Investissements : ${expenseTypeTotals.investment} FCFA. Différence de trésorerie : ${net} FCFA. Dépenses courantes par catégorie : ${categoryData.map((item) => `${item.name}: ${item.value} FCFA`).join('; ')}. Budgets : ${budgetAnalysis.map((item) => `${item.category} (${item.month}) : ${item.spent}/${item.allocated} FCFA`).join('; ')}. Objectifs : ${goalAnalysis.map((item) => `${item.name}: ${item.saved}/${item.target} FCFA`).join('; ')}. Solde du portefeuille : ${Number(profile?.balance)||0} FCFA. Fais ressortir les tendances, risques et actions concrètes sans inventer de données ni modifier mes opérations.`;
+    const prompt = isEnglish
+      ? `Provide an in-depth analysis of my financial report for ${range.label}. Income: ${totalIncome} XAF (excluding borrowed debt). Expenses: ${totalExpense} XAF (excluding loans given). Actual balance change, including loans and debts: ${cashBalanceMovement} XAF. Everyday expenses: ${expenseTypeTotals.consumption} XAF. Project outflows: ${expenseTypeTotals.project} XAF. Savings: ${expenseTypeTotals.savings} XAF. Investments: ${expenseTypeTotals.investment} XAF. Cash movement difference: ${net} XAF. Everyday expenses by category: ${categoryData.map((item) => `${item.name}: ${item.value} XAF`).join('; ')}. Budgets: ${budgetAnalysis.map((item) => `${item.category} (${item.month}): ${item.spent}/${item.allocated} XAF`).join('; ')}. Goals: ${goalAnalysis.map((item) => `${item.name}: ${item.saved}/${item.target} XAF`).join('; ')}. Wallet balance: ${Number(profile?.balance)||0} XAF. Highlight trends, risks and practical actions. Do not invent data or modify my transactions.`
+      : `Réalise une analyse approfondie de mon rapport financier pour la période ${range.label}. Revenus : ${totalIncome} FCFA (hors dette contractée). Dépenses : ${totalExpense} FCFA (hors prêts accordés). Variation réelle du solde, prêts et dettes compris : ${cashBalanceMovement} FCFA. Dépenses courantes : ${expenseTypeTotals.consumption} FCFA. Projets : ${expenseTypeTotals.project} FCFA. Épargne : ${expenseTypeTotals.savings} FCFA. Investissements : ${expenseTypeTotals.investment} FCFA. Différence de trésorerie : ${net} FCFA. Dépenses courantes par catégorie : ${categoryData.map((item) => `${item.name}: ${item.value} FCFA`).join('; ')}. Budgets : ${budgetAnalysis.map((item) => `${item.category} (${item.month}) : ${item.spent}/${item.allocated} FCFA`).join('; ')}. Objectifs : ${goalAnalysis.map((item) => `${item.name}: ${item.saved}/${item.target} FCFA`).join('; ')}. Solde du portefeuille : ${Number(profile?.balance)||0} FCFA. Fais ressortir les tendances, risques et actions concrètes sans inventer de données ni modifier mes opérations.`;
     window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt } }));
   };
 

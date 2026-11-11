@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { Clock3, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, getPreferredLocale } from '@/lib/utils';
 
 const labels = {
   PENDING_REVIEW: 'À vérifier par l’administration',
@@ -54,7 +54,7 @@ export function WithdrawalHistory({ type = 'savings' }) {
         : items.length === 0 ? <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-500">Aucune demande de retrait enregistrée.</p>
         : <div className="divide-y divide-slate-100">{items.map((item) => {
           const status = labels[item.status] || item.status || 'Statut inconnu';
-          const date = item.createdAt ? new Date(item.createdAt).toLocaleString('fr-FR') : 'Date non disponible';
+          const date = item.createdAt ? new Date(item.createdAt).toLocaleString(getPreferredLocale()) : 'Date non disponible';
           const title = item.goalName || (item.actionType === 'cancel' ? 'Clôture d’épargne' : 'Retrait d’épargne');
           return <article key={item.id} className="flex flex-wrap items-start justify-between gap-3 py-3">
             <div className="min-w-0"><p className="text-sm font-semibold text-slate-800">{title}</p><p className="mt-1 text-[11px] text-slate-500">{date} · {item.phone || 'Numéro non renseigné'}</p>{item.adminNote && <p className="mt-1 text-[11px] text-slate-500">Motif : {item.adminNote}</p>}{item.providerMessage && <p className="mt-1 text-[11px] text-amber-700">{item.providerMessage}</p>}</div>

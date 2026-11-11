@@ -1,16 +1,19 @@
 'use client';
 
 import { Sparkles } from 'lucide-react';
+import { useLanguage } from '@/context/LanguageContext';
 
 export function AssistantShortcut({
   label = 'Demander à Mč',
   prompt,
+  promptEn,
   className = '',
 }) {
+  const { language } = useLanguage();
   const openAssistant = () => {
     if (typeof window === 'undefined') return;
     window.dispatchEvent(new CustomEvent('pata:assistant-open', {
-      detail: { prompt: String(prompt || 'Aide-moi à comprendre cette partie de Pata et à prendre une bonne décision.') },
+      detail: { prompt: String(language === 'en' ? (promptEn || 'Help me understand this part of Pata and make a good decision.') : (prompt || 'Aide-moi à comprendre cette partie de Pata et à prendre une bonne décision.')) },
     }));
   };
 

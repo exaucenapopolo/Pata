@@ -1,5 +1,6 @@
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { translateText } from './i18n/translations';
 // 🟢 IMPORT CRITIQUE AJOUTÉ
 import { 
   DEFAULT_CURRENCY, 
@@ -34,11 +35,16 @@ export function convertCurrencyAmount(amount, currency = null) {
   return Number(amount || 0) * (Number(rates[activeCurrency]) || 1);
 }
 
-export function formatCurrency(amount, currency = null, locale = DEFAULT_LOCALE) {
+export function getPreferredLocale() {
+  if (typeof document !== 'undefined' && document.documentElement?.lang === 'en') return 'en-GB';
+  return DEFAULT_LOCALE;
+}
+
+export function formatCurrency(amount, currency = null, locale = null) {
   if (amount == null || Number.isNaN(Number(amount))) return '—';
   const activeCurrency = currency || getPreferredCurrencyCode();
   const convertedAmount = convertCurrencyAmount(amount, activeCurrency);
-  return new Intl.NumberFormat(locale, {
+  return new Intl.NumberFormat(locale || getPreferredLocale(), {
     style: 'currency',
     currency: activeCurrency,
     maximumFractionDigits: activeCurrency === 'XAF' ? 0 : 2,
@@ -49,7 +55,7 @@ export function formatDate(date, opts) {
   const d = date instanceof Date ? date : new Date(date);
   if (Number.isNaN(d.getTime())) return '—';
   return new Intl.DateTimeFormat(
-    'fr-FR',
+    getPreferredLocale(),
     opts || { day: '2-digit', month: 'short', year: 'numeric' }
   ).format(d);
 }
@@ -77,8 +83,14 @@ export function resolveCategory(id, type, customCategories = []) {
   const normalizedId = type === 'goal' ? id : normalizeExpenseCategoryId(id);
   const defaults = type === 'goal' ? GOAL_CATEGORIES : EXPENSE_CATEGORIES;
   const found = defaults.find((c) => c.id === normalizedId);
-  if (found) return { ...found, label: found.label, name: found.label };
+  if (found) {
+    const language = typeof document !== 'undefined' ? document.documentElement?.lang : 'fr';
+    const label = translateText(found.label, language);
+    return { ...found, label, name: label };
+  }
   const custom = customCategories.find((c) => c.id === normalizedId);
   if (custom) return { ...custom, id: normalizedId, label: custom.name, name: custom.name };
-  return { id: normalizedId, label: 'Autre', name: 'Autre', color: '#94a3b8' };
+  const language = typeof document !== 'undefined' ? document.documentElement?.lang : 'fr';
+  const fallbackLabel = translateText('Autre', language);
+  return { id: normalizedId, label: fallbackLabel, name: fallbackLabel, color: '#94a3b8' };
 }

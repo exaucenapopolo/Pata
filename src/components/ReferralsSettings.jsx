@@ -4,8 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Copy, Gift, Share2, Wallet, PiggyBank, Users, ArrowRightLeft, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useGoals } from '@/hooks/useGoals';
+import { useLanguage } from '@/context/LanguageContext';
+import { getPreferredLocale } from '@/lib/utils';
 
-const money = (value) => new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 }).format(Number(value) || 0) + ' FCFA';
+const money = (value) => { const locale = getPreferredLocale(); return new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(Number(value) || 0) + (locale.startsWith('en') ? ' XAF' : ' FCFA'); };
 
 async function request(user, path, method = 'GET', payload) {
   if (!user) throw new Error('Connecte-toi pour continuer.');
@@ -23,6 +25,8 @@ async function request(user, path, method = 'GET', payload) {
 export function ReferralsSettings() {
   const { user } = useAuth();
   const { goals } = useGoals();
+  const { language } = useLanguage();
+  const isEnglish = language === 'en';
   const [data, setData] = useState(null);
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -54,7 +58,7 @@ export function ReferralsSettings() {
       setGoalId((current) => current || activeGoals[0]?.id || '');
       setGroupId((current) => current || groupData.groups?.[0]?.id || '');
     } catch (err) {
-      setError(err.message || 'Impossible de charger le parrainage.');
+      setError(isEnglish ? 'Could not load referrals.' : (err.message || 'Impossible de charger le parrainage.'));
     } finally {
       setLoading(false);
     }
@@ -64,16 +68,18 @@ export function ReferralsSettings() {
 
   const shareMessage = useMemo(() => {
     if (!referralLink) return '';
-    return 'Je t’invite à découvrir Pata, une application pour mieux organiser tes dépenses, tes revenus, ton budget et ton épargne. En créant ton compte avec mon lien, tu peux profiter de ton premier mois Pata Premium à 1 250 FCFA au lieu de 2 500 FCFA. Tu pourras ainsi découvrir les fonctions Premium à moitié prix dès ton arrivée.\n\nInscris-toi ici : ' + referralLink;
-  }, [referralLink]);
+    return isEnglish
+      ? 'I invite you to discover Pata, an app that helps you organize your expenses, income, budget and savings. Sign up using my link and get your first month of Pata Premium for XAF 1,250 instead of XAF 2,500. You can explore Premium features at half price when you join.\n\nSign up here: ' + referralLink
+      : 'Je t’invite à découvrir Pata, une application pour mieux organiser tes dépenses, tes revenus, ton budget et ton épargne. En créant ton compte avec mon lien, tu peux profiter de ton premier mois Pata Premium à 1 250 FCFA au lieu de 2 500 FCFA. Tu pourras ainsi découvrir les fonctions Premium à moitié prix dès ton arrivée.\n\nInscris-toi ici : ' + referralLink;
+  }, [referralLink, isEnglish]);
 
   const copyLink = async () => {
     try {
       await navigator.clipboard.writeText(referralLink);
-      setNotice('Lien de parrainage copié.');
+      setNotice(isEnglish ? 'Referral link copied.' : 'Lien de parrainage copié.');
       setError('');
     } catch {
-      setError('La copie automatique n’est pas disponible sur cet appareil.');
+      setError(isEnglish ? 'Automatic copying is not available on this device.' : 'La copie automatique n’est pas disponible sur cet appareil.');
     }
   };
 
@@ -81,12 +87,12 @@ export function ReferralsSettings() {
     if (!shareMessage) return;
     try {
       if (navigator.share) {
-        await navigator.share({ title: 'Invitation à rejoindre Pata', text: shareMessage });
+        await navigator.share({ title: isEnglish ? 'Invitation to join Pata' : 'Invitation à rejoindre Pata', text: shareMessage });
       } else {
         window.open('https://wa.me/?text=' + encodeURIComponent(shareMessage), '_blank', 'noopener,noreferrer');
       }
     } catch (err) {
-      if (err?.name !== 'AbortError') setError('Le partage n’a pas pu être ouvert.');
+      if (err?.name !== 'AbortError') setError(isEnglish ? 'Could not open the share dialog.' : 'Le partage n’a pas pu être ouvert.');
     }
   };
 
@@ -96,21 +102,21 @@ export function ReferralsSettings() {
     setNotice('');
     const numericAmount = Math.round(Number(amount));
     if (!Number.isSafeInteger(numericAmount) || numericAmount < 100 || numericAmount > referralBalance) {
-      setError('Indique un montant valide, dans la limite de ton solde de parrainage.');
+      setError(isEnglish ? 'Enter a valid amount within your referral balance.' : 'Indique un montant valide, dans la limite de ton solde de parrainage.');
       return;
     }
-    if (destination === 'goal' && !goalId) return setError('Choisis l’épargne à alimenter.');
-    if (destination === 'cotisation' && !groupId) return setError('Choisis le groupe de cotisation.');
-    if (destination === 'withdrawal' && (!/^6[0-9]{8}$/.test(phone.replace(/\D/g, '').replace(/^237/, '')) || !['mtn', 'orange'].includes(network))) return setError('Entre un numéro MTN ou Orange Money camerounais valide.');
-    if (destination === 'withdrawal' && numericAmount > 500000) return setError('Le retrait Mobile Money est limité à 500 000 FCFA par demande.');
+    if (destination === 'goal' && !goalId) return setError(isEnglish ? 'Choose the savings goal to fund.' : 'Choisis l’épargne à alimenter.');
+    if (destination === 'cotisation' && !groupId) return setError(isEnglish ? 'Choose the contribution group.' : 'Choisis le groupe de cotisation.');
+    if (destination === 'withdrawal' && (!/^6[0-9]{8}$/.test(phone.replace(/\D/g, '').replace(/^237/, '')) || !['mtn', 'orange'].includes(network))) return setError(isEnglish ? 'Enter a valid Cameroonian MTN or Orange Money number.' : 'Entre un numéro MTN ou Orange Money camerounais valide.');
+    if (destination === 'withdrawal' && numericAmount > 500000) return setError(isEnglish ? 'Mobile Money withdrawals are limited to XAF 500,000 per request.' : 'Le retrait Mobile Money est limité à 500 000 FCFA par demande.');
     setBusy(true);
     try {
       if (destination === 'cotisation') {
         await request(user, 'cotisations/pay-referral', 'POST', { groupId, amount: numericAmount });
-        setNotice('Versement de cotisation confirmé depuis ton solde de parrainage.');
+        setNotice(isEnglish ? 'Contribution payment confirmed from your referral balance.' : 'Versement de cotisation confirmé depuis ton solde de parrainage.');
       } else if (destination === 'withdrawal') {
         await request(user, 'referrals/withdraw', 'POST', { amount: numericAmount, phone, network });
-        setNotice('Demande de retrait enregistrée. Le transfert Mobile Money sera effectué après vérification.');
+        setNotice(isEnglish ? 'Withdrawal request recorded. The Mobile Money transfer will be made after review.' : 'Demande de retrait enregistrée. Le transfert Mobile Money sera effectué après vérification.');
       } else {
         await request(user, 'referrals/transfer', 'POST', {
           destination,
@@ -118,20 +124,20 @@ export function ReferralsSettings() {
           ...(destination === 'goal' ? { goalId } : {}),
         });
         setNotice(destination === 'wallet'
-          ? 'Bonus transféré vers ton portefeuille Pata.'
-          : 'Bonus ajouté à ton épargne.');
+          ? (isEnglish ? 'Reward transferred to your Pata wallet.' : 'Bonus transféré vers ton portefeuille Pata.')
+          : (isEnglish ? 'Reward added to your savings.' : 'Bonus ajouté à ton épargne.'));
       }
       setAmount('');
       await refresh();
     } catch (err) {
-      setError(err.message || 'Le transfert n’a pas pu être effectué.');
+      setError(isEnglish ? 'The transfer could not be completed.' : (err.message || 'Le transfert n’a pas pu être effectué.'));
     } finally {
       setBusy(false);
     }
   };
 
   const referralItems = data?.referrals || [];
-  const statusLabel = (status) => status === 'REWARDED' ? 'Bonus crédité' : status === 'PENDING_PREMIUM' ? 'En attente de Premium' : 'En cours de vérification';
+  const statusLabel = (status) => status === 'REWARDED' ? (isEnglish ? 'Reward credited' : 'Bonus crédité') : status === 'PENDING_PREMIUM' ? (isEnglish ? 'Waiting for Premium' : 'En attente de Premium') : (isEnglish ? 'Under review' : 'En cours de vérification');
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
