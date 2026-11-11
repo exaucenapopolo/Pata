@@ -27,6 +27,7 @@ export function generateAdvice({
   borrowedDebtTotal = 0,
   previousBorrowedDebtTotal = 0,
   openDebtBalance = 0,
+  openReceivableBalance = 0,
   customCategories = [],
   userName = 'toi',
 }) {
@@ -113,7 +114,7 @@ export function generateAdvice({
 
   /* ────── 4. Taux d'épargne ────── */
   if (totalIncome > 0 && totalExpense > 0) {
-    const availableForPeriod = totalIncome + Math.max(0, Number(previousIncomeSpend) || 0);
+    const availableForPeriod = totalIncome + Math.max(0, Number(previousIncomeSpend) || 0) + Math.max(0, Number(borrowedDebtTotal) || 0);
     const periodRemainder = availableForPeriod - totalExpense;
     const savingsRate = availableForPeriod > 0 ? (periodRemainder / availableForPeriod) * 100 : null;
     if (previousIncomeSpend > 0 && totalExpense > totalIncome) {
@@ -138,7 +139,7 @@ export function generateAdvice({
         message: `Il te reste peu de marge sur les ressources disponibles pour cette période. Vérifie les dépenses variables avant les prochaines sorties d’argent.`,
         priority: 70,
       });
-    } else if (savingsRate !== null && savingsRate < 0 && previousIncomeSpend <= 0) {
+    } else if (savingsRate !== null && savingsRate < 0 && previousIncomeSpend <= 0 && borrowedDebtTotal <= 0) {
       advices.push({
         id: 'savings-negative',
         type: 'warning',
@@ -191,8 +192,14 @@ export function generateAdvice({
     if (usage > 100) advices.push({ id: 'debt-target-exceeded', type: 'danger', message: `Tu as dépassé ton plafond de nouveaux emprunts de ${formatCurrency(borrowedDebtTotal - debtLimit)}. Évite un nouvel emprunt avant d’avoir revu tes remboursements et tes priorités.`, priority: 110 });
     else if (usage >= 80) advices.push({ id: 'debt-target-near', type: 'warning', message: `Tu as déjà utilisé ${usage.toFixed(0)}% de ton plafond de nouveaux emprunts. Vérifie que tes remboursements actuels restent supportables avant d’emprunter davantage.`, priority: 92 });
   }
-  if (openDebtBalance > 0 && borrowedDebtTotal > previousBorrowedDebtTotal) {
-    advices.push({ id: 'debt-balance-reminder', type: 'warning', message: `Il te reste ${formatCurrency(openDebtBalance)} à rembourser. Évite d’empiler les emprunts : planifie d’abord les échéances et remboursements déjà engagés.`, priority: 78 });
+  if (openDebtBalance > 0) {
+    advices.push({ id: 'debt-balance-reminder', type: 'warning', message: `Il te reste ${formatCurrency(openDebtBalance)} à rembourser. Prévois les échéances avant de contracter un nouvel emprunt et donne la priorité à la réduction des dettes déjà ouvertes.`, priority: 82 });
+  }
+  if (openReceivableBalance > 0) {
+    advices.push({ id: 'receivable-balance-reminder', type: 'info', message: `Il reste ${formatCurrency(openReceivableBalance)} à récupérer auprès des personnes à qui tu as prêté. Suis les dates convenues et confirme chaque remboursement reçu dans Pata.`, priority: 58 });
+  }
+  if (borrowedDebtTotal > previousBorrowedDebtTotal && borrowedDebtTotal > 0) {
+    advices.push({ id: 'new-borrowing-reminder', type: 'warning', message: `Tu as reçu ${formatCurrency(borrowedDebtTotal)} d’emprunts pendant cette période. Cet argent augmente ta trésorerie mais aussi tes remboursements futurs : garde-le distinct de tes revenus gagnés.`, priority: 76 });
   }
 
   /* ────── 7. Petites dépenses fréquentes (les "tueurs silencieux") ────── */

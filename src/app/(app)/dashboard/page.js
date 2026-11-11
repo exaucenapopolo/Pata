@@ -198,7 +198,8 @@ export default function DashboardPage() {
   const incomeById = useMemo(() => new Map(incomes.map((income) => [income.id, income])), [incomes]);
   const previousIncomeSpend = useMemo(() => periodExpenses.reduce((sum, expense) => {
     const source = incomeById.get(expense.incomeSourceId);
-    return source && String(source.date || source.month || '').slice(0, 10) < startDate
+    const isOrdinaryIncome = source && source.neutralFlow !== true && source.flowType !== 'debt_borrowed' && source.categoryId !== 'debt_borrowed';
+    return isOrdinaryIncome && String(source.date || source.month || '').slice(0, 10) < startDate
       ? sum + (Number(expense.amount) || 0) : sum;
   }, 0), [periodExpenses, incomeById, startDate]);
   const prevTotalIncome = prevIncomes.filter((income) => !income.neutralFlow).reduce((s, i) => s + (i.amount || 0), 0);
@@ -231,6 +232,7 @@ export default function DashboardPage() {
       borrowedDebtTotal: periodBorrowedTotal,
       previousBorrowedDebtTotal: previousBorrowedTotal,
       openDebtBalance: debts.filter((debt) => debt.type === 'i_owe' && ['active', 'partial', 'late'].includes(debt.status)).reduce((sum, debt) => sum + (Number(debt.remaining) || 0), 0),
+      openReceivableBalance: debts.filter((debt) => debt.type === 'owed_to_me' && ['active', 'partial', 'late'].includes(debt.status)).reduce((sum, debt) => sum + (Number(debt.remaining) || 0), 0),
       goals,
       customCategories,
       userName,
