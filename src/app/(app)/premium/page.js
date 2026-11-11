@@ -35,6 +35,9 @@ const BENEFITS = [
   { group: 'Suivi Mobile Money', items: [
     ['Détection des confirmations Mobile Money', false, true],
     ['Enregistrement automatique des opérations détectées', false, true],
+    ['Détection et classement des retraits MTN et Orange', false, true],
+    ['Rapprochement des retraits avec un revenu déjà suivi', false, true],
+    ['Suivi séparé de l’argent disponible en espèces', false, true],
   ]},
   { group: 'Organisation et suivi', items: [
     ['Dépenses récurrentes programmées', true, true],
@@ -43,6 +46,11 @@ const BENEFITS = [
     ['Suivi des dates de consommation des revenus', true, true],
     ['Suivi des dettes et des prêts actifs', '2 actifs', 'Sans limite'],
     ['Rappels des échéances de dettes', true, true],
+    ['Factures personnalisées et échéances récurrentes', true, true],
+    ['Rappels avant et après les échéances de factures', true, true],
+    ['Priorités après réception d’un revenu (dettes, factures, objectifs)', true, true],
+    ['Sélection d’un contact du téléphone pour une dette ou un prêt', true, true],
+    ['Jour le plus dépensier et moyennes par jour, semaine et mois', true, true],
     ['Créer et suivre des projets de dépenses', false, true],
     ['Réserver des revenus à un projet', false, true],
     ['Analyser les projets avec Mč', false, true],

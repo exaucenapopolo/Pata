@@ -154,19 +154,24 @@ export default function ReportsPage() {
     financialExpenses.forEach((expense) => {
       const date = String(expense.date || '').slice(0, 10);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
-      const current = days.get(date) || { date, total: 0, count: 0, categories: new Map() };
+      const current = days.get(date) || { date, total: 0, count: 0, categories: new Map(), items: [] };
       const amount = Number(expense.amount) || 0;
       const categoryId = normalizeExpenseCategoryId(expense.categoryId || 'other');
       current.total += amount;
       current.count += 1;
       current.categories.set(categoryId, (current.categories.get(categoryId) || 0) + amount);
+      current.items.push(expense);
       days.set(date, current);
     });
     const ranked = [...days.values()].sort((a, b) => b.total - a.total || a.date.localeCompare(b.date));
     if (!ranked.length) return null;
     const peak = ranked[0];
     const [topCategoryId, topCategoryAmount] = [...peak.categories.entries()].sort((a, b) => b[1] - a[1])[0] || ['other', 0];
-    return { ...peak, topCategoryId, topCategoryAmount };
+    const topExpenses = peak.items.slice().sort((a, b) => (Number(b.amount) || 0) - (Number(a.amount) || 0)).slice(0, 3).map((expense) => ({
+      amount: Number(expense.amount) || 0,
+      description: String(expense.note || expense.details || expense.categoryId || 'Dépense').trim().slice(0, 75),
+    }));
+    return { ...peak, topCategoryId, topCategoryAmount, topExpenses };
   }, [financialExpenses]);
 
   const categoryData = useMemo(() => {
@@ -325,6 +330,19 @@ export default function ReportsPage() {
             </div>
           )}
         </div>
+        {highestSpendingDay?.topExpenses?.length > 0 && (
+          <div className="mt-3 border-t border-slate-100 pt-3">
+            <p className="text-xs font-semibold text-slate-800">Les opérations les plus élevées de cette journée</p>
+            <div className="mt-2 space-y-2">
+              {highestSpendingDay.topExpenses.map((item, index) => (
+                <div key={index} className="flex items-start justify-between gap-3 text-xs">
+                  <span className="min-w-0 text-slate-600">{item.description || 'Dépense enregistrée'}</span>
+                  <strong className="shrink-0 tabular-nums text-slate-800">{formatCurrency(item.amount)}</strong>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {highestSpendingDay && (
           <div className="mt-3 border-t border-slate-100 pt-3">
             <p className="text-xs font-semibold text-slate-800">Comment éviter un pic similaire ?</p>
