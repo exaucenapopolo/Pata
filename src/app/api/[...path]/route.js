@@ -7,6 +7,7 @@ import { normalizeWebPushSubscription, webPushSubscriptionId, sendPataWebPush, i
 import { dispatchPushNotification } from '@/lib/notifications/dispatcher.mjs';
 import { AI_TOOLS, createExpenseForUser, updateExpenseForUser, deleteExpenseForUser, executeAITool, runAutomationForUser, generateWeeklyReportForUser } from '@/lib/ai/financialTools';
 import { generateAudioWithGemini } from '@/lib/ai/geminiTTS';
+import { buildIncomePriorityReminder } from '@/lib/finance/incomePriorities.mjs';
 import { chatWithGroqVision } from '@/lib/ai/groqVision';
 import { generateImageWithPollinations } from '@/lib/ai/pollinationsImage';
 import { classifyAIRequest, selectAIToolsForIntent, buildCompactAIContext } from '@/lib/ai/compactContext';
@@ -1994,6 +1995,35 @@ async function handleNotificationScheduler(request) {
       }
       try {
         const billsSnapshot = await userDoc.ref.collection('bills').get();
+        if (billsSnapshot.empty) {
+          const setupRef = userDoc.ref.collection('notifications').doc('bill-setup-invitation');
+          const shouldInvite = await adminDb.runTransaction(async (transaction) => {
+            const existing = await transaction.get(setupRef);
+            if (existing.exists) return false;
+            transaction.create(setupRef, {
+              title: 'Pense à enregistrer tes factures',
+              body: 'Tu paies l’électricité, l’eau, le loyer, la télévision, Internet ou des impôts ? Enregistre tes échéances dans Pata pour recevoir des rappels avant les dates de paiement.',
+              target: '/bills',
+              date: today,
+              source: 'bill_setup_invitation',
+              read: false,
+              readAt: null,
+              delivered: 0,
+              createdAt: FieldValue.serverTimestamp(),
+            });
+            return true;
+          });
+          if (shouldInvite) {
+            const setupPush = await sendPataPushToUser(userDoc.ref, {
+              title: 'Pense à enregistrer tes factures',
+              body: 'Tu paies l’électricité, l’eau, le loyer, la télévision, Internet ou des impôts ? Enregistre tes échéances dans Pata pour recevoir des rappels avant les dates de paiement.',
+              url: '/bills',
+              tag: 'pata-bill-setup',
+              source: 'bill_setup_invitation',
+            }, appUrl, userData);
+            await setupRef.update({ delivered: setupPush.fcmSent + setupPush.webPushSent }).catch(() => {});
+          }
+        }
         for (const billDoc of billsSnapshot.docs) {
           const bill = billDoc.data() || {};
           if (bill.active === false) continue;
@@ -2393,6 +2423,50 @@ async function handleCreateIncome(request) {
     if (flowType === 'debt_borrowed' && result.debtId && body.counterpartyUid) {
       try { linkedDebt = await createLinkedDebtRequest(request, uid, result.debtId, body.counterpartyUid, 'borrowed'); }
       catch (linkError) { console.warn('[PATA BORROWED DEBT LINK]', linkError.message || linkError); linkedDebt = { status: 'unavailable' }; }
+    }
+    if (!result.duplicate && flowType === 'normal') {
+      try {
+        const [debtsSnapshot, billsSnapshot] = await Promise.all([
+          userRef.collection('debts').where('status', 'in', ['active', 'partial', 'late']).get(),
+          userRef.collection('bills').get(),
+        ]);
+        const reminder = buildIncomePriorityReminder({
+          amount,
+          today: getDoualaToday(),
+          debts: debtsSnapshot.docs.map((doc) => doc.data() || {}),
+          bills: billsSnapshot.docs.map((doc) => doc.data() || {}),
+        });
+        if (reminder) {
+          const reminderDate = getDoualaToday();
+          const notificationRef = userRef.collection('notifications').doc('income-priority-' + reminderDate);
+          const shouldCreate = await adminDb.runTransaction(async (transaction) => {
+            const existing = await transaction.get(notificationRef);
+            if (existing.exists) return false;
+            transaction.create(notificationRef, {
+              ...reminder,
+              date: reminderDate,
+              read: false,
+              readAt: null,
+              delivered: 0,
+              incomeId: result.id,
+              createdAt: FieldValue.serverTimestamp(),
+            });
+            return true;
+          });
+          if (shouldCreate) {
+            const pushResult = await sendPataPushToUser(userRef, {
+              title: reminder.title,
+              body: reminder.body,
+              url: reminder.target,
+              tag: 'pata-income-priority-' + reminderDate,
+              source: reminder.source,
+            }, getPataAppUrl(request));
+            await notificationRef.update({ delivered: pushResult.fcmSent + pushResult.webPushSent }).catch(() => {});
+          }
+        }
+      } catch (priorityError) {
+        console.warn('[PATA INCOME PRIORITIES]', priorityError.message || priorityError);
+      }
     }
     return NextResponse.json({ success: true, ...result, ...(linkedDebt ? { linkedDebt } : {}) });
   } catch (error) {
