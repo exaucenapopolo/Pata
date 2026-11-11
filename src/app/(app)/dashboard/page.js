@@ -254,6 +254,7 @@ export default function DashboardPage() {
   const activePeriodTarget = targetPeriodBounds.start === startDate && targetPeriodBounds.end === endDate ? financialTarget : null;
   const advices = useMemo(
     () => generateAdvice({
+      language,
       expenses: periodConsumptionExpenses,
       previousExpenses: previousConsumptionExpenses,
       totalIncome: periodIncomeTotal,
@@ -270,7 +271,7 @@ export default function DashboardPage() {
       customCategories,
       userName,
     }),
-    [periodConsumptionExpenses, previousConsumptionExpenses, periodIncomeTotal, prevTotalIncome, goals, customCategories, userName, activePeriodTarget, periodBorrowedTotal, previousBorrowedTotal, debts]
+    [periodConsumptionExpenses, previousConsumptionExpenses, periodIncomeTotal, prevTotalIncome, goals, customCategories, userName, activePeriodTarget, periodBorrowedTotal, previousBorrowedTotal, debts, language]
   );
 
   const topExpenses = useMemo(() => {
@@ -390,7 +391,7 @@ export default function DashboardPage() {
               <div className="rounded-lg bg-white p-2"><p className="text-[10px] text-slate-500">Emprunts mensuels moyens</p><p className="mt-1 text-sm font-bold text-slate-900">{formatCurrency(targetSuggestions.history.averageMonthlyBorrowed)}</p></div>
               <div className="rounded-lg bg-white p-2"><p className="text-[10px] text-slate-500">Prêts accordés moyens</p><p className="mt-1 text-sm font-bold text-slate-900">{formatCurrency(targetSuggestions.history.averageMonthlyGrantedLoans)}</p></div>
             </div> : <p className="mt-3 text-xs text-slate-600">Il manque encore assez d’opérations pour calculer des montants personnalisés. Tu peux commencer avec tes propres montants ; Pata affinera ses propositions au fil de ton utilisation.</p>}
-            {targetSuggestions.topCategories.length > 0 && <p className="mt-2 text-xs text-slate-600">Catégories les plus présentes : {targetSuggestions.topCategories.map((item) => item.label + ' (' + formatCurrency(item.amount) + '/mois)').join(' · ')}.</p>}
+            {targetSuggestions.topCategories.length > 0 && <p className="mt-2 text-xs text-slate-600">Catégories les plus présentes : {targetSuggestions.topCategories.map((item) => translateText(item.label, language) + ' (' + formatCurrency(item.amount) + (isEnglish ? '/month)' : '/mois)')).join(' · ')}.</p>}
           </div>
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
             {[
@@ -410,7 +411,7 @@ export default function DashboardPage() {
                 <input type="checkbox" checked={targetDraft.resolutions.includes(item.id)} onChange={(event) => {
                   setTargetDraft((value) => ({ ...value, resolutions: event.target.checked ? [...value.resolutions, item.id] : value.resolutions.filter((id) => id !== item.id) })); setTargetSaved(false);
                 }} className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-700"/>
-                <span><strong className="block text-xs text-slate-800">{item.label}</strong><span className="mt-0.5 block text-[10px] leading-4 text-slate-500">{item.description}</span></span>
+                <span><strong className="block text-xs text-slate-800">{translateText(item.label, language)}</strong><span className="mt-0.5 block text-[10px] leading-4 text-slate-500">{translateText(item.description, language)}</span></span>
               </label>)}
             </div>
           </div>
