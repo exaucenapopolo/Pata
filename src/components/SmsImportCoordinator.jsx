@@ -26,6 +26,14 @@ function matchingDebtsForSms(item, debts) {
       .some((candidate) => candidate === counterparty || candidate.includes(counterparty) || counterparty.includes(candidate)));
 }
 
+function availableRepaymentDebtsForSms(item, debts) {
+  if (item?.direction === 'withdrawal') return [];
+  const expectedType = item?.direction === 'income' ? 'owed_to_me' : 'i_owe';
+  return debts
+    .filter((debt) => debt.type === expectedType && ['active', 'partial', 'late'].includes(debt.status) && Number(debt.remaining) > 0)
+    .sort((a, b) => String(a.person || '').localeCompare(String(b.person || ''), 'fr'));
+}
+
 async function hashTransaction(provider, transactionId) {
   const input = new TextEncoder().encode(provider + ':' + transactionId);
   const digest = await crypto.subtle.digest('SHA-256', input);
@@ -238,12 +246,17 @@ export function SmsImportCoordinator() {
             const incoming = item.direction === 'income';
             const choice = choices[item.id] || {};
             const label = item.provider === 'mtn_momo' ? 'MTN MoMo' : 'Orange Money';
-            const categories = incoming
+            const baseCategories = incoming
               ? INCOME_CATEGORIES.filter((category) => !['debt_borrowed', 'debt_repayment_received'].includes(category.id))
               : EXPENSE_CATEGORIES.filter((category) => !['loan_given', 'debt_repayment'].includes(category.id));
             const selectedExpenseType = choice.expenseType || '';
             const debtCandidates = matchingDebtsForSms(item, debts);
+            const repaymentOptions = availableRepaymentDebtsForSms(item, debts);
             const suggestedDebtId = Object.prototype.hasOwnProperty.call(choice, 'repaymentDebtId') ? choice.repaymentDebtId : (debtCandidates.length === 1 ? debtCandidates[0].id : '');
+            const repaymentCategoryId = incoming ? 'debt_repayment_received' : 'debt_repayment';
+            const categories = suggestedDebtId
+              ? [...baseCategories, { id: repaymentCategoryId, label: incoming ? 'Remboursement reçu' : 'Remboursement de dette' }]
+              : baseCategories;
             return (
               <section key={item.id} className="rounded-2xl border border-slate-200 bg-white p-3.5">
                 <div className="flex items-start gap-3">
@@ -262,12 +275,15 @@ export function SmsImportCoordinator() {
                   <input type="checkbox" checked={choice.confirmWithdrawal === true} onChange={(event) => updateChoice(item.id, { confirmWithdrawal: event.target.checked })} className="mt-0.5"/>
                   Enregistrer explicitement ce retrait comme une sortie. Tu choisiras ensuite sa nature réelle avant de le comptabiliser.
                 </label>}
-                {debtCandidates.length > 0 && <label className="mt-3 block rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-900">
-                  Ce nom correspond à une dette active. Marquer comme remboursement de
-                  <select value={suggestedDebtId} onChange={(event) => updateChoice(item.id, { repaymentDebtId: event.target.value, categoryId: event.target.value ? (incoming ? 'debt_repayment_received' : 'debt_repayment') : (incoming ? 'other_income' : item.suggestedCategoryId || 'other') })} className="mt-2 h-10 w-full rounded-lg border border-emerald-200 bg-white px-3 text-sm font-normal text-slate-800">
-                    <option value="">Ne pas lier à une dette</option>
-                    {debtCandidates.map((debt) => <option key={debt.id} value={debt.id}>{debt.person} · {money.format(Number(debt.remaining) || 0)} FCFA restant</option>)}
+                {repaymentOptions.length > 0 && <label className="mt-3 block rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-900">
+                  {incoming ? 'Ce revenu correspond-il au remboursement d’une somme que tu avais prêtée ?' : 'Cette opération rembourse-t-elle une dette que tu as enregistrée ?'}
+                  <select value={suggestedDebtId} onChange={(event) => updateChoice(item.id, { repaymentDebtId: event.target.value, categoryId: event.target.value ? repaymentCategoryId : (incoming ? 'other_income' : item.suggestedCategoryId || 'other') })} className="mt-2 h-10 w-full rounded-lg border border-emerald-200 bg-white px-3 text-sm font-normal text-slate-800">
+                    <option value="">Non, ce n’est pas un remboursement</option>
+                    {repaymentOptions.map((debt) => <option key={debt.id} value={debt.id}>{debt.person || debt.bankName || 'Créancier'} · {money.format(Number(debt.remaining) || 0)} FCFA restant{debtCandidates.some((match) => match.id === debt.id) ? ' · nom correspondant' : ''}</option>)}
                   </select>
+                  <span className="mt-1.5 block text-[10px] font-normal leading-4 text-emerald-800">
+                    {debtCandidates.length > 0 ? 'Pata a repéré une correspondance possible. Vérifie le nom et le montant avant de confirmer.' : 'Tu peux choisir une dette active même si le nom du bénéficiaire n’est pas présent dans le message.'}
+                  </span>
                 </label>}
                 {!incoming && <label className="mt-3 block text-xs font-semibold text-slate-700">
                   Nature de la sortie
