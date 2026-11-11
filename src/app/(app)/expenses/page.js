@@ -172,10 +172,17 @@ export default function ExpensesPage() {
   const projectTotals = useMemo(() => projects.map((project) => {
     const linkedExpenses = expenses.filter((item) => !item.neutralFlow && item.projectId === project.id);
     const linkedIncomes = incomes.filter((item) => !item.neutralFlow && item.projectId === project.id);
+    const linkedBorrowings = incomes.filter((item) =>
+      item.projectId === project.id && (item.flowType === 'debt_borrowed' || item.categoryId === 'debt_borrowed')
+    );
+    const income = linkedIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+    const borrowedFunding = linkedBorrowings.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
     return {
       ...project,
       spent: linkedExpenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
-      income: linkedIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
+      income,
+      borrowedFunding,
+      totalFunding: income + borrowedFunding,
     };
   }), [projects, expenses, incomes]);
   const activeProjects = projectTotals.filter((project) => project.status !== 'completed' && project.status !== 'archived');
@@ -379,7 +386,7 @@ export default function ExpensesPage() {
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div><h2 className="text-base font-bold text-slate-900">Projets de dépenses</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-slate-500">Regroupe les achats et travaux liés à un même objectif pour connaître les montants dépensés et les revenus réservés à ce projet.</p></div>
+          <div><h2 className="text-base font-bold text-slate-900">Projets et financements</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-slate-500">Suis les revenus affectés, les emprunts réservés à un projet et les sorties correspondantes, sans confondre financement et revenu gagné.</p></div>
           {isPremium ? <Button onClick={() => { setProjectError(''); setProjectModalOpen(true); }} variant="outline"><FolderPlus size={15}/> Créer un projet</Button> : <a href="/premium" className="inline-flex h-10 items-center rounded-xl border border-brand-200 px-3 text-xs font-semibold text-brand-700 hover:bg-brand-50">Découvrir cette fonction Premium</a>}
         </div>
         {projectActionError && <p role="alert" className="mt-3 rounded-lg bg-red-50 p-2 text-xs text-red-700">{projectActionError}</p>}
@@ -393,11 +400,11 @@ export default function ExpensesPage() {
           {displayedProjects.length > 0 ? <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {displayedProjects.map((project) => {
             const target = Number(project.targetAmount) || 0;
-            const balance = project.income - project.spent;
-            const prompt = `Analyse mon projet « ${project.name} » dans Pata. Budget indicatif : ${target} FCFA. Revenus réservés : ${project.income} FCFA. Sorties liées : ${project.spent} FCFA. Solde affecté théorique : ${balance} FCFA. Explique la progression et les points à surveiller. Distingue ces sorties des dépenses courantes. Ne modifie aucune donnée.`;
+            const balance = project.totalFunding - project.spent;
+            const prompt = `Analyse mon projet « ${project.name} » dans Pata. Budget indicatif : ${target} FCFA. Revenus ordinaires réservés : ${project.income} FCFA. Emprunts affectés (dettes à rembourser, pas des revenus gagnés) : ${project.borrowedFunding} FCFA. Total des fonds affectés : ${project.totalFunding} FCFA. Sorties liées : ${project.spent} FCFA. Solde affecté théorique : ${balance} FCFA. Explique la progression et les points à surveiller. Distingue ces sorties des dépenses courantes et les emprunts des revenus ordinaires. Ne modifie aucune donnée.`;
             return <article key={project.id} className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
               <div className="flex items-start justify-between gap-2"><div className="min-w-0"><h3 className="truncate text-sm font-bold text-slate-900">{project.name}</h3><p className="mt-1 line-clamp-2 text-xs text-slate-500">{project.description || 'Projet personnel'}</p><span className="mt-2 inline-flex rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600">{project.status === 'completed' ? 'Terminé' : project.status === 'archived' ? 'Archivé' : 'En cours'}</span></div><Briefcase size={17} className="shrink-0 text-slate-400"/></div>
-              <div className="mt-3 grid grid-cols-2 gap-2 text-xs"><div><span className="block text-slate-500">Sorties liées</span><strong>{formatCurrency(project.spent)}</strong></div><div><span className="block text-slate-500">Revenus réservés</span><strong>{formatCurrency(project.income)}</strong></div></div>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs"><div><span className="block text-slate-500">Sorties liées</span><strong>{formatCurrency(project.spent)}</strong></div><div><span className="block text-slate-500">Revenus ordinaires</span><strong>{formatCurrency(project.income)}</strong></div><div><span className="block text-slate-500">Emprunts affectés</span><strong>{formatCurrency(project.borrowedFunding)}</strong></div><div><span className="block text-slate-500">Total financé</span><strong>{formatCurrency(project.totalFunding)}</strong></div></div>
               {target > 0 && <p className="mt-2 text-[11px] text-slate-500">Budget indicatif : {formatCurrency(target)}</p>}
               <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => setProjectToDelete(project)} className="inline-flex h-9 items-center rounded-lg border border-red-200 bg-white px-3 text-xs font-semibold text-red-700 hover:bg-red-50">Supprimer</button><button type="button" onClick={() => window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt } }))} className="inline-flex h-9 items-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-brand-700 hover:bg-brand-50">Analyser avec Mč</button>{isPremium && project.status === 'active' && <button type="button" onClick={() => handleProjectStatusChange(project, 'completed')} disabled={projectActionId === project.id} className="inline-flex h-9 items-center rounded-lg border border-emerald-200 bg-white px-3 text-xs font-semibold text-emerald-700 disabled:opacity-50">{projectActionId === project.id ? 'Mise à jour…' : 'Marquer comme terminé'}</button>}{isPremium && project.status === 'completed' && <button type="button" onClick={() => handleProjectStatusChange(project, 'active')} disabled={projectActionId === project.id} className="inline-flex h-9 items-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 disabled:opacity-50">Réouvrir</button>}</div>
             </article>;

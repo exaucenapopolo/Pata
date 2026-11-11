@@ -25,20 +25,25 @@ export function buildUserContext(userData) {
     return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
   });
 
-  const totalIncome = incomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const borrowedIncomes = incomes.filter((item) => item.flowType === 'debt_borrowed' || item.categoryId === 'debt_borrowed');
+  const ordinaryIncomes = incomes.filter((item) => item.flowType !== 'debt_borrowed' && item.categoryId !== 'debt_borrowed' && item.neutralFlow !== true);
+  const totalIncome = ordinaryIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const totalBorrowed = borrowedIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const totalCashInflow = totalIncome + totalBorrowed;
   const totalExpense = expenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
   const getExpenseType = (item) => ['consumption', 'project', 'savings', 'investment'].includes(item.expenseType) ? item.expenseType : 'consumption';
   const typeTotals = expenses.reduce((totals, item) => {
     totals[getExpenseType(item)] += Number(item.amount) || 0;
     return totals;
   }, { consumption: 0, project: 0, savings: 0, investment: 0 });
-  const currentIncomes = incomes.filter((item) => validDate(item.date) && item.date.slice(0, 7) === currentMonth);
+  const currentIncomes = ordinaryIncomes.filter((item) => validDate(item.date) && item.date.slice(0, 7) === currentMonth);
+  const currentBorrowed = borrowedIncomes.filter((item) => validDate(item.date) && item.date.slice(0, 7) === currentMonth).reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
   const currentExpenses = expenses.filter((item) => validDate(item.date) && item.date.slice(0, 7) === currentMonth);
   const currentTypeTotals = currentExpenses.reduce((totals, item) => {
     totals[getExpenseType(item)] += Number(item.amount) || 0;
     return totals;
   }, { consumption: 0, project: 0, savings: 0, investment: 0 });
-  const previousIncomes = incomes.filter((item) => validDate(item.date) && item.date.slice(0, 7) === previousMonth);
+  const previousIncomes = ordinaryIncomes.filter((item) => validDate(item.date) && item.date.slice(0, 7) === previousMonth);
   const previousExpenses = expenses.filter((item) => validDate(item.date) && item.date.slice(0, 7) === previousMonth);
 
   const sourceBalances = incomes.map((income) => {
@@ -51,21 +56,22 @@ export function buildUserContext(userData) {
       spent,
       remaining: Math.max(0, (Number(income.amount) || 0) - spent),
       date: income.date || 'Date inconnue',
+      kind: income.flowType === 'debt_borrowed' || income.categoryId === 'debt_borrowed' ? 'emprunt (flux neutre)' : 'revenu ordinaire',
     };
   });
 
   const incomeLines = sourceBalances
     .sort((a, b) => a.remaining - b.remaining)
     .slice(0, 30)
-    .map((item) => `- ID EXACT: ${item.id} | Source: ${item.name} | Reçu: ${money(item.amount)} FCFA | Dépensé: ${money(item.spent)} FCFA | Disponible: ${money(item.remaining)} FCFA | Date: ${item.date}`)
+    .map((item) => `- ID EXACT: ${item.id} | Source: ${item.name} | Type: ${item.kind} | Reçu: ${money(item.amount)} FCFA | Dépensé: ${money(item.spent)} FCFA | Disponible: ${money(item.remaining)} FCFA | Date: ${item.date}`)
     .join('\n');
 
-  const globalBalance = totalIncome - totalExpense;
+  const globalBalance = totalCashInflow - totalExpense;
   const currentIncomeTotal = currentIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
   const currentExpenseTotal = currentExpenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
   const previousIncomeSpend = currentExpenses.reduce((sum, expense) => {
     const source = sourceBalances.find((income) => income.id === expense.incomeSourceId);
-    return source && String(source.date || '').slice(0, 7) < currentMonth
+    return source && source.kind === 'revenu ordinaire' && String(source.date || '').slice(0, 7) < currentMonth
       ? sum + (Number(expense.amount) || 0) : sum;
   }, 0);
   const currentMonthIncomeGap = Math.max(0, currentExpenseTotal - currentIncomeTotal);
@@ -73,7 +79,7 @@ export function buildUserContext(userData) {
   const previousIncomeTotal = previousIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
   const previousExpenseTotal = previousExpenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
   const monthlyTrend = completedMonths.map((period) => {
-    const periodIncome = incomes.filter((item) => validDate(item.date) && item.date.slice(0, 7) === period)
+    const periodIncome = ordinaryIncomes.filter((item) => validDate(item.date) && item.date.slice(0, 7) === period)
       .reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
     const periodExpense = expenses.filter((item) => validDate(item.date) && item.date.slice(0, 7) === period)
       .reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
@@ -127,10 +133,12 @@ export function buildUserContext(userData) {
 
   const projectLines = projects.map((project) => {
     const linkedExpenses = expenses.filter((item) => item.projectId === project.id);
-    const linkedIncomes = incomes.filter((item) => item.projectId === project.id);
+    const linkedIncomes = ordinaryIncomes.filter((item) => item.projectId === project.id);
+    const linkedBorrowings = borrowedIncomes.filter((item) => item.projectId === project.id);
     const spent = linkedExpenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
     const allocatedIncome = linkedIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-    return `- ID EXACT: ${project.id} | ${project.name || 'Projet'} | Statut: ${project.status || 'active'} | Budget indicatif: ${money(project.targetAmount)} FCFA | Revenus réservés: ${money(allocatedIncome)} FCFA | Sorties liées: ${money(spent)} FCFA | Écart: ${money(allocatedIncome - spent)} FCFA`;
+    const allocatedBorrowings = linkedBorrowings.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+    return `- ID EXACT: ${project.id} | ${project.name || 'Projet'} | Statut: ${project.status || 'active'} | Budget indicatif: ${money(project.targetAmount)} FCFA | Revenus ordinaires réservés: ${money(allocatedIncome)} FCFA | Emprunts affectés (dette à rembourser): ${money(allocatedBorrowings)} FCFA | Sorties liées: ${money(spent)} FCFA | Fonds affectés nets: ${money(allocatedIncome + allocatedBorrowings - spent)} FCFA`;
   }).join('\n');
   const cotisationLines = cotisations.map((group) => {
     const memberLines = (group.members || []).map((member) => {
@@ -165,7 +173,8 @@ Prévisions de durée du capital enregistrées: ${(Array.isArray(profile?.durati
 Date locale de référence: ${now.toLocaleString('fr-CM', { timeZone: 'Africa/Douala' })}
 
 === BILAN GLOBAL CUMULÉ DES DONNÉES ENREGISTRÉES ===
-Revenus enregistrés: ${money(totalIncome)} FCFA
+Revenus ordinaires enregistrés: ${money(totalIncome)} FCFA
+Emprunts reçus (flux neutres, non comptabilisés comme revenus gagnés): ${money(totalBorrowed)} FCFA
 Sorties d’argent enregistrées (toutes natures): ${money(totalExpense)} FCFA
 Dépenses courantes / consommation: ${money(typeTotals.consumption)} FCFA
 Sorties de projets: ${money(typeTotals.project)} FCFA
@@ -175,7 +184,7 @@ Solde calculé: ${money(globalBalance)} FCFA
 Attention: ce solde est calculé après toutes les sorties, mais la consommation, les projets, l’épargne et les investissements doivent rester distingués. Les données récupérées sont plafonnées à 100 revenus et 200 dépenses récentes pour maîtriser les lectures Firestore.
 
 === COMPARAISON MENSUELLE ===
-Mois courant ${currentMonth}: revenus reçus pendant ce mois ${money(currentIncomeTotal)} FCFA; toutes les sorties pendant ce mois ${money(currentExpenseTotal)} FCFA.
+Mois courant ${currentMonth}: revenus ordinaires reçus ${money(currentIncomeTotal)} FCFA; emprunts reçus (flux neutres) ${money(currentBorrowed)} FCFA; toutes les sorties pendant ce mois ${money(currentExpenseTotal)} FCFA.
 Répartition des sorties : consommation ${money(currentTypeTotals.consumption)} FCFA ; projets ${money(currentTypeTotals.project)} FCFA ; épargne ${money(currentTypeTotals.savings)} FCFA ; investissements ${money(currentTypeTotals.investment)} FCFA.
 Sorties du mois financées par des revenus reçus avant ce mois: ${money(previousIncomeSpend)} FCFA. Partie des sorties financée par ces revenus antérieurs: ${money(previousMonthFundsExplainingGap)} FCFA.
 RÈGLE D'INTERPRÉTATION: ne dis jamais que l'utilisateur a dépensé plus que ses moyens, qu'il est en déficit ou que son solde est négatif en comparant uniquement les revenus reçus ce mois-ci aux sorties du mois. Il peut utiliser des revenus enregistrés les mois précédents. Présente séparément les revenus reçus pendant la période, les dépenses de la période et la part financée par les revenus antérieurs. Le solde global cumulé et les soldes par source restent les références pour juger des ressources réellement disponibles.

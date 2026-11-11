@@ -80,9 +80,12 @@ export function buildCompactAIContext(data = {}, intent = {}) {
     'Les montants de référence sont en FCFA. Le portefeuille Pata est un solde interne, pas un compte bancaire ni un Mobile Money.',
   ];
   if (intent.needsIncomes || intent.needsExpenses || intent.overview) {
-    const incomeTotal = incomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+    const ordinaryIncomes = incomes.filter((item) => item.flowType !== 'debt_borrowed' && item.categoryId !== 'debt_borrowed' && item.neutralFlow !== true);
+    const borrowedIncomes = incomes.filter((item) => item.flowType === 'debt_borrowed' || item.categoryId === 'debt_borrowed');
+    const incomeTotal = ordinaryIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+    const borrowedTotal = borrowedIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
     const expenseTotal = expenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-    lines.push(`Données récupérées : ${incomes.length} revenu(s), ${expenses.length} sortie(s). Total des revenus récupérés : ${money(incomeTotal)} FCFA; total des sorties récupérées : ${money(expenseTotal)} FCFA. Ce sont des extraits récents, pas nécessairement le cumul historique.`);
+    lines.push(`Données récupérées : ${ordinaryIncomes.length} revenu(s) ordinaire(s), ${borrowedIncomes.length} emprunt(s), ${expenses.length} sortie(s). Revenus ordinaires : ${money(incomeTotal)} FCFA; emprunts reçus (flux neutres) : ${money(borrowedTotal)} FCFA; sorties : ${money(expenseTotal)} FCFA. Ce sont des extraits récents, pas nécessairement le cumul historique.`);
   }
   if (intent.needsIncomes) {
     lines.push('SOURCES DE REVENUS (utilise exactement les IDs ci-dessous; ne devine jamais):');
