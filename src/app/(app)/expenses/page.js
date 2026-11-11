@@ -20,10 +20,11 @@ import { useDebts } from '@/hooks/useDebts';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { createExpense, updateExpense, deleteExpense } from '@/lib/firestore/expenses';
 import { createAutomation } from '@/lib/firestore/automations';
-import { formatCurrency, formatDate, resolveCategory, getFirstOfMonth, getLastOfMonth, getLocalMonth } from '@/lib/utils';
+import { formatCurrency, formatDate, resolveCategory, getFirstOfMonth, getLastOfMonth, getLocalMonth, normalizeExpenseCategoryId } from '@/lib/utils';
 import { OptionalTransactionFields } from '@/components/transactions/OptionalTransactionFields';
 import { DebtCounterpartyField } from '@/components/debts/DebtCounterpartyField';
 import { AssistantShortcut } from '@/components/ai/AssistantShortcut';
+import { checkFinancialOperation } from '@/lib/firestore/financialTargets';
 
 const todayIso = () => {
   const d = new Date();
@@ -147,7 +148,7 @@ export default function ExpensesPage() {
   const filtered = useMemo(() => {
     return expenses
       .filter((e) => e.date >= startDate && e.date <= endDate)
-      .filter((e) => filterCategory === 'all' || e.categoryId === filterCategory)
+      .filter((e) => filterCategory === 'all' || normalizeExpenseCategoryId(e.categoryId) === filterCategory)
       .filter((e) => filterType === 'all' || (filterType === 'neutral' ? e.neutralFlow === true : !e.neutralFlow && (e.expenseType || 'consumption') === filterType))
       .sort((a, b) => (a.date < b.date ? 1 : -1));
   }, [expenses, startDate, endDate, filterCategory, filterType]);
@@ -231,6 +232,17 @@ export default function ExpensesPage() {
     
     setSaving(true);
     try {
+      if (!form.id && form.flowType !== 'repayment' && form.expenseType !== 'project') {
+        const operationType = form.flowType === 'loan_given' ? 'loan_given' : 'expense';
+        const check = await checkFinancialOperation({
+          operationType, amount, date: form.date, categoryId: form.categoryId,
+          expenseType: form.expenseType || 'consumption',
+        });
+        if (check.warnings?.length && !window.confirm(
+          'Petit rappel de Pata :\n\n' + check.warnings.join('\n\n')
+          + '\n\nTu peux respecter ton engagement et annuler, ou continuer quand même. Souhaites-tu poursuivre ?'
+        )) return;
+      }
       const payload = {
         amount,
         categoryId: form.flowType === 'loan_given' ? 'loan_given' : form.flowType === 'repayment' ? 'debt_repayment' : form.categoryId,

@@ -15,7 +15,7 @@ import { useProfile } from '@/hooks/useProfile';
 import { useDeposits } from '@/hooks/useDeposits';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { useWeeklyReport } from '@/hooks/useWeeklyReport';
-import { convertCurrencyAmount, formatCurrency, formatDate, getPreferredCurrencyCode, resolveCategory } from '@/lib/utils';
+import { convertCurrencyAmount, formatCurrency, formatDate, getPreferredCurrencyCode, resolveCategory, normalizeExpenseCategoryId } from '@/lib/utils';
 
 const iso = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 const monthFirst = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-01`;
@@ -40,6 +40,46 @@ export default function ReportsPage() {
   const { profile } = useProfile();
   const { customCategories } = useCustomCategories('expense');
   const { report: weeklyReport } = useWeeklyReport();
+  const weeklyCategoryAnalysis = useMemo(() => {
+    if (!weeklyReport?.weekStart || !weeklyReport?.weekEnd) return [];
+    const currentStart = weeklyReport.weekStart;
+    const currentEnd = weeklyReport.weekEnd;
+    const dateMinusSeven = (value) => {
+      const date = new Date(value + 'T12:00:00');
+      date.setDate(date.getDate() - 7);
+      return iso(date);
+    };
+    const previousStart = weeklyReport.previousWeekStart || dateMinusSeven(currentStart);
+    const previousEnd = weeklyReport.previousWeekEnd || dateMinusSeven(currentEnd);
+    const eligible = (item) => item.neutralFlow !== true
+      && item.flowType !== 'loan_given' && item.categoryId !== 'loan_given';
+    const sumByCategory = (start, end) => {
+      const map = new Map();
+      expenses.filter((item) => item.date >= start && item.date <= end && eligible(item)).forEach((item) => {
+        const id = normalizeExpenseCategoryId(item.categoryId || 'other');
+        map.set(id, (map.get(id) || 0) + (Number(item.amount) || 0));
+      });
+      return map;
+    };
+    const current = sumByCategory(currentStart, currentEnd);
+    const previous = sumByCategory(previousStart, previousEnd);
+    const ids = new Set([...current.keys(), ...previous.keys()]);
+    return [...ids].map((id) => {
+      const nowAmount = current.get(id) || 0;
+      const previousAmount = previous.get(id) || 0;
+      const category = resolveCategory(id, 'expense', customCategories);
+      return { id, label: category.label, amount: nowAmount, previousAmount, change: nowAmount - previousAmount };
+    }).sort((a, b) => Math.abs(b.change) - Math.abs(a.change)).slice(0, 6);
+  }, [expenses, weeklyReport, customCategories]);
+  const weeklyReportAdvice = (weeklyReport?.advice || []).map((item) => {
+    if (String(item).includes('Vérifie les catégories qui ont le plus progressé')) {
+      return 'Pata a comparé les dépenses par catégorie et présente les principales évolutions juste en dessous.';
+    }
+    if (String(item).includes('vérifie que tous tes revenus ont bien été saisis')) {
+      return 'Aucun revenu ordinaire n’a été enregistré cette semaine, alors que des dépenses courantes apparaissent. Pata a isolé les mouvements concernés dans ce bilan.';
+    }
+    return item;
+  });
 
   const [periodType, setPeriodType] = useState('month');
   const [month, setMonth] = useState(iso(new Date()).slice(0, 7));
@@ -264,7 +304,19 @@ export default function ReportsPage() {
           {Array.isArray(weeklyReport.advice) && weeklyReport.advice.length > 0 && (
             <div className="mt-3 rounded-lg border border-slate-200 p-3">
               <p className="mb-2 text-xs font-semibold text-slate-700">À retenir</p>
-              <ul className="list-disc space-y-1 pl-5 text-sm text-slate-600">{weeklyReport.advice.map((item, index) => <li key={index}>{item}</li>)}</ul>
+              <ul className="list-disc space-y-1 pl-5 text-sm text-slate-600">{weeklyReportAdvice.map((item, index) => <li key={index}>{item}</li>)}</ul>
+            </div>
+          )}
+          {weeklyCategoryAnalysis.length > 0 && (
+            <div className="mt-3 rounded-lg border border-slate-200 p-3">
+              <p className="mb-2 text-xs font-semibold text-slate-700">Ce qui explique l’évolution des dépenses</p>
+              <div className="space-y-2">
+                {weeklyCategoryAnalysis.slice(0, 4).map((item) => <div key={item.id} className="flex items-center justify-between gap-3 text-xs">
+                  <span className="min-w-0 flex-1 text-slate-700">{item.label}</span>
+                  <span className="shrink-0 text-right"><strong className="text-slate-900">{formatCurrency(item.amount)}</strong><span className={'ml-2 ' + (item.change > 0 ? 'text-red-600' : item.change < 0 ? 'text-emerald-700' : 'text-slate-400')}>{item.change > 0 ? '+' : ''}{formatCurrency(item.change)}</span></span>
+                </div>)}
+              </div>
+              <p className="mt-2 text-[11px] leading-4 text-slate-500">Ces montants comparent chaque catégorie avec la semaine précédente. Pata a effectué cette comparaison pour toi.</p>
             </div>
           )}
           {Array.isArray(weeklyReport.categories) && weeklyReport.categories.length > 0 && (

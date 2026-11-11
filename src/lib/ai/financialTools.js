@@ -2,7 +2,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb } from '@/lib/firebase/admin';
 
 const EXPENSE_CATEGORIES = [
-  'food', 'transport', 'housing', 'internet', 'airtime', 'health', 'leisure',
+  'food', 'transport', 'housing', 'internet', 'health', 'leisure', 'gift_donation',
   'investment', 'contribution', 'savings', 'debt_repayment', 'loan_given', 'other',
 ];
 const INCOME_CATEGORIES = ['salary', 'business', 'sales', 'commission', 'rental', 'pension', 'gift', 'debt_repayment_received', 'debt_borrowed', 'other_income'];
@@ -89,7 +89,8 @@ function monthKey(date = new Date()) {
 }
 
 async function assertExpenseCategory(uid, value) {
-  const categoryId = cleanText(value, 80);
+  const rawCategoryId = cleanText(value, 80);
+  const categoryId = ['airtime', 'telecom', 'telecom_internet'].includes(rawCategoryId) ? 'internet' : rawCategoryId;
   if (!categoryId) throw new Error('Catégorie de dépense manquante.');
   if (EXPENSE_CATEGORIES.includes(categoryId)) return categoryId;
   const categorySnapshot = await subcol(uid, 'categories').doc(categoryId).get();
@@ -493,8 +494,9 @@ export async function updateExpenseForUser(uid, expenseId, input) {
     const previousData = expenseSnap.data();
     if (previousData.flowType === 'loan_given' || previousData.repaymentDebtId) throw new Error('Modifie ou supprime ce mouvement depuis le module Dettes & prêts pour conserver le suivi du solde.');
     const amount = requestedAmount ?? asPositiveMoney(previousData.amount, 'Dépense');
+    const previousCategoryId = cleanText(previousData.categoryId, 80) || 'other';
     const categoryId = validatedRequestedCategory === undefined
-      ? (cleanText(previousData.categoryId, 80) || 'other')
+      ? (['airtime', 'telecom', 'telecom_internet'].includes(previousCategoryId) ? 'internet' : previousCategoryId)
       : validatedRequestedCategory;
     const note = input.note === undefined ? cleanText(previousData.note, 250) : cleanText(input.note, 250);
     const date = input.date || previousData.date || todayDouala();
@@ -840,6 +842,8 @@ export async function runAutomationForUser(uid, now = new Date()) {
 }
 
 const WEEKLY_CATEGORY_LABELS = {
+  gift_donation: 'Don / Cadeau',
+  airtime: 'Télécom / Internet',
   food: 'Alimentation', transport: 'Transport', housing: 'Logement', internet: 'Internet',
   health: 'Santé', leisure: 'Loisirs', investment: 'Investissement',
   contribution: 'Cotisations', savings: 'Épargne', other: 'Autres',
@@ -886,13 +890,24 @@ export async function generateWeeklyReportForUser(uid, now = new Date()) {
   const previousExpense = expenses.filter((item) => inRange(item.date, previousWeekStart, previousWeekEnd));
 
   const sum = (items) => items.reduce((total, item) => total + (Number(item.amount) || 0), 0);
-  const totalIncome = sum(currentIncome);
-  const totalExpense = sum(currentExpense);
-  const previousIncomeTotal = sum(previousIncome);
-  const previousExpenseTotal = sum(previousExpense);
+  const totalIncome = sum(currentIncome.filter((item) => item.neutralFlow !== true && item.flowType !== 'debt_borrowed' && item.categoryId !== 'debt_borrowed'));
+  const totalExpense = sum(currentExpense.filter((item) => item.neutralFlow !== true
+    && item.flowType !== 'loan_given' && item.categoryId !== 'loan_given'));
+  const previousIncomeTotal = sum(previousIncome.filter((item) => item.neutralFlow !== true && item.flowType !== 'debt_borrowed' && item.categoryId !== 'debt_borrowed'));
+  const previousExpenseTotal = sum(previousExpense.filter((item) => item.neutralFlow !== true
+    && item.flowType !== 'loan_given' && item.categoryId !== 'loan_given'));
+  const previousCategories = {};
+  previousExpense.filter((item) => item.neutralFlow !== true
+    && item.flowType !== 'loan_given' && item.categoryId !== 'loan_given').forEach((item) => {
+    const rawCategoryId = cleanText(item.categoryId, 80) || 'other';
+    const categoryId = ['airtime', 'telecom', 'telecom_internet'].includes(rawCategoryId) ? 'internet' : rawCategoryId;
+    previousCategories[categoryId] = (previousCategories[categoryId] || 0) + (Number(item.amount) || 0);
+  });
   const categories = {};
-  currentExpense.forEach((item) => {
-    const categoryId = cleanText(item.categoryId, 80) || 'other';
+  currentExpense.filter((item) => item.neutralFlow !== true
+    && item.flowType !== 'loan_given' && item.categoryId !== 'loan_given').forEach((item) => {
+    const rawCategoryId = cleanText(item.categoryId, 80) || 'other';
+    const categoryId = ['airtime', 'telecom', 'telecom_internet'].includes(rawCategoryId) ? 'internet' : rawCategoryId;
     categories[categoryId] = (categories[categoryId] || 0) + (Number(item.amount) || 0);
   });
   const categoryBreakdown = Object.entries(categories)
@@ -905,18 +920,40 @@ export async function generateWeeklyReportForUser(uid, now = new Date()) {
   const expenseChangePercent = previousExpenseTotal > 0
     ? Math.round(((totalExpense - previousExpenseTotal) / previousExpenseTotal) * 100)
     : null;
+  const currentCategoryById = new Map(categoryBreakdown.map((item) => [item.categoryId, item]));
+  const allCategoryIds = new Set([...currentCategoryById.keys(), ...Object.keys(previousCategories)]);
+  const categoryChanges = [...allCategoryIds].map((categoryId) => {
+    const current = currentCategoryById.get(categoryId);
+    const amount = current?.amount || 0;
+    const previousAmount = previousCategories[categoryId] || 0;
+    const change = amount - previousAmount;
+    return {
+      categoryId,
+      label: current?.label || customCategoryNames.get(categoryId) || WEEKLY_CATEGORY_LABELS[categoryId] || categoryId,
+      amount,
+      previousAmount,
+      change,
+      changePercent: previousAmount > 0 ? Math.round(change / previousAmount * 100) : (amount > 0 ? null : 0),
+    };
+  }).sort((a, b) => b.change - a.change);
   const advice = [];
   if (totalIncome === 0 && totalExpense > 0) {
-    advice.push('Des dépenses sont enregistrées sans revenu de la semaine : vérifie que tous tes revenus ont bien été saisis.');
+    advice.push('Aucun revenu ordinaire n’a été enregistré cette semaine, alors que des dépenses courantes apparaissent. Pata a isolé les catégories concernées dans ce bilan.');
   } else if (totalIncome > 0 && totalExpense > totalIncome) {
-    advice.push('Tes dépenses dépassent les revenus enregistrés cette semaine. Réduis ou reporte les dépenses non essentielles.');
+    advice.push('Les sorties enregistrées dépassent les revenus encaissés cette semaine de ' + (totalExpense - totalIncome).toLocaleString('fr-FR') + ' FCFA. Cela ne signifie pas automatiquement un déficit : ces sorties peuvent aussi provenir de fonds déjà disponibles ou de revenus antérieurs.');
   } else if (totalIncome > 0) {
     advice.push(`Après les dépenses enregistrées, il reste ${Math.max(0, totalIncome - totalExpense).toLocaleString('fr-FR')} FCFA sur les revenus de cette semaine.`);
   }
   if (expenseChangePercent !== null && expenseChangePercent > 10) {
-    advice.push(`Les dépenses ont augmenté de ${expenseChangePercent}% par rapport à la semaine précédente. Vérifie les catégories qui ont le plus progressé.`);
+    const mainIncreases = categoryChanges.filter((item) => item.change > 0).slice(0, 3);
+    advice.push(mainIncreases.length
+      ? `Les dépenses ont augmenté de ${expenseChangePercent}%. Cette hausse vient principalement de ${mainIncreases.map((item) => item.label + ' (+' + item.change.toLocaleString('fr-FR') + ' FCFA)').join(', ')}. Ces catégories expliquent l’essentiel de l’écart avec la semaine précédente.`
+      : `Les dépenses ont augmenté de ${expenseChangePercent}%, sans hausse concentrée dans une seule catégorie. Pata a comparé les catégories et les montants sont détaillés ci-dessous.`);
   } else if (expenseChangePercent !== null && expenseChangePercent < -10) {
-    advice.push(`Les dépenses ont diminué de ${Math.abs(expenseChangePercent)}% par rapport à la semaine précédente. Identifie les habitudes qui ont aidé.`);
+    const mainDecreases = categoryChanges.filter((item) => item.change < 0).sort((a, b) => a.change - b.change).slice(0, 3);
+    advice.push(mainDecreases.length
+      ? `Les dépenses ont diminué de ${Math.abs(expenseChangePercent)}%. Les baisses les plus importantes concernent ${mainDecreases.map((item) => item.label + ' (' + Math.abs(item.change).toLocaleString('fr-FR') + ' FCFA de moins)').join(', ')}.`
+      : `Les dépenses ont diminué de ${Math.abs(expenseChangePercent)}% sur la semaine.`);
   }
   if (categoryBreakdown[0]) {
     advice.push(`La première catégorie de dépenses est ${categoryBreakdown[0].label} (${categoryBreakdown[0].amount.toLocaleString('fr-FR')} FCFA).`);
@@ -928,6 +965,7 @@ export async function generateWeeklyReportForUser(uid, now = new Date()) {
     previousIncome: previousIncomeTotal, previousExpense: previousExpenseTotal,
     expenseChangePercent,
     categories: categoryBreakdown,
+    categoryChanges,
     advice,
     currency: 'XAF',
     generatedAt: FieldValue.serverTimestamp(),

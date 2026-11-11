@@ -5,8 +5,11 @@ import {
   DEFAULT_CURRENCY, 
   DEFAULT_LOCALE, 
   EXPENSE_CATEGORIES, 
-  GOAL_CATEGORIES 
+  GOAL_CATEGORIES,
+  normalizeExpenseCategoryId,
 } from './constants';
+
+export { normalizeExpenseCategoryId };
 
 export function cn(...inputs) {
   return twMerge(clsx(inputs));
@@ -71,10 +74,11 @@ export function getLastOfMonth() {
 }
 
 export function resolveCategory(id, type, customCategories = []) {
+  const normalizedId = type === 'goal' ? id : normalizeExpenseCategoryId(id);
   const defaults = type === 'goal' ? GOAL_CATEGORIES : EXPENSE_CATEGORIES;
-  const found = defaults.find((c) => c.id === id);
+  const found = defaults.find((c) => c.id === normalizedId);
   if (found) return { ...found, label: found.label, name: found.label };
-  const custom = customCategories.find((c) => c.id === id);
-  if (custom) return { ...custom, label: custom.name, name: custom.name };
-  return { id, label: 'Autre', name: 'Autre', color: '#94a3b8' };
+  const custom = customCategories.find((c) => c.id === normalizedId);
+  if (custom) return { ...custom, id: normalizedId, label: custom.name, name: custom.name };
+  return { id: normalizedId, label: 'Autre', name: 'Autre', color: '#94a3b8' };
 }

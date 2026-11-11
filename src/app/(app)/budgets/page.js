@@ -16,7 +16,8 @@ import { useExpenses } from '@/hooks/useExpenses';
 import { useIncomes } from '@/hooks/useIncomes';
 import { upsertBudget, deleteBudget, getBudgetTemplates, saveBudgetTemplate, applyBudgetTemplate, removeBudgetTemplate } from '@/lib/firestore/budgets';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
-import { formatCurrency, getLocalMonth } from '@/lib/utils';
+import { formatCurrency, getLocalMonth, normalizeExpenseCategoryId } from '@/lib/utils';
+import { buildBudgetSuggestions } from '@/lib/financialPlanning';
 
 const todayMonth = () => getLocalMonth();
 
@@ -46,6 +47,8 @@ export default function BudgetsPage() {
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [applyingTemplate, setApplyingTemplate] = useState('');
   const [templateMessage, setTemplateMessage] = useState('');
+  const [budgetPersona, setBudgetPersona] = useState('employee');
+  const [applySuggestedAfterSave, setApplySuggestedAfterSave] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -72,18 +75,19 @@ export default function BudgetsPage() {
   const spentByCategory = useMemo(() => {
     const map = {};
     monthExpenses.forEach((e) => {
-      map[e.categoryId] = (map[e.categoryId] || 0) + (e.amount || 0);
+      const categoryId = normalizeExpenseCategoryId(e.categoryId);
+      map[categoryId] = (map[categoryId] || 0) + (e.amount || 0);
     });
     return map;
   }, [monthExpenses]);
 
   const enriched = useMemo(() => {
     return expenseCategories.map((c) => {
-      const budget = budgets.find((b) => b.categoryId === c.id);
+      const budget = budgets.find((b) => normalizeExpenseCategoryId(b.categoryId) === c.id);
       const spent = spentByCategory[c.id] || 0;
       const allocated = budget?.amount || 0;
       const usage = allocated > 0 ? (spent / allocated) * 100 : spent > 0 ? 100 : 0;
-      return { ...c, budgetId: budget?.id, allocated, spent, usage, remaining: allocated - spent, expenses: monthExpenses.filter((expense) => expense.categoryId === c.id) };
+      return { ...c, budgetId: budget?.id, allocated, spent, usage, remaining: allocated - spent, expenses: monthExpenses.filter((expense) => normalizeExpenseCategoryId(expense.categoryId) === c.id) };
     });
   }, [budgets, spentByCategory, monthExpenses, expenseCategories]);
 
@@ -109,8 +113,24 @@ export default function BudgetsPage() {
     setAmount(String(category.allocated || ''));
   };
 
+  const openSuggestedBudget = () => {
+    const items = buildBudgetSuggestions({ incomes, expenses, categories: expenseCategories, persona: budgetPersona, month });
+    if (!items.length) {
+      setTemplateMessage('Enregistre quelques revenus ou dépenses pour que Pata puisse calculer un budget personnalisé.');
+      return;
+    }
+    const roleLabels = { employee: 'salarié', student: 'élève ou étudiant', self_employed: 'indépendant', family: 'foyer', retired: 'retraité' };
+    setEditingTemplateId(null);
+    setTemplateName('Budget conseillé — ' + roleLabels[budgetPersona]);
+    setTemplateItems(items.map((item) => ({ categoryId: item.categoryId, label: item.label, amount: String(item.amount) })));
+    setTemplateMessage('Pata a préparé une première répartition avec ton historique. Modifie librement les montants avant de valider.');
+    setApplySuggestedAfterSave(true);
+    setTemplateModalOpen(true);
+  };
+
   const openNewTemplate = () => {
     setEditingTemplateId(null);
+    setApplySuggestedAfterSave(false);
     setTemplateName('');
     // enriched contient toutes les catégories visibles du budget, y compris celles
     // dont le montant alloué et les dépenses sont à zéro.
@@ -124,6 +144,7 @@ export default function BudgetsPage() {
   };
 
   const openEditTemplate = (template) => {
+    setApplySuggestedAfterSave(false);
     setEditingTemplateId(template.id);
     setTemplateName(template.name || '');
     setTemplateItems((template.items || []).map((item) => {
@@ -151,13 +172,19 @@ export default function BudgetsPage() {
     setSavingTemplate(true);
     setTemplateMessage('');
     try {
-      await saveBudgetTemplate(templateName, items, editingTemplateId);
+      const savedTemplateId = await saveBudgetTemplate(templateName, items, editingTemplateId);
       setTemplates(await getBudgetTemplates());
+      if (applySuggestedAfterSave && !editingTemplateId) {
+        const applied = await applyBudgetTemplate(savedTemplateId, month, selectedIncome);
+        setTemplateMessage('Budget conseillé enregistré et appliqué à ' + month + ' : ' + (applied.createdCount || 0) + ' enveloppe(s) créée(s), ' + (applied.updatedCount || 0) + ' mise(s) à jour. Tu peux encore ajuster chaque montant.');
+      } else {
+        setTemplateMessage(editingTemplateId
+          ? 'Modèle mis à jour. Les versions déjà appliquées ne sont pas modifiées.'
+          : 'Modèle enregistré. Cette création compte dans le quota de budgets du compte gratuit.');
+      }
       setTemplateModalOpen(false);
       setEditingTemplateId(null);
-      setTemplateMessage(editingTemplateId
-        ? 'Modèle mis à jour. Les versions déjà appliquées ne sont pas modifiées.'
-        : 'Modèle enregistré. Cette création compte dans le quota de budgets du compte gratuit.');
+      setApplySuggestedAfterSave(false);
     } catch (error) {
       setTemplateMessage(error.message || 'Impossible d’enregistrer ce modèle.');
     } finally {
@@ -167,7 +194,7 @@ export default function BudgetsPage() {
 
   const applyTemplate = async (template) => {
     if (!Array.isArray(template.items) || !template.items.length) return;
-    const existingCount = template.items.filter((item) => budgets.some((budget) => budget.categoryId === item.categoryId)).length;
+    const existingCount = template.items.filter((item) => budgets.some((budget) => normalizeExpenseCategoryId(budget.categoryId) === normalizeExpenseCategoryId(item.categoryId))).length;
     const confirmed = existingCount > 0
       ? window.confirm('Appliquer « ' + template.name + ' » à ' + month + ' ? Les montants positifs seront créés ou mis à jour. Les catégories à zéro supprimeront leur enveloppe de ce mois. Les autres budgets resteront inchangés.')
       : true;
@@ -231,6 +258,18 @@ export default function BudgetsPage() {
           {!budgetPremium && <p className="mt-1 text-xs text-slate-500">Créations de budgets et modèles : {usedBudgetQuota} / 2 ce mois-ci.</p>}
         </div>
         <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+          <Button type="button" variant="outline" size="sm" onClick={() => {
+            const prompt = 'Analyse mon budget Pata du mois ' + month + '. Profil : ' + budgetPersona + '. Revenus enregistrés : ' + monthIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0) + ' FCFA. Répartition actuelle : ' + enriched.map((item) => item.label + ' : prévu ' + item.allocated + ' FCFA, dépensé ' + item.spent + ' FCFA').join('; ') + '. Repère les catégories qui consomment le plus, les enveloppes trop élevées ou trop basses et propose des ajustements réalistes adaptés à ce profil. Ne modifie rien sans mon accord.';
+            window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt } }));
+          }}><MessageCircle size={15}/> Analyser avec l’IA</Button>
+          <select value={budgetPersona} onChange={(event) => setBudgetPersona(event.target.value)} aria-label="Profil pour la proposition de budget" className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-xs">
+            <option value="employee">Salarié</option>
+            <option value="student">Élève / étudiant</option>
+            <option value="self_employed">Indépendant</option>
+            <option value="family">Foyer / famille</option>
+            <option value="retired">Retraité</option>
+          </select>
+          <Button type="button" variant="outline" size="sm" onClick={openSuggestedBudget} disabled={!enriched.length}><Layers3 size={15}/> Proposer un budget</Button>
           <Button type="button" variant="outline" size="sm" onClick={openNewTemplate} disabled={!enriched.length || (!budgetPremium && budgetQuotaReached)}><BookmarkPlus size={15}/> Enregistrer un modèle</Button>
           <input
             type="month"
@@ -370,7 +409,7 @@ export default function BudgetsPage() {
           </div>
           {templateMessage && <p role="alert" className="text-xs text-red-600">{templateMessage}</p>}
           <Button type="submit" className="w-full" disabled={savingTemplate || !templateName.trim() || !templateItems.length}>
-            {savingTemplate ? 'Enregistrement…' : editingTemplateId ? 'Enregistrer les modifications' : 'Enregistrer le modèle'}
+            {savingTemplate ? 'Enregistrement…' : editingTemplateId ? 'Enregistrer les modifications' : applySuggestedAfterSave ? 'Valider et appliquer ce budget' : 'Enregistrer le modèle'}
           </Button>
         </form>
       </Modal>

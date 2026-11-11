@@ -21,7 +21,8 @@ import { useProfile } from '@/hooks/useProfile';
 import { useAuth } from '@/hooks/useAuth';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { generateAdvice, adviceIconColor } from '@/lib/advisor';
-import { formatCurrency, formatDate, resolveCategory, getFirstOfMonth, getLastOfMonth } from '@/lib/utils';
+import { formatCurrency, formatDate, resolveCategory, getFirstOfMonth, getLastOfMonth, normalizeExpenseCategoryId } from '@/lib/utils';
+import { buildFinancialSuggestions, FINANCIAL_RESOLUTIONS, getPeriodBounds, getPeriodKey } from '@/lib/financialPlanning';
 
 const getDashboardExpenseType = (expense) => ['consumption', 'project', 'savings', 'investment'].includes(expense?.expenseType)
   ? expense.expenseType : 'consumption';
@@ -82,13 +83,15 @@ export default function DashboardPage() {
   const [showCustomPeriod, setShowCustomPeriod] = useState(false);
   const [activeFeature, setActiveFeature] = useState(0);
   const [financialTarget, setFinancialTarget] = useState(null);
-  const [targetDraft, setTargetDraft] = useState({ incomeTarget: '', expenseLimit: '', debtLimit: '', resolution: '' });
+  const [targetPeriodType, setTargetPeriodType] = useState('month');
+  const [targetDraft, setTargetDraft] = useState({ incomeTarget: '', expenseLimit: '', debtLimit: '', loanGivenLimit: '', resolutions: [] });
   const [targetLoading, setTargetLoading] = useState(true);
   const [targetSaving, setTargetSaving] = useState(false);
   const [targetError, setTargetError] = useState('');
   const [targetSaved, setTargetSaved] = useState(false);
   const { user } = useAuth();
-  const targetMonth = todayIso().slice(0, 7);
+  const targetPeriodKey = getPeriodKey(targetPeriodType, new Date());
+  const targetPeriodBounds = getPeriodBounds(targetPeriodType, targetPeriodKey);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -101,12 +104,13 @@ export default function DashboardPage() {
     let active = true;
     if (!user) {
       setFinancialTarget(null);
-      setTargetDraft({ incomeTarget: '', expenseLimit: '', debtLimit: '', resolution: '' });
+      setTargetDraft({ incomeTarget: '', expenseLimit: '', debtLimit: '', loanGivenLimit: '', resolutions: [] });
       setTargetLoading(false);
       return undefined;
     }
     setTargetLoading(true);
-    user.getIdToken().then((token) => fetch('/api/financial-targets?month=' + encodeURIComponent(targetMonth), {
+    const query = '?periodType=' + encodeURIComponent(targetPeriodType) + '&periodKey=' + encodeURIComponent(targetPeriodKey);
+    user.getIdToken().then((token) => fetch('/api/financial-targets' + query, {
       headers: { Authorization: 'Bearer ' + token },
     })).then(async (response) => {
       const data = await response.json().catch(() => ({}));
@@ -118,7 +122,8 @@ export default function DashboardPage() {
         incomeTarget: target?.incomeTarget == null ? '' : String(target.incomeTarget),
         expenseLimit: target?.expenseLimit == null ? '' : String(target.expenseLimit),
         debtLimit: target?.debtLimit == null ? '' : String(target.debtLimit),
-        resolution: target?.resolution || '',
+        loanGivenLimit: target?.loanGivenLimit == null ? '' : String(target.loanGivenLimit),
+        resolutions: Array.isArray(target?.resolutions) ? target.resolutions : [],
       });
       setTargetError('');
     }).catch((error) => {
@@ -127,7 +132,7 @@ export default function DashboardPage() {
       if (active) setTargetLoading(false);
     });
     return () => { active = false; };
-  }, [user, targetMonth]);
+  }, [user, targetPeriodType, targetPeriodKey]);
 
   const startDate = showCustomPeriod ? customStart : getFirstOfMonth();
   const endDate = showCustomPeriod ? customEnd : getLastOfMonth();
@@ -138,6 +143,29 @@ export default function DashboardPage() {
   const { goals } = useGoals();
   const { profile } = useProfile();
   const { customCategories } = useCustomCategories('expense');
+
+  const targetSuggestions = useMemo(() => buildFinancialSuggestions({
+    periodType: targetPeriodType, periodKey: targetPeriodKey, incomes, expenses, debts,
+  }), [targetPeriodType, targetPeriodKey, incomes, expenses, debts]);
+  const actualTargetPeriod = useMemo(() => {
+    const inRange = (item) => item.date >= targetPeriodBounds.start && item.date <= targetPeriodBounds.end;
+    const ordinaryIncomes = incomes.filter((item) => inRange(item) && item.neutralFlow !== true
+      && item.flowType !== 'debt_borrowed' && item.categoryId !== 'debt_borrowed');
+    const expensesInPeriod = expenses.filter((item) => inRange(item));
+    return {
+      income: ordinaryIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
+      expense: expensesInPeriod.filter((item) => item.neutralFlow !== true
+        && item.flowType !== 'loan_given' && item.flowType !== 'repayment'
+        && ['consumption', undefined].includes(item.expenseType)
+        && !['loan_given', 'debt_repayment'].includes(item.categoryId))
+        .reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
+      borrowed: incomes.filter((item) => inRange(item)
+        && (item.flowType === 'debt_borrowed' || item.categoryId === 'debt_borrowed'))
+        .reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
+      granted: expensesInPeriod.filter((item) => item.flowType === 'loan_given' || item.categoryId === 'loan_given')
+        .reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
+    };
+  }, [incomes, expenses, targetPeriodBounds]);
 
   const userName = useMemo(() => {
     const raw = profile?.displayName?.trim();
@@ -208,7 +236,8 @@ export default function DashboardPage() {
   const byCategory = useMemo(() => {
     const map = {};
     periodConsumptionExpenses.forEach((e) => {
-      map[e.categoryId] = (map[e.categoryId] || 0) + (e.amount || 0);
+      const categoryId = normalizeExpenseCategoryId(e.categoryId);
+      map[categoryId] = (map[categoryId] || 0) + (e.amount || 0);
     });
     return Object.entries(map)
       .map(([id, value]) => {
@@ -218,7 +247,7 @@ export default function DashboardPage() {
       .sort((a, b) => b.value - a.value);
   }, [periodConsumptionExpenses, customCategories]);
 
-  const activePeriodTarget = startDate.slice(0, 7) === targetMonth && endDate.slice(0, 7) === targetMonth ? financialTarget : null;
+  const activePeriodTarget = targetPeriodBounds.start === startDate && targetPeriodBounds.end === endDate ? financialTarget : null;
   const advices = useMemo(
     () => generateAdvice({
       expenses: periodConsumptionExpenses,
@@ -252,9 +281,9 @@ export default function DashboardPage() {
 
   const saveFinancialTargets = async () => {
     if (!user || targetSaving) return;
-    const fields = ['incomeTarget', 'expenseLimit', 'debtLimit'];
-    const payload = { month: targetMonth };
-    let hasValue = Boolean(String(targetDraft.resolution || '').trim());
+    const fields = ['incomeTarget', 'expenseLimit', 'debtLimit', 'loanGivenLimit'];
+    const payload = { periodType: targetPeriodType, periodKey: targetPeriodKey };
+    let hasValue = Array.isArray(targetDraft.resolutions) && targetDraft.resolutions.length > 0;
     for (const field of fields) {
       const raw = String(targetDraft[field] ?? '').trim();
       if (!raw) { payload[field] = null; continue; }
@@ -270,7 +299,7 @@ export default function DashboardPage() {
       setTargetError('Saisis au moins un objectif ou une résolution pour ce mois.');
       return;
     }
-    payload.resolution = String(targetDraft.resolution || '').trim();
+    payload.resolutions = Array.isArray(targetDraft.resolutions) ? targetDraft.resolutions : [];
     setTargetSaving(true);
     setTargetError('');
     setTargetSaved(false);
@@ -284,9 +313,10 @@ export default function DashboardPage() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) throw new Error(data.error || 'Impossible d’enregistrer les objectifs.');
       setFinancialTarget({
-        month: targetMonth,
+        periodType: targetPeriodType,
+        periodKey: targetPeriodKey,
         ...Object.fromEntries(fields.map((field) => [field, payload[field] == null ? undefined : payload[field]])),
-        resolution: payload.resolution || undefined,
+        resolutions: payload.resolutions,
       });
       setTargetSaved(true);
     } catch (error) {
@@ -328,28 +358,71 @@ export default function DashboardPage() {
       </section>
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div><h2 className="text-sm font-bold text-slate-900">Mes objectifs financiers</h2><p className="mt-1 text-xs text-slate-500">Fixe tes repères pour le mois {targetMonth}. Pata comparera tes résultats à ces objectifs.</p></div>
+          <div><h2 className="text-sm font-bold text-slate-900">Mes objectifs financiers</h2><p className="mt-1 text-xs text-slate-500">Pata étudie tes opérations et te propose des repères réalistes. Tu peux les accepter, les modifier ou choisir les tiens.</p></div>
           {targetSaved && <span className="text-xs font-semibold text-emerald-700">Enregistré</span>}
         </div>
-        {targetLoading ? <p className="mt-4 text-xs text-slate-500">Chargement des objectifs…</p> : <>
-          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <label className="block text-xs font-semibold text-slate-600">Objectif de revenus (FCFA)
-              <input type="number" min="0" step="1" inputMode="numeric" value={targetDraft.incomeTarget} onChange={(event) => { setTargetDraft((value) => ({ ...value, incomeTarget: event.target.value })); setTargetSaved(false); }} placeholder="Ex. 500000" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-900"/>
-            </label>
-            <label className="block text-xs font-semibold text-slate-600">Plafond dépenses courantes (FCFA)
-              <input type="number" min="0" step="1" inputMode="numeric" value={targetDraft.expenseLimit} onChange={(event) => { setTargetDraft((value) => ({ ...value, expenseLimit: event.target.value })); setTargetSaved(false); }} placeholder="Ex. 100000" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-900"/>
-            </label>
-            <label className="block text-xs font-semibold text-slate-600">Plafond nouvelles dettes (FCFA)
-              <input type="number" min="0" step="1" inputMode="numeric" value={targetDraft.debtLimit} onChange={(event) => { setTargetDraft((value) => ({ ...value, debtLimit: event.target.value })); setTargetSaved(false); }} placeholder="Ex. 50000" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-900"/>
-            </label>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {[
+            ['day', 'Aujourd’hui'],
+            ['week', 'Cette semaine'],
+            ['month', 'Ce mois'],
+          ].map(([value, label]) => <button key={value} type="button" onClick={() => { setTargetPeriodType(value); setTargetSaved(false); }} className={'rounded-lg px-3 py-2 text-xs font-semibold ' + (targetPeriodType === value ? 'bg-brand-700 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200')}>{label}</button>)}
+        </div>
+        <p className="mt-2 text-xs text-slate-500">{targetPeriodType === 'day' ? 'Objectifs pour la journée' : targetPeriodType === 'week' ? 'Objectifs pour la semaine' : 'Objectifs pour le mois'} · {targetPeriodBounds.start} au {targetPeriodBounds.end}</p>
+        {targetLoading ? <p className="mt-4 text-xs text-slate-500">Chargement de tes repères…</p> : <>
+          <div className="mt-4 rounded-xl border border-brand-100 bg-brand-50/50 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-sm font-bold text-slate-800">Propositions personnalisées de Pata</p><p className="mt-1 text-xs text-slate-600">Calculées à partir de tes revenus, dépenses et mouvements de prêts/dettes des 90 derniers jours.</p></div><button type="button" onClick={() => {
+              setTargetDraft({
+                incomeTarget: targetSuggestions.incomeTarget == null ? '' : String(targetSuggestions.incomeTarget),
+                expenseLimit: targetSuggestions.expenseLimit == null ? '' : String(targetSuggestions.expenseLimit),
+                debtLimit: String(targetSuggestions.debtLimit ?? 0),
+                loanGivenLimit: targetSuggestions.loanGivenLimit == null ? '' : String(targetSuggestions.loanGivenLimit),
+                resolutions: targetSuggestions.resolutions,
+              }); setTargetSaved(false); setTargetError('');
+            }} className="min-h-9 rounded-lg bg-white px-3 text-xs font-bold text-brand-800 shadow-sm hover:bg-brand-100">Utiliser ces propositions</button></div>
+            {targetSuggestions.history.incomeCount || targetSuggestions.history.expenseCount ? <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="rounded-lg bg-white p-2"><p className="text-[10px] text-slate-500">Revenu mensuel moyen</p><p className="mt-1 text-sm font-bold text-slate-900">{formatCurrency(targetSuggestions.history.averageMonthlyIncome)}</p></div>
+              <div className="rounded-lg bg-white p-2"><p className="text-[10px] text-slate-500">Dépenses courantes moyennes</p><p className="mt-1 text-sm font-bold text-slate-900">{formatCurrency(targetSuggestions.history.averageMonthlyExpense)}</p></div>
+              <div className="rounded-lg bg-white p-2"><p className="text-[10px] text-slate-500">Emprunts mensuels moyens</p><p className="mt-1 text-sm font-bold text-slate-900">{formatCurrency(targetSuggestions.history.averageMonthlyBorrowed)}</p></div>
+              <div className="rounded-lg bg-white p-2"><p className="text-[10px] text-slate-500">Prêts accordés moyens</p><p className="mt-1 text-sm font-bold text-slate-900">{formatCurrency(targetSuggestions.history.averageMonthlyGrantedLoans)}</p></div>
+            </div> : <p className="mt-3 text-xs text-slate-600">Il manque encore assez d’opérations pour calculer des montants personnalisés. Tu peux commencer avec tes propres montants ; Pata affinera ses propositions au fil de ton utilisation.</p>}
+            {targetSuggestions.topCategories.length > 0 && <p className="mt-2 text-xs text-slate-600">Catégories les plus présentes : {targetSuggestions.topCategories.map((item) => item.label + ' (' + formatCurrency(item.amount) + '/mois)').join(' · ')}.</p>}
           </div>
-          <label className="mt-3 block text-xs font-semibold text-slate-600">Ma résolution du mois (facultatif)
-            <textarea rows="2" maxLength="300" value={targetDraft.resolution} onChange={(event) => { setTargetDraft((value) => ({ ...value, resolution: event.target.value })); setTargetSaved(false); }} placeholder="Ex. Éviter un nouvel emprunt tant que la dette actuelle n’est pas réduite." className="mt-1.5 w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-normal text-slate-900"/>
-          </label>
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {[
+              ['incomeTarget', 'Objectif de revenus'],
+              ['expenseLimit', 'Plafond des dépenses courantes'],
+              ['debtLimit', 'Plafond des nouvelles dettes contractées'],
+              ['loanGivenLimit', 'Plafond des prêts accordés aux autres'],
+            ].map(([field, label]) => <label key={field} className="block text-xs font-semibold text-slate-600">{label} (FCFA)
+              <input type="number" min="0" step="1" inputMode="numeric" value={targetDraft[field]} onChange={(event) => { setTargetDraft((value) => ({ ...value, [field]: event.target.value })); setTargetSaved(false); }} placeholder="Montant à définir" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-900"/>
+            </label>)}
+          </div>
+          <div className="mt-4">
+            <p className="text-xs font-bold text-slate-700">Mes résolutions suivies par Pata</p>
+            <p className="mt-1 text-[11px] text-slate-500">Coche les engagements que tu choisis. Pata te les rappellera au bon moment, sans t’empêcher de décider.</p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {FINANCIAL_RESOLUTIONS.map((item) => <label key={item.id} className="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 bg-white p-2.5">
+                <input type="checkbox" checked={targetDraft.resolutions.includes(item.id)} onChange={(event) => {
+                  setTargetDraft((value) => ({ ...value, resolutions: event.target.checked ? [...value.resolutions, item.id] : value.resolutions.filter((id) => id !== item.id) })); setTargetSaved(false);
+                }} className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-700"/>
+                <span><strong className="block text-xs text-slate-800">{item.label}</strong><span className="mt-0.5 block text-[10px] leading-4 text-slate-500">{item.description}</span></span>
+              </label>)}
+            </div>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="rounded-lg bg-slate-50 p-2"><p className="text-[10px] text-slate-500">Revenus réalisés</p><p className="mt-1 text-sm font-bold">{formatCurrency(actualTargetPeriod.income)}</p></div>
+            <div className="rounded-lg bg-slate-50 p-2"><p className="text-[10px] text-slate-500">Dépenses courantes</p><p className="mt-1 text-sm font-bold">{formatCurrency(actualTargetPeriod.expense)}</p></div>
+            <div className="rounded-lg bg-slate-50 p-2"><p className="text-[10px] text-slate-500">Dettes contractées</p><p className="mt-1 text-sm font-bold">{formatCurrency(actualTargetPeriod.borrowed)}</p></div>
+            <div className="rounded-lg bg-slate-50 p-2"><p className="text-[10px] text-slate-500">Prêts accordés</p><p className="mt-1 text-sm font-bold">{formatCurrency(actualTargetPeriod.granted)}</p></div>
+          </div>
           {targetError && <p role="alert" className="mt-3 text-xs text-red-600">{targetError}</p>}
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-            <p className="text-[11px] leading-4 text-slate-500">Les emprunts restent distincts des revenus gagnés. Le plafond des dettes suit le montant des nouveaux emprunts.</p>
-            <button type="button" onClick={saveFinancialTargets} disabled={targetSaving} className="min-h-10 rounded-xl bg-brand-700 px-4 text-xs font-bold text-white transition hover:bg-brand-800 disabled:opacity-50">{targetSaving ? 'Enregistrement…' : 'Enregistrer mes objectifs'}</button>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+            <button type="button" onClick={() => {
+              const prompt = 'Analyse mes objectifs financiers pour ' + targetPeriodType + ' (' + targetPeriodBounds.start + ' au ' + targetPeriodBounds.end + '). Historique sur 90 jours : revenus mensuels moyens ' + targetSuggestions.history.averageMonthlyIncome + ' FCFA, dépenses courantes moyennes ' + targetSuggestions.history.averageMonthlyExpense + ' FCFA, emprunts mensuels moyens ' + targetSuggestions.history.averageMonthlyBorrowed + ' FCFA, prêts accordés mensuels moyens ' + targetSuggestions.history.averageMonthlyGrantedLoans + ' FCFA. Principales catégories : ' + targetSuggestions.topCategories.map((item) => item.label + ' ' + item.amount + ' FCFA/mois').join(', ') + '. Objectifs choisis : revenus ' + targetDraft.incomeTarget + ', dépenses ' + targetDraft.expenseLimit + ', nouvelles dettes ' + targetDraft.debtLimit + ', prêts accordés ' + targetDraft.loanGivenLimit + ' FCFA. Résolutions cochées : ' + targetDraft.resolutions.join(', ') + '. Donne-moi des conseils concrets et adaptés : actions pour augmenter mes revenus, réduire mes dépenses dans les catégories où je dépense le plus, respecter mes plafonds et tenir mes engagements. Explique des actions réalistes, sans culpabiliser ni modifier mes données.';
+              window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt } }));
+            }} className="min-h-10 rounded-xl border border-slate-200 bg-white px-4 text-xs font-bold text-brand-800 hover:bg-slate-50">Analyser avec l’IA</button>
+            <button type="button" onClick={saveFinancialTargets} disabled={targetSaving} className="min-h-10 rounded-xl bg-brand-700 px-4 text-xs font-bold text-white transition hover:bg-brand-800 disabled:opacity-50">{targetSaving ? 'Enregistrement…' : 'Valider et enregistrer'}</button>
           </div>
         </>}
       </section>

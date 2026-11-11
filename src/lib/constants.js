@@ -67,11 +67,11 @@ export const EXPENSE_CATEGORIES = [
     keywords: ['wifi', 'internet', 'box', 'abonnement internet']
   },
   {
-    id: 'airtime',
-    label: 'Airtime / Crédit téléphone',
-    color: '#0284c7',
-    image: IMAGES.internet,
-    keywords: ['airtime', 'recharge', 'crédit téléphone', 'crédit téléphonique', 'forfait mobile', 'appel', 'communication']
+    id: 'gift_donation',
+    label: 'Don / Cadeau',
+    color: '#ec4899',
+    image: IMAGES.other,
+    keywords: ['don', 'cadeau', 'offrande', 'aumône', 'aide offerte', 'geste', 'anniversaire', 'soutien financier']
   },
   {
     id: 'debt_repayment',
@@ -150,5 +150,16 @@ export const BUDGET_RULES = {
   health:    { label: 'Santé / Urgences', percent: 10 },
   other:     { label: 'Autre',            percent: 5  },
 };
+
+export const LEGACY_EXPENSE_CATEGORY_ALIASES = {
+  airtime: 'internet',
+  telecom: 'internet',
+  telecom_internet: 'internet',
+};
+
+export function normalizeExpenseCategoryId(categoryId) {
+  const id = String(categoryId || '').trim();
+  return LEGACY_EXPENSE_CATEGORY_ALIASES[id] || id;
+}
 
 export const PENALTY_DEFAULT = 700;

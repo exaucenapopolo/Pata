@@ -33,6 +33,7 @@ import { useBudgets } from '@/hooks/useBudgets';
 import { OptionalTransactionFields } from '@/components/transactions/OptionalTransactionFields';
 import { DebtCounterpartyField } from '@/components/debts/DebtCounterpartyField';
 import { AssistantShortcut } from '@/components/ai/AssistantShortcut';
+import { checkFinancialOperation } from '@/lib/firestore/financialTargets';
 
 // 🟢 DATES LOCALES (Pas de décalage UTC)
 const todayMonth = () => {
@@ -388,6 +389,15 @@ export default function IncomePage() {
     if (form.flowType === 'repayment_received' && !form.repaymentDebtId) return setError('Choisis la créance remboursée.');
     setSaving(true);
     try {
+      if (!form.id && form.flowType === 'debt_borrowed') {
+        const check = await checkFinancialOperation({
+          operationType: 'debt_borrowed', amount, date: form.date, categoryId: 'debt_borrowed',
+        });
+        if (check.warnings?.length && !window.confirm(
+          'Petit rappel de Pata :\n\n' + check.warnings.join('\n\n')
+          + '\n\nTu peux respecter ton engagement et annuler, ou continuer quand même. Souhaites-tu poursuivre ?'
+        )) return;
+      }
       const payload = {
         amount, source: form.flowType === 'debt_borrowed' ? debtCreditorName : form.source,
         categoryId: form.flowType === 'debt_borrowed' ? 'debt_borrowed' : form.flowType === 'repayment_received' ? 'debt_repayment_received' : form.categoryId,

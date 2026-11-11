@@ -2483,25 +2483,176 @@ async function handleUpsertBudget(request) {
   }
 }
 
+function getFinancialTargetRange(periodType, periodKey) {
+  if (periodType === 'day') {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(periodKey)) throw new Error('Date journalière invalide.');
+    return { start: periodKey, end: periodKey, id: 'day_' + periodKey, label: 'la journée' };
+  }
+  if (periodType === 'week') {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(periodKey)) throw new Error('Date hebdomadaire invalide.');
+    const [year, month, day] = periodKey.split('-').map(Number);
+    const source = new Date(Date.UTC(year, month - 1, day));
+    const offset = (source.getUTCDay() + 6) % 7;
+    source.setUTCDate(source.getUTCDate() - offset);
+    const start = source.toISOString().slice(0, 10);
+    source.setUTCDate(source.getUTCDate() + 6);
+    const end = source.toISOString().slice(0, 10);
+    return { start, end, id: 'week_' + start, label: 'la semaine' };
+  }
+  if (periodType === 'month') {
+    if (!/^\d{4}-\d{2}$/.test(periodKey)) throw new Error('Période mensuelle invalide.');
+    const [year, month] = periodKey.split('-').map(Number);
+    const lastDay = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+    return { start: periodKey + '-01', end: lastDay, id: periodKey, label: 'le mois' };
+  }
+  throw new Error('Type de période invalide.');
+}
+
+function financialTargetIndexEntry(range, target = {}) {
+  return {
+    id: range.id,
+    start: range.start,
+    end: range.end,
+    label: range.label,
+    periodType: target.periodType || range.periodType || '',
+    periodKey: target.periodKey || '',
+    incomeTarget: target.incomeTarget ?? null,
+    expenseLimit: target.expenseLimit ?? null,
+    debtLimit: target.debtLimit ?? null,
+    loanGivenLimit: target.loanGivenLimit ?? null,
+    resolutions: Array.isArray(target.resolutions) ? target.resolutions : [],
+  };
+}
+
+async function checkFinancialOperation(uid, body) {
+  const operationType = String(body.operationType || '');
+  const date = String(body.date || new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Douala', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()));
+  const amount = Math.round(Number(body.amount));
+  if (!['expense', 'debt_borrowed', 'loan_given'].includes(operationType)
+    || !/^\d{4}-\d{2}-\d{2}$/.test(date)
+    || !Number.isSafeInteger(amount) || amount <= 0 || amount > 1_000_000_000) {
+    return errorResponse('Opération financière ou montant invalide.', 400);
+  }
+  const userRef = adminDb.collection('users').doc(uid);
+  const weekRange = getFinancialTargetRange('week', date);
+  const ranges = [
+    getFinancialTargetRange('day', date),
+    weekRange,
+    getFinancialTargetRange('month', date.slice(0, 7)),
+  ];
+  const userSnapshot = await userRef.get();
+  if (!userSnapshot.exists) return errorResponse('Profil utilisateur introuvable.', 404);
+  const index = { ...(userSnapshot.data()?.financialTargetsIndex || {}) };
+  const missingRanges = ranges.filter((range) => !Object.prototype.hasOwnProperty.call(index, range.id));
+  if (missingRanges.length) {
+    const snapshots = await Promise.all(missingRanges.map((range) => userRef.collection('financialTargets').doc(range.id).get()));
+    snapshots.forEach((snapshot, position) => {
+      const range = missingRanges[position];
+      index[range.id] = snapshot.exists
+        ? financialTargetIndexEntry(range, snapshot.data() || {})
+        : { id: range.id, start: range.start, end: range.end, label: range.label, empty: true, resolutions: [] };
+    });
+    await userRef.set({ financialTargetsIndex: index }, { merge: true });
+  }
+  const targets = ranges.map((range) => index[range.id]).filter((target) => target && !target.empty);
+  const warnings = [];
+  const currency = (value) => Number(value || 0).toLocaleString('fr-FR') + ' FCFA';
+  const hasResolution = (target, id) => Array.isArray(target.resolutions) && target.resolutions.includes(id);
+  const queryStart = ranges.map((range) => range.start).sort()[0];
+  const queryEnd = ranges.map((range) => range.end).sort().slice(-1)[0];
+  const needsIncomeRecords = operationType === 'debt_borrowed'
+    && targets.some((target) => target.debtLimit !== undefined && target.debtLimit !== null);
+  const needsExpenseRecords = operationType === 'expense'
+    ? targets.some((target) => target.expenseLimit !== undefined && target.expenseLimit !== null)
+    : operationType === 'loan_given' && targets.some((target) => target.loanGivenLimit !== undefined && target.loanGivenLimit !== null);
+  const [incomeRecords, expenseRecords] = await Promise.all([
+    needsIncomeRecords ? userRef.collection('incomes').where('date', '>=', queryStart).where('date', '<=', queryEnd).get() : null,
+    needsExpenseRecords ? userRef.collection('expenses').where('date', '>=', queryStart).where('date', '<=', queryEnd).get() : null,
+  ]);
+  const sumInRange = (snapshot, target, predicate) => (snapshot?.docs || []).reduce((sum, document) => {
+    const item = document.data() || {};
+    if (item.date < target.start || item.date > target.end || !predicate(item)) return sum;
+    return sum + (Number(item.amount) || 0);
+  }, 0);
+
+  for (const target of targets) {
+    const periodLabel = target.label;
+    if (operationType === 'debt_borrowed') {
+      if (hasResolution(target, 'avoid_new_borrowing')) {
+        warnings.push('Tu avais choisi de ne pas contracter de nouvel emprunt pendant ' + periodLabel + '.');
+      }
+      if (hasResolution(target, 'reduce_debt_before_borrowing')) {
+        warnings.push('Tu avais choisi de réduire ta dette actuelle avant de reprendre un emprunt (' + periodLabel + ').');
+      }
+      if (target.debtLimit !== undefined && target.debtLimit !== null) {
+        const current = sumInRange(incomeRecords, target,
+          (item) => item.flowType === 'debt_borrowed' || item.categoryId === 'debt_borrowed');
+        const limit = Number(target.debtLimit) || 0;
+        if (current + amount > limit) warnings.push('Ce nouvel emprunt ferait dépasser ton plafond choisi de ' + currency(limit) + ' pour ' + periodLabel + '.');
+      }
+    } else if (operationType === 'loan_given') {
+      if (hasResolution(target, 'avoid_new_loans')) {
+        warnings.push('Tu avais choisi de limiter les nouveaux prêts accordés pendant ' + periodLabel + '.');
+      }
+      if (target.loanGivenLimit !== undefined && target.loanGivenLimit !== null) {
+        const current = sumInRange(expenseRecords, target,
+          (item) => item.flowType === 'loan_given' || item.categoryId === 'loan_given');
+        const limit = Number(target.loanGivenLimit) || 0;
+        if (current + amount > limit) warnings.push('Ce prêt ferait dépasser ton plafond de prêts accordés de ' + currency(limit) + ' pour ' + periodLabel + '.');
+      }
+    } else if (operationType === 'expense') {
+      if (target.expenseLimit !== undefined && target.expenseLimit !== null) {
+        const current = sumInRange(expenseRecords, target, (item) => {
+          const excluded = item.neutralFlow === true || item.flowType === 'loan_given'
+            || item.flowType === 'repayment' || ['loan_given', 'debt_repayment'].includes(item.categoryId)
+            || (item.expenseType && item.expenseType !== 'consumption');
+          return !excluded;
+        });
+        const limit = Number(target.expenseLimit) || 0;
+        if (current + amount > limit) warnings.push('Cette dépense ferait dépasser ton plafond de dépenses courantes de ' + currency(limit) + ' pour ' + periodLabel + '.');
+      }
+      if (String(body.categoryId || '') === 'food' && hasResolution(target, 'protect_food_budget')) {
+        warnings.push('Tu avais choisi de mieux maîtriser tes dépenses de nourriture pendant ' + periodLabel + '.');
+      }
+      if (['leisure', 'gift_donation', 'other'].includes(String(body.categoryId || ''))
+        && hasResolution(target, 'avoid_impulse_spending')) {
+        warnings.push('Tu avais choisi d’éviter les achats impulsifs et non prévus pendant ' + periodLabel + '.');
+      }
+    }
+  }
+  return NextResponse.json({ success: true, requiresConfirmation: warnings.length > 0, warnings: [...new Set(warnings)] });
+}
+
 async function handleFinancialTargets(request) {
   try {
     const { uid } = await authenticate(request);
     const userRef = adminDb.collection('users').doc(uid);
     const targetCollection = userRef.collection('financialTargets');
     if (request.method === 'GET') {
-      const month = String(new URL(request.url).searchParams.get('month') || getDoualaMonthKey());
-      if (!/^\d{4}-\d{2}$/.test(month)) return errorResponse('Période invalide.', 400);
-      const snapshot = await targetCollection.doc(month).get();
-      return NextResponse.json({ success: true, month, target: snapshot.exists ? { id: snapshot.id, ...serializeAdminValue(snapshot.data()) } : null });
+      const url = new URL(request.url);
+      const periodType = String(url.searchParams.get('periodType') || 'month');
+      const periodKey = String(url.searchParams.get('periodKey') || url.searchParams.get('month') || getDoualaMonthKey());
+      const range = getFinancialTargetRange(periodType, periodKey);
+      const snapshot = await targetCollection.doc(range.id).get();
+      return NextResponse.json({
+        success: true, periodType, periodKey, month: periodType === 'month' ? periodKey : undefined,
+        target: snapshot.exists ? { id: snapshot.id, ...serializeAdminValue(snapshot.data()) } : null,
+      });
     }
     const body = await request.json();
-    const month = String(body.month || getDoualaMonthKey());
-    if (!/^\d{4}-\d{2}$/.test(month)) return errorResponse('Période invalide.', 400);
-    const targetRef = targetCollection.doc(month);
-    const updates = { month, status: 'active', source: 'manual', updatedAt: FieldValue.serverTimestamp() };
-    const returned = { month };
+    if (body.action === 'check-operation') return checkFinancialOperation(uid, body);
+    const periodType = String(body.periodType || 'month');
+    const periodKey = String(body.periodKey || body.month || getDoualaMonthKey());
+    const range = getFinancialTargetRange(periodType, periodKey);
+    const month = periodType === 'month' ? periodKey : undefined;
+    const targetRef = targetCollection.doc(range.id);
+    const updates = {
+      periodType, periodKey, ...(month ? { month } : {}),
+      status: 'active', source: 'user_choice', updatedAt: FieldValue.serverTimestamp(),
+    };
+    const returned = { periodType, periodKey, ...(month ? { month } : {}) };
     let changes = 0;
-    for (const field of ['incomeTarget', 'expenseLimit', 'debtLimit']) {
+    for (const field of ['incomeTarget', 'expenseLimit', 'debtLimit', 'loanGivenLimit']) {
       if (!Object.prototype.hasOwnProperty.call(body, field)) continue;
       const raw = body[field];
       if (raw === null || raw === '') {
@@ -2515,17 +2666,61 @@ async function handleFinancialTargets(request) {
       }
       changes += 1;
     }
+    if (Object.prototype.hasOwnProperty.call(body, 'resolutions')) {
+      const allowed = new Set([
+        'avoid_new_borrowing', 'reduce_debt_before_borrowing', 'avoid_new_loans',
+        'protect_food_budget', 'avoid_impulse_spending', 'save_regularly', 'grow_income', 'plan_gifts',
+      ]);
+      const resolutions = Array.isArray(body.resolutions)
+        ? [...new Set(body.resolutions.map((value) => String(value || '').trim()).filter((value) => allowed.has(value)))].slice(0, 8)
+        : [];
+      updates.resolutions = resolutions;
+      returned.resolutions = resolutions;
+      changes += 1;
+    }
     if (Object.prototype.hasOwnProperty.call(body, 'resolution')) {
       const resolution = String(body.resolution || '').trim().slice(0, 300);
       updates.resolution = resolution || FieldValue.delete();
       returned.resolution = resolution || null;
       changes += 1;
     }
-    if (!changes) return errorResponse('Indique au moins un objectif à enregistrer.', 400);
+    if (!changes) return errorResponse('Indique au moins un objectif ou un engagement à enregistrer.', 400);
     await adminDb.runTransaction(async (transaction) => {
-      const userSnap = await transaction.get(userRef);
+      const [userSnap, targetSnap] = await Promise.all([
+        transaction.get(userRef),
+        transaction.get(targetRef),
+      ]);
       if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
+      const currentTarget = targetSnap.exists ? (targetSnap.data() || {}) : {};
+      const nextTarget = {
+        ...currentTarget,
+        periodType,
+        periodKey,
+        ...(month ? { month } : {}),
+      };
+      for (const field of ['incomeTarget', 'expenseLimit', 'debtLimit', 'loanGivenLimit']) {
+        if (!Object.prototype.hasOwnProperty.call(body, field)) continue;
+        if (body[field] === null || body[field] === '') delete nextTarget[field];
+        else nextTarget[field] = Number(body[field]);
+      }
+      if (Object.prototype.hasOwnProperty.call(body, 'resolutions')) {
+        nextTarget.resolutions = Array.isArray(body.resolutions) ? updates.resolutions : [];
+      }
+      if (Object.prototype.hasOwnProperty.call(body, 'resolution')) {
+        nextTarget.resolution = returned.resolution || '';
+      }
+      const index = { ...(userSnap.data()?.financialTargetsIndex || {}) };
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - 60);
+      const cutoff = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Africa/Douala', year: 'numeric', month: '2-digit', day: '2-digit',
+      }).format(cutoffDate);
+      Object.keys(index).forEach((key) => {
+        if (index[key]?.end && index[key].end < cutoff) delete index[key];
+      });
+      index[range.id] = financialTargetIndexEntry(range, nextTarget);
       transaction.set(targetRef, updates, { merge: true });
+      transaction.set(userRef, { financialTargetsIndex: index }, { merge: true });
     });
     return NextResponse.json({ success: true, ...returned });
   } catch (error) {
