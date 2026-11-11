@@ -21,7 +21,7 @@ test('priorise les dettes à payer et les factures proches après un revenu', ()
   assert.equal(result.target, '/debts');
   assert.match(result.body, /15/);
   assert.match(result.body, /Facture ENEO/);
-  assert.match(result.body, /ne déplace pas ton argent automatiquement/);
+  assert.match(result.body, /ne déplace rien automatiquement/);
 });
 
 test('ignore les créances à recevoir, les dettes soldées et les factures éloignées', () => {

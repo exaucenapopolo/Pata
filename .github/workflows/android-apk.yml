@@ -58,6 +58,9 @@ jobs:
       - name: Tester les parseurs SMS
         run: npm run test:sms
 
+      - name: Tester les priorités après réception d’un revenu
+        run: npm run test:finance-priorities
+
       - name: Tester les notifications Web Push
         run: npm run test:notifications
 

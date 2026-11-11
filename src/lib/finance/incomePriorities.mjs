@@ -1,6 +1,6 @@
 function validDate(value) {
   const date = String(value || '').slice(0, 10);
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
   const parsed = new Date(date + 'T00:00:00Z');
   return Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date ? null : date;
 }
@@ -40,10 +40,10 @@ export function buildIncomePriorityReminder({ amount, debts = [], bills = [], to
     const estimate = Number(bill.amount) > 0 ? ' (' + money(bill.amount) + ')' : '';
     priorities.push(String(bill.name || 'Facture').slice(0, 45) + ' : ' + dueLabel + estimate);
   });
-  const priorityText = priorities.join(' ; ');
+  const priorityText = priorities.slice(0, 3).join(' ; ').slice(0, 105);
   const title = 'Ton revenu est enregistré : pense à tes engagements';
-  const body = ('Un revenu de ' + money(amount) + ' vient d’être enregistré. Avant de répartir le reste, vérifie : '
-    + priorityText + '. Choisis toi-même ce que tu souhaites réserver ; Pata ne déplace pas ton argent automatiquement.').slice(0, 220);
+  const body = ('Revenu ' + money(amount) + ' reçu. À vérifier avant de répartir : '
+    + priorityText + '. Réserve ce que tu choisis ; Pata ne déplace rien automatiquement.').slice(0, 220);
   return {
     title,
     body,
