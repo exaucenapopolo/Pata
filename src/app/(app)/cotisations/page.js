@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/Button';
+import { getPreferredLocale } from '@/lib/utils';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { Users, Plus, Copy, RefreshCw, Wallet, CalendarDays, ArrowDownToLine, Clock3, CheckCircle2, AlertCircle, ArrowUp, ArrowDown, PlayCircle, Save, Pin, ChevronDown, ChevronUp } from 'lucide-react';
 
-const currency = (value) => new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 }).format(Number(value) || 0) + ' FCFA';
+const currency = (value) => new Intl.NumberFormat(getPreferredLocale(), { maximumFractionDigits: 0 }).format(Number(value) || 0) + ' FCFA';
 const today = () => {
   const d = new Date();
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
@@ -420,7 +421,7 @@ export default function CotisationsPage() {
       <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
         <div className="mb-3 flex items-center justify-between gap-3"><div><h2 className="text-base font-bold text-slate-900">Historique des retraits</h2><p className="mt-1 text-xs text-slate-500">Demandes que tu as faites comme bénéficiaire d’un groupe.</p></div><CalendarDays size={18} className="text-slate-400"/></div>
         {history.length === 0 ? <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-500">Aucune demande de retrait pour le moment.</p>
-          : <div className="divide-y divide-slate-100">{history.map((item) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 py-3"><div><p className="text-sm font-semibold text-slate-800">{item.goalName || 'Cotisation'}</p><p className="mt-0.5 text-[11px] text-slate-500">{item.createdAt ? new Date(item.createdAt).toLocaleString('fr-FR') : 'Date non disponible'}</p></div><div className="text-right"><p className="text-sm font-bold text-slate-900">{currency(item.amount)}</p><span className="text-[10px] font-semibold text-slate-500">{statusLabels[item.status] || item.status}</span></div></div>)}</div>}
+          : <div className="divide-y divide-slate-100">{history.map((item) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 py-3"><div><p className="text-sm font-semibold text-slate-800">{item.goalName || 'Cotisation'}</p><p className="mt-0.5 text-[11px] text-slate-500">{item.createdAt ? new Date(item.createdAt).toLocaleString(getPreferredLocale()) : 'Date non disponible'}</p></div><div className="text-right"><p className="text-sm font-bold text-slate-900">{currency(item.amount)}</p><span className="text-[10px] font-semibold text-slate-500">{statusLabels[item.status] || item.status}</span></div></div>)}</div>}
       </section>
 
       <section className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs leading-5 text-slate-600">
