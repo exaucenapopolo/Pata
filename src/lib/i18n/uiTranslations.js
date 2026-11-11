@@ -1547,4 +1547,13 @@ export const extendedTranslations = {
   "You have {remaining} free budget creation(s) left this month, but this allocation requires {required}. Existing budgets can be edited without using another creation.": "You have {remaining} free budget creation(s) left this month, but this allocation requires {required}. Existing budgets can be edited without using another creation.",
   "Could not save the language. Check your connection and try again.": "Could not save the language. Check your connection and try again.",
   "Impossible d’enregistrer la langue. Vérifie ta connexion puis réessaie.": "Could not save the language. Check your connection and try again.",
+
+  // Final static and dynamic text coverage from the app-wide audit
+  ". Les frais de service de 5 % sont calculés automatiquement. Le montant total du tour, majorations comprises, ne peut pas dépasser 500 000 FCFA.": ". The 5% service fee is calculated automatically. The total amount for a round, including late fees, cannot exceed XAF 500,000.",
+  "Suis les revenus affectés, les emprunts réservés à un projet et les sorties correspondantes, sans confondre financement et revenu gagné.": "Track income allocated to projects, loans assigned to a project and related outflows without confusing financing with earned income.",
+  "Aucun projet enregistré. Crée un projet Premium pour suivre les dépenses d’une construction, d’un équipement ou d’un achat important.": "No projects have been recorded. Create a Premium project to track spending on construction, equipment or an important purchase.",
+  "La première occurrence sera programmée après la dépense choisie. Tu pourras ensuite gérer cette opération dans les automatisations.": "The first occurrence will be scheduled after the selected expense. You can then manage this transaction in Automations.",
+  "Gère ton argent, discipline ton épargne.": "Manage your money and build disciplined savings.",
+  "Pata est créé et exploité sous la responsabilité de NAPOPOLO EXAUCE. Pour toute question sur les données ou pour exercer une demande, utilise le canal d’assistance affiché dans l’application.": "Pata is created and operated under the responsibility of NAPOPOLO EXAUCE. For questions about your data or to submit a request, use the support channel displayed in the app.",
+  "Afficher les projets terminés et archivés ({count})": "Show completed and archived projects ({count})",
 };
