@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Download, FileSpreadsheet, FileText, BarChart3, Wallet, Target, PiggyBank, MessageCircle, CalendarRange, TrendingUp, TrendingDown } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, CartesianGrid } from 'recharts';
 import { Button } from '@/components/ui/Button';
+import { MonthPicker } from '@/components/ui/MonthPicker';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useExpenses } from '@/hooks/useExpenses';
@@ -291,7 +292,7 @@ export default function ReportsPage() {
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           {periodType==='day' && <label className="text-xs font-medium text-slate-500">Journée<input type="date" value={selectedDay} onChange={(e)=>setSelectedDay(e.target.value)} className="mt-1 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-800"/></label>}
           {periodType==='week' && <label className="text-xs font-medium text-slate-500">Semaine contenant le<input type="date" value={selectedWeekDate} onChange={(e)=>setSelectedWeekDate(e.target.value)} className="mt-1 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-800"/></label>}
-          {periodType==='month' && <label className="text-xs font-medium text-slate-500">Mois<input type="month" value={month} onChange={(e)=>setMonth(e.target.value)} className="mt-1 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-800"/></label>}
+          {periodType==='month' && <label className="text-xs font-medium text-slate-500">{isEnglish ? 'Month' : 'Mois'}<MonthPicker value={month} onChange={setMonth} className="mt-1 w-full"/></label>}
           {periodType==='year' && <label className="text-xs font-medium text-slate-500">Année<input type="number" min="2000" max="2100" value={year} onChange={(e)=>setYear(e.target.value)} className="mt-1 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-800"/></label>}
           {periodType==='custom' && <><label className="text-xs font-medium text-slate-500">Du<input type="date" value={customStart} onChange={(e)=>setCustomStart(e.target.value)} className="mt-1 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-800"/></label><label className="text-xs font-medium text-slate-500">Au<input type="date" value={customEnd} onChange={(e)=>setCustomEnd(e.target.value)} className="mt-1 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-800"/></label></>}
         </div>
