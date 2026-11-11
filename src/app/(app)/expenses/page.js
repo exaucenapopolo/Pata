@@ -511,8 +511,8 @@ export default function ExpensesPage() {
                       <button type="button" onClick={() => setSelectedExpense(e)} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-1 py-1 text-left transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-200">
                         <CategoryImage categoryId={e.categoryId} image={cat?.image} size="md" />
                         <span className="min-w-0 flex-1">
-                          <strong className="block truncate text-sm text-slate-800">{cat?.label || 'Autre'}</strong>
-                          <span className="mt-0.5 block text-[10px] font-semibold text-brand-700">{e.neutralFlow ? 'Mouvement neutre · Prêt accordé' : e.repaymentDebtId ? 'Remboursement de dette' : ({ consumption: 'Dépense courante', project: 'Sortie de projet', savings: 'Épargne', investment: 'Investissement' })[e.expenseType || 'consumption']}{e.projectName ? ` · ${e.projectName}` : ''}</span>
+                          <strong className="block truncate text-sm text-slate-800">{e.cashWithdrawal ? 'Retrait Mobile Money vers espèces' : cat?.label || 'Autre'}</strong>
+                          <span className="mt-0.5 block text-[10px] font-semibold text-brand-700">{e.cashWithdrawal ? 'Mouvement neutre · Transfert vers espèces' : e.neutralFlow ? 'Mouvement neutre · Prêt accordé' : e.repaymentDebtId ? 'Remboursement de dette' : ({ consumption: 'Dépense courante', project: 'Sortie de projet', savings: 'Versement d’épargne', investment: 'Investissement' })[e.expenseType || 'consumption']}{e.projectName ? ` · ${e.projectName}` : ''}</span>
                           <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-500">
                             {e.note && <span className="max-w-[160px] truncate">{e.note}</span>}
                             {e.time && <span className="inline-flex items-center gap-1"><Clock3 size={11}/>{e.time}</span>}
@@ -604,7 +604,7 @@ export default function ExpensesPage() {
                   disabled={inc.isExhausted && form.incomeSourceId !== inc.id}
                   className={inc.isExhausted ? 'text-slate-400' : ''}
                 >
-                  {inc.source} ({formatCurrency(inc.remaining)} restant) {inc.isExhausted ? '— Épuisé' : ''}
+                  {inc.cashPocket ? 'Espèces · ' + (inc.cashPocketProvider === 'mtn_momo' ? 'MTN MoMo' : 'Orange Money') : inc.source} ({formatCurrency(inc.remaining)} restant) {inc.isExhausted ? '— Épuisé' : ''}
                 </option>
               ))}
             </select>
@@ -674,7 +674,7 @@ export default function ExpensesPage() {
               </div>
               {selectedExpense.latitude != null && selectedExpense.longitude != null && <a href={'https://www.google.com/maps?q=' + selectedExpense.latitude + ',' + selectedExpense.longitude} target="_blank" rel="noreferrer" className="block rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-brand-800 hover:bg-brand-50">Voir la position sur la carte</a>}
               <AssistantShortcut label="Analyser cette dépense avec Mč" prompt={`Analyse cette dépense dans Pata : ${selectedExpense.amount} FCFA, catégorie ${category?.label || selectedExpense.categoryId}, date ${selectedExpense.date || 'non précisée'}, lieu ${selectedExpense.locationLabel || 'non renseigné'}, note ${selectedExpense.note || 'aucune'}. Explique son impact sur mon budget et donne un conseil concret sans modifier mes données.`}/>
-              {selectedExpense.neutralFlow || selectedExpense.debtId || selectedExpense.repaymentDebtId ? <p className="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">Ce mouvement est lié au module Dettes & prêts. Sa modification et sa suppression sont protégées pour conserver le solde et l’historique des remboursements.</p> : <><div className="grid grid-cols-2 gap-2">
+              {selectedExpense.cashWithdrawal ? <p className="rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900">Ce mouvement a transféré de l’argent du portefeuille Mobile Money vers ta poche espèces. Il est neutre : il ne représente ni une consommation ni une dépense budgétaire. Les dépenses ultérieures payées en espèces doivent être rattachées à la source Espèces.</p> : selectedExpense.neutralFlow || selectedExpense.debtId || selectedExpense.repaymentDebtId ? <p className="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">Ce mouvement est lié au module Dettes & prêts. Sa modification et sa suppression sont protégées pour conserver le solde et l’historique des remboursements.</p> : <><div className="grid grid-cols-2 gap-2">
                 <Button type="button" variant="outline" onClick={() => { setSelectedExpense(null); openEdit(selectedExpense); }}><Pencil size={14}/> Modifier</Button>
                 <Button type="button" variant="outline" onClick={() => { setDeleteId(selectedExpense.id); setSelectedExpense(null); }} className="border-red-200 text-red-700 hover:bg-red-50"><Trash2 size={14}/> Supprimer</Button>
               </div>

@@ -148,6 +148,8 @@ export default function IncomePage() {
 
   const activeIncomes = useMemo(() => incomesWithBalance.filter(i => !i.neutralFlow && !i.isExhausted), [incomesWithBalance]);
   const totalAvailable = activeIncomes.reduce((s, i) => s + i.remaining, 0);
+  const cashPocketBalances = useMemo(() => incomesWithBalance.filter((item) => item.cashPocket === true), [incomesWithBalance]);
+  const cashAvailable = cashPocketBalances.reduce((sum, item) => sum + item.remaining, 0);
   const currentMonthKey = todayMonth();
   const premiumUntilDate = profile?.premiumUntil?.toDate ? profile.premiumUntil.toDate() : new Date(profile?.premiumUntil || 0);
   const premiumActive = Number.isFinite(premiumUntilDate.getTime()) && premiumUntilDate > new Date();
@@ -472,7 +474,7 @@ export default function IncomePage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Revenus</h1>
           <p className="text-sm text-slate-500">
-            {activeIncomes.length} source(s) active(s) — Disponible : <span className="font-semibold text-brand-600">{formatCurrency(totalAvailable)}</span>
+            {activeIncomes.length} source(s) de revenu active(s) — Disponible : <span className="font-semibold text-brand-600">{formatCurrency(totalAvailable)}</span> · Espèces disponibles : <span className="font-semibold text-slate-700">{formatCurrency(cashAvailable)}</span>
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -643,8 +645,8 @@ export default function IncomePage() {
                     <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700"><Landmark size={18}/></span>
                     <span className="min-w-0">
                       <span className="flex flex-wrap items-center gap-2"><strong className="truncate text-sm text-slate-900">{inc.source}</strong>{inc.isExhausted && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">Épuisé</span>}</span>
-                      <span className="mt-0.5 block text-xs text-slate-500">{formatDate(inc.date)} · {INCOME_CATEGORIES.find(c => c.id === inc.categoryId)?.label || 'Revenu'}</span>
-                      {inc.neutralFlow && <span className="mt-1 inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">Mouvement neutre · Dette contractée</span>}
+                      <span className="mt-0.5 block text-xs text-slate-500">{formatDate(inc.date)} · {inc.cashPocket ? 'Portefeuille espèces' : INCOME_CATEGORIES.find(c => c.id === inc.categoryId)?.label || 'Revenu'}</span>
+                      {inc.cashPocket ? <span className="mt-1 inline-flex rounded-md bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">Espèces · transfert depuis Mobile Money</span> : inc.neutralFlow && <span className="mt-1 inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">Mouvement neutre · Dette contractée</span>}
                       {inc.repaymentDebtId && <span className="mt-1 inline-flex rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Remboursement reçu</span>}
                       <span className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-slate-400">{inc.time && <span className="inline-flex items-center gap-1"><Clock3 size={10}/>{inc.time}</span>}{inc.locationLabel && <span className="inline-flex max-w-[150px] items-center gap-1 truncate"><MapPin size={10}/>{inc.locationLabel}</span>}</span>
                     </span>
@@ -654,7 +656,7 @@ export default function IncomePage() {
                 <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2">
                   <span className="text-[11px] text-slate-500">{inc.isExhausted && inc.exhaustedDate ? `Épuisé le ${formatDate(inc.exhaustedDate)}` : `Disponible : ${formatCurrency(inc.remaining)}`}</span>
                   <span className="flex items-center gap-1">
-                    <button type="button" onClick={() => setDeleteId(inc.id)} className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600" aria-label="Supprimer ce revenu"><Trash2 size={14}/></button>
+                    {!inc.neutralFlow && <button type="button" onClick={() => setDeleteId(inc.id)} className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600" aria-label="Supprimer ce revenu"><Trash2 size={14}/></button>}
                   </span>
                 </div>
                 {!inc.isExhausted && <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-brand-500" style={{width: `${inc.amount > 0 ? Math.min(100, (inc.spent / inc.amount) * 100) : 0}%`}}/></div>}
@@ -710,14 +712,14 @@ export default function IncomePage() {
         </Card>
       )}
 
-      <Modal open={!!selectedIncome} onClose={() => setSelectedIncome(null)} title="Détail du revenu">
+      <Modal open={!!selectedIncome} onClose={() => setSelectedIncome(null)} title={selectedIncome?.cashPocket ? 'Détail des espèces' : 'Détail du revenu'}>
         {selectedIncome && (() => {
           const methodLabels = { cash: 'Espèces', mtn_momo: 'MTN Mobile Money', orange_money: 'Orange Money', bank_transfer: 'Virement bancaire', card: 'Carte bancaire', other: 'Autre moyen' };
           return (
             <div className="space-y-4">
               <div className="rounded-2xl bg-brand-50 p-4 text-center">
                 <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-brand-700"><TrendingUp size={22}/></span>
-                <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-brand-800">{INCOME_CATEGORIES.find((category) => category.id === selectedIncome.categoryId)?.label || 'Revenu'}</p>
+                <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-brand-800">{selectedIncome.cashPocket ? 'Poche espèces · mouvement neutre' : INCOME_CATEGORIES.find((category) => category.id === selectedIncome.categoryId)?.label || 'Revenu'}</p>
                 <p className="mt-1 text-2xl font-bold tracking-tight text-slate-900">{formatCurrency(selectedIncome.amount)}</p>
                 <p className="mt-1 text-xs text-slate-600">{selectedIncome.source}</p>
               </div>
@@ -731,7 +733,7 @@ export default function IncomePage() {
               </div>
               {selectedIncome.latitude != null && selectedIncome.longitude != null && <a href={'https://www.google.com/maps?q=' + selectedIncome.latitude + ',' + selectedIncome.longitude} target="_blank" rel="noreferrer" className="block rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-brand-800 hover:bg-brand-50">Voir la position sur la carte</a>}
               <AssistantShortcut label="Analyser ce revenu avec Mč" prompt={`Analyse ce revenu enregistré dans Pata : source ${selectedIncome.source || 'non précisée'}, montant ${selectedIncome.amount} FCFA, date ${selectedIncome.date || 'non précisée'}, catégorie ${selectedIncome.categoryId || 'non précisée'}. Explique son importance dans mon équilibre financier et propose des conseils concrets. Ne modifie aucune donnée.`}/>
-              {selectedIncome.flowType === 'debt_borrowed' && selectedIncome.debtId ? <div className="space-y-2"><p className="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">Cet emprunt reste un mouvement neutre. Tu peux uniquement modifier son affectation à un projet ; le montant, le créancier, l’échéance et le suivi de remboursement restent protégés.</p><Button type="button" variant="outline" className="w-full" onClick={() => openEditIncome(selectedIncome)}><Pencil size={14}/> Modifier l’affectation au projet</Button></div> : selectedIncome.neutralFlow || selectedIncome.debtId || selectedIncome.repaymentDebtId ? <p className="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">Ce mouvement est lié au suivi des Dettes & prêts. Pour préserver le solde restant et l’historique, sa modification ou sa suppression se gère dans cette rubrique.</p> : <div className="flex flex-wrap gap-2">
+              {selectedIncome.cashPocket ? <p className="rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900">Cet argent provient d’un retrait Mobile Money déjà enregistré. Il ne constitue pas un revenu : il représente ton argent disponible en espèces. Relie les prochaines dépenses payées en espèces à cette source pour suivre son solde sans compter le retrait comme une dépense.</p> : selectedIncome.flowType === 'debt_borrowed' && selectedIncome.debtId ? <div className="space-y-2"><p className="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">Cet emprunt reste un mouvement neutre. Tu peux uniquement modifier son affectation à un projet ; le montant, le créancier, l’échéance et le suivi de remboursement restent protégés.</p><Button type="button" variant="outline" className="w-full" onClick={() => openEditIncome(selectedIncome)}><Pencil size={14}/> Modifier l’affectation au projet</Button></div> : selectedIncome.neutralFlow || selectedIncome.debtId || selectedIncome.repaymentDebtId ? <p className="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">Ce mouvement est lié au suivi des Dettes & prêts. Pour préserver le solde restant et l’historique, sa modification ou sa suppression se gère dans cette rubrique.</p> : <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="outline" className="flex-1" onClick={() => openEditIncome(selectedIncome)}><Pencil size={14}/> Modifier</Button>
                 <Button type="button" variant="outline" className="flex-1 border-red-200 text-red-700 hover:bg-red-50" onClick={() => { setDeleteId(selectedIncome.id); setSelectedIncome(null); }}><Trash2 size={14}/> Supprimer</Button>
               </div>}

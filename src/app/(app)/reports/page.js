@@ -245,7 +245,7 @@ export default function ReportsPage() {
 
   const getRows = () => [
     ['Mouvement', 'Nature', 'Date', 'Libellé', 'Catégorie / source', `Montant (${getPreferredCurrencyCode()})`, 'Détail'],
-    ...periodIncomes.map((item) => ['Revenu', item.neutralFlow ? 'Dette contractée — mouvement neutre' : item.projectId ? 'Revenu réservé à un projet' : 'Revenu général', item.date || item.month, item.source || 'Revenu', item.categoryId || '', convertCurrencyAmount(Number(item.amount)||0), item.note || '']),
+    ...periodIncomes.map((item) => ['Revenu', item.cashPocket ? 'Espèces issues d’un retrait — transfert neutre' : item.neutralFlow ? 'Dette contractée — mouvement neutre' : item.projectId ? 'Revenu réservé à un projet' : 'Revenu général', item.date || item.month, item.source || 'Revenu', item.categoryId || '', convertCurrencyAmount(Number(item.amount)||0), item.note || '']),
     ...periodExpenses.map((item) => ['Sortie', item.neutralFlow ? 'Prêt accordé — mouvement neutre' : EXPENSE_TYPE_LABELS[getExpenseType(item)], item.date || '', item.note || 'Sortie', resolveCategory(item.categoryId, 'expense', customCategories).label, convertCurrencyAmount(Number(item.amount)||0), item.incomeSourceName || '']),
     ...periodWalletDeposits.map((item) => ['Mouvement', 'Recharge portefeuille', item.createdAt?.toDate ? item.createdAt.toDate().toISOString().slice(0,10) : '', 'Recharge Pata', item.status || '', convertCurrencyAmount(Number(item.amount)||0), item.phone || '']),
     ...budgetAnalysis.map((item) => ['Budget', 'Dépense courante', item.month, item.category, 'Montant consommé / alloué', convertCurrencyAmount(item.spent), `${formatCurrency(item.allocated)} alloués`]),
