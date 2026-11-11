@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { LockKeyhole, ShieldCheck, Mail } from 'lucide-react';
 import { PinPad } from '@/components/security/PinPad';
 import { useAuth } from '@/hooks/useAuth';
+import { useLanguage } from '@/context/LanguageContext';
 
 async function call(user, path, body) {
   const token = await user.getIdToken();
@@ -15,6 +16,8 @@ async function call(user, path, body) {
 
 export function PinSecuritySettings() {
   const { user } = useAuth();
+  const { language } = useLanguage();
+  const isEnglish = language === 'en';
   const [enabled, setEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -33,7 +36,7 @@ export function PinSecuritySettings() {
       const data = await call(user, 'security/pin/status');
       setEnabled(data.enabled === true);
     } catch (err) {
-      setError(err.message || 'Impossible de vérifier le code secret.');
+      setError(isEnglish ? 'Could not verify the passcode.' : (err.message || 'Impossible de vérifier le code secret.'));
     } finally {
       setLoading(false);
     }
@@ -43,15 +46,15 @@ export function PinSecuritySettings() {
 
   const savePin = async (event) => {
     event.preventDefault(); setError(''); setMessage('');
-    if (pin.length!==4 || pin!==confirmPin) return setError('Les deux codes doivent contenir les mêmes 4 chiffres.');
-    if (enabled && currentPin.length!==4) return setError('Saisis ton code secret actuel.');
+    if (pin.length!==4 || pin!==confirmPin) return setError(isEnglish ? 'Both passcodes must contain the same 4 digits.' : 'Les deux codes doivent contenir les mêmes 4 chiffres.');
+    if (enabled && currentPin.length!==4) return setError(isEnglish ? 'Enter your current passcode.' : 'Saisis ton code secret actuel.');
     setSaving(true);
     try {
       await call(user,'security/pin/set',{pin,currentPin});
       setEnabled(true); setPin(''); setConfirmPin(''); setCurrentPin('');
       window.dispatchEvent(new Event('pata:pin-updated'));
       try { localStorage.removeItem('pata-pin-last-background:'+user.uid); } catch { /* stockage local indisponible */ }
-      setMessage('Ton code secret est enregistré.');
+      setMessage(isEnglish ? 'Your passcode has been saved.' : 'Ton code secret est enregistré.');
     } catch(err) { setError(err.message); }
     finally { setSaving(false); }
   };
@@ -65,13 +68,13 @@ export function PinSecuritySettings() {
 
   const confirmReset = async (event) => {
     event.preventDefault(); setSaving(true); setError(''); setMessage('');
-    if(code.length!==6 || pin.length!==4 || pin!==confirmPin) { setError('Vérifie le code à 6 chiffres et les deux nouveaux codes PIN.'); setSaving(false); return; }
+    if(code.length!==6 || pin.length!==4 || pin!==confirmPin) { setError(isEnglish ? 'Check the 6-digit code and both new passcode entries.' : 'Vérifie le code à 6 chiffres et les deux nouveaux codes PIN.'); setSaving(false); return; }
     try {
       await call(user,'security/pin/reset/confirm',{code,pin});
       setEnabled(true); setCode(''); setPin(''); setConfirmPin(''); setCurrentPin(''); setResetSent(false);
       window.dispatchEvent(new Event('pata:pin-updated'));
       try { localStorage.removeItem('pata-pin-last-background:'+user.uid); } catch { /* stockage local indisponible */ }
-      setMessage('Ton nouveau code secret est enregistré.');
+      setMessage(isEnglish ? 'Your new passcode has been saved.' : 'Ton nouveau code secret est enregistré.');
     } catch(err) { setError(err.message); }
     finally { setSaving(false); }
   };
