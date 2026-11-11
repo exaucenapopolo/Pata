@@ -1232,7 +1232,7 @@ async function addDebt(uid, args, idempotencyKey = null) {
     const bankFields = counterpartyType === 'bank' ? { bankName: creditorName } : {};
     const result = {
       success: true,
-      message: \`Dette contractée auprès de « \${creditorName} » enregistrée : \${amount.toLocaleString('fr-FR')} FCFA. Elle reste exclue des revenus ordinaires.\`,
+      message: `Dette contractée auprès de « ${creditorName} » enregistrée : ${amount.toLocaleString('fr-FR')} FCFA. Elle reste exclue des revenus ordinaires.`,
       amount, person: creditorName, counterpartyType, debtId: debtRef.id, incomeId: incomeRef.id, dueDate, date,
       ...(projectId ? { projectId, projectName } : {}),
     };
@@ -1280,7 +1280,7 @@ async function setFinancialTargets(uid, args) {
     transaction.set(targetRef, update, { merge: true });
   });
   return {
-    success: true, message: \`Tes objectifs financiers de \${month} ont été enregistrés.\`, month,
+    success: true, message: `Tes objectifs financiers de ${month} ont été enregistrés.`, month,
     ...(update.incomeTarget !== undefined ? { incomeTarget: update.incomeTarget } : {}),
     ...(update.expenseLimit !== undefined ? { expenseLimit: update.expenseLimit } : {}),
     ...(update.debtLimit !== undefined ? { debtLimit: update.debtLimit } : {}),

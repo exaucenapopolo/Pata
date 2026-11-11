@@ -2222,7 +2222,9 @@ async function handleCreateIncome(request) {
     const amount = Math.round(Number(body.amount));
     const flowType = String(body.flowType || (body.repaymentDebtId ? 'repayment_received' : 'normal')).trim();
     if (!['normal', 'debt_borrowed', 'repayment_received'].includes(flowType)) return errorResponse('Type de mouvement financier invalide.', 400);
-    const person = String(body.person || '').trim().slice(0, 100);
+    const counterpartyType = body.counterpartyType === 'bank' ? 'bank' : 'person';
+    const bankName = flowType === 'debt_borrowed' && counterpartyType === 'bank' ? String(body.bankName || '').trim().slice(0, 100) : '';
+    const person = flowType === 'debt_borrowed' && counterpartyType === 'bank' ? bankName : String(body.person || '').trim().slice(0, 100);
     const phone = String(body.phone || '').trim().slice(0, 30);
     const dueDate = String(body.dueDate || '').trim();
     const repaymentDebtId = String(body.repaymentDebtId || '').trim().slice(0, 150);
@@ -2235,10 +2237,9 @@ async function handleCreateIncome(request) {
     const optionalMetadata = readOptionalIncomeMetadata(body);
     if (!Number.isSafeInteger(amount) || amount <= 0) return errorResponse('Indique un montant de revenu valide.', 400);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{4}-\d{2}$/.test(month) || month !== date.slice(0, 7)) return errorResponse('La date du revenu est invalide.', 400);
-    if (flowType === 'debt_borrowed' && (!person || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate))) return errorResponse('Indique le nom de la personne et la date d’échéance de la dette.', 400);
+    if (flowType === 'debt_borrowed' && (!person || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate))) return errorResponse(counterpartyType === 'bank' ? 'Choisis une banque ou saisis son nom, puis indique la date d’échéance.' : 'Indique le nom de la personne et la date d’échéance de la dette.', 400);
     if (flowType === 'repayment_received' && (!repaymentDebtId || projectId)) return errorResponse('Choisis la créance à rembourser.', 400);
     if (flowType !== 'repayment_received' && repaymentDebtId) return errorResponse('Remboursement associé invalide.', 400);
-    if (flowType === 'debt_borrowed' && projectId) return errorResponse('Une dette contractée ne peut pas être affectée à un projet.', 400);
     if (projectId.includes('/') || repaymentDebtId.includes('/')) return errorResponse('Identifiant invalide.', 400);
 
     const userRef = adminDb.collection('users').doc(uid);
@@ -2302,7 +2303,7 @@ async function handleCreateIncome(request) {
       transaction.create(incomeRef, {
         amount, source: finalSource || 'Revenu', categoryId, month, date, note,
         flowType, neutralFlow,
-        ...(flowType === 'debt_borrowed' ? { person, phone: phone || null, dueDate, debtId: newDebtRef.id } : {}),
+        ...(flowType === 'debt_borrowed' ? { person, counterpartyType, ...(bankName ? { bankName } : {}), phone: phone || null, dueDate, debtId: newDebtRef.id } : {}),
         ...(flowType === 'repayment_received' ? { repaymentDebtId } : {}),
         ...(projectId ? { projectId, projectName } : {}),
         ...(smsImportId ? { smsImportId } : {}),
@@ -2312,7 +2313,7 @@ async function handleCreateIncome(request) {
 
       if (newDebtRef) {
         transaction.create(newDebtRef, {
-          type: 'i_owe', person, phone: phone || null, amount, remaining: amount,
+          type: 'i_owe', person, counterpartyType, ...(bankName ? { bankName } : {}), phone: phone || null, amount, remaining: amount,
           createdAt: FieldValue.serverTimestamp(), dueDate, status: dueDate < today ? 'late' : 'active',
           note, transactionId: incomeRef.id,
         });
@@ -2364,6 +2365,47 @@ async function handleUpdateIncome(request) {
     const body = await request.json();
     const incomeId = String(body.incomeId || body.id || '').trim().slice(0, 150);
     if (!incomeId || incomeId.includes('/')) return errorResponse('Identifiant de revenu invalide.', 400);
+
+    const userRef = adminDb.collection('users').doc(uid);
+    const incomeRef = userRef.collection('incomes').doc(incomeId);
+    const initialSnapshot = await incomeRef.get();
+    if (!initialSnapshot.exists) return errorResponse('Revenu introuvable.', 400);
+    const initialIncome = initialSnapshot.data() || {};
+
+    if (initialIncome.flowType === 'debt_borrowed' && initialIncome.debtId) {
+      const projectId = String(body.projectId || '').trim().slice(0, 150);
+      if (projectId.includes('/')) return errorResponse('Identifiant de projet invalide.', 400);
+      const result = await adminDb.runTransaction(async (transaction) => {
+        const [userSnap, incomeSnap] = await Promise.all([
+          transaction.get(userRef),
+          transaction.get(incomeRef),
+        ]);
+        if (!userSnap.exists || !incomeSnap.exists) throw new Error('Emprunt introuvable.');
+        const previous = incomeSnap.data() || {};
+        if (previous.flowType !== 'debt_borrowed' || !previous.debtId) {
+          throw new Error('Cet emprunt ne peut plus être modifié depuis les revenus.');
+        }
+        let projectName = '';
+        if (projectId) {
+          if (!isPremiumAccount(userSnap.data())) throw new Error('L’association d’un emprunt à un projet est réservée à Pata Premium.');
+          const projectSnap = await transaction.get(userRef.collection('projects').doc(projectId));
+          if (!projectSnap.exists || projectSnap.data()?.status === 'archived') {
+            throw new Error('Le projet choisi est introuvable ou archivé.');
+          }
+          projectName = String(projectSnap.data()?.name || '').slice(0, 100);
+        }
+        const debtRef = userRef.collection('debts').doc(String(previous.debtId));
+        const debtSnap = await transaction.get(debtRef);
+        const projectFields = projectId
+          ? { projectId, projectName }
+          : { projectId: FieldValue.delete(), projectName: FieldValue.delete() };
+        transaction.update(incomeRef, { ...projectFields, updatedAt: FieldValue.serverTimestamp() });
+        if (debtSnap.exists) transaction.update(debtRef, { ...projectFields, updatedAt: FieldValue.serverTimestamp() });
+        return { projectId: projectId || null, projectName: projectName || null };
+      });
+      return NextResponse.json({ success: true, id: incomeId, ...result });
+    }
+
     const amount = Math.round(Number(body.amount));
     const source = String(body.source || '').trim().slice(0, 100);
     const categoryId = String(body.categoryId || 'other_income').trim().slice(0, 80);
@@ -2374,18 +2416,17 @@ async function handleUpdateIncome(request) {
     if (!Number.isSafeInteger(amount) || amount <= 0) return errorResponse('Indique un montant de revenu valide.', 400);
     if (!source) return errorResponse('Indique la source de ce revenu.', 400);
     if (!allowedCategories.has(categoryId)) {
-      const custom = await adminDb.collection('users').doc(uid).collection('categories').doc(categoryId).get();
+      const custom = await userRef.collection('categories').doc(categoryId).get();
       if (!custom.exists || custom.data()?.type !== 'income') return errorResponse('Catégorie de revenu invalide.', 400);
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{4}-\d{2}$/.test(month) || month !== date.slice(0, 7)) return errorResponse('La date du revenu est invalide.', 400);
-    const userRef = adminDb.collection('users').doc(uid);
-    const incomeRef = userRef.collection('incomes').doc(incomeId);
-    const optionalMetadata = readOptionalIncomeMetadata(body);
     await adminDb.runTransaction(async (transaction) => {
       const [userSnap, incomeSnap] = await Promise.all([transaction.get(userRef), transaction.get(incomeRef)]);
       if (!userSnap.exists || !incomeSnap.exists) throw new Error('Revenu introuvable.');
       const previous = incomeSnap.data() || {};
-      if (previous.neutralFlow === true || previous.debtId || previous.repaymentDebtId) throw new Error('Ce mouvement est lié au module Dettes & prêts. Gère-le depuis cette rubrique pour préserver le suivi.');
+      if (previous.neutralFlow === true || previous.debtId || previous.repaymentDebtId) {
+        throw new Error('Ce mouvement est lié au module Dettes & prêts. Seule l’affectation au projet d’un emprunt peut être modifiée ici.');
+      }
       transaction.update(incomeRef, {
         amount, source, categoryId, date, month, note,
         ...readOptionalIncomeMetadata(body, previous),
@@ -2398,7 +2439,7 @@ async function handleUpdateIncome(request) {
     return NextResponse.json({ success: true, id: incomeId });
   } catch (error) {
     const message = error.message || 'Impossible de modifier ce revenu.';
-    return errorResponse(message, /introuvable|invalide|source/i.test(message) ? 400 : 500);
+    return errorResponse(message, /introuvable|invalide|source|projet|emprunt/i.test(message) ? 400 : 500);
   }
 }
 
