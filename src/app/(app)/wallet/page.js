@@ -9,7 +9,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
 import { useDeposits } from '@/hooks/useDeposits';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatCurrency, formatDate, getPreferredLocale } from '@/lib/utils';
 import { AssistantShortcut } from '@/components/ai/AssistantShortcut';
 
 const QUICK_AMOUNTS = [500, 1000, 2000, 5000, 10000, 25000];
@@ -147,7 +147,7 @@ export default function WalletPage() {
                   onClick={() => setAmount(String(v))}
                   className="rounded-full border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 transition hover:border-brand-500 hover:text-brand-600"
                 >
-                  {v.toLocaleString('fr-FR')}
+                  {v.toLocaleString(getPreferredLocale())}
                 </button>
               ))}
             </div>
