@@ -268,7 +268,7 @@ export const extendedTranslations = {
   "Budget dépassé !": "Budget exceeded!",
   "Tes prévisions dépassent ton budget total de": "Your forecast exceeds your total budget by",
   "Suggestion :": "Suggestion:",
-  "Essaie de réduire les loisirs, les sorties, ou les "autres dépenses" pour rentrer dans ton budget.": "Try reducing leisure, outings or other expenses to stay within your budget.",
+  'Essaie de réduire les loisirs, les sorties, ou les "autres dépenses" pour rentrer dans ton budget.': "Try reducing leisure, outings or other expenses to stay within your budget.",
   "Vérifier le budget": "Check the budget",
   "Comprendre avec Mč": "Understand with Mč",
   "Analyser avec Mč": "Analyze with Mč",
