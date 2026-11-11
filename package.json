@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test:sms": "node --test tests/parseMobileMoneySms.test.mjs",
+    "test:sms": "node --test tests/parseMobileMoneySms.test.mjs tests/cashWithdrawal.test.mjs",
     "cap:add:android": "npx cap add android",
     "cap:sync:android": "npx cap sync android",
     "test:notifications": "node --test tests/webPush.test.mjs tests/nativePushConfig.test.mjs tests/notificationDispatcher.test.mjs"

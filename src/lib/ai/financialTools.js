@@ -1,5 +1,6 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb } from '@/lib/firebase/admin';
+import { incomeMatchesMobileMoneyProvider } from '@/lib/finance/cashWithdrawal.mjs';
 
 const EXPENSE_CATEGORIES = [
   'food', 'transport', 'housing', 'internet', 'health', 'leisure', 'gift_donation',
@@ -149,8 +150,9 @@ function getExpenseTypeForBudget(expense) {
 export async function createExpenseForUser(uid, input, { countQuota = true, sourceOverride = null, idempotencyKey = null, externalFunding = false, skipBudgetConfirmation = false } = {}) {
   const amount = asPositiveMoney(input.amount, 'Dépense');
   const flowType = cleanText(input.flowType || (input.repaymentDebtId ? 'repayment' : 'normal'), 30);
-  if (!['normal', 'loan_given', 'repayment'].includes(flowType)) throw new Error('Type de mouvement financier invalide.');
-  const categoryId = await assertExpenseCategory(uid, input.categoryId || input.category || (flowType === 'loan_given' ? 'loan_given' : flowType === 'repayment' ? 'debt_repayment' : 'other'));
+  const cashWithdrawal = flowType === 'cash_withdrawal';
+  if (!['normal', 'loan_given', 'repayment', 'cash_withdrawal'].includes(flowType)) throw new Error('Type de mouvement financier invalide.');
+  const categoryId = cashWithdrawal ? 'other' : await assertExpenseCategory(uid, input.categoryId || input.category || (flowType === 'loan_given' ? 'loan_given' : flowType === 'repayment' ? 'debt_repayment' : 'other'));
   if (flowType === 'normal' && ['loan_given', 'debt_repayment'].includes(categoryId)) throw new Error('Utilise le type de mouvement correspondant pour enregistrer un prêt ou un remboursement.');
   if (flowType === 'loan_given' && categoryId !== 'loan_given') throw new Error('Catégorie de prêt accordé invalide.');
   if (flowType === 'repayment' && categoryId !== 'debt_repayment') throw new Error('Catégorie de remboursement invalide.');
@@ -161,7 +163,10 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
   if (flowType === 'loan_given' && (!person || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate))) throw new Error('Indique le nom de la personne et la date d’échéance du prêt.');
   if (flowType === 'repayment' && (!repaymentDebtId || categoryId !== 'debt_repayment')) throw new Error('Choisis la dette à rembourser avant de continuer.');
   if (flowType !== 'repayment' && repaymentDebtId) throw new Error('Ce remboursement n’est pas associé à une dette valide.');
-  const expenseType = cleanText(input.expenseType || 'consumption', 30);
+  if (cashWithdrawal && repaymentDebtId) throw new Error('Un retrait Mobile Money ne peut pas être classé comme remboursement de dette.');
+  const cashWithdrawalProvider = cashWithdrawal ? cleanText(input.cashWithdrawalProvider, 30) : '';
+  if (cashWithdrawal && !['mtn_momo', 'orange_money'].includes(cashWithdrawalProvider)) throw new Error('Opérateur Mobile Money invalide pour ce retrait.');
+  const expenseType = cashWithdrawal ? 'consumption' : cleanText(input.expenseType || 'consumption', 30);
   if (!['consumption', 'project', 'savings', 'investment'].includes(expenseType)) throw new Error('Choisis une nature de sortie valide.');
   const projectId = cleanText(input.projectId, 150);
   if (expenseType === 'project' && !projectId) throw new Error('Sélectionne le projet concerné.');
@@ -180,6 +185,8 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
   const expenseCollection = subcol(uid, 'expenses');
   const newDebtRef = flowType === 'loan_given' ? subcol(uid, 'debts').doc() : null;
   const repaymentDebtRef = flowType === 'repayment' ? subcol(uid, 'debts').doc(repaymentDebtId) : null;
+  const smsImportId = cleanText(input.smsImportId, 80);
+  const cashWalletRef = cashWithdrawal ? (smsImportId ? subcol(uid, 'incomes').doc('cash_' + smsImportId) : subcol(uid, 'incomes').doc()) : null;
   const idempotencyRef = idempotencyKey
     ? subcol(uid, 'ai_actions').doc(String(idempotencyKey).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 140))
     : null;
@@ -190,13 +197,16 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
     if (idempotencyRef) readTasks.push(transaction.get(idempotencyRef));
     if (newDebtRef) readTasks.push(transaction.get(subcol(uid, 'debts').where('status', 'in', ['active', 'partial', 'late'])));
     if (repaymentDebtRef) readTasks.push(transaction.get(repaymentDebtRef));
+    if (cashWalletRef) readTasks.push(transaction.get(cashWalletRef));
     const readResults = await Promise.all(readTasks);
     const [userSnap, incomesSnap, expensesSnap, budgetsSnap] = readResults;
     let readIndex = 4;
     const idempotencySnap = idempotencyRef ? readResults[readIndex++] : null;
     const activeDebtsSnap = newDebtRef ? readResults[readIndex++] : null;
-    const repaymentDebtSnap = repaymentDebtRef ? readResults[readIndex] : null;
+    const repaymentDebtSnap = repaymentDebtRef ? readResults[readIndex++] : null;
+    const cashWalletSnap = cashWalletRef ? readResults[readIndex] : null;
     if (idempotencyRef && idempotencySnap?.exists) return idempotencySnap.data().result;
+    if (cashWalletSnap?.exists) throw new Error('Ce retrait est déjà enregistré dans la poche espèces. Actualise les opérations avant de recommencer.');
     if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
     if (repaymentDebtRef) {
       if (!repaymentDebtSnap?.exists) throw new Error('Cette dette n’existe plus. Actualise la liste puis réessaie.');
@@ -224,7 +234,7 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
         lastResetMonth: currentMonth,
       };
     }
-    if (flowType !== 'loan_given' && countQuota && !isPremium(userData) && (Number(nextStats.expenses) || 0) >= FREE_EXPENSE_LIMIT) {
+    if (!['loan_given', 'cash_withdrawal'].includes(flowType) && countQuota && !isPremium(userData) && (Number(nextStats.expenses) || 0) >= FREE_EXPENSE_LIMIT) {
       throw new Error(`Limite gratuite atteinte (${FREE_EXPENSE_LIMIT} dépenses par mois). Passe Premium pour continuer.`);
     }
 
@@ -235,7 +245,8 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
       ? { id: 'external', source: cleanText(input.externalFundingLabel, 80) || 'Solde Mobile Money' }
       : sourceOverride || resolveSource(incomes, input.incomeSourceId, input.incomeSourceName);
 
-    const eligibleBalances = balances.filter((income) => !income.projectId || income.projectId === projectId);
+    const eligibleBalances = balances.filter((income) => (!income.projectId || income.projectId === projectId)
+      && (!cashWithdrawal || (income.cashPocket !== true && income.neutralFlow !== true && incomeMatchesMobileMoneyProvider(income, cashWithdrawalProvider))));
 
     let allocations;
     if (externalFunding) {
@@ -259,7 +270,7 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
         remaining -= allocated;
       }
     } else {
-      const income = balances.find((item) => item.id === selectedSource.id);
+      const income = (cashWithdrawal ? eligibleBalances : balances).find((item) => item.id === selectedSource.id);
       if (!income) throw new Error('Cette source de revenu n’existe plus. Vérifie-la avant de réessayer.');
       if (income.projectId && income.projectId !== projectId) throw new Error('Ce revenu est réservé à un autre projet.');
       if (amount > income.remaining) {
@@ -363,7 +374,7 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
     const warnings = [];
     const budgetRows = budgetsSnap?.docs?.map((doc) => ({ id: doc.id, ...doc.data() })) || [];
     for (const budget of budgetRows) {
-      if (flowType === 'loan_given' || expenseType !== 'consumption' || budget.categoryId !== categoryId) continue;
+      if (flowType === 'loan_given' || cashWithdrawal || expenseType !== 'consumption' || budget.categoryId !== categoryId) continue;
       const sourceId = budget.incomeSourceId || 'all';
       const planned = sourceId === 'all'
         ? amount
@@ -406,7 +417,6 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
 
     const created = [];
     allocations.forEach(({ income, amount: allocated }, index) => {
-      const smsImportId = cleanText(input.smsImportId, 80);
       const expenseRef = externalFunding && smsImportId
         ? expenseCollection.doc(smsImportId)
         : expenseCollection.doc();
@@ -419,7 +429,8 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
         incomeSourceName: income.source || 'Revenu sans nom',
         expenseType,
         flowType,
-        neutralFlow: flowType === 'loan_given',
+        neutralFlow: flowType === 'loan_given' || cashWithdrawal,
+        ...(cashWithdrawal ? { cashWithdrawal: true, cashPocketIncomeId: cashWalletRef.id } : {}),
         ...(flowType === 'loan_given' ? { person, phone: phone || null, dueDate, debtId: newDebtRef.id } : {}),
         ...(flowType === 'repayment' ? { repaymentDebtId } : {}),
         projectId: expenseType === 'project' ? projectId : null,
@@ -432,6 +443,21 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
       created.push({ expenseId: expenseRef.id, incomeSourceId: income.id, incomeSourceName: income.source || 'Revenu sans nom', amount: allocated });
     });
 
+    if (cashWithdrawal) {
+      const providerLabel = cashWithdrawalProvider === 'mtn_momo' ? 'MTN MoMo' : 'Orange Money';
+      transaction.create(cashWalletRef, {
+        amount, source: 'Espèces · ' + providerLabel, categoryId: 'other_income',
+        month: String(date).slice(0, 7), date, time: optionalMetadata.time || '',
+        note: 'Espèces reçues après un retrait ' + providerLabel,
+        details: 'Conversion du solde Mobile Money vers les espèces', paymentMethod: 'cash',
+        neutralFlow: true, flowType: 'cash_withdrawal', cashPocket: true,
+        cashPocketProvider: cashWithdrawalProvider,
+        cashPocketSourceIncomeIds: allocations.filter(({ income }) => income.id !== 'external').map(({ income }) => income.id),
+        cashWithdrawalExpenseIds: created.map((item) => item.expenseId),
+        createdAt: FieldValue.serverTimestamp(),
+      });
+    }
+
     if (flowType === 'loan_given') {
       transaction.create(newDebtRef, { type: 'owed_to_me', person, phone: phone || null, amount, remaining: amount, createdAt: FieldValue.serverTimestamp(), dueDate, status: dueDate < todayDouala() ? 'late' : 'active', note, transactionId: created[0]?.expenseId || null });
     } else if (repaymentDebtRef) {
@@ -443,7 +469,7 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
       transaction.create(repaymentRef, { date, amount, transactionId: created[0]?.expenseId || null, source: input.smsImportId ? 'sms' : 'manual' });
       transaction.update(repaymentDebtRef, { remaining, status, updatedAt: FieldValue.serverTimestamp() });
     }
-    if (flowType !== 'loan_given') {
+    if (!['loan_given', 'cash_withdrawal'].includes(flowType)) {
       if (countQuota && !isPremium(userData)) nextStats = { ...nextStats, expenses: (Number(nextStats.expenses) || 0) + 1, lastResetMonth: currentMonth };
       transaction.set(userRef, { lifetimeExpenseAmount: FieldValue.increment(amount), lifetimeExpenseCount: FieldValue.increment(1), ...(countQuota && !isPremium(userData) ? { monthlyStats: nextStats } : {}), ...(repaymentCompleted ? { activeDebtCount: FieldValue.increment(-1) } : {}) }, { merge: true });
     } else if (newDebtRef) {
@@ -460,6 +486,7 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
       recordsCreated: created.length,
       expenseIds: created.map((item) => item.expenseId),
       expenseId: created[0]?.expenseId || null,
+      ...(cashWalletRef ? { cashPocketIncomeId: cashWalletRef.id } : {}),
       ...(skipBudgetConfirmation && warnings.length ? { budgetWarnings: warnings } : {}),
     };
     if (idempotencyRef) transaction.create(idempotencyRef, { result, createdAt: FieldValue.serverTimestamp() });

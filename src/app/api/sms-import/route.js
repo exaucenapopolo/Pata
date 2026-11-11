@@ -706,11 +706,13 @@ export async function POST(request) {
       const projectId = String(body.projectId || '').trim().slice(0, 150);
       const confirmBudgetOverrun = body.confirmBudgetOverrun === true;
       const confirmWithdrawal = body.confirmWithdrawal === true;
+      const withdrawalSourceIncomeId = String(body.withdrawalSourceIncomeId || 'external').trim().slice(0, 150);
       if (!['income', 'expense'].includes(operationType)) return responseError('Type d’opération invalide.', 400);
       if (repaymentDebtId && repaymentDebtId.includes('/')) return responseError('Identifiant de dette invalide.', 400);
+      if (withdrawalSourceIncomeId.includes('/')) return responseError('Source de retrait invalide.', 400);
       if (repaymentDebtId) categoryId = operationType === 'income' ? 'debt_repayment_received' : 'debt_repayment';
       if (!categoryId) return responseError('Choisis une catégorie avant de confirmer.', 400);
-      if (operationType === 'expense' && !['consumption', 'project', 'savings', 'investment'].includes(expenseType)) {
+      if (operationType === 'expense' && body.eventType !== 'withdrawal' && !['consumption', 'project', 'savings', 'investment'].includes(expenseType)) {
         return responseError('Choisis la nature réelle de cette sortie : dépense courante, projet, épargne ou investissement.', 400);
       }
       if (operationType === 'expense' && expenseType === 'project' && !projectId) {
@@ -737,13 +739,15 @@ export async function POST(request) {
         }
         if (item.direction === 'income' && operationType !== 'income') throw new Error('Cette transaction est une réception : elle doit être enregistrée comme revenu.');
         if (item.direction !== 'income' && operationType !== 'expense') throw new Error('Cette transaction est une sortie : elle doit être enregistrée comme dépense.');
-        if (item.eventType === 'withdrawal' && !confirmWithdrawal) throw new Error('Confirme explicitement que tu souhaites comptabiliser ce retrait comme une sortie.');
+        if (item.eventType === 'withdrawal' && !confirmWithdrawal) throw new Error('Confirme explicitement que tu souhaites transférer ce retrait vers les espèces.');
+        if (item.eventType === 'withdrawal' && repaymentDebtId) throw new Error('Un retrait ne peut pas être classé comme remboursement de dette.');
         transaction.update(ref, {
           status: 'PROCESSING',
           categoryId,
           operationType,
           ...(operationType === 'expense' ? { expenseType, projectId: expenseType === 'project' ? projectId : null } : {}),
           ...(repaymentDebtId ? { repaymentDebtId, flowType: operationType === 'income' ? 'repayment_received' : 'repayment' } : {}),
+          ...(item.eventType === 'withdrawal' ? { withdrawalSourceIncomeId, cashWithdrawalProvider: item.provider, flowType: 'cash_withdrawal' } : {}),
           processingAt: FieldValue.serverTimestamp(),
         });
         return { duplicate: false, item, profile };
@@ -755,7 +759,7 @@ export async function POST(request) {
       const smsImportId = 'sms_' + ref.id;
       const providerName = item.provider === 'mtn_momo' ? 'MTN Mobile Money' : 'Orange Money';
       const eventLabel = item.eventType === 'receive' ? 'Réception'
-        : item.eventType === 'withdrawal' ? 'Retrait'
+        : item.eventType === 'withdrawal' ? 'Retrait vers espèces'
           : item.eventType === 'payment' ? 'Paiement' : 'Transfert';
       const note = eventLabel + ' ' + providerName + (item.counterparty ? ' · ' + item.counterparty : '');
       const isExpense = operationType === 'expense';
@@ -780,8 +784,12 @@ export async function POST(request) {
             incomeSourceName: 'Solde Mobile Money',
             details: item.counterparty || '',
             smsImportId,
-            flowType: repaymentDebtId ? 'repayment' : 'normal',
+            flowType: isCashWithdrawal ? 'cash_withdrawal' : repaymentDebtId ? 'repayment' : 'normal',
             repaymentDebtId,
+            incomeSourceId: isCashWithdrawal ? (item.withdrawalSourceIncomeId || 'external') : 'external',
+            incomeSourceName: item.withdrawalSourceIncomeId === 'external' ? providerName + ' (solde non suivi)' : providerName,
+            cashWithdrawalProvider: item.provider,
+            externalFundingLabel: providerName + ' (solde non suivi)',
             confirmBudgetOverrun,
           }
         : {
@@ -805,7 +813,7 @@ export async function POST(request) {
         if (isExpense) {
           operationResult = await createExpenseForUser(uid, payload, {
             idempotencyKey: smsImportId,
-            externalFunding: true,
+            externalFunding: isCashWithdrawal ? item.withdrawalSourceIncomeId === 'external' : true,
           });
           if (operationResult.confirmationRequired) {
             await ref.update({ status: 'PENDING', processingAt: FieldValue.delete() });

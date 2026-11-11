@@ -9,6 +9,9 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/hooks/useAuth';
 import { useDebts } from '@/hooks/useDebts';
+import { useIncomes } from '@/hooks/useIncomes';
+import { useExpenses } from '@/hooks/useExpenses';
+import { getWithdrawalFundingSuggestion } from '@/lib/finance/cashWithdrawal.mjs';
 import { subscribeProjects } from '@/lib/firestore/projects';
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '@/lib/constants';
 import { parseMobileMoneySms } from '@/lib/sms/parseMobileMoneySms.mjs';
@@ -43,6 +46,8 @@ async function hashTransaction(provider, transactionId) {
 export function SmsImportCoordinator() {
   const { user } = useAuth();
   const { debts } = useDebts();
+  const { incomes } = useIncomes();
+  const { expenses } = useExpenses();
   const [projects, setProjects] = useState([]);
   const [pending, setPending] = useState([]);
   const [choices, setChoices] = useState({});
@@ -166,15 +171,18 @@ export function SmsImportCoordinator() {
     try {
       const choice = choices[item.id] || {};
       const isIncome = item.direction === 'income';
+      const isCashWithdrawal = item.eventType === 'withdrawal';
+      const withdrawalSuggestion = isCashWithdrawal ? getWithdrawalFundingSuggestion(incomes, expenses, item.provider, item.amount) : null;
+      const withdrawalSourceIncomeId = isCashWithdrawal ? (choice.withdrawalSourceIncomeId || withdrawalSuggestion.defaultSourceId) : '';
       const debtCandidates = matchingDebtsForSms(item, debts);
       const repaymentDebtId = Object.prototype.hasOwnProperty.call(choice, 'repaymentDebtId') ? choice.repaymentDebtId : (debtCandidates.length === 1 ? debtCandidates[0].id : '');
       if (item.direction === 'withdrawal' && choice.confirmWithdrawal !== true) {
         throw new Error('Confirme explicitement que tu souhaites comptabiliser ce retrait comme une sortie.');
       }
-      if (!isIncome && !['consumption', 'project', 'savings', 'investment'].includes(choice.expenseType || '')) {
+      if (!isIncome && !isCashWithdrawal && !['consumption', 'project', 'savings', 'investment'].includes(choice.expenseType || '')) {
         throw new Error('Choisis la nature réelle de cette sortie avant de confirmer.');
       }
-      if (!isIncome && choice.expenseType === 'project' && !choice.projectId) {
+      if (!isIncome && !isCashWithdrawal && choice.expenseType === 'project' && !choice.projectId) {
         throw new Error('Choisis le projet concerné avant de confirmer.');
       }
       const token = await user.getIdToken();
@@ -184,10 +192,12 @@ export function SmsImportCoordinator() {
         body: JSON.stringify({
           action: 'confirm', id: item.id,
           operationType: isIncome ? 'income' : 'expense',
-          categoryId: choice.categoryId || (isIncome ? 'other_income' : item.suggestedCategoryId || 'other'),
-          expenseType: choice.expenseType || '',
+          eventType: item.eventType,
+          categoryId: isCashWithdrawal ? 'other' : choice.categoryId || (isIncome ? 'other_income' : item.suggestedCategoryId || 'other'),
+          expenseType: isCashWithdrawal ? 'consumption' : choice.expenseType || '',
           projectId: choice.projectId || '',
           confirmWithdrawal: choice.confirmWithdrawal === true,
+          withdrawalSourceIncomeId: isCashWithdrawal ? withdrawalSourceIncomeId : 'external',
           confirmBudgetOverrun: warnings[item.id] === true,
           repaymentDebtId,
         }),
@@ -254,6 +264,8 @@ export function SmsImportCoordinator() {
             const repaymentOptions = availableRepaymentDebtsForSms(item, debts);
             const suggestedDebtId = Object.prototype.hasOwnProperty.call(choice, 'repaymentDebtId') ? choice.repaymentDebtId : (debtCandidates.length === 1 ? debtCandidates[0].id : '');
             const repaymentCategoryId = incoming ? 'debt_repayment_received' : 'debt_repayment';
+            const withdrawalSuggestion = item.eventType === 'withdrawal' ? getWithdrawalFundingSuggestion(incomes, expenses, item.provider, item.amount) : null;
+            const selectedWithdrawalSource = choice.withdrawalSourceIncomeId || withdrawalSuggestion?.defaultSourceId || 'external';
             const categories = suggestedDebtId
               ? [...baseCategories, { id: repaymentCategoryId, label: incoming ? 'Remboursement reçu' : 'Remboursement de dette' }]
               : baseCategories;
@@ -271,10 +283,23 @@ export function SmsImportCoordinator() {
                     {item.balance != null && <p className="mt-1 text-[10px] text-slate-500">Solde après opération : {money.format(Number(item.balance))} FCFA (visible sur cet appareil uniquement)</p>}
                   </div>
                 </div>
-                {item.direction === 'withdrawal' && <label className="mt-3 flex items-start gap-2 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900">
-                  <input type="checkbox" checked={choice.confirmWithdrawal === true} onChange={(event) => updateChoice(item.id, { confirmWithdrawal: event.target.checked })} className="mt-0.5"/>
-                  Enregistrer explicitement ce retrait comme une sortie. Tu choisiras ensuite sa nature réelle avant de le comptabiliser.
-                </label>}
+                {item.direction === 'withdrawal' && <div className="mt-3 space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                  <label className="flex items-start gap-2 text-xs leading-5 text-amber-950">
+                    <input type="checkbox" checked={choice.confirmWithdrawal === true} onChange={(event) => updateChoice(item.id, { confirmWithdrawal: event.target.checked })} className="mt-0.5"/>
+                    Je confirme ce retrait et veux transférer cet argent de mon solde Mobile Money vers mes espèces.
+                  </label>
+                  <label className="block text-xs font-semibold text-slate-800">
+                    D’où provient l’argent retiré ?
+                    <select value={selectedWithdrawalSource} onChange={(event) => updateChoice(item.id, { withdrawalSourceIncomeId: event.target.value })} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800">
+                      {withdrawalSuggestion?.totalAvailable >= Number(item.amount) && withdrawalSuggestion.candidates.length > 1 && <option value="all">Combiner mes entrées {item.provider === 'mtn_momo' ? 'MTN MoMo' : 'Orange Money'} suivies ({money.format(withdrawalSuggestion.totalAvailable)} FCFA disponibles)</option>}
+                      {(withdrawalSuggestion?.candidates || []).map((source) => <option key={source.id} value={source.id}>{source.source || 'Revenu Mobile Money'} · {source.date || 'Date inconnue'} · {money.format(source.remaining)} FCFA disponibles</option>)}
+                      <option value="external">Solde {item.provider === 'mtn_momo' ? 'MTN MoMo' : 'Orange Money'} non suivi dans Pata</option>
+                    </select>
+                  </label>
+                  {withdrawalSuggestion?.candidates.length > 0
+                    ? <p className="text-[10px] leading-4 text-emerald-800">Pata propose les entrées du même opérateur. Vérifie la source avant de confirmer. Total disponible suivi : {money.format(withdrawalSuggestion.totalAvailable)} FCFA.</p>
+                    : <p className="text-[10px] leading-4 text-slate-600">Aucun revenu correspondant n’est disponible dans Pata. Le retrait sera suivi depuis un solde externe, sans inventer un revenu.</p>}
+                </div>}
                 {repaymentOptions.length > 0 && <label className="mt-3 block rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-900">
                   {incoming ? 'Ce revenu correspond-il au remboursement d’une somme que tu avais prêtée ?' : 'Cette opération rembourse-t-elle une dette que tu as enregistrée ?'}
                   <select value={suggestedDebtId} onChange={(event) => updateChoice(item.id, { repaymentDebtId: event.target.value, categoryId: event.target.value ? repaymentCategoryId : (incoming ? 'other_income' : item.suggestedCategoryId || 'other') })} className="mt-2 h-10 w-full rounded-lg border border-emerald-200 bg-white px-3 text-sm font-normal text-slate-800">
@@ -285,7 +310,7 @@ export function SmsImportCoordinator() {
                     {debtCandidates.length > 0 ? 'Pata a repéré une correspondance possible. Vérifie le nom et le montant avant de confirmer.' : 'Tu peux choisir une dette active même si le nom du bénéficiaire n’est pas présent dans le message.'}
                   </span>
                 </label>}
-                {!incoming && <label className="mt-3 block text-xs font-semibold text-slate-700">
+                {!incoming && item.eventType !== 'withdrawal' && <label className="mt-3 block text-xs font-semibold text-slate-700">
                   Nature de la sortie
                   <select value={selectedExpenseType} onChange={(event) => updateChoice(item.id, { expenseType: event.target.value, projectId: '' })} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800">
                     <option value="">Choisir la nature réelle…</option>
@@ -303,21 +328,19 @@ export function SmsImportCoordinator() {
                   </select>
                   {!projects.some((project) => project.status === 'active') && <span className="mt-1 block font-normal text-amber-700">Aucun projet actif. Crée d’abord un projet dans la rubrique Projets ou choisis une autre nature.</span>}
                 </label>}
-                <label className="mt-3 block text-xs font-semibold text-slate-700">
+                {item.eventType !== 'withdrawal' && <label className="mt-3 block text-xs font-semibold text-slate-700">
                   Catégorie
                   <select value={choice.categoryId || (incoming ? 'other_income' : item.suggestedCategoryId || 'other')} onChange={(event) => updateChoice(item.id, { categoryId: event.target.value })} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800">
                     {categories.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}
                   </select>
-                </label>
-                {item.direction === 'withdrawal' && <p className="mt-3 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">
-                  Toute sortie confirmée est rattachée au solde Mobile Money externe, sans débiter un revenu Pata déjà enregistré.
-                </p>}
+                </label>}
+                {item.direction === 'withdrawal' && <p className="mt-3 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">Le retrait est un transfert entre deux formes d’argent : il diminue le solde Mobile Money choisi et crée une poche espèces du même montant. Il ne sera pas ajouté aux dépenses de consommation ni aux revenus.</p>}
                 {warnings[item.id] && <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900">Le budget sera dépassé. Confirme une seconde fois uniquement si tu souhaites enregistrer cette opération.</p>}
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Button size="sm" disabled={workingId === item.id
                     || (item.direction === 'withdrawal' && choice.confirmWithdrawal !== true)
-                    || (!incoming && (!selectedExpenseType || (selectedExpenseType === 'project' && !choice.projectId)))} onClick={() => confirm(item)}>
-                    <Check size={14}/>{workingId === item.id ? 'Enregistrement…' : warnings[item.id] ? 'Confirmer malgré le budget' : 'Confirmer l’opération'}
+                    || (!incoming && item.eventType !== 'withdrawal' && (!selectedExpenseType || (selectedExpenseType === 'project' && !choice.projectId)))} onClick={() => confirm(item)}>
+                    <Check size={14}/>{workingId === item.id ? 'Enregistrement…' : warnings[item.id] ? 'Confirmer malgré le budget' : item.eventType === 'withdrawal' ? 'Confirmer le transfert vers espèces' : 'Confirmer l’opération'}
                   </Button>
                   <Button size="sm" variant="outline" disabled={workingId === item.id} onClick={() => refuse(item)}><X size={14}/> Refuser</Button>
                 </div>
