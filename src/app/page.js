@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import OnboardingIllustration from '@/components/OnboardingIllustrations';
 
-const ONBOARDING_KEY = 'pata-onboarding-completed-v1';
+const ONBOARDING_KEY = 'pata-onboarding-completed-v2';
 const slides = [
   {
     eyebrow: 'TES FINANCES, AU MÊME ENDROIT',
