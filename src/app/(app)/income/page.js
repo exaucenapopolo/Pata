@@ -15,6 +15,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { CategoryManager } from '@/components/ui/CategoryManager';
 import { CategoryImage } from '@/components/ui/CategoryImage';
+import { MonthPicker } from '@/components/ui/MonthPicker';
 import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/context/LanguageContext';
 import { useIncomes } from '@/hooks/useIncomes';
@@ -483,7 +484,7 @@ export default function IncomePage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <AssistantShortcut label="Analyser mes revenus" prompt="Analyse mes sources de revenus dans Pata. Aide-moi à comprendre leur régularité, leur répartition et les risques de dépendance à une seule source. Propose des pistes adaptées sans modifier mes opérations." promptEn="Analyze my income sources in Pata. Help me understand how regular they are, how they are distributed and the risks of relying on a single source. Suggest practical improvements without changing my transactions." />
-          <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm" />
+          <MonthPicker value={month} onChange={setMonth} className="w-full sm:w-auto" />
         </div>
       </div>
       {!premiumActive && (
