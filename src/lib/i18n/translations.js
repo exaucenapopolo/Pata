@@ -1077,6 +1077,24 @@ export const translations = {
 
 
 
+function escapeTranslationRegExp(value) {
+  const special = '.^$*+?()[]{}|\\';
+  return Array.from(value, (character) => special.includes(character) ? '\\' + character : character).join('');
+}
+
+const translationTemplates = Object.entries(translations)
+  .filter(([source, target]) => typeof target === 'string' && /\{[A-Za-z][A-Za-z0-9_]*\}/.test(source))
+  .map(([source, target]) => {
+    const placeholders = [];
+    const pattern = source.split(/(\{[A-Za-z][A-Za-z0-9_]*\})/g).map((part) => {
+      const match = part.match(/^\{([A-Za-z][A-Za-z0-9_]*)\}$/);
+      if (!match) return escapeTranslationRegExp(part);
+      placeholders.push(match[1]);
+      return '([\\s\\S]*?)';
+    }).join('');
+    return { expression: new RegExp('^' + pattern + '$'), placeholders, target };
+  });
+
 export function normalizeLanguage(value) {
   return value === 'en' ? 'en' : 'fr';
 }
@@ -1089,6 +1107,16 @@ export function translateText(value, language = DEFAULT_LANGUAGE) {
   if (!core) return value;
   const exact = translations[core];
   if (exact) return leading + exact + trailing;
+
+  for (const template of translationTemplates) {
+    const match = core.match(template.expression);
+    if (!match) continue;
+    let translated = template.target;
+    template.placeholders.forEach((name, index) => {
+      translated = translated.replace('{' + name + '}', match[index + 1]);
+    });
+    return leading + translated + trailing;
+  }
 
   return leading + core + trailing;
 }
