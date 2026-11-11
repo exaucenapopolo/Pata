@@ -101,7 +101,7 @@ export default function DebtsPage() {
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
           <p className="text-xs font-semibold text-amber-800">Je dois</p>
           <p className="mt-1 text-xl font-bold text-amber-900">{formatCurrency(totalPayable)}</p>
-          <p className="mt-1 text-[11px] text-amber-800">{payablePeopleCount} personne(s) à qui tu dois</p>
+          <p className="mt-1 text-[11px] text-amber-800">{payablePeopleCount} créancier(s) ou banque(s) à qui tu dois</p>
         </div>
       </section>
 
@@ -133,8 +133,8 @@ export default function DebtsPage() {
                 <div className="flex min-w-0 items-start gap-3">
                   <span className={'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ' + (isReceivable ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700')}>{isReceivable ? <ArrowDownLeft size={19}/> : <ArrowUpRight size={19}/>}</span>
                   <div className="min-w-0">
-                    <h2 className="truncate text-sm font-bold text-slate-900">{debt.person || 'Personne non renseignée'}</h2>
-                    <p className="mt-0.5 text-xs text-slate-500">{isReceivable ? 'Prêt accordé · On me doit' : 'Dette contractée · Je dois'}</p>
+                    <h2 className="truncate text-sm font-bold text-slate-900">{debt.bankName || debt.person || 'Créancier non renseigné'}</h2>
+                    <p className="mt-0.5 text-xs text-slate-500">{isReceivable ? 'Prêt accordé · On me doit' : debt.counterpartyType === 'bank' ? 'Dette bancaire · Je dois' : 'Dette contractée · Je dois'}</p>
                     {debt.phone && <p className="mt-1 text-xs text-slate-500">{debt.phone}</p>}
                   </div>
                 </div>

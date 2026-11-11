@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { LockKeyhole, ShieldCheck, Mail } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { LockKeyhole, ShieldCheck, Mail, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { PinPad } from '@/components/security/PinPad';
 
@@ -25,6 +25,8 @@ export function PinGate() {
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState('');
+  const feedbackTimer = useRef(null);
   const [resetMode, setResetMode] = useState(false);
   const [resetSent, setResetSent] = useState(false);
   const [code, setCode] = useState('');
@@ -104,19 +106,33 @@ export function PinGate() {
     return () => window.removeEventListener('pata:pin-updated', refreshPinStatus);
   }, [user]);
 
+  useEffect(() => () => {
+    if (feedbackTimer.current) window.clearTimeout(feedbackTimer.current);
+  }, []);
+
   const unlock = useCallback(async () => {
-    if (!user || pin.length !== 4 || busy) return;
+    if (!user || pin.length !== 4 || busy || feedback === 'success') return;
     setBusy(true); setError('');
     try {
       await apiCall(user, 'security/pin/verify', { pin });
       setEnabled(true);
       try { localStorage.removeItem(storageKey); } catch { /* stockage local indisponible */ }
-      setLocked(false); setPin('');
+      setPin('');
+      setFeedback('success');
+      if (feedbackTimer.current) window.clearTimeout(feedbackTimer.current);
+      feedbackTimer.current = window.setTimeout(() => {
+        try { localStorage.removeItem(storageKey); } catch { /* stockage local indisponible */ }
+        setLocked(false);
+        setFeedback('');
+      }, 560);
     } catch (err) {
       setError(err.message || 'Code secret incorrect.');
       setPin('');
+      setFeedback('error');
+      if (feedbackTimer.current) window.clearTimeout(feedbackTimer.current);
+      feedbackTimer.current = window.setTimeout(() => setFeedback(''), 650);
     } finally { setBusy(false); }
-  }, [user, pin, busy, storageKey]);
+  }, [user, pin, busy, storageKey, feedback]);
 
   useEffect(() => {
     if (locked && enabled && pin.length === 4 && !busy) void unlock();
@@ -153,7 +169,7 @@ export function PinGate() {
 
   return (
     <div className="fixed inset-0 z-[200] flex items-end justify-center overflow-y-auto bg-[#f5f8f6] px-0 pt-8 dark:bg-[#101a16] sm:items-center sm:px-4 sm:py-6">
-      <section className="w-full max-w-[420px] rounded-t-[32px] border border-slate-200 bg-white px-5 pb-[calc(28px+env(safe-area-inset-bottom))] pt-7 shadow-[0_-16px_60px_rgba(15,23,42,0.12)] dark:border-slate-700 dark:bg-[#18251f] sm:rounded-[28px] sm:px-7 sm:py-7">
+      <section className={'w-full max-w-[420px] rounded-t-[32px] border border-slate-200 bg-white px-5 pb-[calc(28px+env(safe-area-inset-bottom))] pt-7 shadow-[0_-16px_60px_rgba(15,23,42,0.12)] dark:border-slate-700 dark:bg-[#18251f] sm:rounded-[28px] sm:px-7 sm:py-7 ' + (feedback === 'error' ? 'animate-pata-pin-shake' : feedback === 'success' ? 'animate-pata-pin-success' : '')}>
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-50 text-brand-700">
           {resetMode ? <ShieldCheck size={22}/> : <LockKeyhole size={22}/>}
         </div>
@@ -161,7 +177,7 @@ export function PinGate() {
         {!resetMode ? (
           <>
             <p className="mt-1.5 text-center text-xs text-slate-500 dark:text-slate-400">Déverrouille ton espace personnel.</p>
-            <div className="mt-5"><PinPad value={pin} onChange={setPin} disabled={busy} label="Saisis ton code à 4 chiffres"/></div>
+            <div className="relative mt-5"><PinPad value={pin} onChange={setPin} disabled={busy || feedback === 'success'} label="Saisis ton code à 4 chiffres"/>{feedback === 'success' && <div role="status" className="mt-3 flex items-center justify-center gap-2 rounded-xl bg-emerald-50 px-3 py-2.5 text-xs font-bold text-emerald-700"><CheckCircle2 size={16}/> Code vérifié</div>}</div>
             {error && <p role="alert" className="mt-3 text-center text-xs text-red-600">{error}</p>}
             <button type="button" onClick={() => { setResetMode(true); setError(''); }} className="mt-3 flex min-h-9 w-full items-center justify-center gap-1.5 text-xs font-semibold text-brand-700"><Mail size={14}/> Code oublié ?</button>
           </>

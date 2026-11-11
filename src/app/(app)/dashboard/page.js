@@ -18,6 +18,7 @@ import { useExpenses } from '@/hooks/useExpenses';
 import { useDebts } from '@/hooks/useDebts';
 import { useGoals } from '@/hooks/useGoals';
 import { useProfile } from '@/hooks/useProfile';
+import { useAuth } from '@/hooks/useAuth';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { generateAdvice, adviceIconColor } from '@/lib/advisor';
 import { formatCurrency, formatDate, resolveCategory, getFirstOfMonth, getLastOfMonth } from '@/lib/utils';
@@ -80,6 +81,14 @@ export default function DashboardPage() {
   const [customEnd, setCustomEnd] = useState(todayIso());
   const [showCustomPeriod, setShowCustomPeriod] = useState(false);
   const [activeFeature, setActiveFeature] = useState(0);
+  const [financialTarget, setFinancialTarget] = useState(null);
+  const [targetDraft, setTargetDraft] = useState({ incomeTarget: '', expenseLimit: '', debtLimit: '', resolution: '' });
+  const [targetLoading, setTargetLoading] = useState(true);
+  const [targetSaving, setTargetSaving] = useState(false);
+  const [targetError, setTargetError] = useState('');
+  const [targetSaved, setTargetSaved] = useState(false);
+  const { user } = useAuth();
+  const targetMonth = todayIso().slice(0, 7);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -87,6 +96,38 @@ export default function DashboardPage() {
     }, 3000);
     return () => window.clearInterval(intervalId);
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    if (!user) {
+      setFinancialTarget(null);
+      setTargetDraft({ incomeTarget: '', expenseLimit: '', debtLimit: '', resolution: '' });
+      setTargetLoading(false);
+      return undefined;
+    }
+    setTargetLoading(true);
+    user.getIdToken().then((token) => fetch('/api/financial-targets?month=' + encodeURIComponent(targetMonth), {
+      headers: { Authorization: 'Bearer ' + token },
+    })).then(async (response) => {
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Impossible de charger les objectifs.');
+      if (!active) return;
+      const target = data.target || null;
+      setFinancialTarget(target);
+      setTargetDraft({
+        incomeTarget: target?.incomeTarget == null ? '' : String(target.incomeTarget),
+        expenseLimit: target?.expenseLimit == null ? '' : String(target.expenseLimit),
+        debtLimit: target?.debtLimit == null ? '' : String(target.debtLimit),
+        resolution: target?.resolution || '',
+      });
+      setTargetError('');
+    }).catch((error) => {
+      if (active) setTargetError(error.message || 'Impossible de charger les objectifs financiers.');
+    }).finally(() => {
+      if (active) setTargetLoading(false);
+    });
+    return () => { active = false; };
+  }, [user, targetMonth]);
 
   const startDate = showCustomPeriod ? customStart : getFirstOfMonth();
   const endDate = showCustomPeriod ? customEnd : getLastOfMonth();
@@ -127,6 +168,16 @@ export default function DashboardPage() {
     () => incomes.filter((i) => i.date >= startDate && i.date <= endDate),
     [incomes, startDate, endDate]
   );
+  const periodBorrowedTotal = useMemo(
+    () => periodIncomes.filter((item) => item.flowType === 'debt_borrowed' || item.categoryId === 'debt_borrowed')
+      .reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
+    [periodIncomes]
+  );
+  const previousBorrowedTotal = useMemo(
+    () => prevIncomes.filter((item) => item.flowType === 'debt_borrowed' || item.categoryId === 'debt_borrowed')
+      .reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
+    [prevIncomes]
+  );
   const prevIncomes = useMemo(
     () => incomes.filter((i) => i.date >= prevStartDate && i.date <= prevEndDate),
     [incomes, prevStartDate, prevEndDate]
@@ -166,6 +217,7 @@ export default function DashboardPage() {
       .sort((a, b) => b.value - a.value);
   }, [periodConsumptionExpenses, customCategories]);
 
+  const activePeriodTarget = startDate.slice(0, 7) === targetMonth && endDate.slice(0, 7) === targetMonth ? financialTarget : null;
   const advices = useMemo(
     () => generateAdvice({
       expenses: periodConsumptionExpenses,
@@ -173,11 +225,17 @@ export default function DashboardPage() {
       totalIncome: periodIncomeTotal,
       previousIncome: prevTotalIncome,
       previousIncomeSpend,
+      incomeTarget: Number(activePeriodTarget?.incomeTarget) || 0,
+      expenseLimit: Number(activePeriodTarget?.expenseLimit) || 0,
+      debtLimit: Number(activePeriodTarget?.debtLimit) || 0,
+      borrowedDebtTotal: periodBorrowedTotal,
+      previousBorrowedDebtTotal: previousBorrowedTotal,
+      openDebtBalance: debts.filter((debt) => debt.type === 'i_owe' && ['active', 'partial', 'late'].includes(debt.status)).reduce((sum, debt) => sum + (Number(debt.remaining) || 0), 0),
       goals,
       customCategories,
       userName,
     }),
-    [periodConsumptionExpenses, previousConsumptionExpenses, periodIncomeTotal, prevTotalIncome, goals, customCategories, userName]
+    [periodConsumptionExpenses, previousConsumptionExpenses, periodIncomeTotal, prevTotalIncome, goals, customCategories, userName, activePeriodTarget, periodBorrowedTotal, previousBorrowedTotal, debts]
   );
 
   const topExpenses = useMemo(() => {
@@ -189,6 +247,52 @@ export default function DashboardPage() {
   const payables = openDebts.filter((debt) => debt.type === 'i_owe');
   const receivableTotal = receivables.reduce((sum, debt) => sum + (Number(debt.remaining) || 0), 0);
   const payableTotal = payables.reduce((sum, debt) => sum + (Number(debt.remaining) || 0), 0);
+
+  const saveFinancialTargets = async () => {
+    if (!user || targetSaving) return;
+    const fields = ['incomeTarget', 'expenseLimit', 'debtLimit'];
+    const payload = { month: targetMonth };
+    let hasValue = Boolean(String(targetDraft.resolution || '').trim());
+    for (const field of fields) {
+      const raw = String(targetDraft[field] ?? '').trim();
+      if (!raw) { payload[field] = null; continue; }
+      const amount = Number(raw);
+      if (!Number.isSafeInteger(amount) || amount < 0 || amount > 1000000000) {
+        setTargetError('Saisis des montants entiers positifs ou nuls en FCFA.');
+        return;
+      }
+      payload[field] = amount;
+      hasValue = true;
+    }
+    if (!hasValue) {
+      setTargetError('Saisis au moins un objectif ou une résolution pour ce mois.');
+      return;
+    }
+    payload.resolution = String(targetDraft.resolution || '').trim();
+    setTargetSaving(true);
+    setTargetError('');
+    setTargetSaved(false);
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch('/api/financial-targets', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) throw new Error(data.error || 'Impossible d’enregistrer les objectifs.');
+      setFinancialTarget({
+        month: targetMonth,
+        ...Object.fromEntries(fields.map((field) => [field, payload[field] == null ? undefined : payload[field]])),
+        resolution: payload.resolution || undefined,
+      });
+      setTargetSaved(true);
+    } catch (error) {
+      setTargetError(error.message || 'Impossible d’enregistrer les objectifs.');
+    } finally {
+      setTargetSaving(false);
+    }
+  };
 
   const expenseChange = prevTotalExpense > 0 ? ((periodExpenseTotal - prevTotalExpense) / prevTotalExpense) * 100 : null;
   const incomeChange = prevTotalIncome > 0 ? ((periodIncomeTotal - prevTotalIncome) / prevTotalIncome) * 100 : null;
@@ -219,6 +323,33 @@ export default function DashboardPage() {
       <section className="grid grid-cols-2 gap-3">
         <Link href="/debts" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-emerald-200"><p className="text-xs font-semibold text-slate-500">On me doit</p><p className="mt-1 text-xl font-bold text-emerald-700">{formatCurrency(receivableTotal)}</p><p className="mt-1 text-[11px] text-slate-500">{receivables.length} créance(s) active(s)</p></Link>
         <Link href="/debts" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-amber-200"><p className="text-xs font-semibold text-slate-500">Je dois</p><p className="mt-1 text-xl font-bold text-amber-700">{formatCurrency(payableTotal)}</p><p className="mt-1 text-[11px] text-slate-500">{payables.length} dette(s) active(s)</p></Link>
+      </section>
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div><h2 className="text-sm font-bold text-slate-900">Mes objectifs financiers</h2><p className="mt-1 text-xs text-slate-500">Fixe tes repères pour le mois {targetMonth}. Pata comparera tes résultats à ces objectifs.</p></div>
+          {targetSaved && <span className="text-xs font-semibold text-emerald-700">Enregistré</span>}
+        </div>
+        {targetLoading ? <p className="mt-4 text-xs text-slate-500">Chargement des objectifs…</p> : <>
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <label className="block text-xs font-semibold text-slate-600">Objectif de revenus (FCFA)
+              <input type="number" min="0" step="1" inputMode="numeric" value={targetDraft.incomeTarget} onChange={(event) => { setTargetDraft((value) => ({ ...value, incomeTarget: event.target.value })); setTargetSaved(false); }} placeholder="Ex. 500000" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-900"/>
+            </label>
+            <label className="block text-xs font-semibold text-slate-600">Plafond dépenses courantes (FCFA)
+              <input type="number" min="0" step="1" inputMode="numeric" value={targetDraft.expenseLimit} onChange={(event) => { setTargetDraft((value) => ({ ...value, expenseLimit: event.target.value })); setTargetSaved(false); }} placeholder="Ex. 100000" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-900"/>
+            </label>
+            <label className="block text-xs font-semibold text-slate-600">Plafond nouvelles dettes (FCFA)
+              <input type="number" min="0" step="1" inputMode="numeric" value={targetDraft.debtLimit} onChange={(event) => { setTargetDraft((value) => ({ ...value, debtLimit: event.target.value })); setTargetSaved(false); }} placeholder="Ex. 50000" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-900"/>
+            </label>
+          </div>
+          <label className="mt-3 block text-xs font-semibold text-slate-600">Ma résolution du mois (facultatif)
+            <textarea rows="2" maxLength="300" value={targetDraft.resolution} onChange={(event) => { setTargetDraft((value) => ({ ...value, resolution: event.target.value })); setTargetSaved(false); }} placeholder="Ex. Éviter un nouvel emprunt tant que la dette actuelle n’est pas réduite." className="mt-1.5 w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-normal text-slate-900"/>
+          </label>
+          {targetError && <p role="alert" className="mt-3 text-xs text-red-600">{targetError}</p>}
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-[11px] leading-4 text-slate-500">Les emprunts restent distincts des revenus gagnés. Le plafond des dettes suit le montant des nouveaux emprunts.</p>
+            <button type="button" onClick={saveFinancialTargets} disabled={targetSaving} className="min-h-10 rounded-xl bg-brand-700 px-4 text-xs font-bold text-white transition hover:bg-brand-800 disabled:opacity-50">{targetSaving ? 'Enregistrement…' : 'Enregistrer mes objectifs'}</button>
+          </div>
+        </>}
       </section>
       <section className="pata-feature-carousel overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" aria-roledescription="carrousel de fonctionnalités" aria-label="Fonctionnalités principales de Pata">
         {DASHBOARD_FEATURES.map((feature, index) => {

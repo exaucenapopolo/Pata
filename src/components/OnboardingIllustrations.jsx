@@ -109,14 +109,14 @@ function AIVisual() {
 
 export default function OnboardingIllustration({ index = 0 }) {
   if (index === 1) {
-    return <div className="h-full aspect-[9/16] max-h-full max-w-full"><AIVisual /></div>;
+    return <div className="absolute inset-0 h-full w-full"><AIVisual /></div>;
   }
 
   const visual = VISUALS[index];
   if (!visual) return null;
 
   return (
-    <div className="relative h-full aspect-[9/16] max-h-full max-w-full overflow-hidden rounded-2xl bg-[#0a4a2b] shadow-[0_20px_50px_-18px_rgba(10,40,25,.35)]">
+    <div className="absolute inset-0 h-full w-full overflow-hidden bg-[#0a4a2b]">
       <img
         src={visual.src}
         alt={visual.alt}

@@ -21,6 +21,12 @@ export function generateAdvice({
   totalIncome = 0,
   previousIncome = 0,
   previousIncomeSpend = 0,
+  incomeTarget = 0,
+  expenseLimit = 0,
+  debtLimit = 0,
+  borrowedDebtTotal = 0,
+  previousBorrowedDebtTotal = 0,
+  openDebtBalance = 0,
   customCategories = [],
   userName = 'toi',
 }) {
@@ -166,7 +172,30 @@ export function generateAdvice({
     });
   }
 
-  /* ────── 6. Petites dépenses fréquentes (les "tueurs silencieux") ────── */
+  /* ────── 6. Objectifs financiers choisis par l’utilisateur ────── */
+  if (incomeTarget > 0) {
+    const remainingIncome = Math.max(0, incomeTarget - totalIncome);
+    if (totalIncome >= incomeTarget) {
+      advices.push({ id: 'income-target-reached', type: 'success', message: `Tu as atteint ton objectif de revenus de ${formatCurrency(incomeTarget)}. Protège une partie de ce résultat au lieu de l’absorber dans les dépenses.`, priority: 68 });
+    } else {
+      advices.push({ id: 'income-target-progress', type: 'info', message: `Tu as enregistré ${formatCurrency(totalIncome)} sur ton objectif de ${formatCurrency(incomeTarget)}. Il reste ${formatCurrency(remainingIncome)} à atteindre. Identifie une source de revenu réaliste pour progresser.`, priority: 48 });
+    }
+  }
+  if (expenseLimit > 0 && totalExpense > 0) {
+    const usage = (totalExpense / expenseLimit) * 100;
+    if (usage > 100) advices.push({ id: 'expense-target-exceeded', type: 'danger', message: `Tu as dépassé ton plafond de dépenses courantes de ${formatCurrency(totalExpense - expenseLimit)}. Mets en pause les dépenses non prioritaires et réajuste ton plan.`, priority: 102 });
+    else if (usage >= 80) advices.push({ id: 'expense-target-near', type: 'warning', message: `Tu as déjà utilisé ${usage.toFixed(0)}% de ton plafond de dépenses courantes. Garde une marge pour les besoins essentiels du reste du mois.`, priority: 83 });
+  }
+  if (debtLimit > 0 && borrowedDebtTotal > 0) {
+    const usage = (borrowedDebtTotal / debtLimit) * 100;
+    if (usage > 100) advices.push({ id: 'debt-target-exceeded', type: 'danger', message: `Tu as dépassé ton plafond de nouveaux emprunts de ${formatCurrency(borrowedDebtTotal - debtLimit)}. Évite un nouvel emprunt avant d’avoir revu tes remboursements et tes priorités.`, priority: 110 });
+    else if (usage >= 80) advices.push({ id: 'debt-target-near', type: 'warning', message: `Tu as déjà utilisé ${usage.toFixed(0)}% de ton plafond de nouveaux emprunts. Vérifie que tes remboursements actuels restent supportables avant d’emprunter davantage.`, priority: 92 });
+  }
+  if (openDebtBalance > 0 && borrowedDebtTotal > previousBorrowedDebtTotal) {
+    advices.push({ id: 'debt-balance-reminder', type: 'warning', message: `Il te reste ${formatCurrency(openDebtBalance)} à rembourser. Évite d’empiler les emprunts : planifie d’abord les échéances et remboursements déjà engagés.`, priority: 78 });
+  }
+
+  /* ────── 7. Petites dépenses fréquentes (les "tueurs silencieux") ────── */
   if (expenses.length > 0) {
     const smallExpenses = expenses.filter(e => e.amount < 2000);
     const smallTotal = smallExpenses.reduce((s, e) => s + e.amount, 0);

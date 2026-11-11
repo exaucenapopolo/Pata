@@ -202,3 +202,20 @@ html.dark .text-\[\#075b43\], html.dark .text-\[\#0b5c46\] { color: #8ed6b3 !imp
     stroke-dashoffset: 0;
   }
 }
+
+
+@keyframes pata-pin-shake {
+  0%, 100% { transform: translateX(0); }
+  18%, 54%, 86% { transform: translateX(-7px); }
+  36%, 70% { transform: translateX(7px); }
+}
+@keyframes pata-pin-success {
+  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  45% { transform: scale(1.018); box-shadow: 0 0 0 8px rgba(16, 185, 129, .12); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+.animate-pata-pin-shake { animation: pata-pin-shake 420ms ease-in-out; }
+.animate-pata-pin-success { animation: pata-pin-success 520ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .animate-pata-pin-shake, .animate-pata-pin-success { animation: none !important; }
+}

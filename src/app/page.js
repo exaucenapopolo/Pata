@@ -107,84 +107,36 @@ export default function HomePage() {
   if (loading || user || !ready) return <Spinner />;
 
   return (
-    <main className="flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-[#f5f8f6] px-4 pb-[max(.7rem,env(safe-area-inset-bottom))] pt-[max(.65rem,env(safe-area-inset-top))] text-slate-900 sm:px-6">
-      <header className="mx-auto flex w-full max-w-xl shrink-0 items-center justify-between">
-        <div className="flex items-center gap-2.5">
-          <img src="/android-chrome-192x192.png" alt="Pata" className="h-9 w-9 rounded-xl" />
-          <span className="text-xl font-extrabold tracking-tight text-[#075b43]">Pata</span>
+    <main className="relative h-[100dvh] min-h-[100svh] w-full overflow-hidden bg-[#081a13] text-white">
+      <div className="absolute inset-0">
+        <div ref={carouselRef} onScroll={onScroll} aria-label="Présentation des fonctionnalités de Pata" className="flex h-full w-full snap-x snap-mandatory overflow-x-auto overflow-y-hidden overscroll-x-contain scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" style={{ WebkitOverflowScrolling: 'touch' }}>
+          {slides.map((item, index) => <article key={item.eyebrow} className="relative h-full w-full shrink-0 snap-start overflow-hidden"><OnboardingIllustration index={index} /></article>)}
         </div>
-        <button type="button" onClick={() => finish('/login')} className="rounded-full px-3 py-2 text-xs font-semibold text-slate-500 transition hover:bg-white">
-          Passer
-        </button>
+      </div>
+      <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between px-4 pt-[max(.75rem,env(safe-area-inset-top))] sm:px-6">
+        <div className="flex items-center gap-2.5 rounded-full border border-white/20 bg-black/25 px-3 py-2 backdrop-blur-md">
+          <img src="/android-chrome-192x192.png" alt="Pata" className="h-8 w-8 rounded-lg" />
+          <span className="text-lg font-extrabold tracking-tight text-white">Pata</span>
+        </div>
+        <button type="button" onClick={() => finish('/login')} className="pointer-events-auto rounded-full border border-white/25 bg-black/30 px-4 py-2.5 text-xs font-bold text-white backdrop-blur-md transition hover:bg-black/50">Passer</button>
       </header>
-
-      <section className="mx-auto flex min-h-0 w-full max-w-xl flex-1 flex-col py-2">
-        <div className="mb-2 flex shrink-0 items-center justify-between">
-          <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#0b5c46]">Découvrir Pata</p>
-          <span className="text-xs font-semibold tabular-nums text-slate-400">{slide + 1} / {slides.length}</span>
-        </div>
-
-        <div
-          ref={carouselRef}
-          onScroll={onScroll}
-          aria-label="Présentation des fonctionnalités de Pata"
-          className="flex min-h-0 flex-1 snap-x snap-mandatory overflow-x-auto overflow-y-hidden overscroll-x-contain scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          style={{ WebkitOverflowScrolling: 'touch' }}
-        >
-          {slides.map((item, index) => (
-            <article key={item.eyebrow} className="flex h-full w-full shrink-0 snap-start flex-col items-center justify-center px-1 text-center">
-              <div className="mb-2 flex h-[clamp(150px,31dvh,228px)] w-full max-w-[350px] shrink-0 items-center justify-center">
-                <OnboardingIllustration index={index} />
-              </div>
-              <p className="text-[9px] font-bold tracking-[.17em] text-[#0b5c46] sm:text-[10px]">{item.eyebrow}</p>
-              <h1 className="mt-2 max-w-lg text-[clamp(1.55rem,5.5vw,2.1rem)] font-bold leading-[1.12] tracking-tight text-slate-950">
-                {item.title}
-              </h1>
-              <p className="mt-3 max-w-md text-[13px] leading-[1.55rem] text-slate-600 sm:text-sm">{item.description}</p>
-              <p className="mt-3 max-w-sm text-[11px] font-medium leading-5 text-slate-500 sm:text-xs">{item.note}</p>
-            </article>
-          ))}
-        </div>
-
-        <div className="mt-2 flex shrink-0 items-center justify-between gap-3">
+      <div className="pointer-events-none absolute right-4 top-[max(4.7rem,calc(env(safe-area-inset-top)+4rem))] z-20 rounded-full border border-white/20 bg-black/30 px-3 py-1.5 text-xs font-bold tabular-nums text-white backdrop-blur-md">{slide + 1} / {slides.length}</div>
+      <div className="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/75 via-black/35 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-16 sm:px-6">
+        <div className="mx-auto flex w-full max-w-xl items-center justify-between gap-3">
           <div className="flex items-center gap-1.5" aria-label="Progression de la présentation">
-            {slides.map((item, index) => (
-              <button
-                key={item.eyebrow}
-                type="button"
-                aria-label={'Afficher la page ' + (index + 1)}
-                aria-current={slide === index ? 'step' : undefined}
-                onClick={() => moveSlide(index)}
-                className={'h-1.5 rounded-full transition-all duration-300 ' + (slide === index ? 'w-7 bg-[#0b5c46]' : 'w-1.5 bg-slate-300')}
-              />
-            ))}
+            {slides.map((item, index) => <button key={item.eyebrow} type="button" aria-label={'Afficher la page ' + (index + 1)} aria-current={slide === index ? 'step' : undefined} onClick={() => moveSlide(index)} className={'h-2 rounded-full transition-all duration-300 ' + (slide === index ? 'w-7 bg-white' : 'w-2 bg-white/55 hover:bg-white/80')}/>)}
           </div>
-          {slide > 0 && (
-            <button type="button" onClick={() => moveSlide(slide - 1)} className="rounded-xl px-3 py-2 text-xs font-semibold text-slate-500 transition hover:bg-white">
-              ← Précédent
-            </button>
-          )}
+          {slide > 0 && <button type="button" onClick={() => moveSlide(slide - 1)} className="rounded-xl border border-white/25 bg-black/25 px-3 py-2 text-xs font-semibold text-white backdrop-blur-md transition hover:bg-black/45">← Précédent</button>}
         </div>
-
         {slide < slides.length - 1 ? (
-          <button type="button" onClick={() => moveSlide(slide + 1)} className="mt-3 flex h-11 w-full shrink-0 items-center justify-center gap-2 rounded-2xl bg-[#0b5c46] text-sm font-bold text-white shadow-[0_8px_20px_-12px_rgba(11,92,70,.8)] transition hover:bg-[#084b39]">
-            Suivant <span aria-hidden="true">→</span>
-          </button>
+          <button type="button" onClick={() => moveSlide(slide + 1)} className="mx-auto mt-3 flex h-12 w-full max-w-xl items-center justify-center gap-2 rounded-2xl bg-[#0b5c46] text-sm font-bold text-white shadow-lg transition hover:bg-[#084b39]">Suivant <span aria-hidden="true">→</span></button>
         ) : (
-          <div className="mt-3 grid shrink-0 gap-2 sm:grid-cols-2">
-            <button type="button" onClick={() => finish(getRegisterPath())} className="flex h-11 items-center justify-center gap-2 rounded-2xl bg-[#0b5c46] text-sm font-bold text-white transition hover:bg-[#084b39]">
-              Créer mon compte <span aria-hidden="true">→</span>
-            </button>
-            <button type="button" onClick={() => finish('/login')} className="h-11 rounded-2xl border border-slate-200 bg-white text-sm font-bold text-slate-700 transition hover:bg-slate-50">
-              J’ai déjà un compte
-            </button>
+          <div className="mx-auto mt-3 grid w-full max-w-xl gap-2 sm:grid-cols-2">
+            <button type="button" onClick={() => finish(getRegisterPath())} className="flex h-12 items-center justify-center gap-2 rounded-2xl bg-[#0b5c46] text-sm font-bold text-white transition hover:bg-[#084b39]">Créer mon compte <span aria-hidden="true">→</span></button>
+            <button type="button" onClick={() => finish('/login')} className="h-12 rounded-2xl border border-white/35 bg-black/35 text-sm font-bold text-white backdrop-blur-md transition hover:bg-black/50">J’ai déjà un compte</button>
           </div>
         )}
-      </section>
-
-      <footer className="mx-auto flex w-full max-w-xl shrink-0 items-center justify-center border-t border-slate-200/80 pt-2 text-center text-[10px] text-slate-400">
-        Pata · Organiser, comprendre et suivre ton argent.
-      </footer>
+      </div>
     </main>
   );
 }
