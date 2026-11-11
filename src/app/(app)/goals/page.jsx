@@ -2,6 +2,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import { useLanguage } from '@/context/LanguageContext';
 import confetti from 'canvas-confetti';
 import {
   Plus, Target, Trash2, AlertTriangle, Banknote, Pencil, Lightbulb,
@@ -57,42 +58,45 @@ function ProgressCircle({ value = 0, size = 100 }) {
   );
 }
 
-function buildGoalAdvices(plan, balance, goalName) {
+function buildGoalAdvices(plan, balance, goalName, language = 'fr') {
+  const isEnglish = language === 'en';
   if (!plan) return [];
   if (plan.type === 'piggybank') {
-    return [{ type: 'info', message: `C'est ta caisse libre. Tu peux y déposer de l'argent à tout moment. Total actuel : ${formatCurrency(plan.totalDeposited)}.` }];
+    return [{ type: 'info', message: isEnglish ? `This is your flexible savings pot. You can deposit money whenever you like. Current total: ${formatCurrency(plan.totalDeposited)}.` : `C'est ta caisse libre. Tu peux y déposer de l'argent à tout moment. Total actuel : ${formatCurrency(plan.totalDeposited)}.` }];
   }
 
   const advices = [];
   if (plan.notStarted) {
-    advices.push({ type: 'info', message: `Cet objectif est programmé pour commencer le ${formatDate(plan.startDate)}.` });
+    advices.push({ type: 'info', message: isEnglish ? `This goal is scheduled to start on ${formatDate(plan.startDate)}.` : `Cet objectif est programmé pour commencer le ${formatDate(plan.startDate)}.` });
     return advices;
   }
   if (plan.isReached && !plan.isLate) {
-    advices.push({ type: 'success', message: `Ton objectif « ${goalName} » est atteint. Tu peux retirer ton argent à tout moment.` });
+    advices.push({ type: 'success', message: isEnglish ? `Your goal “${goalName}” has been reached. You can withdraw your money at any time.` : `Ton objectif « ${goalName} » est atteint. Tu peux retirer ton argent à tout moment.` });
     return advices;
   }
   if (plan.isLate) {
-    const missedLabel = `${plan.missedPayments} échéance${plan.missedPayments > 1 ? 's' : ''} manquée${plan.missedPayments > 1 ? 's' : ''}`;
+    const missedLabel = isEnglish ? `${plan.missedPayments} missed payment${plan.missedPayments > 1 ? 's' : ''}` : `${plan.missedPayments} échéance${plan.missedPayments > 1 ? 's' : ''} manquée${plan.missedPayments > 1 ? 's' : ''}`;
     advices.push({
       type: 'danger',
-      message: `${missedLabel} : des ajustements liés aux échéances de ${formatCurrency(plan.penalty)} sont dus. Le calcul est limité à 7 % du montant resté impayé à chaque échéance et sera déduit au retrait ou à la clôture.`,
+      message: isEnglish ? `${missedLabel}: late adjustments of ${formatCurrency(plan.penalty)} are due. The adjustment is limited to 7% of the amount still unpaid at each missed due date and will be deducted when you withdraw or close the goal.` : `${missedLabel} : des ajustements liés aux échéances de ${formatCurrency(plan.penalty)} sont dus. Le calcul est limité à 7 % du montant resté impayé à chaque échéance et sera déduit au retrait ou à la clôture.`,
     });
   } else if (plan.totalDeposited >= plan.expectedAmount) {
-    advices.push({ type: 'success', message: `Tu es à jour : ${formatCurrency(plan.totalDeposited)} versés. Continue comme ça.` });
+    advices.push({ type: 'success', message: isEnglish ? `You are up to date: ${formatCurrency(plan.totalDeposited)} paid in. Keep it up.` : `Tu es à jour : ${formatCurrency(plan.totalDeposited)} versés. Continue comme ça.` });
   } else {
-    advices.push({ type: 'info', message: `Il te reste ${formatCurrency(plan.expectedAmount - plan.totalDeposited)} à verser pour être à jour.` });
+    advices.push({ type: 'info', message: isEnglish ? `You still need to pay ${formatCurrency(plan.expectedAmount - plan.totalDeposited)} to stay up to date.` : `Il te reste ${formatCurrency(plan.expectedAmount - plan.totalDeposited)} à verser pour être à jour.` });
   }
   if (balance >= plan.amountPerPayment) {
-    advices.push({ type: 'tip', message: `Ton solde couvre le prochain paiement de ${formatCurrency(plan.amountPerPayment)}.` });
+    advices.push({ type: 'tip', message: isEnglish ? `Your balance covers the next payment of ${formatCurrency(plan.amountPerPayment)}.` : `Ton solde couvre le prochain paiement de ${formatCurrency(plan.amountPerPayment)}.` });
   } else if (balance === 0) {
-    advices.push({ type: 'tip', message: 'Recharge ton portefeuille pour financer cet objectif.' });
+    advices.push({ type: 'tip', message: isEnglish ? 'Top up your wallet to fund this goal.' : 'Recharge ton portefeuille pour financer cet objectif.' });
   }
   return advices;
 }
 
 function ConfirmWithdrawModal({ goal, actionType, onClose, onConfirm, busy }) {
   const deposits = useDeposits(goal.id);
+  const { language } = useLanguage();
+  const isEnglish = language === 'en';
   const [phone, setPhone] = useState('');
   const [network, setNetwork] = useState('mtn');
   const plan = computeGoalPlan(goal, deposits);
@@ -103,13 +107,18 @@ function ConfirmWithdrawModal({ goal, actionType, onClose, onConfirm, busy }) {
   const netRefund = Math.max(0, plan.totalDeposited - plan.totalDebt - latePenalty - cancelPenalty);
 
   const waNumber = '14236752034';
-  const waMessage = encodeURIComponent(
-    `Bonjour l'équipe Pata,\n\nJe souhaite ${isCancel ? 'annuler' : 'clôturer'} mon ${isPiggybank ? 'épargne libre' : 'objectif'} "${goal.name}".\n\n` +
-    `- Total épargné : ${formatCurrency(plan.totalDeposited)}\n` +
-    (plan.totalDebt > 0 ? `- Dettes : ${formatCurrency(plan.totalDebt)}\n` : '') +
-    (latePenalty > 0 ? `- Ajustement de retard (7 % du montant manqué) : ${formatCurrency(latePenalty)}\n` : '') +
-    (cancelPenalty > 0 ? `- Frais de clôture anticipée (10%) : ${formatCurrency(cancelPenalty)}\n` : '') +
-    `- Net à recevoir : ${formatCurrency(netRefund)}\n\nMerci.`
+  const waMessage = encodeURIComponent(isEnglish
+    ? `Hello Pata team,\n\nI would like to ${isCancel ? 'cancel' : 'close'} my ${isPiggybank ? 'flexible savings pot' : 'savings goal'} "${goal.name}".\n\n- Total saved: ${formatCurrency(plan.totalDeposited)}\n` +
+      (plan.totalDebt > 0 ? `- Debt: ${formatCurrency(plan.totalDebt)}\n` : '') +
+      (latePenalty > 0 ? `- Late adjustment (7% of missed amount): ${formatCurrency(latePenalty)}\n` : '') +
+      (cancelPenalty > 0 ? `- Early closure fee (10%): ${formatCurrency(cancelPenalty)}\n` : '') +
+      `- Net amount to receive: ${formatCurrency(netRefund)}\n\nThank you.`
+    : `Bonjour l'équipe Pata,\n\nJe souhaite ${isCancel ? 'annuler' : 'clôturer'} mon ${isPiggybank ? 'épargne libre' : 'objectif'} "${goal.name}".\n\n` +
+      `- Total épargné : ${formatCurrency(plan.totalDeposited)}\n` +
+      (plan.totalDebt > 0 ? `- Dettes : ${formatCurrency(plan.totalDebt)}\n` : '') +
+      (latePenalty > 0 ? `- Ajustement de retard (7 % du montant manqué) : ${formatCurrency(latePenalty)}\n` : '') +
+      (cancelPenalty > 0 ? `- Frais de clôture anticipée (10%) : ${formatCurrency(cancelPenalty)}\n` : '') +
+      `- Net à recevoir : ${formatCurrency(netRefund)}\n\nMerci.`
   );
 
   return (
@@ -153,11 +162,12 @@ function ConfirmWithdrawModal({ goal, actionType, onClose, onConfirm, busy }) {
 function GoalDetail({ goal, onClose, onAskWithdraw }) {
   const { user } = useAuth();
   const { profile } = useProfile();
+  const { language } = useLanguage();
   const { customCategories } = useCustomCategories('goal');
   const deposits = useDeposits(goal.id);
   const plan = computeGoalPlan(goal, deposits);
   const category = resolveCategory(goal.categoryId, 'goal', customCategories);
-  const advices = buildGoalAdvices(plan, profile?.balance || 0, goal.name);
+  const advices = buildGoalAdvices(plan, profile?.balance || 0, goal.name, language);
   const isPiggybank = goal.type === 'piggybank';
   const purposeLabels = {
     personal: 'Pour moi-même',
@@ -325,6 +335,8 @@ function GoalDetail({ goal, onClose, onAskWithdraw }) {
 
 function GoalFormModal({ open, onClose, goal }) {
   const { user } = useAuth();
+  const { language } = useLanguage();
+  const isEnglish = language === 'en';
   const { profile } = useProfile();
   const premiumUntil = profile?.premiumUntil?.toDate ? profile.premiumUntil.toDate() : new Date(profile?.premiumUntil || 0);
   const premiumActive = Number.isFinite(premiumUntil.getTime()) && premiumUntil > new Date();
@@ -401,7 +413,7 @@ function GoalFormModal({ open, onClose, goal }) {
   const onSubmit = async (event) => {
     event.preventDefault();
     setError('');
-    if (!name.trim()) return setError('Le nom est requis.');
+    if (!name.trim()) return setError(isEnglish ? 'A name is required.' : 'Le nom est requis.');
 
     let payload = {
       name: name.trim(),
@@ -417,10 +429,10 @@ function GoalFormModal({ open, onClose, goal }) {
 
     if (type === 'goal') {
       const target = Math.round(Number(targetAmount));
-      if (!Number.isSafeInteger(target) || target <= 0) return setError('Le montant cible est requis.');
-      if (end <= start) return setError('La date de fin doit être après la date de début.');
+      if (!Number.isSafeInteger(target) || target <= 0) return setError(isEnglish ? 'A valid target amount is required.' : 'Le montant cible est requis.');
+      if (end <= start) return setError(isEnglish ? 'The end date must be after the start date.' : 'La date de fin doit être après la date de début.');
       if (frequencyPreset === 'custom' && (!Number.isFinite(Number(frequencyCustom)) || Number(frequencyCustom) < 1)) {
-        return setError('Indique une fréquence de versement valide.');
+        return setError(isEnglish ? 'Choose a valid contribution frequency.' : 'Indique une fréquence de versement valide.');
       }
       payload = {
         ...payload,
@@ -439,7 +451,7 @@ function GoalFormModal({ open, onClose, goal }) {
       else await createGoal(user.uid, payload);
       onClose();
     } catch (err) {
-      setError(err.message || 'Impossible d’enregistrer cette épargne.');
+      setError(isEnglish ? 'Could not save this savings goal.' : (err.message || 'Impossible d’enregistrer cette épargne.'));
     } finally {
       setSaving(false);
     }
@@ -615,6 +627,8 @@ function GoalCard({ goal, onOpen, onEdit, onAskWithdraw, onTogglePin, onDelete }
 
 export default function GoalsPage() {
   const { user } = useAuth();
+  const { language } = useLanguage();
+  const isEnglish = language === 'en';
   const { profile } = useProfile();
   const { goals } = useGoals();
   const [open, setOpen] = useState(false);
@@ -654,7 +668,7 @@ export default function GoalsPage() {
       const res = await fetch(`/api/goals/${confirmType}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ goalId: confirmGoal.id, ...payoutDetails }) });
       const data = await res.json();
       if (data.success) {
-        alert(`Demande envoyée pour ${formatCurrency(data.amount)}. Le paiement sera effectué après vérification.`);
+        alert(isEnglish ? `Request submitted for ${formatCurrency(data.amount)}. Payment will be made after review.` : `Demande envoyée pour ${formatCurrency(data.amount)}. Le paiement sera effectué après vérification.`);
         setConfirmGoal(null); setConfirmType(null); setSelected(null);
       } else { alert(data.error); }
     } catch { alert('Erreur.'); } finally { setConfirmBusy(false); }
