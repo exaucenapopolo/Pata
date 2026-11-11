@@ -6,6 +6,7 @@ import { PiggyBank, Pencil, Landmark, ChevronRight, MessageCircle, BookmarkPlus,
 import { Card, CardTitle } from '@/components/ui/Card';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { Button } from '@/components/ui/Button';
+import { MonthPicker } from '@/components/ui/MonthPicker';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -271,12 +272,7 @@ export default function BudgetsPage() {
           </select>
           <Button type="button" variant="outline" size="sm" onClick={openSuggestedBudget} disabled={!enriched.length}><Layers3 size={15}/> Proposer un budget</Button>
           <Button type="button" variant="outline" size="sm" onClick={openNewTemplate} disabled={!enriched.length || (!budgetPremium && budgetQuotaReached)}><BookmarkPlus size={15}/> Enregistrer un modèle</Button>
-          <input
-            type="month"
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-            className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm"
-          />
+          <MonthPicker value={month} onChange={setMonth} className="w-full sm:w-auto" />
           <select
             value={selectedIncome}
             onChange={(e) => setSelectedIncome(e.target.value)}
