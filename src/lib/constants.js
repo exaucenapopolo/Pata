@@ -2,6 +2,15 @@ export const APP_NAME = 'Pata';
 export const DEFAULT_CURRENCY = 'XAF';
 export const DEFAULT_LOCALE = 'fr-CM';
 
+export const CAMEROON_BANKS = [
+  'ACCESS Bank', 'AFG Bank', 'Africa Golden Bank', 'Afriland First Bank',
+  'BANGE Bank', 'Banque Camerounaise des PME (BC-PME)', 'BGFI Bank Cameroun',
+  'BICEC', 'CCA Bank', 'Citibank', 'Commercial Bank of Cameroon (CBC)',
+  'Ecobank Cameroun', 'General Bank of Cameroon (GBC)', 'La Régionale Bank',
+  'National Financial Credit Bank (NFC Bank)', 'SCB Cameroun',
+  'Union Bank of Cameroon (UBC)', 'United Bank for Africa (UBA)',
+];
+
 const IMAGES = {
   savings: 'https://raw.githubusercontent.com/exaucenapopolo/Pata/refs/heads/main/illustrations/epargne.jpg',
   transport: 'https://raw.githubusercontent.com/exaucenapopolo/Pata/refs/heads/main/illustrations/transport.jpg',
