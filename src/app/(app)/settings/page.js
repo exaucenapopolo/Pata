@@ -23,11 +23,14 @@ import { PasswordSettings } from '@/components/security/PasswordSettings';
 import { ReferralsSettings } from '@/components/ReferralsSettings';
 import { SmsImportSettings } from '@/components/SmsImportSettings';
 import { useLanguage } from '@/context/LanguageContext';
+import { translateText } from '@/lib/i18n/translations';
 
 export default function SettingsPage() {
   const { user, logout } = useAuth();
   const { profile, save } = useProfile();
   const { language, setLanguage, isLanguageSaving } = useLanguage();
+  const isEnglish = language === 'en';
+  const t = (value) => translateText(value, language);
   const { expenses } = useExpenses();
   const { incomes } = useIncomes();
   const { goals } = useGoals();
@@ -89,15 +92,15 @@ export default function SettingsPage() {
 
   const getExportRows = () => {
     const rows = [
-      ['Type', 'Date', 'Libellé', 'Catégorie', `Montant (${getPreferredCurrencyCode()})`, 'Détail'],
-      ...incomes.map((item) => ['Revenu', item.date || item.month || '', item.source || 'Revenu', item.categoryId || '', convertCurrencyAmount(item.amount || 0), item.note || '']),
-      ...expenses.map((item) => ['Dépense', item.date || '', item.note || 'Dépense', item.categoryId || '', convertCurrencyAmount(item.amount || 0), item.incomeSourceName || '']),
-      ...deposits.map((item) => ['Recharge portefeuille', item.createdAt?.toDate ? item.createdAt.toDate().toISOString().slice(0, 10) : '', 'Recharge Pata', item.status || '', convertCurrencyAmount(item.amount || 0), item.phone || '']),
-      ...budgets.map((item) => ['Budget', item.month || '', item.categoryId || '', item.incomeSourceId || 'all', convertCurrencyAmount(item.amount || 0), '']),
-      ...goals.map((item) => ['Objectif', item.startDate || '', item.name || '', item.categoryId || '', convertCurrencyAmount(item.targetAmount || 0), item.deadline || '']),
-      ...(Array.isArray(profile?.durationForecasts) ? profile.durationForecasts : []).map((item) => ['Prévision de durée', item.createdAt || '', item.name || 'Prévision', `${item.estimatedDays || 0} jour(s) estimé(s)`, convertCurrencyAmount(item.capital || 0), `Fin estimée : ${item.estimatedEndDate || 'non définie'}`]),
-      ...(Array.isArray(profile?.vitalForecastHistory) ? profile.vitalForecastHistory : []).map((item) => ['Prévision vitale', item.createdAt || '', item.name || 'Prévision vitale', `${Object.keys(item.needs || {}).length} catégorie(s)`, convertCurrencyAmount(item.totalBudget || 0), `Période : ${item.month || ''}`]),
-      ...automations.map((item) => ['Opération programmée', item.nextRun || '', item.note || 'Dépense récurrente', item.categoryId || '', convertCurrencyAmount(item.amount || 0), `${item.frequency || ''} · ${item.active === false ? 'En pause' : 'Active'} · ${item.incomeSourceName || 'Tous les revenus'}`]),
+      [t('Type'), t('Date'), t('Libellé'), t('Catégorie'), t('Montant') + ' (' + getPreferredCurrencyCode() + ')', t('Détail')],
+      ...incomes.map((item) => [t('Revenu'), item.date || item.month || '', item.source || t('Revenu'), item.categoryId || '', convertCurrencyAmount(item.amount || 0), item.note || '']),
+      ...expenses.map((item) => [t('Dépense'), item.date || '', item.note || t('Dépense'), item.categoryId || '', convertCurrencyAmount(item.amount || 0), item.incomeSourceName || '']),
+      ...deposits.map((item) => [t('Recharge portefeuille'), item.createdAt?.toDate ? item.createdAt.toDate().toISOString().slice(0, 10) : '', t('Recharge Pata'), t(item.status || ''), convertCurrencyAmount(item.amount || 0), item.phone || '']),
+      ...budgets.map((item) => [t('Budget'), item.month || '', item.categoryId || '', item.incomeSourceId || 'all', convertCurrencyAmount(item.amount || 0), '']),
+      ...goals.map((item) => [t('Objectif'), item.startDate || '', item.name || '', item.categoryId || '', convertCurrencyAmount(item.targetAmount || 0), item.deadline || '']),
+      ...(Array.isArray(profile?.durationForecasts) ? profile.durationForecasts : []).map((item) => [t('Prévision de durée'), item.createdAt || '', item.name || t('Prévision'), (item.estimatedDays || 0) + ' ' + t('jour(s) estimé(s)'), convertCurrencyAmount(item.capital || 0), t('Fin estimée :') + ' ' + (item.estimatedEndDate || t('non définie'))]),
+      ...(Array.isArray(profile?.vitalForecastHistory) ? profile.vitalForecastHistory : []).map((item) => [t('Prévision vitale'), item.createdAt || '', item.name || t('Prévision vitale'), Object.keys(item.needs || {}).length + ' ' + t('catégorie(s)'), convertCurrencyAmount(item.totalBudget || 0), t('Période :') + ' ' + (item.month || '')]),
+      ...automations.map((item) => [t('Opération programmée'), item.nextRun || '', item.note || t('Dépense récurrente'), item.categoryId || '', convertCurrencyAmount(item.amount || 0), (item.frequency || '') + ' · ' + (item.active === false ? t('En pause') : t('Active')) + ' · ' + t('Tous les revenus')]),
     ];
     return rows;
   };
@@ -106,14 +109,14 @@ export default function SettingsPage() {
     const rows = getExportRows();
     const table = rows.map((row, index) => `<tr>${row.map((cell) => `<${index === 0 ? 'th' : 'td'}>${String(cell ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]))}</${index === 0 ? 'th' : 'td'}>`).join('')}</tr>`).join('');
     const popup = window.open('', '_blank', 'width=1000,height=800');
-    if (!popup) { alert('Autorise les fenêtres contextuelles pour télécharger le rapport PDF.'); return; }
-    popup.document.write(`<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Export Pata</title><style>body{font:12px Arial,sans-serif;color:#172033;padding:28px}h1{font-size:22px}p{color:#64748b}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #dbe2ea;padding:7px;text-align:left}th{background:#edf2f7}tr:nth-child(even){background:#f8fafc}@media print{button{display:none}}</style></head><body><h1>Rapport de données Pata</h1><p>Compte : ${String(profile?.displayName || user?.email || '').replace(/[&<>"']/g, '')} · Généré le ${new Date().toLocaleDateString(getPreferredLocale())}</p><p>Les montants sont convertis dans la devise d’affichage ${getPreferredCurrencyCode()} pour faciliter la lecture. Les valeurs de référence de Pata restent enregistrées en XAF.</p><table>${table}</table><script>window.onload=()=>window.print()</script></body></html>`);
+    if (!popup) { alert(isEnglish ? 'Allow pop-ups to download the PDF report.' : 'Autorise les fenêtres contextuelles pour télécharger le rapport PDF.'); return; }
+    popup.document.write(`<!doctype html><html lang="${language}"><head><meta charset="utf-8"><title>${isEnglish ? "Pata data export" : "Export Pata"}</title><style>body{font:12px Arial,sans-serif;color:#172033;padding:28px}h1{font-size:22px}p{color:#64748b}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #dbe2ea;padding:7px;text-align:left}th{background:#edf2f7}tr:nth-child(even){background:#f8fafc}@media print{button{display:none}}</style></head><body><h1>${isEnglish ? "Pata data report" : "Rapport de données Pata"}</h1><p>${isEnglish ? "Account: " : "Compte : "}${String(profile?.displayName || user?.email || '').replace(/[&<>"']/g, '')} · ${isEnglish ? "Generated on " : "Généré le "}${new Date().toLocaleDateString(getPreferredLocale())}</p><p>${isEnglish ? "Amounts are converted to the displayed currency (" + getPreferredCurrencyCode() + ") for easier reading. Pata reference values remain stored in XAF." : "Les montants sont convertis dans la devise d’affichage " + getPreferredCurrencyCode() + " pour faciliter la lecture. Les valeurs de référence de Pata restent enregistrées en XAF."}</p><table>${table}</table><script>window.onload=()=>window.print()</script></body></html>`);
     popup.document.close();
   };
 
   const exportExcel = () => {
     const rows = getExportRows();
-    const html = `<html><head><meta charset="utf-8"></head><body><table>${rows.map((row) => `<tr>${row.map((cell) => `<td>${String(cell ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]))}</td>`).join('')}</tr>`).join('')}</table></body></html>`;
+    const html = `<html lang="${language}"><head><meta charset="utf-8"><title>${isEnglish ? "Pata data export" : "Export Pata"}</title></head><body><h1>${isEnglish ? "Pata data report" : "Rapport de données Pata"}</h1><table>${rows.map((row) => `<tr>${row.map((cell) => `<td>${String(cell ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]))}</td>`).join('')}</tr>`).join('')}</table></body></html>`;
     const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -156,7 +159,7 @@ export default function SettingsPage() {
   };
 
   const onLogout = async () => {
-    if (!confirm('Se déconnecter ?')) return;
+    if (!confirm(isEnglish ? 'Sign out?' : 'Se déconnecter ?')) return;
     await logout();
     router.replace('/login');
   };
