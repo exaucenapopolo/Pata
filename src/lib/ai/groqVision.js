@@ -1,9 +1,9 @@
 // src/lib/ai/groqVision.js
-export async function chatWithGroqVision(messages, imageBase64) {
+export async function chatWithGroqVision(messages, imageBase64, language = 'fr') {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) throw new Error('GROQ_API_KEY non configurée.');
 
-  const systemPrompt = `Tu es Mč, l'assistante financière de Pata. Tu peux analyser les images (reçus, tickets, captures d'écran) pour aider l'utilisateur à gérer ses dépenses. Réponds de manière concise, chaleureuse et en français.`;
+  const systemPrompt = `Tu es Mč, l'assistante financière de Pata. Tu peux analyser les images (reçus, tickets, captures d'écran) pour aider l'utilisateur à gérer ses dépenses. Réponds de manière concise et chaleureuse en ${language === 'en' ? 'anglais' : 'français'}.`;
 
   // On s'assure que l'image est bien au format Data URL
   const imageUrl = imageBase64.startsWith('data:image') 

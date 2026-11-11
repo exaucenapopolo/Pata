@@ -22,10 +22,12 @@ import { PinSecuritySettings } from '@/components/security/PinSecuritySettings';
 import { PasswordSettings } from '@/components/security/PasswordSettings';
 import { ReferralsSettings } from '@/components/ReferralsSettings';
 import { SmsImportSettings } from '@/components/SmsImportSettings';
+import { useLanguage } from '@/context/LanguageContext';
 
 export default function SettingsPage() {
   const { user, logout } = useAuth();
   const { profile, save } = useProfile();
+  const { language, setLanguage, isLanguageSaving } = useLanguage();
   const { expenses } = useExpenses();
   const { incomes } = useIncomes();
   const { goals } = useGoals();
@@ -240,6 +242,12 @@ export default function SettingsPage() {
             </div>
             <Input label="Nom affiché" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
             <Input label="Adresse e-mail" value={user?.email || ''} disabled />
+            <Select label="Langue" value={language} onChange={(e) => setLanguage(e.target.value).catch(() => alert('Impossible d’enregistrer la langue. Vérifie ta connexion puis réessaie.'))}>
+              <option value="fr">Français</option>
+              <option value="en">English</option>
+            </Select>
+            <p className="text-xs leading-5 text-slate-500">Choisis la langue de toute ton application Pata. La préférence est enregistrée dans ton profil.</p>
+            {isLanguageSaving && <p className="text-xs text-slate-500">Enregistrement de la langue…</p>}
             <Select label="Devise d’affichage" value={currency} onChange={(e) => setCurrency(e.target.value)}>
               <option value="XAF">Franc CFA (XAF)</option>
               <option value="EUR">Euro (EUR)</option>

@@ -3868,7 +3868,7 @@ async function handleAIChat(request) {
 
     const userName = userData.profile?.displayName?.split(' ')[0] || 'Utilisateur';
     const userContext = buildCompactAIContext(userData, intent);
-    const systemPrompt = `Tu es Mč, l’assistante de gestion financière de Pata. Tu échanges en français avec ${userName}.
+    const systemPrompt = `Tu es Mč, l’assistante de gestion financière de Pata. Tu échanges en ${userData.profile?.language === 'en' ? 'anglais' : 'français'} avec ${userName}.
 Réponds directement et naturellement. Pour une question simple, reste bref (1 à 3 phrases, environ 60 mots maximum). Ne transforme pas chaque demande en rapport et ne répète pas la question. Ne termine pas systématiquement par une proposition supplémentaire.
 
 Pata aide à suivre les revenus, dépenses, dettes et prêts, budgets, épargne, objectifs, cotisations, projets, portefeuille et rapports. Un emprunt est une entrée de trésorerie neutre avec une dette à rembourser : ce n’est jamais un revenu gagné. Tu peux enregistrer une dette, préciser s’il s’agit d’une personne ou d’une banque, affecter l’emprunt à un projet et suivre tes objectifs mensuels. Les montants financiers de référence sont en FCFA; la devise du profil ne change que l’affichage. Le portefeuille Pata est un solde interne, pas un compte bancaire.
@@ -4047,7 +4047,9 @@ async function handleAIVision(request) {
     if (!quota.allowed) return errorResponse(`Tu as utilisé tes 3 utilisations gratuites de l’assistante aujourd’hui. Tu pourras recommencer demain ou découvrir Premium.`, 403);
     if (quota.reserved) reservedDate = quota.date;
 
-    const reply = await chatWithGroqVision(messages || [], imageBase64);
+    const visionProfile = await adminDb.collection('users').doc(uid).get();
+    const visionLanguage = visionProfile.data()?.language === 'en' ? 'en' : 'fr';
+    const reply = await chatWithGroqVision(messages || [], imageBase64, visionLanguage);
     return NextResponse.json({ success: true, reply });
   } catch (error) {
     if (uid && reservedDate) {

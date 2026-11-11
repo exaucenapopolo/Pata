@@ -16,6 +16,7 @@ export async function ensureUserProfile(user) {
     email,
     displayName: existing.displayName || email.split('@')[0] || 'Utilisateur',
     currency: existing.currency || 'XAF',
+    language: existing.language === 'en' ? 'en' : 'fr',
     currencyRates: existing.currencyRates || { XAF: 1, EUR: 1 / 655.957, USD: 1 / 600 },
     currencyRateUpdatedAt: existing.currencyRateUpdatedAt || new Date().toISOString(),
     ...(!existing.createdAt ? { createdAt: serverTimestamp() } : {}),
