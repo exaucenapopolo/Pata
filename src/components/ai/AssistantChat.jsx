@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/context/LanguageContext';
+import { getDateLocale } from '@/lib/i18n/dateLocale.mjs';
 import { subscribeChats, createChat, updateChatMessages, deleteChat, updateChatTitle } from '@/lib/firestore/ai_chats';
 
 const SUGGESTIONS = {
@@ -212,11 +213,11 @@ function getRelativeDateKey(dateKey, offset) {
   return date.toISOString().slice(0, 10);
 }
 
-function formatConversationTime(value) {
+function formatConversationTime(value, language = 'fr') {
   if (value == null) return '';
   const date = value?.toDate ? value.toDate() : (value instanceof Date ? value : new Date(value || 0));
   if (!Number.isFinite(date.getTime())) return '';
-  return new Intl.DateTimeFormat(language === 'en' ? 'en-GB' : 'fr-FR', {
+  return new Intl.DateTimeFormat(getDateLocale(language), {
     timeZone: 'Africa/Douala',
     hour: '2-digit',
     minute: '2-digit',
@@ -241,7 +242,7 @@ function groupChatsByDate(chats, language = 'fr') {
     else if (key === yesterdayKey) label = language === 'en' ? 'Yesterday' : 'Hier';
     else if (key === beforeYesterdayKey) label = language === 'en' ? 'Day before yesterday' : 'Avant-hier';
     else if (key !== 'unknown') {
-      label = new Intl.DateTimeFormat('fr-FR', {
+      label = new Intl.DateTimeFormat(getDateLocale(language), {
         timeZone: 'UTC',
         day: 'numeric',
         month: 'long',
@@ -578,7 +579,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
                         <>
                           <button onClick={() => loadChat(c)} className="min-w-0 flex-1 px-2.5 py-2 text-left">
                             <span className="block truncate text-xs font-medium text-slate-700">{c.title || 'Sans titre'}</span>
-                            <span className="mt-0.5 block text-[10px] text-slate-400">{formatConversationTime(c.updatedAt || c.createdAt)}</span>
+                            <span className="mt-0.5 block text-[10px] text-slate-400">{formatConversationTime(c.updatedAt || c.createdAt, language)}</span>
                           </button>
                           <div className="flex shrink-0 items-center pr-1 sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100">
                             <button type="button" onClick={() => { setEditingTitleId(c.id); setTitleInput(c.title || ''); }} className="rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-brand-600" aria-label="Renommer la conversation"><Edit2 size={12} /></button>
@@ -780,7 +781,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
                 <Send size={18} />
               </button>
             </form>
-            <div className="mx-auto mt-1 flex max-w-3xl items-center justify-between gap-3 px-1 text-[10px]" aria-live="polite"><span className={inputError ? 'text-amber-700' : 'text-slate-400'}>{inputError || 'Garde ton message concis pour obtenir une réponse plus rapide.'}</span><span className="shrink-0 tabular-nums text-slate-500">{Math.max(0, messageLimit - input.length).toLocaleString('fr-FR')} caractères restants</span></div>
+            <div className="mx-auto mt-1 flex max-w-3xl items-center justify-between gap-3 px-1 text-[10px]" aria-live="polite"><span className={inputError ? 'text-amber-700' : 'text-slate-400'}>{inputError || 'Garde ton message concis pour obtenir une réponse plus rapide.'}</span><span className="shrink-0 tabular-nums text-slate-500">{Math.max(0, messageLimit - input.length).toLocaleString(language === 'en' ? 'en-GB' : 'fr-FR')} {language === 'en' ? 'characters left' : 'caractères restants'}</span></div>
           </div>
         </div>
 
