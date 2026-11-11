@@ -242,7 +242,7 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
       // Une dépense reconnue depuis le portefeuille Mobile Money peut précéder
       // l'import de l'ancien solde dans Pata. Elle ne doit pas être rejetée
       // uniquement parce qu'aucune source de revenu Pata n'est encore liée.
-      allocations = [{ income: { id: 'external', source: 'Solde Mobile Money' }, amount }];
+      allocations = [{ income: { id: 'external', source: selectedSource.source }, amount }];
     } else if (selectedSource.id === 'all') {
       const available = eligibleBalances.reduce((sum, item) => sum + item.remaining, 0);
       if (amount > available) {
