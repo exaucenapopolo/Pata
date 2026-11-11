@@ -1,21 +1,27 @@
 package com.pata.app;
 
 import android.Manifest;
+import android.app.Activity;
 import android.content.Context;
+import android.database.Cursor;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.PowerManager;
 import android.provider.Settings;
+import android.provider.ContactsContract;
 import android.content.pm.PackageManager;
 import androidx.core.content.ContextCompat;
 
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
+import androidx.activity.result.ActivityResult;
+
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
@@ -267,6 +273,52 @@ public class PataSmsPlugin extends Plugin {
         all.remove(transactionHash);
         prefs.edit().putString(HINTS, all.toString()).apply();
         call.resolve();
+    }
+
+
+    @PluginMethod
+    public void pickContact(PluginCall call) {
+        try {
+            Intent intent = new Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI);
+            startActivityForResult(call, intent, "contactPickerResult");
+        } catch (Exception error) {
+            call.reject("Le sélecteur de contacts n’est pas disponible sur cet appareil.", error);
+        }
+    }
+
+    @ActivityCallback
+    private void contactPickerResult(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null) {
+            call.resolve(new JSObject().put("cancelled", true));
+            return;
+        }
+        Uri contactUri = result.getData().getData();
+        if (contactUri == null) {
+            call.reject("Aucun contact n’a été sélectionné.");
+            return;
+        }
+        String[] projection = {
+            ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+            ContactsContract.CommonDataKinds.Phone.NUMBER
+        };
+        try (Cursor cursor = getContext().getContentResolver().query(contactUri, projection, null, null, null)) {
+            if (cursor == null || !cursor.moveToFirst()) {
+                call.reject("Impossible de lire le contact sélectionné.");
+                return;
+            }
+            int nameIndex = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME);
+            int phoneIndex = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER);
+            String displayName = nameIndex >= 0 ? cursor.getString(nameIndex) : "";
+            String phone = phoneIndex >= 0 ? cursor.getString(phoneIndex) : "";
+            JSObject response = new JSObject();
+            response.put("cancelled", false);
+            response.put("displayName", displayName == null ? "" : displayName.trim());
+            response.put("phone", phone == null ? "" : phone.trim());
+            call.resolve(response);
+        } catch (Exception error) {
+            call.reject("Impossible de lire le contact choisi.", error);
+        }
     }
 
     @PluginMethod

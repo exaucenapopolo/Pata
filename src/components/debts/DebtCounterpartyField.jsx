@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, Loader2, Search, UserRound } from 'lucide-react';
 import { searchDebtCounterparties } from '@/lib/firestore/debts';
+import { Capacitor } from '@capacitor/core';
+import { PataSms } from '@/lib/sms/nativePlugin';
 
 export function DebtCounterpartyField({
   value,
@@ -10,13 +12,37 @@ export function DebtCounterpartyField({
   label,
   onNameChange,
   onSelect,
+  onContactSelect,
 }) {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [searchError, setSearchError] = useState('');
+  const [contactLoading, setContactLoading] = useState(false);
+  const [contactError, setContactError] = useState('');
   const timerRef = useRef(null);
   const requestRef = useRef(0);
+
+  const pickContact = async () => {
+    setContactLoading(true);
+    setContactError('');
+    try {
+      const result = await PataSms.pickContact();
+      if (result?.cancelled) return;
+      const displayName = String(result?.displayName || '').trim();
+      const phone = String(result?.phone || '').trim();
+      if (!displayName && !phone) throw new Error('Le contact sélectionné ne contient ni nom ni numéro.');
+      const name = displayName || phone;
+      onNameChange(name);
+      onContactSelect?.({ displayName: name, phone });
+      setResults([]);
+      setSearched(false);
+    } catch (error) {
+      setContactError(error?.message || 'Impossible de choisir ce contact.');
+    } finally {
+      setContactLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (timerRef.current) window.clearTimeout(timerRef.current);
@@ -68,6 +94,16 @@ export function DebtCounterpartyField({
         />
         {loading && <Loader2 size={15} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-slate-400" />}
       </div>
+      {Capacitor.getPlatform() === 'android' && !selectedUid && (
+        <div className="mt-2">
+          <button type="button" onClick={pickContact} disabled={contactLoading} className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60">
+            {contactLoading ? <Loader2 size={14} className="animate-spin"/> : <UserRound size={14}/>}
+            {contactLoading ? 'Ouverture des contacts…' : 'Choisir dans mes contacts'}
+          </button>
+          <p className="mt-1 text-[10px] leading-4 text-slate-500">Tu choisis un seul contact dans le sélecteur du téléphone. Pata ne parcourt pas ton carnet d’adresses.</p>
+        </div>
+      )}
+      {contactError && <p role="status" className="mt-1.5 text-[11px] text-amber-700">{contactError}</p>}
 
       {selectedUid ? (
         <p className="mt-1.5 flex items-center gap-1.5 text-[11px] font-medium text-emerald-700">
