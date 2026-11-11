@@ -40,13 +40,13 @@ export function selectAIToolsForIntent(allTools, intent, rawMessage = '') {
   if (!intent.action) return [];
   const text = normalize(rawMessage);
   const wanted = new Set();
-  if (intent.borrowedDebt && !intent.update && !intent.remove) wanted.add('add_debt');
-  if (intent.expense) {
+  if (intent.borrowedDebt && !intent.financialTargets && !intent.update && !intent.remove) wanted.add('add_debt');
+  if (intent.expense && !intent.financialTargets) {
     if (intent.remove) wanted.add('delete_expense');
     else if (intent.update) wanted.add('update_expense');
     else wanted.add('add_expense');
   }
-  if (intent.income && !intent.expense && !intent.remove && !intent.update) wanted.add('add_income');
+  if (intent.income && !intent.expense && !intent.financialTargets && !intent.remove && !intent.update) wanted.add('add_income');
   if (intent.financialTargets) wanted.add('set_financial_targets');
   if (intent.budgets) wanted.add('apply_budget_plan');
   if (intent.goals) {
