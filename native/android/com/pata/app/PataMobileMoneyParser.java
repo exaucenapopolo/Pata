@@ -80,7 +80,7 @@ public final class PataMobileMoneyParser {
     }
 
     private static String detectEvent(String text) {
-        if (Pattern.compile("\\b(retrait|retirer|withdrawal|withdraw|cash\\s*out|cashout)\\b").matcher(text).find()) return "withdrawal";
+        if (Pattern.compile("\\b(retrait|retirer|withdrawal|withdrawn|withdraw|cash\\s*out|cashout)\\b").matcher(text).find()) return "withdrawal";
         if (Pattern.compile("(paiement|payment|marchand|merchant|achat\\s+(reussi|effectue)|recharge|airtime|top.?up|achat\\s+(?:de\\s+)?credit|bill\\s+paid|facture\\s+payee)").matcher(text).find()) return "payment";
         if (Pattern.compile("(vous\\s+(avez\\s+recu|venez\\s+de\\s+recevoir)|transfert\\s+recu|recu\\s+de|reception\\s+de|compte.{0,25}credite|credit.{0,20}compte|depot\\s+(recu|effectue|confirme)|cash\\s*in|cashin|received|credited|incoming\\s+transfer)").matcher(text).find()) return "receive";
         if (Pattern.compile("(vous\\s+avez\\s+envoye|transfert\\s+(?:de.{0,100}vers|effectue|envoye|confirme)|effectue\\s+(un\\s+)?transfert|envoye\\s+(a|au|vers)|compte.{0,25}debite|debite.{0,20}compte|debit|debited|sent\\s+to|paid\\s+to|you\\s+sent|outgoing\\s+transfer|transaction\\s+de.{0,80}effectuee?\\s+par)").matcher(text).find()) return "send";
@@ -99,13 +99,13 @@ public final class PataMobileMoneyParser {
     private static Integer detectAmount(String text) {
         String number = "([0-9]+(?:(?:[\\s\\u00a0][0-9]{3})|(?:[.,][0-9]{3}))*(?:[.,]00)?)";
         String withoutBalance = text.replaceAll(
-            "(nouveau\\s+)?solde(\\s+disponible)?\\s*[:\\-]?\\s*(?:" + CURRENCY + "\\s*)?" + number + "\\s*(?:" + CURRENCY + ")?", " "
+            "(your\\s+new\\s+balance|nouveau\\s+solde|solde)(\\s+disponible)?(\\s+(est|is))?(\\s+de)?\\s*[:\\-]?\\s*(?:" + CURRENCY + "\\s*)?" + number + "\\s*(?:" + CURRENCY + ")?", " "
         );
         Pattern[] authoritative = new Pattern[] {
             Pattern.compile("\\b(?:une\\s+)?transaction\\s+de\\s+" + number + "\\s*(?:" + CURRENCY + ")\\b", Pattern.CASE_INSENSITIVE),
             Pattern.compile("\\bmontant\\s+(?:(?:de\\s+)?(?:la\\s+)?)?transaction\\s*[:#\\-]?\\s*" + number + "\\s*(?:" + CURRENCY + ")\\b", Pattern.CASE_INSENSITIVE),
             Pattern.compile("\\b(?:votre\\s+)?paiement\\s+(?:de\\s+)?" + number + "\\s*(?:" + CURRENCY + ")\\b", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("\\b(?:vous\\s+avez\\s+(?:recu|envoye)|recu|envoye|retrait\\s+(?:reussi|effectue))\\s+(?:de\\s+)?" + number + "\\s*(?:" + CURRENCY + ")\\b", Pattern.CASE_INSENSITIVE)
+            Pattern.compile("\\b(?:you\\s+have\\s+withdrawn|withdrawn|withdrawal(?:\\s+(?:of|de))?|withdraw|retrait(?:\\s+(?:reussi|effectue))?|vous\\s+avez\\s+(?:recu|envoye)|recu|envoye)\\s+(?:de\\s+)?" + number + "\\s*(?:" + CURRENCY + ")\\b", Pattern.CASE_INSENSITIVE)
         };
         for (Pattern pattern : authoritative) {
             Integer amount = firstPositiveAmount(withoutBalance, pattern, 1);
@@ -138,7 +138,7 @@ public final class PataMobileMoneyParser {
 
     private static Integer detectBalance(String text) {
         Matcher matcher = Pattern.compile(
-            "(?:nouveau\\s+)?solde(?:\\s+disponible)?\\s*[:\\-]?\\s*([0-9][0-9\\s.,']{0,22})\\s*(?:" + CURRENCY + ")",
+            "(?:your\\s+new\\s+balance|(?:nouveau\\s+)?solde(?:\\s+disponible)?)(?:\\s+(?:est|is))?(?:\\s+de)?\\s*[:\\-]?\\s*([0-9][0-9\\s.,']{0,22})\\s*(?:" + CURRENCY + ")",
             Pattern.CASE_INSENSITIVE
         ).matcher(text);
         return matcher.find() ? parseMoney(matcher.group(1)) : null;

@@ -44,7 +44,7 @@ function parseTransactionId(text) {
 
 function parseEventType(text) {
   const value = normalize(text);
-  if (/\b(retrait|retirer|withdrawal|withdraw|cash\s*out|cashout)\b/.test(value)) return 'withdrawal';
+  if (/\b(retrait|retirer|withdrawal|withdrawn|withdraw|cash\s*out|cashout)\b/.test(value)) return 'withdrawal';
   if (/(paiement|payment|marchand|merchant|achat\s+(reussi|effectue)|recharge|airtime|top.?up|achat\s+(?:de\s+)?credit|bill\s+paid|facture\s+payee)/.test(value)) return 'payment';
   if (/(vous\s+(avez\s+recu|venez\s+de\s+recevoir)|transfert\s+recu|recu\s+de|reception\s+de|compte.{0,25}credite|credit.{0,20}compte|depot\s+(recu|effectue|confirme)|cash\s*in|cashin|received|credited|incoming\s+transfer)/.test(value)) return 'receive';
   if (/(vous\s+avez\s+envoye|transfert\s+(?:de.{0,100}vers|effectue|envoye|confirme)|effectue\s+(un\s+)?transfert|envoye\s+(a|au|vers)|compte.{0,25}debite|debite.{0,20}compte|debit|debited|sent\s+to|paid\s+to|you\s+sent|outgoing\s+transfer|transaction\s+de.{0,80}effectuee?\s+par)/.test(value)) return 'send';
@@ -83,7 +83,7 @@ function parseAmount(text) {
   // Le solde peut être écrit « 758 XAF » ou « XAF 758 ».
   // On l'écarte avant toute recherche de montant transactionnel.
   const balancePattern = new RegExp(
-    '(?:nouveau\\s+)?solde(?:\\s+disponible)?\\s*[:\\-]?\\s*(?:' + currency + '\\s*)?' + number + '\\s*(?:' + currency + ')?',
+    '(?:your\\s+new\\s+balance|(?:nouveau\\s+)?solde(?:\\s+disponible)?)(?:\\s+(?:est|is))?(?:\\s+de)?\\s*[:\\-]?\\s*(?:' + currency + '\\s*)?' + number + '\\s*(?:' + currency + ')?',
     'ig'
   );
   const withoutBalance = text.replace(balancePattern, ' ');
@@ -92,7 +92,7 @@ function parseAmount(text) {
     new RegExp('\\b(?:une\\s+)?transaction\\s+de\\s+' + number + '\\s*' + currency + '\\b', 'ig'),
     new RegExp('\\bmontant\\s+(?:(?:de\\s+)?(?:la\\s+)?)?transaction\\s*[:#\\-]?\\s*' + number + '\\s*' + currency + '\\b', 'ig'),
     new RegExp('\\b(?:votre\\s+)?paiement\\s+(?:de\\s+)?' + number + '\\s*' + currency + '\\b', 'ig'),
-    new RegExp('\\b(?:vous\\s+avez\\s+(?:recu|envoye)|recu|envoye|retrait\\s+(?:reussi|effectue))\\s+(?:de\\s+)?' + number + '\\s*' + currency + '\\b', 'ig'),
+    new RegExp('\\b(?:you\\s+have\\s+withdrawn|withdrawn|withdrawal(?:\\s+(?:of|de))?|withdraw|retrait(?:\\s+(?:reussi|effectue))?|vous\\s+avez\\s+(?:recu|envoye)|recu|envoye)\\s+(?:de\\s+)?' + number + '\\s*' + currency + '\\b', 'ig'),
   ];
   for (const pattern of authoritative) {
     const amount = firstPositiveAmount(withoutBalance, pattern);
@@ -193,7 +193,7 @@ function inferSuggestedCategory(text, eventType) {
 }
 
 function parseBalance(text) {
-  const match = text.match(/(?:nouveau\s+)?solde(?:\s+disponible)?\s*[:\-]?\s*([0-9][0-9\s\u00a0.,']{0,22})\s*(?:FCFA|F\s*\.?\s*CFA|XAF|CFA)\b/i);
+  const match = text.match(/(?:your\s+new\s+balance|(?:nouveau\s+)?solde(?:\s+disponible)?)(?:\s+(?:est|is))?(?:\s+de)?\s*[:\-]?\s*([0-9][0-9\s\u00a0.,']{0,22})\s*(?:FCFA|F\s*\.?\s*CFA|XAF|CFA)\b/i);
   return match ? parseMoney(match[1]) : null;
 }
 

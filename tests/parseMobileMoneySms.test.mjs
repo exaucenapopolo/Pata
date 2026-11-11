@@ -243,3 +243,34 @@ test('extrait l’expéditeur d’une réception MTN FAPSHI après le montant', 
   assert.equal(result?.date, '2026-11-09');
   assert.equal(result?.time, '20:35');
 });
+
+
+test('reconnaît le retrait MTN MoMo en français avec « solde est de »', () => {
+  const result = parseMobileMoneySms(
+    "1Go Njoh! si tu te connectes sur l'appli New MoMoApp. Lien: link.mtn.cm/NewMoMoAppRef. Vous avez effectue avec succes le retrait de 2000 FCFA de votre compte mobile money le 2026-11-11 11:32:48. Votre nouveau solde est de:1473 FCFA. Transaction Id: 19684640557.",
+    { sender: 'MTN', receivedAt }
+  );
+  assert.equal(result?.provider, 'mtn_momo');
+  assert.equal(result?.eventType, 'withdrawal');
+  assert.equal(result?.direction, 'withdrawal');
+  assert.equal(result?.amount, 2000);
+  assert.equal(result?.balance, 1473);
+  assert.equal(result?.transactionId, '19684640557');
+  assert.equal(result?.date, '2026-11-11');
+  assert.equal(result?.time, '11:32');
+});
+
+test('reconnaît le retrait MTN MoMo en anglais avec « You have withdrawn »', () => {
+  const result = parseMobileMoneySms(
+    'You have withdrawn 2000 XAF from your mobile money account at THIERRY CABREL MANFOUO on 2026-11-11 11:32:48. Your new balance:1473 XAF. Financial Transaction Id: 19684640557.',
+    { sender: 'MTN', receivedAt }
+  );
+  assert.equal(result?.provider, 'mtn_momo');
+  assert.equal(result?.eventType, 'withdrawal');
+  assert.equal(result?.direction, 'withdrawal');
+  assert.equal(result?.amount, 2000);
+  assert.equal(result?.balance, 1473);
+  assert.equal(result?.transactionId, '19684640557');
+  assert.equal(result?.date, '2026-11-11');
+  assert.equal(result?.time, '11:32');
+});
