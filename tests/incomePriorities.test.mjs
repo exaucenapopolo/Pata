@@ -21,7 +21,7 @@ test('priorise les dettes à payer et les factures proches après un revenu', ()
   assert.equal(result.target, '/debts');
   assert.match(result.body, /15/);
   assert.match(result.body, /Facture ENEO/);
-  assert.match(result.body, /ne déplace rien automatiquement/);
+  assert.match(result.body, /ne déplace rien/);
 });
 
 test('ignore les créances à recevoir, les dettes soldées et les factures éloignées', () => {
@@ -50,4 +50,16 @@ test('rappelle une facture en retard et choisit son écran comme destination si 
 
 test('rejette une date de référence invalide', () => {
   assert.throws(() => buildIncomePriorityReminder({ amount: 10, today: '11-11-2026' }), /date de référence/i);
+});
+
+test('rappelle un objectif d’épargne sans lier directement le revenu au versement', () => {
+  const result = buildIncomePriorityReminder({
+    amount: 50000,
+    today: '2026-11-11',
+    goals: [{ type: 'goal', name: 'Voiture', deadline: '2027-06-01' }],
+  });
+  assert.equal(result.priorityGoalCount, 1);
+  assert.equal(result.target, '/goals');
+  assert.match(result.body, /Voiture/);
+  assert.match(result.body, /portefeuille/);
 });

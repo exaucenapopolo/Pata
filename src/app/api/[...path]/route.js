@@ -2426,15 +2426,17 @@ async function handleCreateIncome(request) {
     }
     if (!result.duplicate && flowType === 'normal') {
       try {
-        const [debtsSnapshot, billsSnapshot] = await Promise.all([
+        const [debtsSnapshot, billsSnapshot, goalsSnapshot] = await Promise.all([
           userRef.collection('debts').where('status', 'in', ['active', 'partial', 'late']).get(),
           userRef.collection('bills').get(),
+          userRef.collection('goals').get(),
         ]);
         const reminder = buildIncomePriorityReminder({
           amount,
           today: getDoualaToday(),
           debts: debtsSnapshot.docs.map((doc) => doc.data() || {}),
           bills: billsSnapshot.docs.map((doc) => doc.data() || {}),
+          goals: goalsSnapshot.docs.map((doc) => doc.data() || {}),
         });
         if (reminder) {
           const reminderDate = getDoualaToday();
