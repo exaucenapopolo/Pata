@@ -175,22 +175,22 @@ export default function IncomePage() {
   const expensePerPeriodExceedsCapital = capitalValue > 0 && expenseValue > capitalValue;
   const formatDuration = (days) => {
     if (!Number.isFinite(Number(days)) || days < 0) return '—';
-    if (days < 1) return 'Moins d’un jour';
+    if (days < 1) return isEnglish ? 'Less than one day' : 'Moins d’un jour';
     const years = Math.floor(days / 365);
     const months = Math.floor((days % 365) / 30);
     const remainingDays = days % 30;
     const parts = [];
-    if (years) parts.push(`${years} an${years > 1 ? 's' : ''}`);
-    if (months) parts.push(`${months} mois`);
-    if (remainingDays && parts.length < 2) parts.push(`${remainingDays} jour${remainingDays > 1 ? 's' : ''}`);
-    return parts.join(' et ') || 'Moins d’un jour';
+    if (years) parts.push(isEnglish ? `${years} year${years > 1 ? 's' : ''}` : `${years} an${years > 1 ? 's' : ''}`);
+    if (months) parts.push(isEnglish ? `${months} month${months > 1 ? 's' : ''}` : `${months} mois`);
+    if (remainingDays && parts.length < 2) parts.push(isEnglish ? `${remainingDays} day${remainingDays > 1 ? 's' : ''}` : `${remainingDays} jour${remainingDays > 1 ? 's' : ''}`);
+    return parts.join(isEnglish ? ' and ' : ' et ') || (isEnglish ? 'Less than one day' : 'Moins d’un jour');
   };
 
   const saveDurationForecast = async (event) => {
     event.preventDefault();
     setDurationError('');
     const capital = Math.round(Number(durationCapital));
-    if (!capital || capital <= 0 || dailyRate <= 0) return setDurationError('Indique un capital positif et une dépense estimée.');
+    if (!capital || capital <= 0 || dailyRate <= 0) return setDurationError(isEnglish ? 'Enter a positive amount of capital and an estimated expense.' : 'Indique un capital positif et une dépense estimée.');
     setSavingDuration(true);
     try {
       const result = await saveDurationForecastRecord({
@@ -199,17 +199,17 @@ export default function IncomePage() {
         expense: Math.round(Number(durationExpense) || 0),
         frequency: durationFrequency,
       });
-      if (!result?.forecast) throw new Error('L’estimation n’a pas été enregistrée.');
+      if (!result?.forecast) throw new Error(isEnglish ? 'The estimate was not saved.' : 'L’estimation n’a pas été enregistrée.');
       setDurationName(''); setDurationCapital(''); setDurationExpense(''); setDurationFrequency('daily');
     } catch (error) {
-      setDurationError(error.message || 'Impossible d’enregistrer cette prévision.');
+      setDurationError(isEnglish ? 'Could not save this forecast.' : (error.message || 'Impossible d’enregistrer cette prévision.'));
     } finally {
       setSavingDuration(false);
     }
   };
 
   const removeDurationForecast = async (id) => {
-    if (!confirm('Supprimer cette prévision ? Cette suppression ne te rendra pas une création gratuite pour ce mois.')) return;
+    if (!confirm(isEnglish ? 'Delete this forecast? Deleting it will not restore a free creation for this month.' : 'Supprimer cette prévision ? Cette suppression ne te rendra pas une création gratuite pour ce mois.')) return;
     await deleteDurationForecast(id);
   };
 
@@ -317,21 +317,21 @@ export default function IncomePage() {
     const stats = profile?.monthlyStats || {};
     const usedBudgets = stats.lastResetMonth === currentMonthKey ? Number(stats.budgets) || 0 : 0;
     if (!premiumActive && usedBudgets + requiredBudgets > 2) {
-      alert(`Ton compte gratuit peut créer 2 budgets par mois. Cette répartition en nécessite ${requiredBudgets} et il t’en reste ${Math.max(0, 2 - usedBudgets)}. Passe à Premium ou réduis le nombre de catégories avant de transformer cette prévision.`);
+      alert(isEnglish ? `Your free plan can create 2 budgets per month. This allocation requires ${requiredBudgets}, and you have ${Math.max(0, 2 - usedBudgets)} remaining. Upgrade to Premium or reduce the number of categories before applying this forecast.` : `Ton compte gratuit peut créer 2 budgets par mois. Cette répartition en nécessite ${requiredBudgets} et il t’en reste ${Math.max(0, 2 - usedBudgets)}. Passe à Premium ou réduis le nombre de catégories avant de transformer cette prévision.`);
       return;
     }
     setSavingApplied(true);
     try {
       const currentMonth = todayMonth();
-      const sourceName = budgetName || 'Budget Prévisionnel';
+      const sourceName = budgetName || (isEnglish ? 'Forecast budget' : 'Budget Prévisionnel');
       
       const plannedIncomeAmount = Math.round(Number(totalBudget) > 0 ? Number(totalBudget) : Number(savedTotalVital));
-      if (!plannedIncomeAmount || plannedIncomeAmount <= 0) throw new Error('Le montant total de la prévision est nul. Vérifie les montants des catégories avant de transformer cette prévision.');
+      if (!plannedIncomeAmount || plannedIncomeAmount <= 0) throw new Error(isEnglish ? 'The forecast total is zero. Check the category amounts before turning this forecast into income and budgets.' : 'Le montant total de la prévision est nul. Vérifie les montants des catégories avant de transformer cette prévision.');
       const incomeRes = await createIncome(user.uid, {
         amount: plannedIncomeAmount,
         source: sourceName,
         categoryId: 'salary',
-        note: 'Généré depuis les prévisions vitales',
+        note: isEnglish ? 'Generated from essential spending forecasts' : 'Généré depuis les prévisions vitales',
         date: todayIso(),
         month: currentMonth,
       });
@@ -351,9 +351,9 @@ export default function IncomePage() {
           }
         }
       }
-      alert('Prévisions enregistrées avec succès !');
+      alert(isEnglish ? 'Forecasts saved successfully!' : 'Prévisions enregistrées avec succès !');
     } catch (err) {
-      alert('Erreur: ' + err.message);
+      alert(isEnglish ? 'Error: ' + (err.message || 'Could not apply the forecast.') : 'Erreur: ' + err.message);
     } finally { setSavingApplied(false); }
   };
 
