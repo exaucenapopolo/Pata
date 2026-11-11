@@ -955,6 +955,11 @@ export const AI_TOOLS = [
           note: { type: 'string' },
           expenseType: { type: 'string', enum: ['consumption', 'project', 'savings', 'investment'], description: 'Nature obligatoire à choisir selon le contexte : consumption pour nourriture, transport, loyer et besoins quotidiens ; project pour une réalisation identifiée comme construction, achat prévu d’un téléphone ou ordinateur ; savings pour de l’argent mis de côté ; investment pour une somme affectée à une activité ou un actif. Ne classe pas l’épargne ou les projets comme consommation.' },
           projectId: { type: 'string', description: 'ID exact du projet Premium si la sortie est liée à un projet.' },
+          flowType: { type: 'string', enum: ['normal', 'loan_given', 'repayment'], description: 'normal pour une dépense, loan_given pour un prêt accordé, repayment pour le remboursement d’une dette due.' },
+          person: { type: 'string', description: 'Nom exact du bénéficiaire d’un prêt accordé.' },
+          phone: { type: 'string' },
+          dueDate: { type: 'string', description: 'Date d’échéance YYYY-MM-DD pour un prêt accordé.' },
+          repaymentDebtId: { type: 'string', description: 'ID exact de la dette à rembourser, fourni dans le contexte Pata.' },
           date: { type: 'string', description: 'Date YYYY-MM-DD uniquement si elle a été indiquée; sinon omettre.' },
           incomeSourceId: { type: 'string', description: 'ID exact de la source dans les données, ou all si toutes les sources.' },
           incomeSourceName: { type: 'string', description: 'Nom exact de la source, utilisé uniquement pour retrouver/confirmer son ID.' },
@@ -1010,6 +1015,40 @@ export const AI_TOOLS = [
           projectId: { type: 'string', description: 'ID exact du projet auquel ce revenu est réservé, si demandé.' },
         },
         required: ['amount', 'source', 'categoryId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'add_debt',
+      description: 'Enregistrer une nouvelle dette contractée. Elle crée un suivi Dettes & prêts et une entrée de trésorerie neutre, jamais un revenu gagné. Le créancier peut être une personne physique ou une banque. Associe un projet uniquement si l’utilisateur le demande et si son ID exact est fourni.',
+      parameters: {
+        type: 'object',
+        properties: {
+          amount: { type: 'integer' }, counterpartyType: { type: 'string', enum: ['person', 'bank'] },
+          person: { type: 'string' }, bankName: { type: 'string' }, phone: { type: 'string' },
+          dueDate: { type: 'string', description: 'Date d’échéance YYYY-MM-DD.' },
+          date: { type: 'string', description: 'Date de réception YYYY-MM-DD si précisée.' },
+          projectId: { type: 'string', description: 'ID exact du projet, uniquement si demandé.' }, note: { type: 'string' },
+        },
+        required: ['amount', 'counterpartyType', 'dueDate'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'set_financial_targets',
+      description: 'Définir les objectifs financiers mensuels : cible de revenus, plafond de dépenses courantes, plafond de nouvelles dettes et résolution personnelle. Ne crée que les montants explicitement décidés par l’utilisateur.',
+      parameters: {
+        type: 'object',
+        properties: {
+          month: { type: 'string' }, incomeTarget: { type: 'integer', minimum: 0 },
+          expenseLimit: { type: 'integer', minimum: 0 }, debtLimit: { type: 'integer', minimum: 0 },
+          resolution: { type: 'string' },
+        },
+        required: [],
       },
     },
   },
@@ -1150,6 +1189,104 @@ export const AI_TOOLS = [
     },
   },
 ];
+
+async function addDebt(uid, args, idempotencyKey = null) {
+  const amount = asPositiveMoney(args.amount, 'Dette');
+  const counterpartyType = args.counterpartyType === 'bank' ? 'bank' : 'person';
+  const creditorName = cleanText(counterpartyType === 'bank' ? (args.bankName || args.person) : args.person, 100);
+  if (!creditorName) throw new Error(counterpartyType === 'bank' ? 'Indique le nom de la banque créancière.' : 'Indique le nom de la personne qui t’a prêté cet argent.');
+  const dueDate = String(args.dueDate || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) throw new Error('Indique une date d’échéance valide pour cette dette.');
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(String(args.date || '')) ? String(args.date) : todayDouala();
+  const projectId = cleanText(args.projectId, 150);
+  if (projectId.includes('/')) throw new Error('Identifiant de projet invalide.');
+  const userRef = userRefFor(uid);
+  const incomeRef = subcol(uid, 'incomes').doc();
+  const debtRef = subcol(uid, 'debts').doc();
+  const actionRef = idempotencyKey ? subcol(uid, 'ai_actions').doc(String(idempotencyKey).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 140)) : null;
+  return adminDb.runTransaction(async (transaction) => {
+    const reads = [
+      transaction.get(userRef),
+      transaction.get(subcol(uid, 'debts').where('status', 'in', ['active', 'partial', 'late'])),
+    ];
+    if (actionRef) reads.push(transaction.get(actionRef));
+    const snaps = await Promise.all(reads);
+    const userSnap = snaps[0];
+    const activeDebtsSnap = snaps[1];
+    const actionSnap = actionRef ? snaps[2] : null;
+    if (actionSnap?.exists) return actionSnap.data().result;
+    if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
+    const userData = userSnap.data() || {};
+    const premium = isPremium(userData);
+    const activeDebtCount = Number.isSafeInteger(Number(userData.activeDebtCount)) && userData.activeDebtCount !== null
+      ? Number(userData.activeDebtCount) : activeDebtsSnap.size;
+    if (!premium && activeDebtCount >= 2) throw new Error('Le compte gratuit est limité à 2 dettes ou prêts actifs. Passe à Premium pour en suivre davantage.');
+    let projectName = '';
+    if (projectId) {
+      if (!premium) throw new Error('L’association d’un emprunt à un projet est réservée à Pata Premium.');
+      const projectSnap = await transaction.get(subcol(uid, 'projects').doc(projectId));
+      if (!projectSnap.exists || projectSnap.data()?.status === 'archived') throw new Error('Le projet choisi est introuvable ou archivé.');
+      projectName = cleanText(projectSnap.data()?.name, 100);
+    }
+    const note = cleanText(args.note, 250);
+    const bankFields = counterpartyType === 'bank' ? { bankName: creditorName } : {};
+    const result = {
+      success: true,
+      message: \`Dette contractée auprès de « \${creditorName} » enregistrée : \${amount.toLocaleString('fr-FR')} FCFA. Elle reste exclue des revenus ordinaires.\`,
+      amount, person: creditorName, counterpartyType, debtId: debtRef.id, incomeId: incomeRef.id, dueDate, date,
+      ...(projectId ? { projectId, projectName } : {}),
+    };
+    transaction.create(incomeRef, {
+      amount, source: creditorName, categoryId: 'debt_borrowed', month: date.slice(0, 7), date, note,
+      flowType: 'debt_borrowed', neutralFlow: true, person: creditorName, counterpartyType, ...bankFields,
+      phone: cleanText(args.phone, 30) || null, dueDate, debtId: debtRef.id,
+      ...(projectId ? { projectId, projectName } : {}), createdAt: FieldValue.serverTimestamp(),
+    });
+    transaction.create(debtRef, {
+      type: 'i_owe', person: creditorName, counterpartyType, ...bankFields,
+      phone: cleanText(args.phone, 30) || null, amount, remaining: amount,
+      createdAt: FieldValue.serverTimestamp(), dueDate,
+      status: dueDate < todayDouala() ? 'late' : 'active',
+      note, transactionId: incomeRef.id,
+      ...(projectId ? { projectId, projectName } : {}),
+    });
+    transaction.update(userRef, { activeDebtCount: activeDebtCount + 1 });
+    if (actionRef) transaction.create(actionRef, { result, createdAt: FieldValue.serverTimestamp() });
+    return result;
+  });
+}
+
+async function setFinancialTargets(uid, args) {
+  const month = /^\d{4}-\d{2}$/.test(String(args.month || '')) ? String(args.month) : monthKey();
+  const update = { month, status: 'active', updatedAt: FieldValue.serverTimestamp(), source: 'assistant' };
+  let provided = 0;
+  for (const field of ['incomeTarget', 'expenseLimit', 'debtLimit']) {
+    if (args[field] === undefined || args[field] === null || args[field] === '') continue;
+    const amount = Number(args[field]);
+    if (!Number.isSafeInteger(amount) || amount < 0 || amount > 1000000000) throw new Error('Les objectifs doivent être des montants entiers positifs ou nuls en FCFA.');
+    update[field] = amount;
+    provided += 1;
+  }
+  if (args.resolution !== undefined) {
+    update.resolution = cleanText(args.resolution, 300);
+    if (update.resolution) provided += 1;
+  }
+  if (!provided) throw new Error('Indique au moins un objectif mensuel ou une résolution à enregistrer.');
+  const userRef = userRefFor(uid);
+  const targetRef = subcol(uid, 'financialTargets').doc(month);
+  await adminDb.runTransaction(async (transaction) => {
+    const userSnap = await transaction.get(userRef);
+    if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
+    transaction.set(targetRef, update, { merge: true });
+  });
+  return {
+    success: true, message: \`Tes objectifs financiers de \${month} ont été enregistrés.\`, month,
+    ...(update.incomeTarget !== undefined ? { incomeTarget: update.incomeTarget } : {}),
+    ...(update.expenseLimit !== undefined ? { expenseLimit: update.expenseLimit } : {}),
+    ...(update.debtLimit !== undefined ? { debtLimit: update.debtLimit } : {}),
+    ...(update.resolution ? { resolution: update.resolution } : {}),
+  };
+}
 
 async function addIncome(uid, args) {
   const amount = asPositiveMoney(args.amount, 'Revenu');
@@ -1499,6 +1636,8 @@ export async function executeAITool(uid, toolName, rawArgs, userMessages = [], o
     case 'update_expense': return updateExpenseForUser(uid, args.expenseId, args);
     case 'delete_expense': return deleteExpenseForUser(uid, args.expenseId);
     case 'add_income': return addIncome(uid, args);
+    case 'add_debt': return addDebt(uid, args, options.idempotencyKey || null);
+    case 'set_financial_targets': return setFinancialTargets(uid, args);
     case 'apply_budget_plan': return applyBudgetPlan(uid, args);
     case 'create_goal': return addGoal(uid, args);
     case 'add_automation': return addAutomation(uid, args);

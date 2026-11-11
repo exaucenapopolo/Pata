@@ -72,6 +72,11 @@ service cloud.firestore {
         }
       }
 
+      match /financialTargets/{month} {
+        allow read: if owner(userId);
+        allow write: if false;
+      }
+
       match /goal_quota_reservations/{reservationId} {
         allow read, write: if false;
       }

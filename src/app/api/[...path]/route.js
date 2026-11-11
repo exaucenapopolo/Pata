@@ -2442,6 +2442,57 @@ async function handleUpsertBudget(request) {
   }
 }
 
+async function handleFinancialTargets(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const userRef = adminDb.collection('users').doc(uid);
+    const targetCollection = userRef.collection('financialTargets');
+    if (request.method === 'GET') {
+      const month = String(new URL(request.url).searchParams.get('month') || getDoualaMonthKey());
+      if (!/^\d{4}-\d{2}$/.test(month)) return errorResponse('Période invalide.', 400);
+      const snapshot = await targetCollection.doc(month).get();
+      return NextResponse.json({ success: true, month, target: snapshot.exists ? { id: snapshot.id, ...serializeAdminValue(snapshot.data()) } : null });
+    }
+    const body = await request.json();
+    const month = String(body.month || getDoualaMonthKey());
+    if (!/^\d{4}-\d{2}$/.test(month)) return errorResponse('Période invalide.', 400);
+    const targetRef = targetCollection.doc(month);
+    const updates = { month, status: 'active', source: 'manual', updatedAt: FieldValue.serverTimestamp() };
+    const returned = { month };
+    let changes = 0;
+    for (const field of ['incomeTarget', 'expenseLimit', 'debtLimit']) {
+      if (!Object.prototype.hasOwnProperty.call(body, field)) continue;
+      const raw = body[field];
+      if (raw === null || raw === '') {
+        updates[field] = FieldValue.delete();
+        returned[field] = null;
+      } else {
+        const amount = Number(raw);
+        if (!Number.isSafeInteger(amount) || amount < 0 || amount > 1000000000) return errorResponse('Les objectifs doivent être des montants entiers positifs ou nuls en FCFA.', 400);
+        updates[field] = amount;
+        returned[field] = amount;
+      }
+      changes += 1;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'resolution')) {
+      const resolution = String(body.resolution || '').trim().slice(0, 300);
+      updates.resolution = resolution || FieldValue.delete();
+      returned.resolution = resolution || null;
+      changes += 1;
+    }
+    if (!changes) return errorResponse('Indique au moins un objectif à enregistrer.', 400);
+    await adminDb.runTransaction(async (transaction) => {
+      const userSnap = await transaction.get(userRef);
+      if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
+      transaction.set(targetRef, updates, { merge: true });
+    });
+    return NextResponse.json({ success: true, ...returned });
+  } catch (error) {
+    const message = error.message || 'Impossible d’enregistrer les objectifs financiers.';
+    return errorResponse(message, /invalide|profil|objectif/i.test(message) ? 400 : 500);
+  }
+}
+
 async function handleBudgetTemplates(request) {
   try {
     const { uid } = await authenticate(request);
@@ -3343,12 +3394,14 @@ async function handleAIChat(request) {
     const userRef = adminDb.collection('users').doc(uid);
     const emptySnapshot = { docs: [] };
     const [
-      userDoc, incomesSnap, expensesSnap, goalsSnap, budgetsSnap, automationsSnap,
+      userDoc, incomesSnap, expensesSnap, debtsSnap, financialTargetSnap, goalsSnap, budgetsSnap, automationsSnap,
       memorySnap, categoriesSnap, projectsSnap, cotisationMembershipsSnap,
     ] = await Promise.all([
       userRef.get(),
       intent.needsIncomes ? userRef.collection('incomes').orderBy('date', 'desc').limit(35).get() : Promise.resolve(emptySnapshot),
       intent.needsExpenses ? userRef.collection('expenses').orderBy('date', 'desc').limit(50).get() : Promise.resolve(emptySnapshot),
+      intent.needsDebts ? userRef.collection('debts').orderBy('createdAt', 'desc').limit(25).get() : Promise.resolve(emptySnapshot),
+      intent.needsFinancialTargets ? userRef.collection('financialTargets').doc(getDoualaMonthKey()).get() : Promise.resolve(null),
       intent.needsGoals ? userRef.collection('goals').limit(15).get() : Promise.resolve(emptySnapshot),
       intent.needsBudgets ? userRef.collection('budgets').limit(25).get() : Promise.resolve(emptySnapshot),
       intent.needsAutomations ? userRef.collection('automations').limit(15).get() : Promise.resolve(emptySnapshot),
@@ -3447,6 +3500,8 @@ async function handleAIChat(request) {
       profile: userDoc.exists ? userDoc.data() : {},
       incomes: incomesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
       expenses: expensesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+      debts: debtsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+      financialTargets: financialTargetSnap?.exists ? { id: financialTargetSnap.id, ...financialTargetSnap.data() } : null,
       goals: goalsWithDeposits,
       budgets: budgetsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
       automations: automationsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
@@ -3461,7 +3516,7 @@ async function handleAIChat(request) {
     const systemPrompt = `Tu es Mč, l’assistante de gestion financière de Pata. Tu échanges en français avec ${userName}.
 Réponds directement et naturellement. Pour une question simple, reste bref (1 à 3 phrases, environ 60 mots maximum). Ne transforme pas chaque demande en rapport et ne répète pas la question. Ne termine pas systématiquement par une proposition supplémentaire.
 
-Pata aide à suivre les revenus, dépenses, budgets, épargne, objectifs, cotisations, projets, portefeuille et rapports. Les montants financiers de référence sont en FCFA; la devise du profil ne change que l’affichage. Le portefeuille Pata est un solde interne, pas un compte bancaire.
+Pata aide à suivre les revenus, dépenses, dettes et prêts, budgets, épargne, objectifs, cotisations, projets, portefeuille et rapports. Un emprunt est une entrée de trésorerie neutre avec une dette à rembourser : ce n’est jamais un revenu gagné. Tu peux enregistrer une dette, préciser s’il s’agit d’une personne ou d’une banque, affecter l’emprunt à un projet et suivre tes objectifs mensuels. Les montants financiers de référence sont en FCFA; la devise du profil ne change que l’affichage. Le portefeuille Pata est un solde interne, pas un compte bancaire.
 
 RÈGLES FINANCIÈRES : distingue consommation quotidienne, sortie liée à un projet, épargne et investissement. L’épargne et les investissements ne sont pas de la consommation. Le solde de trésorerie tient compte de toutes les sorties. Pour une dépense, utilise l’ID exact de la source mentionnée; si la source n’est pas précisée, utilise la répartition disponible autorisée. Les revenus enregistrés ne peuvent pas être modifiés : on peut en ajouter un autre ou supprimer une entrée uniquement sur demande claire. Un budget n’est jamais un revenu. Les fonds réservés à un projet restent affectés à ce projet. Une action financière n’est réussie qu’après le résultat positif de l’outil; ne devine jamais un montant, un ID ou un résultat. Pour une opération ambiguë, demande une précision. Un revenu déjà enregistré ne peut pas être modifié : propose seulement une nouvelle entrée ou la suppression si elle est explicitement demandée. Pour un objectif daté, la majoration est calculée uniquement sur le montant resté impayé à l’échéance, jamais sur toute la cible; les caisses et tirelires libres ne sont pas concernées. Pour une cotisation, distingue le principal, les frais de service de 5 % et les contributions effectivement confirmées.
 
@@ -3559,6 +3614,7 @@ ${userContext}`;
     const navigationActions = [
       { pattern: /dépense|depense|achat|payer|enregistr.*sortie/, label: 'Ouvrir Dépenses', href: '/expenses' },
       { pattern: /revenu|salaire|source d'argent|prévision vitale|prevision vitale/, label: 'Ouvrir Revenus', href: '/income' },
+      { pattern: /dette|emprunt|prêt|pret|créance|creance/, label: 'Ouvrir Dettes & prêts', href: '/debts' },
       { pattern: /budget|enveloppe|catégorie.*dépass|categorie.*depass/, label: 'Voir mes Budgets', href: '/budgets' },
       { pattern: /objectif|épargne|epargne|tirelire/, label: 'Voir mes Objectifs', href: '/goals' },
       { pattern: /portefeuille|recharg|solde pata|mobile money/, label: 'Ouvrir le Portefeuille', href: '/wallet' },
@@ -6343,6 +6399,7 @@ const ROUTES = {
   'projects/update': { POST: handleUpdateProject },
   'projects/delete': { POST: handleDeleteProject },
   'budgets/upsert': { POST: handleUpsertBudget },
+  'financial-targets': { GET: handleFinancialTargets, POST: handleFinancialTargets },
   'budgets/templates': { GET: handleBudgetTemplates, POST: handleBudgetTemplates, DELETE: handleBudgetTemplates },
   'goals/create': { POST: handleCreateGoal },
   'goals/update': { POST: handleUpdateGoal },
