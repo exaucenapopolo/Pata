@@ -73,7 +73,7 @@ const slidesByLanguage = {
       description: 'View your reports, compare spending across periods and find what you could manage better.',
     },
   ],
-};;
+};
 
 function getRegisterPath() {
   if (typeof window === 'undefined') return '/register';
