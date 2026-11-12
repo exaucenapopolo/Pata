@@ -10,22 +10,70 @@ import { useLanguage } from '@/context/LanguageContext';
 const ONBOARDING_KEY = 'pata-onboarding-completed-v2';
 const slidesByLanguage = {
   fr: [
-    { eyebrow: 'TES FINANCES, AU MÊME ENDROIT', title: 'Tout ton budget en un regard.', description: 'Revenus, dépenses et solde réunis pour savoir où tu en es.' },
-    { eyebrow: 'UN ASSISTANT QUI T’AIDE', title: 'Comprends mieux tes finances.', description: 'Pose tes questions. Mč analyse ton suivi et t’aide à trouver quoi ajuster.' },
-    { eyebrow: 'SUIVI MOBILE MONEY', title: 'Moins de saisie, plus de suivi.', description: 'Sur Android, les SMS MTN MoMo et Orange Money facilitent l’enregistrement de tes opérations.' },
-    { eyebrow: 'ÉPARGNE ET PROJETS', title: 'Avance vers ce qui compte.', description: 'Fixe un objectif, suis tes versements et vois tes progrès.' },
-    { eyebrow: 'TONTINES ET COTISATIONS', title: 'Tes cotisations sous contrôle.', description: 'Suis les contributions, les échéances et l’ordre des bénéficiaires.' },
-    { eyebrow: 'ANALYSES ET DÉCISIONS', title: 'Mesure tes progrès.', description: 'Compare tes périodes et repère les dépenses à ajuster.' },
+    {
+      eyebrow: 'TES FINANCES, AU MÊME ENDROIT',
+      title: 'Sache combien tu gagnes et ce que tu dépenses.',
+      description: 'Pata rassemble tes revenus, tes dépenses et ton solde pour te montrer clairement où va ton argent.',
+    },
+    {
+      eyebrow: 'TON ASSISTANT FINANCIER',
+      title: 'Pose tes questions et reçois des conseils clairs.',
+      description: 'Mč analyse tes chiffres, t’explique ta situation et t’aide à prendre de meilleures décisions.',
+    },
+    {
+      eyebrow: 'SUIVI AUTOMATIQUE DES SMS',
+      title: 'Tes opérations Mobile Money suivies automatiquement.',
+      description: 'Sur Android, Pata reconnaît les SMS MTN MoMo et Orange Money pour enregistrer tes entrées et tes sorties sans les saisir une à une.',
+    },
+    {
+      eyebrow: 'ÉPARGNE ET PROJETS',
+      title: 'Économise pour réaliser tes projets.',
+      description: 'Crée un objectif, ajoute tes économies et vois combien il te reste à mettre de côté.',
+    },
+    {
+      eyebrow: 'TONTINES ET COTISATIONS',
+      title: 'Organise tes cotisations sans perdre le fil.',
+      description: 'Suis les membres, les paiements reçus, les sommes encore dues, les échéances et l’ordre de passage des bénéficiaires.',
+    },
+    {
+      eyebrow: 'RAPPORTS ET ANALYSES',
+      title: 'Vois clairement où part ton argent.',
+      description: 'Consulte tes rapports, compare tes dépenses entre plusieurs périodes et repère ce que tu peux mieux gérer.',
+    },
   ],
   en: [
-    { eyebrow: 'YOUR FINANCES, IN ONE PLACE', title: 'See your budget at a glance.', description: 'Income, expenses and balance together, so you know where you stand.' },
-    { eyebrow: 'AN ASSISTANT THAT HELPS', title: 'Understand your finances better.', description: 'Ask questions. Mč reviews your records and helps you find what you could adjust.' },
-    { eyebrow: 'MOBILE MONEY TRACKING', title: 'Less manual entry, better tracking.', description: 'On Android, MTN MoMo and Orange Money SMS messages can make it easier to record transactions.' },
-    { eyebrow: 'SAVINGS AND PROJECTS', title: 'Move closer to what matters.', description: 'Set a goal, track your contributions and see your progress.' },
-    { eyebrow: 'SAVINGS GROUPS', title: 'Keep your contributions under control.', description: 'Track contributions, due dates and the order in which members receive payouts.' },
-    { eyebrow: 'INSIGHTS AND DECISIONS', title: 'Measure your progress.', description: 'Compare periods and identify spending you may want to adjust.' },
+    {
+      eyebrow: 'YOUR FINANCES IN ONE PLACE',
+      title: 'See how much you earn and spend.',
+      description: 'Pata brings your income, expenses and balance together so you can clearly see where your money goes.',
+    },
+    {
+      eyebrow: 'YOUR FINANCIAL ASSISTANT',
+      title: 'Ask questions and get clear advice.',
+      description: 'Mč reviews your numbers, explains your situation and helps you make better decisions.',
+    },
+    {
+      eyebrow: 'AUTOMATIC SMS TRACKING',
+      title: 'Keep track of your Mobile Money transactions automatically.',
+      description: 'On Android, Pata recognises MTN MoMo and Orange Money SMS messages and records incoming and outgoing transactions for you.',
+    },
+    {
+      eyebrow: 'SAVINGS AND PROJECTS',
+      title: 'Save money to make your plans happen.',
+      description: 'Create a goal, add to your savings and see how much more you need to put aside.',
+    },
+    {
+      eyebrow: 'SAVINGS GROUPS AND CONTRIBUTIONS',
+      title: 'Manage group contributions without losing track.',
+      description: 'Track members, payments received, outstanding contributions, due dates and payout order.',
+    },
+    {
+      eyebrow: 'REPORTS AND INSIGHTS',
+      title: 'See clearly where your money goes.',
+      description: 'View your reports, compare spending across periods and find what you could manage better.',
+    },
   ],
-};
+};;
 
 function getRegisterPath() {
   if (typeof window === 'undefined') return '/register';
