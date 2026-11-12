@@ -308,7 +308,7 @@ export default function AdminPage() {
       setNextRecipientCursor(result.nextCursor || null);
     } catch (err) { setError(err.message); } finally { setBusy(false); }
   };
-  const openUser = async (entry) => { setSelectedUser(entry); setUserDetail(null); setTemplateChoice(''); setEmailSubject(getTemplateField(templates[0], 'subject', language)); setEmailMessage(getTemplateField(templates[0], 'body', language)); setEmailCustomized(false); setEmailTemplateKey('welcome'); setEmailResult(''); try { setUserDetail(await api(`admin/user-detail?uid=${encodeURIComponent(entry.id)}`)); } catch (err) { setError(err.message); } };
+  const openUser = async (entry) => { setSelectedUser(entry); setUserDetail(null); setTemplateChoice(templates[0].label); setEmailSubject(getTemplateField(templates[0], 'subject', language)); setEmailMessage(getTemplateField(templates[0], 'body', language)); setEmailCustomized(false); setEmailTemplateKey('welcome'); setEmailResult(''); try { setUserDetail(await api(`admin/user-detail?uid=${encodeURIComponent(entry.id)}`)); } catch (err) { setError(err.message); } };
   const sendUserEmail = async () => {
     if (!userDetail?.user?.id || !emailSubject.trim() || !emailMessage.trim()) return;
     setBusy(true); setError(''); setEmailResult('');
