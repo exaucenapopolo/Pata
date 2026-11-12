@@ -65,6 +65,7 @@ export function ProfilePhotoEditor({ photoURL = '', displayName = '', onSave }) 
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('avatars');
   const [selectedAvatar, setSelectedAvatar] = useState('');
+  const [selectionMode, setSelectionMode] = useState('unchanged');
   const [selectedFile, setSelectedFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState('');
   const [removePhoto, setRemovePhoto] = useState(false);
@@ -121,6 +122,7 @@ export function ProfilePhotoEditor({ photoURL = '', displayName = '', onSave }) 
 
   const openEditor = () => {
     setSelectedAvatar(PROFILE_AVATARS.includes(photoURL) ? photoURL : '');
+    setSelectionMode('unchanged');
     setSelectedFile(null);
     setPreviewUrl('');
     setRemovePhoto(false);
@@ -132,6 +134,7 @@ export function ProfilePhotoEditor({ photoURL = '', displayName = '', onSave }) 
 
   const chooseAvatar = (url) => {
     setSelectedAvatar(url);
+    setSelectionMode('avatar');
     setSelectedFile(null);
     setPreviewUrl('');
     setRemovePhoto(false);
@@ -151,6 +154,7 @@ export function ProfilePhotoEditor({ photoURL = '', displayName = '', onSave }) 
       return;
     }
     setSelectedFile(file);
+    setSelectionMode('file');
     setSelectedAvatar('');
     setRemovePhoto(false);
     setPreviewUrl(URL.createObjectURL(file));
@@ -163,10 +167,11 @@ export function ProfilePhotoEditor({ photoURL = '', displayName = '', onSave }) 
     setSaving(true);
     setError('');
     try {
+      if (selectionMode === 'unchanged') return;
       let nextPhotoURL = null;
-      if (removePhoto) {
+      if (selectionMode === 'remove' || removePhoto) {
         nextPhotoURL = null;
-      } else if (selectedFile) {
+      } else if (selectionMode === 'file' && selectedFile) {
         setProgress(15);
         const compressed = await resizeAvatar(selectedFile);
         setProgress(40);
@@ -201,6 +206,7 @@ export function ProfilePhotoEditor({ photoURL = '', displayName = '', onSave }) 
       setPreviewUrl('');
       setSelectedAvatar('');
       setRemovePhoto(false);
+      setSelectionMode('unchanged');
     } catch (saveError) {
       console.error('[PATA PROFILE PHOTO]', saveError?.message || saveError);
       setError(saveError?.message || text.saveFailed);
@@ -235,7 +241,7 @@ export function ProfilePhotoEditor({ photoURL = '', displayName = '', onSave }) 
               <p className="text-xs font-semibold text-slate-800">{text.current}</p>
               <p className="mt-1 break-all text-[11px] text-slate-500">{displayedPhoto ? (selectedFile ? selectedFile.name : isEnglish ? 'Selected photo' : 'Photo sélectionnée') : isEnglish ? 'Initials' : 'Initiales'}</p>
             </div>
-            <button type="button" onClick={() => { setRemovePhoto(true); setSelectedAvatar(''); setSelectedFile(null); setPreviewUrl(''); setError(''); }} className="inline-flex min-h-8 shrink-0 items-center gap-1 rounded-lg px-2 text-[11px] font-semibold text-red-600 hover:bg-red-50">
+            <button type="button" onClick={() => { setRemovePhoto(true); setSelectionMode('remove'); setSelectedAvatar(''); setSelectedFile(null); setPreviewUrl(''); setError(''); }} className="inline-flex min-h-8 shrink-0 items-center gap-1 rounded-lg px-2 text-[11px] font-semibold text-red-600 hover:bg-red-50">
               <Trash2 size={13}/>{text.clear}
             </button>
           </div>
@@ -278,8 +284,17 @@ export function ProfilePhotoEditor({ photoURL = '', displayName = '', onSave }) 
           {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-xs text-red-700">{error}</p>}
 
           <div className="flex flex-col-reverse gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:justify-end">
-            <button type="button" onClick={() => setOpen(false)} disabled={saving} className="min-h-10 rounded-xl border border-slate-200 px-4 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50">{text.cancel}</button>
-            <button type="button" onClick={handleSave} disabled={saving || (!selectedFile && !selectedAvatar && !removePhoto && selectedAvatar !== photoURL)} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#0b5c46] px-4 text-xs font-semibold text-white hover:bg-[#084b39] disabled:opacity-50">
+            <button type="button" onClick={() => {
+              if (saving) return;
+              setOpen(false);
+              setSelectedFile(null);
+              setPreviewUrl('');
+              setSelectedAvatar('');
+              setRemovePhoto(false);
+              setSelectionMode('unchanged');
+              setError('');
+            }} disabled={saving} className="min-h-10 rounded-xl border border-slate-200 px-4 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50">{text.cancel}</button>
+            <button type="button" onClick={handleSave} disabled={saving || selectionMode === 'unchanged'} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#0b5c46] px-4 text-xs font-semibold text-white hover:bg-[#084b39] disabled:opacity-50">
               {saving ? <Loader2 size={14} className="animate-spin"/> : <Check size={14}/>}
               {saving ? text.saving : text.save}
             </button>
