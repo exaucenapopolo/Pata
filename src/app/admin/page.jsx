@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Activity, ArrowDownLeft, ArrowDownToLine, ArrowUpRight, Bell, CheckCircle2, ChevronRight, CircleDollarSign, Clock3, CreditCard, Database, KeyRound, Loader2, LogOut, Mail, MessageCircle, PiggyBank, RefreshCw, Search, ShieldCheck, Users, Wallet, XCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { useLanguage } from '@/context/LanguageContext';
 
 const money = (value) => value == null || !Number.isFinite(Number(value)) ? '—' : `${Math.round(Number(value)).toLocaleString('fr-FR')} FCFA`;
 const dateLabel = (value) => { if (!value) return '—'; const date = new Date(value); return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' }); };
@@ -106,17 +107,158 @@ Prends le temps de consulter la page Premium et de comparer les fonctions propos
 Merci de ta confiance.`,
   },
 ];
+const englishTemplates = {
+  welcome: {
+    label: 'Welcome',
+    subject: "Welcome to Pata — let's build your financial overview",
+    body: [
+      'Hello {nom},',
+      '',
+      "Welcome to Pata! We're glad to have you in an app designed to help you better understand your money and organize your priorities without making things complicated.",
+      '',
+      'You can start simply: record your income, note everyday expenses, set a realistic budget and track the goals that matter to you. You will find your information in your dashboard and reports.',
+      '',
+      "Take time to explore the sections at your own pace. You do not need to configure everything in one day: a few reliable details updated regularly are enough to start getting a clearer picture.",
+      '',
+      'Thank you for choosing Pata. Our team is available to help if you encounter a problem or have a question.',
+    ].join('\\n'),
+  },
+  congratulations: {
+    label: 'Congratulations — projects and achievements',
+    subject: 'We wanted to recognize your progress with Pata',
+    body: [
+      'Hello {nom},',
+      '',
+      'We want to recognize the positive steps you have taken with Pata. The projects you are preparing, the ones you are moving forward and the goals you have chosen to fund show a practical effort to turn ideas into achievements.',
+      '',
+      'We reviewed the information in your account to highlight your projects, savings goals and contribution groups. Below you will find a personalized overview of these commitments. We keep these achievements separate from everyday spending because they are distinct goals that deserve to be tracked separately.',
+      '',
+      'Keep moving forward at a pace that fits your means and priorities. A realistic plan you can maintain is more useful than an overly ambitious goal that becomes difficult to follow.',
+      '',
+      'Thank you for trusting Pata to organize these steps. We are glad to support you as you continue.',
+    ].join('\\n'),
+  },
+  support: {
+    label: 'Help and support',
+    subject: 'Pata — we are here to help',
+    body: [
+      'Hello {nom},',
+      '',
+      'We wanted to check in and make sure your experience with Pata is going well.',
+      '',
+      'If you have difficulty recording income, categorizing an expense, tracking a savings goal, using a contribution group or understanding a report, simply reply to this message and describe what is happening. You may also attach a screenshot, making sure to hide any confidential information that is not needed.',
+      '',
+      'This will help our team understand the situation and guide you through the next steps. We prefer to examine the issue carefully rather than give you an approximate answer.',
+      '',
+      'Thank you for helping us improve Pata with your feedback. We are here to support you.',
+    ].join('\\n'),
+  },
+  checkin: {
+    label: 'Checking in',
+    subject: 'How is your experience with Pata?',
+    body: [
+      'Hello {nom},',
+      '',
+      'It has been a little while since we last saw you on Pata. We hope everything is going well.',
+      '',
+      'We would like to know whether the app still meets your expectations. Is it easy to track income, savings goals, projects and contribution groups? Is there a step that seems complicated or a feature you are missing?',
+      '',
+      'Your feedback helps us identify the improvements that matter most to users. You can reply directly to this message; we will read your comments carefully.',
+      '',
+      'Thank you for being part of the Pata community. We would be happy to hear from you.',
+    ].join('\\n'),
+  },
+  encouragement: {
+    label: 'Encouragement',
+    subject: 'Keep moving forward at your own pace',
+    body: [
+      'Hello {nom},',
+      '',
+      'A financial project is not always built in a single step. Some periods allow you to move quickly; others require you to review your priorities or take a step back.',
+      '',
+      'What matters is keeping a clear view of what you want to achieve. Pata lets you track everyday expenses, projects, set-aside funds and investments separately. This helps you make decisions based on the actual nature of each transaction.',
+      '',
+      'Choose goals that match your current means and adjust them as your situation changes. You can also review your reports to see your progress over a specific period.',
+      '',
+      'We are glad to support you. Keep going steadily, without putting unnecessary pressure on yourself.',
+    ].join('\\n'),
+  },
+  savings: {
+    label: 'Savings and goals',
+    subject: 'An update on your savings goals',
+    body: [
+      'Hello {nom},',
+      '',
+      'We wanted to revisit the savings goals you recorded in Pata. Money set aside is different from everyday spending: it is intended for future use or to protect part of your resources.',
+      '',
+      'You can review the amount already saved, your progress toward each target and the deadlines you have set. If a goal no longer fits your situation, take time to review its schedule and your contributions before changing your plan.',
+      '',
+      'The key is to keep your savings at a level that remains compatible with essential needs and current commitments. A realistic goal that you follow regularly is more useful than a target that is difficult to maintain.',
+      '',
+      'Thank you for using Pata to organize your priorities.',
+    ].join('\\n'),
+  },
+  cotisation: {
+    label: 'Contribution group',
+    subject: 'An update on your Pata contributions',
+    body: [
+      'Hello {nom},',
+      '',
+      'We wanted to give you an update on the contribution groups you participate in on Pata. These groups involve shared commitments: each member should know their position, contribution amount, due date and the beneficiary payout turn.',
+      '',
+      'You can review the amount already confirmed, the remaining contribution, the payout order and the late-payment rules set by the group leader. Payments are counted only after Fapshi confirms them. An opened payment link or a pending transaction does not mean that a contribution has been received.',
+      '',
+      'Once all required contributions are confirmed, the beneficiary can request a withdrawal. It remains subject to administrative review and confirmation by the payment provider.',
+      '',
+      'Thank you for meeting the deadlines and informing your group if you encounter a difficulty.',
+    ].join('\\n'),
+  },
+  premium: {
+    label: 'Discover Premium',
+    subject: 'Discover what Pata Premium can offer',
+    body: [
+      'Hello {nom},',
+      '',
+      'Pata is evolving to offer more complete tools to people who want to take their financial organization further.',
+      '',
+      'With Premium features, you can organize projects, assign income to a specific project, track related outflows and ask Mč for a dedicated analysis. This helps you distinguish everyday spending from funds allocated to an important project.',
+      '',
+      'Take time to review the Premium page and compare the available features with your actual needs. You are not required to subscribe; the goal is to help you make an informed choice.',
+      '',
+      'Thank you for your trust.',
+    ].join('\\n'),
+  },
+};
+
+function getTemplateField(template, field, language) {
+  if (language === 'en' && englishTemplates[template.key]?.[field]) {
+    return englishTemplates[template.key][field];
+  }
+  return template[field];
+}
+
+
 function Metric({ label, value, detail, icon: Icon }) { return <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex items-center justify-between"><p className="text-xs font-medium text-slate-500">{label}</p><span className="rounded-xl bg-slate-100 p-2 text-slate-600"><Icon size={17}/></span></div><p className="mt-3 break-words text-xl font-bold tracking-tight text-slate-950 sm:text-2xl">{value}</p>{detail && <p className="mt-1 text-xs text-slate-500">{detail}</p>}</div>; }
 function SectionTitle({ title, detail, action }) { return <div className="mb-4 flex flex-wrap items-end justify-between gap-2"><div><h2 className="text-lg font-semibold text-slate-900">{title}</h2>{detail && <p className="mt-1 text-xs text-slate-500">{detail}</p>}</div>{action}</div>; }
 
 export default function AdminPage() {
   const { user, loading: authLoading } = useAuth();
+  const { language } = useLanguage();
+  const isEnglish = language === 'en';
   const router = useRouter();
   const [code, setCode] = useState(''); const [unlocked, setUnlocked] = useState(false); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   const [tab, setTab] = useState('overview'); const [overview, setOverview] = useState(null); const [users, setUsers] = useState([]); const [nextCursor, setNextCursor] = useState(null); const [questions, setQuestions] = useState(null); const [nextQuestionCursor, setNextQuestionCursor] = useState(null); const [savings, setSavings] = useState(null); const [nextSavingsCursor, setNextSavingsCursor] = useState(null); const [recipients, setRecipients] = useState([]); const [recipientSummary, setRecipientSummary] = useState(null); const [nextRecipientCursor, setNextRecipientCursor] = useState(null); const [selectedRecipientIds, setSelectedRecipientIds] = useState([]); const [recipientMode, setRecipientMode] = useState('all'); const [recipientSearch, setRecipientSearch] = useState(''); const [withdrawals, setWithdrawals] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null); const [userDetail, setUserDetail] = useState(null); const [search, setSearch] = useState(''); const [templateChoice, setTemplateChoice] = useState('');
-  const [emailSubject, setEmailSubject] = useState(templates[0].subject); const [emailMessage, setEmailMessage] = useState(templates[0].body); const [emailResult, setEmailResult] = useState(''); const [emailCtaPath, setEmailCtaPath] = useState('/dashboard'); const [emailTemplateKey, setEmailTemplateKey] = useState('welcome');
+  const [emailSubject, setEmailSubject] = useState(getTemplateField(templates[0], 'subject', language)); const [emailMessage, setEmailMessage] = useState(getTemplateField(templates[0], 'body', language)); const [emailCustomized, setEmailCustomized] = useState(false); const [emailResult, setEmailResult] = useState(''); const [emailCtaPath, setEmailCtaPath] = useState('/dashboard'); const [emailTemplateKey, setEmailTemplateKey] = useState('welcome');
   const [broadcastTitle, setBroadcastTitle] = useState('Information Pata'); const [broadcastMessage, setBroadcastMessage] = useState(''); const [broadcastPath, setBroadcastPath] = useState('/dashboard'); const [broadcastImageUrl, setBroadcastImageUrl] = useState(''); const [broadcastResult, setBroadcastResult] = useState('');
+
+  useEffect(() => {
+    if (emailCustomized) return;
+    const selectedTemplate = templates.find((template) => template.key === emailTemplateKey);
+    if (!selectedTemplate) return;
+    setEmailSubject(getTemplateField(selectedTemplate, 'subject', language));
+    setEmailMessage(getTemplateField(selectedTemplate, 'body', language));
+  }, [language, emailTemplateKey, emailCustomized]);
 
   const api = useCallback(async (path, method = 'GET', body = null) => {
     if (!user) throw new Error('Connecte-toi à ton compte avant de continuer.');
@@ -166,7 +308,7 @@ export default function AdminPage() {
       setNextRecipientCursor(result.nextCursor || null);
     } catch (err) { setError(err.message); } finally { setBusy(false); }
   };
-  const openUser = async (entry) => { setSelectedUser(entry); setUserDetail(null); setTemplateChoice(''); setEmailSubject(templates[0].subject); setEmailMessage(templates[0].body); setEmailTemplateKey('welcome'); setEmailResult(''); try { setUserDetail(await api(`admin/user-detail?uid=${encodeURIComponent(entry.id)}`)); } catch (err) { setError(err.message); } };
+  const openUser = async (entry) => { setSelectedUser(entry); setUserDetail(null); setTemplateChoice(''); setEmailSubject(getTemplateField(templates[0], 'subject', language)); setEmailMessage(getTemplateField(templates[0], 'body', language)); setEmailCustomized(false); setEmailTemplateKey('welcome'); setEmailResult(''); try { setUserDetail(await api(`admin/user-detail?uid=${encodeURIComponent(entry.id)}`)); } catch (err) { setError(err.message); } };
   const sendUserEmail = async () => {
     if (!userDetail?.user?.id || !emailSubject.trim() || !emailMessage.trim()) return;
     setBusy(true); setError(''); setEmailResult('');
@@ -177,15 +319,17 @@ export default function AdminPage() {
         message: emailMessage.trim().replaceAll('{nom}', userDetail.user.displayName || 'bonjour'),
         ctaPath: emailCtaPath,
         templateKey: emailTemplateKey,
-        ctaLabel: emailCtaPath === '/premium' ? 'Découvrir Premium' : emailCtaPath === '/goals' ? 'Voir mon épargne' : emailCtaPath === '/cotisations' ? 'Voir mes cotisations' : 'Ouvrir mon tableau de bord',
+        ctaLabel: isEnglish
+          ? (emailCtaPath === '/premium' ? 'Discover Premium' : emailCtaPath === '/goals' ? 'View my savings' : emailCtaPath === '/cotisations' ? 'View my contributions' : 'Open my dashboard')
+          : (emailCtaPath === '/premium' ? 'Découvrir Premium' : emailCtaPath === '/goals' ? 'Voir mon épargne' : emailCtaPath === '/cotisations' ? 'Voir mes cotisations' : 'Ouvrir mon tableau de bord'),
       });
-      setEmailResult('E-mail accepté par Resend pour ' + (result.recipientEmail || userDetail.user.email) + '.');
+      setEmailResult(isEnglish ? 'Email accepted by Resend for ' + (result.recipientEmail || userDetail.user.email) + '.' : 'E-mail accepté par Resend pour ' + (result.recipientEmail || userDetail.user.email) + '.');
     } catch (err) { setError(err.message || 'Impossible d’envoyer cet e-mail.'); }
     finally { setBusy(false); }
   };
   const logout = async () => { try { await api('admin/logout', 'POST', {}); } catch { /* session déjà expirée */ } setUnlocked(false); setOverview(null); setUsers([]); setWithdrawals([]); setUserDetail(null); };
-  const approve = async (item) => { if (!window.confirm(`Valider le retrait de ${money(item.amount)} vers ${item.phone} ? Le paiement sera transmis à Fapshi.`)) return; setBusy(true); setError(''); try { await api('admin/withdrawal/approve', 'POST', { requestId: item.id }); await loadDashboard(); } catch (err) { setError(err.message); setBusy(false); } };
-  const reject = async (item) => { const reason = window.prompt('Motif du refus (facultatif) :', 'Demande non validée après vérification.'); if (reason === null) return; setBusy(true); setError(''); try { await api('admin/withdrawal/reject', 'POST', { requestId: item.id, reason }); await loadDashboard(); } catch (err) { setError(err.message); setBusy(false); } };
+  const approve = async (item) => { if (!window.confirm(isEnglish ? `Approve the withdrawal of ${money(item.amount)} to ${item.phone}? The payment will be sent to Fapshi.` : `Valider le retrait de ${money(item.amount)} vers ${item.phone} ? Le paiement sera transmis à Fapshi.`)) return; setBusy(true); setError(''); try { await api('admin/withdrawal/approve', 'POST', { requestId: item.id }); await loadDashboard(); } catch (err) { setError(err.message); setBusy(false); } };
+  const reject = async (item) => { const reason = window.prompt(isEnglish ? 'Reason for rejection (optional):' : 'Motif du refus (facultatif) :', isEnglish ? 'Request not approved after review.' : 'Demande non validée après vérification.'); if (reason === null) return; setBusy(true); setError(''); try { await api('admin/withdrawal/reject', 'POST', { requestId: item.id, reason }); await loadDashboard(); } catch (err) { setError(err.message); setBusy(false); } };
   const broadcast = async (event) => {
     event.preventDefault(); setBusy(true); setBroadcastResult(''); setError('');
     try {
@@ -212,7 +356,7 @@ export default function AdminPage() {
     return () => clearInterval(timer);
   }, [unlocked, tab, api]);
   const visibleUsers = useMemo(() => { const value = search.trim().toLowerCase(); return value ? users.filter((entry) => `${entry.displayName || ''} ${entry.email || ''} ${entry.phone || ''}`.toLowerCase().includes(value)) : users; }, [users, search]);
-  const waHref = (entry, template) => { const number = String(entry?.phone || '').replace(/\D/g, ''); if (!number) return ''; return `https://wa.me/${number.startsWith('237') ? number : `237${number}`}?text=${encodeURIComponent(template.body.replaceAll('{nom}', entry?.displayName || 'utilisateur'))}`; };
+  const waHref = (entry, template) => { const number = String(entry?.phone || '').replace(/\D/g, ''); if (!number) return ''; const body = getTemplateField(template, 'body', language); return `https://wa.me/${number.startsWith('237') ? number : `237${number}`}?text=${encodeURIComponent(body.replaceAll('{nom}', entry?.displayName || (isEnglish ? 'there' : 'utilisateur')))}`; };
 
   if (authLoading || !user) return <main className="grid min-h-screen place-items-center bg-slate-50 p-6"><Loader2 className="animate-spin text-slate-500"/></main>;
   if (!unlocked) return <main className="grid min-h-screen place-items-center bg-slate-50 px-4 py-10"><form onSubmit={unlock} className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-7 shadow-xl"><div className="mb-6 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-950 text-white"><ShieldCheck size={23}/></div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Pata · Espace privé</p><h1 className="mt-2 text-2xl font-bold text-slate-950">Administration</h1><p className="mt-2 text-sm leading-6 text-slate-500">Saisis le code administrateur pour accéder à la gestion de Pata.</p><label className="mt-6 block text-sm font-medium text-slate-700">Code administrateur</label><input autoComplete="current-password" type="password" value={code} onChange={(event) => setCode(event.target.value)} className="mt-2 h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-base tracking-widest outline-none focus:border-slate-800" placeholder="Saisir le code" required/>{error && <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}<button disabled={busy || !code} className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white disabled:opacity-50">{busy ? <Loader2 className="animate-spin" size={17}/> : <KeyRound size={17}/>} Accéder à l’administration</button><p className="mt-4 text-center text-xs text-slate-400">NAPOPOLO EXAUCE · Pata</p></form></main>;
@@ -248,14 +392,14 @@ export default function AdminPage() {
           <div className="flex flex-wrap items-center justify-between gap-2"><h4 className="text-sm font-bold text-slate-900">Contacter cet utilisateur par e-mail</h4>{waHref(userDetail.user, templates[3]) && <a href={waHref(userDetail.user, templates[3])} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-800"><MessageCircle size={14}/> WhatsApp</a>}</div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <label className="text-xs font-semibold text-slate-600">Modèle de message
-              <select value={templateChoice} onChange={(event) => { const value=event.target.value; setTemplateChoice(value); const selected=templates.find((item)=>item.label===value); if(selected){setEmailSubject(selected.subject);setEmailMessage(selected.body);setEmailTemplateKey(selected.key);} else {setEmailTemplateKey('custom');} }} className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal"><option value="">Message personnalisé</option>{templates.map((template) => <option key={template.label} value={template.label}>{template.label}</option>)}</select>
+              <select value={templateChoice} onChange={(event) => { const value=event.target.value; setTemplateChoice(value); const selected=templates.find((item)=>item.label===value); if(selected){setEmailCustomized(false);setEmailSubject(getTemplateField(selected, 'subject', language));setEmailMessage(getTemplateField(selected, 'body', language));setEmailTemplateKey(selected.key);} else {setEmailCustomized(true);setEmailTemplateKey('custom');} }} className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal"><option value="">Message personnalisé</option>{templates.map((template) => <option key={template.label} value={template.label}>{getTemplateField(template, 'label', language)}</option>)}</select>
             </label>
             <label className="text-xs font-semibold text-slate-600">Destination du bouton
               <select value={emailCtaPath} onChange={(event)=>setEmailCtaPath(event.target.value)} className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal"><option value="/dashboard">Tableau de bord</option><option value="/goals">Épargnes</option><option value="/premium">Premium</option><option value="/reports">Rapports</option><option value="/cotisations">Cotisations</option></select>
             </label>
           </div>
-          <label className="mt-3 block text-xs font-semibold text-slate-600">Objet de l’e-mail<input value={emailSubject} onChange={(event)=>setEmailSubject(event.target.value)} maxLength={140} className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-normal"/></label>
-          <label className="mt-3 block text-xs font-semibold text-slate-600">Message personnalisable<textarea value={emailMessage} onChange={(event)=>setEmailMessage(event.target.value)} maxLength={5000} rows={6} className="mt-1.5 w-full rounded-lg border border-slate-200 p-3 text-sm font-normal leading-6"/><span className="mt-1 block font-normal text-slate-400">Le champ {'{nom}'} sera remplacé par le nom du destinataire. Le modèle « Félicitations » ajoute automatiquement les projets, objectifs d’épargne et cotisations enregistrés sur son compte — sans faire référence à ses dépenses.</span></label>
+          <label className="mt-3 block text-xs font-semibold text-slate-600">Objet de l’e-mail<input value={emailSubject} onChange={(event)=>{setEmailCustomized(true);setEmailSubject(event.target.value);}} maxLength={140} className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-normal"/></label>
+          <label className="mt-3 block text-xs font-semibold text-slate-600">Message personnalisable<textarea value={emailMessage} onChange={(event)=>{setEmailCustomized(true);setEmailMessage(event.target.value);}} maxLength={5000} rows={6} className="mt-1.5 w-full rounded-lg border border-slate-200 p-3 text-sm font-normal leading-6"/><span className="mt-1 block font-normal text-slate-400">Le champ {'{nom}'} sera remplacé par le nom du destinataire. Le modèle « Félicitations » ajoute automatiquement les projets, objectifs d’épargne et cotisations enregistrés sur son compte — sans faire référence à ses dépenses.</span></label>
           <div className="mt-3 flex flex-wrap items-center gap-3"><button type="button" onClick={sendUserEmail} disabled={busy || !emailSubject.trim() || !emailMessage.trim()} className="inline-flex h-10 items-center gap-2 rounded-lg bg-slate-950 px-4 text-xs font-semibold text-white disabled:opacity-50">{busy?<Loader2 size={15} className="animate-spin"/>:<Mail size={15}/>} Envoyer l’e-mail</button>{emailResult && <p role="status" className="text-xs font-semibold text-emerald-700">{emailResult}</p>}</div>
         </div>
         <div className="mt-5 grid gap-4 xl:grid-cols-3">
