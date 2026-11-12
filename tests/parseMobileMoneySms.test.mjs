@@ -274,3 +274,19 @@ test('reconnaît le retrait MTN MoMo en anglais avec « You have withdrawn »', 
   assert.equal(result?.date, '2026-11-11');
   assert.equal(result?.time, '11:32');
 });
+
+
+test('reconnaît exactement le SMS MTN de retrait fourni pour la détection automatique', () => {
+  const result = parseMobileMoneySms(
+    "1Go Njoh! si tu te connectes sur l'appli New MoMoApp. Lien: link.mtn.cm/NewMoMoAppRef. Vous avez effectue avec succes le retrait de 1000 FCFA de votre compte mobile money le 2026-11-12 12:43:33. Votre nouveau solde est de:107 FCFA. Transaction Id: 19701698948.",
+    { sender: 'MTN', receivedAt }
+  );
+  assert.equal(result?.provider, 'mtn_momo');
+  assert.equal(result?.eventType, 'withdrawal');
+  assert.equal(result?.direction, 'withdrawal');
+  assert.equal(result?.amount, 1000);
+  assert.equal(result?.balance, 107);
+  assert.equal(result?.transactionId, '19701698948');
+  assert.equal(result?.date, '2026-11-12');
+  assert.equal(result?.time, '12:43');
+});
