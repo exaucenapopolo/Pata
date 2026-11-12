@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { Bell, Check, ChevronDown, ExternalLink, Loader2, RefreshCw, X } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
@@ -61,6 +62,8 @@ export function NotificationInbox() {
   const [activeFilter, setActiveFilter] = useState('unread');
   const [expandedId, setExpandedId] = useState('');
   const [error, setError] = useState('');
+  const [markingAll, setMarkingAll] = useState(false);
+  const [portalTarget, setPortalTarget] = useState(null);
 
   const unreadCount = useMemo(() => items.filter((item) => !item.isRead).length, [items]);
   const readCount = useMemo(() => items.filter((item) => item.isRead).length, [items]);
@@ -107,6 +110,10 @@ export function NotificationInbox() {
   }, [user, nextCursor]);
 
   useEffect(() => {
+    setPortalTarget(document.body);
+  }, []);
+
+  useEffect(() => {
     if (!user) {
       setItems([]);
       return undefined;
@@ -145,6 +152,31 @@ export function NotificationInbox() {
       setError(requestError.message || 'Impossible de marquer cette notification comme lue.');
     } finally {
       setMarkingId('');
+    }
+  };
+
+  const markAllAsRead = async () => {
+    if (!user || markingAll || (!unreadCount && !hasMore)) return;
+    setMarkingAll(true);
+    setError('');
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch('/api/notifications/read', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ markAll: true }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de marquer toutes les notifications comme lues.');
+      const readAt = new Date().toISOString();
+      setItems((current) => current.map((item) => ({ ...item, read: true, isRead: true, readAt: item.readAt || readAt })));
+      setNextCursor(null);
+      setHasMore(false);
+      setActiveFilter('unread');
+    } catch (requestError) {
+      setError(requestError.message || 'Impossible de marquer toutes les notifications comme lues.');
+    } finally {
+      setMarkingAll(false);
     }
   };
 
@@ -192,7 +224,7 @@ export function NotificationInbox() {
         )}
       </button>
 
-      {open && (
+      {open && portalTarget && createPortal(
         <>
           <button
             type="button"
@@ -200,7 +232,7 @@ export function NotificationInbox() {
             onClick={() => setOpen(false)}
             className="fixed inset-0 z-[79] cursor-default bg-slate-950/10"
           />
-          <section className="absolute right-0 top-12 z-[80] flex max-h-[min(78dvh,620px)] w-[min(92vw,400px)] flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_18px_48px_rgba(8,39,70,0.16)]">
+          <section className="fixed left-1/2 top-[calc(64px+env(safe-area-inset-top)+0.5rem)] z-[81] flex max-h-[min(78dvh,620px)] w-[min(calc(100vw-1.5rem),400px)] -translate-x-1/2 flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_18px_48px_rgba(8,39,70,0.16)] sm:top-[calc(68px+env(safe-area-inset-top)+0.5rem)]">
             <header className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
               <div>
                 <h2 className="text-sm font-bold text-slate-900">Notifications</h2>
@@ -216,14 +248,30 @@ export function NotificationInbox() {
               </div>
             </header>
 
-            <div className="grid grid-cols-2 gap-2 border-b border-slate-100 px-3 py-2">
-              <button type="button" onClick={() => setActiveFilter('unread')} className={'rounded-lg px-3 py-2 text-xs font-semibold transition ' + (activeFilter === 'unread' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}>
-                Non lues ({unreadCount})
-              </button>
-              <button type="button" onClick={() => setActiveFilter('read')} className={'rounded-lg px-3 py-2 text-xs font-semibold transition ' + (activeFilter === 'read' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}>
-                Déjà lues ({readCount})
-              </button>
+            <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-3 py-2">
+              <div className="grid flex-1 grid-cols-2 gap-2">
+                <button type="button" onClick={() => setActiveFilter('unread')} className={'rounded-lg px-3 py-2 text-xs font-semibold transition ' + (activeFilter === 'unread' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}>
+                  Non lues ({unreadCount})
+                </button>
+                <button type="button" onClick={() => setActiveFilter('read')} className={'rounded-lg px-3 py-2 text-xs font-semibold transition ' + (activeFilter === 'read' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}>
+                  Déjà lues ({readCount})
+                </button>
+              </div>
             </div>
+
+            {(unreadCount > 0 || hasMore) && (
+              <div className="border-b border-slate-100 px-3 py-2">
+                <button
+                  type="button"
+                  onClick={markAllAsRead}
+                  disabled={markingAll}
+                  className="flex min-h-9 w-full items-center justify-center gap-2 rounded-lg border border-[#c8dfd0] bg-[#eff7f1] px-3 text-xs font-semibold text-[#0b5c46] transition hover:bg-[#e3f1e7] disabled:opacity-50"
+                >
+                  {markingAll ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+                  Tout marquer comme lu
+                </button>
+              </div>
+            )}
 
             {error && <p className="mx-3 mt-3 rounded-lg bg-red-50 p-2 text-xs text-red-700">{error}</p>}
 
@@ -297,7 +345,8 @@ export function NotificationInbox() {
               </div>
             )}
           </section>
-        </>
+        </>,
+        portalTarget
       )}
     </div>
   );

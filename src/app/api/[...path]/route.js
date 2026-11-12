@@ -1093,15 +1093,33 @@ async function handleNotificationRead(request) {
   try {
     const { uid } = await authenticate(request);
     const body = await request.json();
+    const notificationsRef = adminDb.collection('users').doc(uid).collection('notifications');
+
+    if (body.markAll === true) {
+      const unreadSnapshot = await notificationsRef.where('read', '==', false).get();
+      let updatedCount = 0;
+      for (let offset = 0; offset < unreadSnapshot.docs.length; offset += 450) {
+        const batch = adminDb.batch();
+        const page = unreadSnapshot.docs.slice(offset, offset + 450);
+        page.forEach((document) => batch.update(document.ref, {
+          read: true,
+          readAt: FieldValue.serverTimestamp(),
+        }));
+        await batch.commit();
+        updatedCount += page.length;
+      }
+      return NextResponse.json({ success: true, updatedCount });
+    }
+
     const notificationId = String(body.notificationId || '').trim().slice(0, 150);
     if (!notificationId || notificationId.includes('/')) return errorResponse('Notification invalide.', 400);
-    const notificationRef = adminDb.collection('users').doc(uid).collection('notifications').doc(notificationId);
+    const notificationRef = notificationsRef.doc(notificationId);
     const notificationSnap = await notificationRef.get();
     if (!notificationSnap.exists) return errorResponse('Cette notification n’existe plus.', 404);
     await notificationRef.set({ read: true, readAt: FieldValue.serverTimestamp() }, { merge: true });
     return NextResponse.json({ success: true });
   } catch (error) {
-    return errorResponse(error.message || 'Impossible de marquer cette notification comme lue.', 400);
+    return errorResponse(error.message || 'Impossible de marquer les notifications comme lues.', 400);
   }
 }
 
