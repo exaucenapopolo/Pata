@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Bell, Check, ChevronDown, ExternalLink, Loader2, RefreshCw, X } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { getPreferredLocale } from '@/lib/utils';
+import { useLanguage } from '@/context/LanguageContext';
 
 function formatDate(value) {
   if (!value) return '';
@@ -51,7 +52,40 @@ function mergeNotifications(current, incoming) {
 
 export function NotificationInbox() {
   const { user } = useAuth();
+  const { language } = useLanguage();
+  const isEnglish = language === 'en';
   const router = useRouter();
+  const labels = isEnglish ? {
+    title: 'Notifications', unreadCount: 'unread', readCount: 'already read',
+    refresh: 'Refresh', close: 'Close notifications', unread: 'Unread', read: 'Read',
+    markAll: 'Mark all as read', loading: 'Loading notifications…',
+    information: 'Pata information', openPata: 'Open Pata to view this information.',
+    illustration: 'Notification illustration', alreadyRead: 'Already read',
+    newNotification: 'New notification', openPage: 'Open page', markRead: 'Mark as read',
+    readOn: 'Read on', noRead: 'No read notifications yet',
+    allUpToDate: 'You are all caught up',
+    readHelp: 'Viewed messages will appear in this tab.',
+    unreadHelp: 'Important new information will appear here.',
+    loadOlder: 'Load older notifications', refreshError: 'Could not refresh notifications.',
+    markAllError: 'Could not mark all notifications as read.',
+    copyError: 'Could not update this notification.',
+    invalidLink: 'This notification link is not valid.',
+  } : {
+    title: 'Notifications', unreadCount: 'non lue(s)', readCount: 'déjà lue(s)',
+    refresh: 'Actualiser', close: 'Fermer les notifications', unread: 'Non lues', read: 'Déjà lues',
+    markAll: '{labels.markAll}', loading: '{labels.loading}',
+    information: 'Information Pata', openPata: 'Ouvre Pata pour consulter cette information.',
+    illustration: 'Illustration de la notification', alreadyRead: 'Déjà lue',
+    newNotification: 'Nouvelle notification', openPage: 'Ouvrir la page', markRead: '{labels.markRead}',
+    readOn: 'Lue le', noRead: 'Aucune notification déjà lue',
+    allUpToDate: 'Tout est à jour',
+    readHelp: 'Les messages consultés apparaîtront dans cet onglet.',
+    unreadHelp: 'Les nouvelles informations importantes apparaîtront ici.',
+    loadOlder: '{labels.loadOlder}', refreshError: 'Impossible d’actualiser les notifications.',
+    markAllError: 'Impossible de marquer toutes les notifications comme lues.',
+    copyError: 'Impossible de modifier cette notification.',
+    invalidLink: 'Le lien de cette notification n’est pas valide.',
+  };
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -93,14 +127,14 @@ export function NotificationInbox() {
         headers: { Authorization: 'Bearer ' + token },
       });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok || !result.success) throw new Error(result.error || 'Notifications indisponibles.');
+      if (!response.ok || !result.success) throw new Error(result.error || labels.refreshError);
       const incoming = Array.isArray(result.notifications) ? result.notifications : [];
       setItems((current) => append ? mergeNotifications(current, incoming) : incoming);
       setNextCursor(result.nextCursor || null);
       setHasMore(Boolean(result.hasMore));
       setError('');
     } catch (requestError) {
-      if (!silent) setError(requestError.message || 'Impossible de charger les notifications.');
+      if (!silent) setError(requestError.message || labels.refreshError);
     } finally {
       if (!silent) {
         setLoading(false);
@@ -149,14 +183,14 @@ export function NotificationInbox() {
         ? { ...item, read: true, isRead: true, readAt: new Date().toISOString() }
         : item));
     } catch (requestError) {
-      setError(requestError.message || 'Impossible de marquer cette notification comme lue.');
+      setError(requestError.message || labels.copyError);
     } finally {
       setMarkingId('');
     }
   };
 
   const markAllAsRead = async () => {
-    if (!user || markingAll || (!unreadCount && !hasMore)) return;
+    if (!user || markingAll || markingId || loadingMore || (!unreadCount && !hasMore)) return;
     setMarkingAll(true);
     setError('');
     try {
@@ -167,14 +201,12 @@ export function NotificationInbox() {
         body: JSON.stringify({ markAll: true }),
       });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de marquer toutes les notifications comme lues.');
+      if (!response.ok || !result.success) throw new Error(result.error || labels.markAllError);
       const readAt = new Date().toISOString();
       setItems((current) => current.map((item) => ({ ...item, read: true, isRead: true, readAt: item.readAt || readAt })));
-      setNextCursor(null);
-      setHasMore(false);
       setActiveFilter('unread');
     } catch (requestError) {
-      setError(requestError.message || 'Impossible de marquer toutes les notifications comme lues.');
+      setError(requestError.message || labels.markAllError);
     } finally {
       setMarkingAll(false);
     }
@@ -198,7 +230,7 @@ export function NotificationInbox() {
         window.open(url.href, '_blank', 'noopener,noreferrer');
       }
     } catch {
-      setError('Le lien de cette notification n’est pas valide.');
+      setError(labels.invalidLink);
     }
   };
 
@@ -212,7 +244,7 @@ export function NotificationInbox() {
           setOpen((current) => !current);
           if (!open) void loadNotifications();
         }}
-        aria-label={'Notifications non lues : ' + unreadCount}
+        aria-label={(isEnglish ? 'Unread notifications: ' : 'Notifications non lues : ') + unreadCount}
         aria-expanded={open}
         className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 active:scale-[0.97]"
       >
@@ -228,21 +260,21 @@ export function NotificationInbox() {
         <>
           <button
             type="button"
-            aria-label="Fermer les notifications"
+            aria-label={labels.close}
             onClick={() => setOpen(false)}
             className="fixed inset-0 z-[79] cursor-default bg-slate-950/10"
           />
           <section className="fixed left-1/2 top-[calc(64px+env(safe-area-inset-top)+0.5rem)] z-[81] flex max-h-[min(78dvh,620px)] w-[min(calc(100vw-1.5rem),400px)] -translate-x-1/2 flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_18px_48px_rgba(8,39,70,0.16)] sm:top-[calc(68px+env(safe-area-inset-top)+0.5rem)]">
             <header className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
               <div>
-                <h2 className="text-sm font-bold text-slate-900">Notifications</h2>
-                <p className="text-[11px] text-slate-500">{unreadCount} non lue(s) · {readCount} déjà lue(s)</p>
+                <h2 className="text-sm font-bold text-slate-900">{labels.title}</h2>
+                <p className="text-[11px] text-slate-500">{unreadCount} {labels.unreadCount} · {readCount} {labels.readCount}</p>
               </div>
               <div className="flex items-center gap-1">
-                <button type="button" onClick={() => loadNotifications()} aria-label="Actualiser" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100">
+                <button type="button" onClick={() => loadNotifications()} aria-label={labels.refresh} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100">
                   <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
                 </button>
-                <button type="button" onClick={() => setOpen(false)} aria-label="Fermer" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100">
+                <button type="button" onClick={() => setOpen(false)} aria-label={labels.close} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100">
                   <X size={15} />
                 </button>
               </div>
@@ -251,10 +283,10 @@ export function NotificationInbox() {
             <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-3 py-2">
               <div className="grid flex-1 grid-cols-2 gap-2">
                 <button type="button" onClick={() => setActiveFilter('unread')} className={'rounded-lg px-3 py-2 text-xs font-semibold transition ' + (activeFilter === 'unread' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}>
-                  Non lues ({unreadCount})
+                  {labels.unread} ({unreadCount})
                 </button>
                 <button type="button" onClick={() => setActiveFilter('read')} className={'rounded-lg px-3 py-2 text-xs font-semibold transition ' + (activeFilter === 'read' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')}>
-                  Déjà lues ({readCount})
+                  {labels.read} ({readCount})
                 </button>
               </div>
             </div>
@@ -264,7 +296,7 @@ export function NotificationInbox() {
                 <button
                   type="button"
                   onClick={markAllAsRead}
-                  disabled={markingAll}
+                  disabled={markingAll || loadingMore}
                   className="flex min-h-9 w-full items-center justify-center gap-2 rounded-lg border border-[#c8dfd0] bg-[#eff7f1] px-3 text-xs font-semibold text-[#0b5c46] transition hover:bg-[#e3f1e7] disabled:opacity-50"
                 >
                   {markingAll ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
@@ -289,15 +321,15 @@ export function NotificationInbox() {
                       <Bell size={15} />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <strong className="block text-xs text-slate-900">{item.title || 'Information Pata'}</strong>
+                      <strong className="block text-xs text-slate-900">{item.title || labels.information}</strong>
                       <span className="mt-1 block whitespace-pre-wrap break-words text-xs leading-5 text-slate-600">
-                        {item.body || item.message || 'Ouvre Pata pour consulter cette information.'}
+                        {item.body || item.message || labels.openPata}
                       </span>
                       {typeof item.imageUrl === 'string' && item.imageUrl.startsWith('https://') && (
-                        <img src={item.imageUrl} alt="Illustration de la notification" loading="lazy" className="mt-3 max-h-40 w-full rounded-lg border border-slate-100 object-cover" />
+                        <img src={item.imageUrl} alt={labels.illustration} loading="lazy" className="mt-3 max-h-40 w-full rounded-lg border border-slate-100 object-cover" />
                       )}
                       <span className="mt-2 block text-[10px] text-slate-400">
-                        {formatDate(item.createdAt)} · {item.isRead ? 'Déjà lue' : 'Nouvelle notification'}
+                        {formatDate(item.createdAt)} · {item.isRead ? labels.alreadyRead : labels.newNotification}
                       </span>
                     </span>
                     <ChevronDown size={15} className={'mt-1 shrink-0 text-slate-400 transition-transform ' + (expandedId === item.id ? 'rotate-180' : '')} />
@@ -311,7 +343,7 @@ export function NotificationInbox() {
                       <div className="mt-3 flex flex-wrap items-center gap-2">
                         {item.target && (
                           <button type="button" onClick={() => openTarget(item.target)} className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-100">
-                            <ExternalLink size={13} /> Ouvrir la page
+                            <ExternalLink size={13} /> {labels.openPage}
                           </button>
                         )}
                         {!item.isRead && (
@@ -320,7 +352,7 @@ export function NotificationInbox() {
                             Marquer comme lue
                           </button>
                         )}
-                        {item.isRead && <span className="text-[10px] text-slate-400">Lue le {formatDate(item.readAt) || formatDate(item.createdAt)}</span>}
+                        {item.isRead && <span className="text-[10px] text-slate-400">{labels.readOn} {formatDate(item.readAt) || formatDate(item.createdAt)}</span>}
                       </div>
                     </div>
                   )}
@@ -330,8 +362,8 @@ export function NotificationInbox() {
               {!loading && !visibleItems.length && (
                 <div className="px-5 py-9 text-center">
                   <span className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-500"><Check size={18} /></span>
-                  <p className="mt-3 text-sm font-semibold text-slate-700">{activeFilter === 'read' ? 'Aucune notification déjà lue' : 'Tout est à jour'}</p>
-                  <p className="mt-1 text-xs text-slate-500">{activeFilter === 'read' ? 'Les messages consultés apparaîtront dans cet onglet.' : 'Les nouvelles informations importantes apparaîtront ici.'}</p>
+                  <p className="mt-3 text-sm font-semibold text-slate-700">{activeFilter === 'read' ? labels.noRead : labels.allUpToDate}</p>
+                  <p className="mt-1 text-xs text-slate-500">{activeFilter === 'read' ? labels.readHelp : labels.unreadHelp}</p>
                 </div>
               )}
             </div>

@@ -3,6 +3,7 @@ import androidVersion from '../../../../public/android-version.json';
 import { createHash, createHmac, timingSafeEqual, randomBytes, randomInt, scryptSync } from 'node:crypto';
 import { adminAuth, adminDb, adminMessaging } from '@/lib/firebase/admin';
 import { FieldValue, FieldPath, AggregateField } from 'firebase-admin/firestore';
+import { isNotificationUnread } from '@/lib/notifications/notificationState.mjs';
 import { completeWithGroq } from '@/lib/ai/groqClient';
 import { normalizeWebPushSubscription, webPushSubscriptionId, sendPataWebPush, isExpiredWebPushError } from '@/lib/notifications/webPush.mjs';
 import { dispatchPushNotification } from '@/lib/notifications/dispatcher.mjs';
@@ -1075,7 +1076,7 @@ async function handleNotificationsInbox(request) {
     const docs = snapshot.docs.slice(0, limit);
     const notifications = docs.map((document) => {
       const data = serializeAdminValue(document.data()) || {};
-      const isRead = data.read === true || Boolean(data.readAt);
+      const isRead = !isNotificationUnread(data);
       return { id: document.id, ...data, read: isRead, isRead };
     });
     const unreadCount = notifications.filter((item) => !item.isRead).length;
@@ -1096,17 +1097,29 @@ async function handleNotificationRead(request) {
     const notificationsRef = adminDb.collection('users').doc(uid).collection('notifications');
 
     if (body.markAll === true) {
-      const unreadSnapshot = await notificationsRef.where('read', '==', false).get();
+      let cursor = null;
+      let hasMore = true;
       let updatedCount = 0;
-      for (let offset = 0; offset < unreadSnapshot.docs.length; offset += 450) {
+      while (hasMore) {
+        let pageQuery = notificationsRef.orderBy('createdAt', 'desc').limit(450);
+        if (cursor) pageQuery = pageQuery.startAfter(cursor);
+        const snapshot = await pageQuery.get();
+        if (!snapshot.docs.length) break;
+
         const batch = adminDb.batch();
-        const page = unreadSnapshot.docs.slice(offset, offset + 450);
-        page.forEach((document) => batch.update(document.ref, {
-          read: true,
-          readAt: FieldValue.serverTimestamp(),
-        }));
-        await batch.commit();
-        updatedCount += page.length;
+        let pageUpdated = 0;
+        snapshot.docs.forEach((document) => {
+          if (!isNotificationUnread(document.data() || {})) return;
+          batch.update(document.ref, {
+            read: true,
+            readAt: FieldValue.serverTimestamp(),
+          });
+          pageUpdated += 1;
+        });
+        if (pageUpdated) await batch.commit();
+        updatedCount += pageUpdated;
+        cursor = snapshot.docs[snapshot.docs.length - 1];
+        hasMore = snapshot.docs.length === 450;
       }
       return NextResponse.json({ success: true, updatedCount });
     }
