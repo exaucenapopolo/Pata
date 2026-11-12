@@ -101,6 +101,46 @@ function isTableDivider(line) {
   return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
 }
 
+function tableToDelimitedText(headers, rows, delimiter) {
+  const escapeCell = (value) => '"' + String(value ?? '').replace(/"/g, '""') + '"';
+  return [headers, ...rows].map((row) => row.map(escapeCell).join(delimiter)).join('\\n');
+}
+
+async function copyMarkdownTable(headers, rows) {
+  const text = tableToDelimitedText(headers, rows, '\\t');
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+  } catch {
+    // Fallback for older Android browsers.
+  }
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand('copy');
+  textarea.remove();
+  if (!copied) throw new Error('COPY_FAILED');
+}
+
+function downloadMarkdownTable(headers, rows) {
+  const csv = '\\uFEFF' + tableToDelimitedText(headers, rows, ',');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'pata-tableau-' + new Date().toISOString().slice(0, 10) + '.csv';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function MessageContent({ text, language = 'fr' }) {
   if (!text) return null;
   const lines = cleanAssistantText(text, language).replace(/\r/g, '').split('\n');
@@ -135,15 +175,29 @@ function MessageContent({ text, language = 'fr' }) {
         index += 1;
       }
       blocks.push(
-        <div key={`table-${blocks.length}`} className="my-3 max-w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="w-full max-w-full overflow-hidden">
-            <table className="w-full table-fixed border-collapse text-left text-[11px] sm:text-sm">
-              <thead className="bg-slate-100 text-slate-700">
-                <tr>{headers.map((header, cellIndex) => <th key={cellIndex} className="break-words border-b border-slate-200 px-2 py-2 font-semibold sm:px-3 sm:py-2.5">{renderInline(header, `th-${cellIndex}`)}</th>)}</tr>
+        <div key={`table-${blocks.length}`} className="my-3 overflow-hidden rounded-2xl border border-[#d9e9df] bg-white shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#d9e9df] bg-[#eff7f1] px-3 py-2.5">
+            <div className="flex items-center gap-2">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#0b5c46] text-xs font-bold text-white">P.</span>
+              <span className="text-xs font-bold text-[#174b35]">{language === 'en' ? 'Financial details' : 'Détails du tableau'}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <button type="button" onClick={() => copyMarkdownTable(headers, rows).catch(() => alert(language === 'en' ? 'Could not copy this table.' : 'Impossible de copier ce tableau.'))} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-[#c8dfd0] bg-white px-2.5 text-[11px] font-semibold text-[#0b5c46] transition hover:bg-[#e7f2eb]">
+                <Copy size={12}/>{language === 'en' ? 'Copy' : 'Copier'}
+              </button>
+              <button type="button" onClick={() => downloadMarkdownTable(headers, rows)} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg bg-[#0b5c46] px-2.5 text-[11px] font-semibold text-white transition hover:bg-[#084b39]">
+                <Download size={12}/>{language === 'en' ? 'Download CSV' : 'Télécharger CSV'}
+              </button>
+            </div>
+          </div>
+          <div className="w-full overflow-x-auto">
+            <table className="w-full min-w-[420px] border-collapse text-left text-[11px] sm:text-sm">
+              <thead className="bg-[#0b5c46] text-white">
+                <tr>{headers.map((header, cellIndex) => <th key={cellIndex} className="break-words border-b border-white/15 px-3 py-2.5 font-semibold">{renderInline(header, `th-${cellIndex}`)}</th>)}</tr>
               </thead>
               <tbody>{rows.map((row, rowIndex) => (
-                <tr key={rowIndex} className={rowIndex % 2 ? 'bg-slate-50/70' : 'bg-white'}>
-                  {headers.map((_, cellIndex) => <td key={cellIndex} className="break-words border-b border-slate-100 px-2 py-2 align-top text-slate-700 sm:px-3 sm:py-2.5">{renderInline(row[cellIndex] || '—', `td-${rowIndex}-${cellIndex}`)}</td>)}
+                <tr key={rowIndex} className={rowIndex % 2 ? 'bg-[#f5faf6]' : 'bg-white'}>
+                  {headers.map((_, cellIndex) => <td key={cellIndex} className="break-words border-b border-[#e8f0eb] px-3 py-2.5 align-top text-slate-700">{renderInline(row[cellIndex] || '—', `td-${rowIndex}-${cellIndex}`)}</td>)}
                 </tr>
               ))}</tbody>
             </table>

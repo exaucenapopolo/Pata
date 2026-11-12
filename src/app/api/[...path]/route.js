@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
+import androidVersion from '../../../../public/android-version.json';
 import { createHash, createHmac, timingSafeEqual, randomBytes, randomInt, scryptSync } from 'node:crypto';
 import { adminAuth, adminDb, adminMessaging } from '@/lib/firebase/admin';
 import { FieldValue, FieldPath, AggregateField } from 'firebase-admin/firestore';
 import { completeWithGroq } from '@/lib/ai/groqClient';
 import { normalizeWebPushSubscription, webPushSubscriptionId, sendPataWebPush, isExpiredWebPushError } from '@/lib/notifications/webPush.mjs';
 import { dispatchPushNotification } from '@/lib/notifications/dispatcher.mjs';
-import { AI_TOOLS, createExpenseForUser, updateExpenseForUser, deleteExpenseForUser, executeAITool, runAutomationForUser, generateWeeklyReportForUser } from '@/lib/ai/financialTools';
+import { AI_TOOLS, createExpenseForUser, updateExpenseForUser, deleteExpenseForUser, deleteIncomeForUser, executeAITool, runAutomationForUser, generateWeeklyReportForUser } from '@/lib/ai/financialTools';
 import { generateAudioWithGemini } from '@/lib/ai/geminiTTS';
 import { buildIncomePriorityReminder } from '@/lib/finance/incomePriorities.mjs';
 import { chatWithGroqVision } from '@/lib/ai/groqVision';
@@ -2478,6 +2479,19 @@ async function handleCreateIncome(request) {
   }
 }
 
+async function handleDeleteIncome(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const result = await deleteIncomeForUser(uid, body.incomeId || body.id);
+    return NextResponse.json(result);
+  } catch (error) {
+    const message = error.message || 'Impossible de supprimer ce revenu.';
+    const status = /introuvable|manquant/i.test(message) ? 404 : 400;
+    return errorResponse(message, status);
+  }
+}
+
 async function handleUpdateIncome(request) {
   try {
     const { uid } = await authenticate(request);
@@ -3751,7 +3765,7 @@ async function handleAIChat(request) {
     const emptySnapshot = { docs: [] };
     const [
       userDoc, incomesSnap, expensesSnap, debtsSnap, financialTargetSnap, goalsSnap, budgetsSnap, automationsSnap,
-      memorySnap, categoriesSnap, projectsSnap, cotisationMembershipsSnap,
+      memorySnap, categoriesSnap, projectsSnap, cotisationMembershipsSnap, activityLogSnap, weeklyReportsSnap,
     ] = await Promise.all([
       userRef.get(),
       intent.needsIncomes ? userRef.collection('incomes').orderBy('date', 'desc').limit(35).get() : Promise.resolve(emptySnapshot),
@@ -3765,6 +3779,8 @@ async function handleAIChat(request) {
       intent.needsCategories ? userRef.collection('categories').limit(40).get() : Promise.resolve(emptySnapshot),
       intent.needsProjects ? userRef.collection('projects').orderBy('createdAt', 'desc').limit(15).get() : Promise.resolve(emptySnapshot),
       intent.cotisations ? userRef.collection('cotisationMemberships').limit(12).get() : Promise.resolve(emptySnapshot),
+      intent.needsActivityLog ? userRef.collection('activity_log').orderBy('deletedAt', 'desc').limit(15).get() : Promise.resolve(emptySnapshot),
+      intent.needsReports ? userRef.collection('weekly_reports').orderBy('weekStart', 'desc').limit(4).get() : Promise.resolve(emptySnapshot),
     ]);
 
     const goalsWithDeposits = intent.needsGoals
@@ -3865,6 +3881,8 @@ async function handleAIChat(request) {
       categories: categoriesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
       projects: projectsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
       cotisations: cotisationData,
+      activityLog: activityLogSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+      weeklyReports: weeklyReportsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
     };
 
     const userName = userData.profile?.displayName?.split(' ')[0] || 'Utilisateur';
@@ -3872,7 +3890,7 @@ async function handleAIChat(request) {
     const isEnglish = userData.profile?.language === 'en';
     const systemPrompt = isEnglish
       ? `You are Mč, Pata's personal finance assistant. Speak with ${userName} in English.
-Be direct, natural and helpful. For simple questions, stay brief (1–3 sentences, about 60 words maximum). Do not turn every request into a report, repeat the question, or always end with another offer.
+Be natural, patient and clear; never sound rushed. For a simple question, answer in a few clear sentences and explain any important term in plain language. For a financial review, comparison or advice request, begin with a one-sentence **In brief** summary, then explain the important figures and what they mean. When several figures need comparing, use one compact Markdown table (up to 8 rows and 5 columns) and explain its meaning below. Keep the explanation proportional to the question, avoid repetition, and give up to three practical next steps only when useful. Never invent missing data or describe a limited recent extract as a complete lifetime history. Do not emit raw HTML; use Markdown tables.
 
 Pata helps users track income, expenses, debts and loans, budgets, savings, goals, group contributions, projects, wallet balances and reports. Borrowed money is a neutral cash inflow linked to a debt to repay; it is never earned income. Users can record a debt, identify an individual or bank lender, assign borrowing to a project and track monthly goals. Financial reference amounts are stored in XAF; the profile currency changes display only. The Pata wallet is an internal balance, not a bank account.
 
@@ -3880,14 +3898,14 @@ FINANCIAL RULES: distinguish everyday consumption, project outflows, savings and
 
 PATA RULES TO PRESERVE: a dated goal may incur a 7% late fee calculated on the amount actually unpaid at the due date, never on the full target; flexible savings pots are exempt. The separate early-cancellation fee for a dated goal is 10% of the amount already saved. For group contributions, distinguish principal, any late fees and the 5% service fee per payment; only payments confirmed by the provider count as paid. Premium costs XAF 2,500 for 30 days; an eligible referral offer may reduce the first month to XAF 1,250. For analysis, lead with the key number; do not create a report for a short question.
 
-For simple app questions, explain the visible steps: Expenses, Income, Budgets, Goals, Contributions, Wallet, Reports, Premium and Settings. Projects are available from Expenses with Premium. Special commands @Audio, @Image and @Vision are handled separately; do not redirect them or remove their functionality.
+For app support, explain the actual visible screens and steps: Expenses, Income, Budgets, Goals and savings pots, Contributions, Debts & Loans, Wallet, Reports, Premium and Settings. To install the Android app, direct the user to Settings > Download Android app or https://www.pata-yam.site/telecharger; explain that they install the official APK and sign in with the same account. The current Android app version is ${androidVersion.version} (version code ${androidVersion.versionCode}); this is not a website version. Projects are available from Expenses with Premium. Special commands @Audio, @Image and @Vision use their dedicated media flows; preserve them exactly.
 
 Use category and transaction labels in the user's selected language when explaining them. Preserve IDs and exact saved values when using financial tools; never change a custom category name or invent a translation that changes its meaning.
 
 Data relevant only to this request:
 ${userContext}`
       : `Tu es Mč, l’assistante de gestion financière de Pata. Tu échanges en français avec ${userName}.
-Réponds directement et naturellement. Pour une question simple, reste bref (1 à 3 phrases, environ 60 mots maximum). Ne transforme pas chaque demande en rapport et ne répète pas la question. Ne termine pas systématiquement par une proposition supplémentaire.
+Réponds naturellement, avec patience et clarté, sans donner l’impression d’être pressée. Pour une question simple, donne quelques phrases faciles à comprendre et explique les termes importants en mots courants. Pour un bilan, une comparaison ou un conseil financier, commence par un résumé d’une phrase sous **En bref**, puis explique les chiffres importants et ce qu’ils signifient. Lorsque plusieurs chiffres doivent être comparés, utilise un petit tableau Markdown (8 lignes et 5 colonnes maximum), puis explique ce qu’il faut en retenir. Adapte la longueur à la demande, évite les répétitions et propose jusqu’à trois actions concrètes seulement lorsqu’elles sont utiles. N’invente jamais une donnée manquante et ne présente pas un extrait récent comme un historique complet. N’écris pas de HTML brut : utilise les tableaux Markdown.
 
 Pata aide à suivre les revenus, dépenses, dettes et prêts, budgets, épargne, objectifs, cotisations, projets, portefeuille et rapports. Un emprunt est une entrée de trésorerie neutre avec une dette à rembourser : ce n’est jamais un revenu gagné. Tu peux enregistrer une dette, préciser s’il s’agit d’une personne ou d’une banque, affecter l’emprunt à un projet et suivre tes objectifs mensuels. Les montants financiers de référence sont en FCFA; la devise du profil ne change que l’affichage. Le portefeuille Pata est un solde interne, pas un compte bancaire.
 
@@ -3895,7 +3913,7 @@ RÈGLES FINANCIÈRES : distingue consommation quotidienne, sortie liée à un pr
 
 RÈGLES PATA À CONSERVER : un objectif daté peut avoir une majoration de retard de 7 % calculée sur le montant réellement impayé à l’échéance, jamais sur la cible totale; les caisses et tirelires libres n’y sont pas soumises. Les frais distincts d’annulation d’un objectif daté sont de 10 % du montant déjà épargné. Pour une cotisation, distingue le principal, les majorations éventuelles et les frais de service de 5 % par versement; seuls les versements confirmés par le prestataire sont payés. Premium coûte 2 500 FCFA pour 30 jours; une offre de parrainage admissible peut réduire le premier mois à 1 250 FCFA. Pour les analyses, va droit au chiffre principal; ne fabrique pas un rapport pour une question courte.
 
-Pour les questions simples sur l'application, explique les étapes visibles : Dépenses, Revenus, Budgets, Objectifs, Cotisations, Portefeuille, Rapports, Premium et Paramètres. Les projets sont accessibles depuis Dépenses avec Premium. Les commandes spéciales @Audio, @Image et @Vision sont traitées séparément; ne les détourne pas et n'enlève pas leur fonction.
+Pour l’assistance sur l’application, explique les écrans et étapes réels : Dépenses, Revenus, Budgets, Objectifs et tirelires, Cotisations, Dettes & prêts, Portefeuille, Rapports, Premium et Paramètres. Pour installer l’application Android, indique Paramètres > Télécharger l’application Android ou https://www.pata-yam.site/telecharger ; précise qu’il faut installer l’APK officielle puis se connecter avec le même compte. La version Android actuelle est ${androidVersion.version} (code de version ${androidVersion.versionCode}) ; ce n’est pas une version du site web. Les projets sont accessibles depuis Dépenses avec Premium. Les commandes @Audio, @Image et @Vision utilisent leurs parcours multimédias dédiés : conserve-les tels quels.
 
 Données utiles à cette demande uniquement :
 ${userContext}`;
@@ -3913,7 +3931,7 @@ ${userContext}`;
       let completion;
       try {
         completion = await completeWithGroq(modelMessages, {
-          maxTokens: mode === 'audio' ? 850 : 750,
+          maxTokens: mode === 'audio' ? 850 : 1050,
           temperature: 0.15,
           ...(requestTools.length ? { tools: requestTools } : {}),
           timeoutMs: 45000,
@@ -6973,6 +6991,7 @@ const ROUTES = {
   'forecasts/duration/delete': { POST: handleDeleteDurationForecast },
   'incomes/add': { POST: handleCreateIncome },
   'incomes/update': { POST: handleUpdateIncome },
+  'incomes/delete': { POST: handleDeleteIncome },
   'projects/create': { POST: handleCreateProject },
   'cotisations/invite': { GET: handleCotisationInvitePreview },
   'cotisations/scheduler': { GET: handleCotisationsScheduler, POST: handleCotisationsScheduler },

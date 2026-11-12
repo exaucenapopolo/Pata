@@ -663,14 +663,46 @@ export async function deleteExpenseForUser(uid, expenseId) {
   const id = cleanText(expenseId, 150);
   if (!id) throw new Error('Identifiant de dépense manquant.');
   const expenseRef = subcol(uid, 'expenses').doc(id);
+  const activityRef = subcol(uid, 'activity_log').doc();
   await adminDb.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(expenseRef);
     if (!snapshot.exists) throw new Error('Dépense introuvable.');
     const data = snapshot.data() || {};
     if (data.flowType === 'loan_given' || data.repaymentDebtId) throw new Error('Ce mouvement est lié au module Dettes & prêts. Gère-le depuis cette rubrique pour préserver les soldes.');
+    transaction.create(activityRef, {
+      eventType: 'deleted', entityType: 'expense', entityId: id,
+      amount: Number(data.amount) || 0, date: String(data.date || '').slice(0, 10),
+      categoryId: cleanText(data.categoryId, 80) || 'other',
+      label: cleanText(data.note, 120) || 'Dépense',
+      deletedAt: FieldValue.serverTimestamp(),
+    });
     transaction.delete(expenseRef);
   });
   return { success: true, expenseId: id, message: 'Dépense supprimée.' };
+}
+
+export async function deleteIncomeForUser(uid, incomeId) {
+  const id = cleanText(incomeId, 150);
+  if (!id) throw new Error('Identifiant de revenu manquant.');
+  const incomeRef = subcol(uid, 'incomes').doc(id);
+  const activityRef = subcol(uid, 'activity_log').doc();
+  await adminDb.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(incomeRef);
+    if (!snapshot.exists) throw new Error('Revenu introuvable.');
+    const data = snapshot.data() || {};
+    if (data.flowType === 'debt_borrowed' || data.categoryId === 'debt_borrowed' || data.debtId || data.repaymentDebtId) {
+      throw new Error('Ce revenu est lié au module Dettes & prêts. Gère-le depuis cette rubrique pour préserver les soldes.');
+    }
+    transaction.create(activityRef, {
+      eventType: 'deleted', entityType: 'income', entityId: id,
+      amount: Number(data.amount) || 0, date: String(data.date || data.month || '').slice(0, 10),
+      categoryId: cleanText(data.categoryId, 80) || 'other_income',
+      label: cleanText(data.source, 120) || 'Revenu',
+      deletedAt: FieldValue.serverTimestamp(),
+    });
+    transaction.delete(incomeRef);
+  });
+  return { success: true, incomeId: id, message: 'Revenu supprimé.' };
 }
 
 function addFrequency(date, frequency, anchorDay = date.getUTCDate()) {

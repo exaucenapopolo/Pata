@@ -18,11 +18,13 @@ export function classifyAIRequest(message = '') {
   const vital = /prevision vitale|besoins vitaux|duree du capital|prevision.*capital/.test(text);
   const forecast = /prevision.*capital|duree.*capital|capital.*combien.*jour/.test(text);
   const memory = /souviens|memorise|rappelle-toi/.test(text);
-  const overview = /bilan|solde|portefeuille|argent disponible|combien.*(reste|gagne|depense|revenu)|reste.*argent|ou part|ou.*depense|mes finances|situation financiere|analyse.*financ|revenus.*depenses|depenses.*revenus/.test(text);
+  const overview = /bilan|solde|portefeuille|argent disponible|combien.*(reste|gagne|depense|revenu)|reste.*argent|ou part|ou.*depense|mes finances|situation financiere|analyse.*financ|revenus.*depenses|depenses.*revenus|mon compte|mes informations|mon historique|historique financier|financial summary|my account|my balance|my finances|account overview/.test(text);
   const update = /modifi|corrig|change|mettre a jour/.test(text);
-  const remove = /supprim|effac|retir/.test(text);
+  const remove = /supprim|effac|retir|delete|remove/.test(text);
+  const reports = /rapport|report|hebdom|weekly|bilan de la semaine|resume de la semaine/.test(text);
+  const needsActivityLog = /supprim|effac|deleted|removed|deletion|suppression|what did i delete|what have i deleted/.test(text);
   return {
-    action, expense, income, borrowedDebt, loanGiven, financialTargets, budgets, goals, automations, premium, cotisations, projects, forecast, vital, memory, overview, update, remove,
+    action, expense, income, borrowedDebt, loanGiven, financialTargets, budgets, goals, automations, premium, cotisations, projects, forecast, vital, memory, overview, update, remove, reports, needsActivityLog,
     needsDebts: borrowedDebt || loanGiven || /dette|emprunt|pret|creance/.test(text) || overview,
     needsFinancialTargets: financialTargets || borrowedDebt || overview,
     needsIncomes: income || expense || budgets || borrowedDebt || overview,
@@ -33,6 +35,8 @@ export function classifyAIRequest(message = '') {
     needsCategories: expense || budgets,
     needsProjects: projects,
     needsVital: vital,
+    needsReports: reports,
+    needsActivityLog,
   };
 }
 
@@ -79,6 +83,18 @@ export function buildCompactAIContext(data = {}, intent = {}) {
     `Profil: ${profile.displayName || 'Utilisateur'}; devise d’affichage: ${profile.currency || 'XAF'}; solde du portefeuille Pata: ${money(profile.balance)} FCFA; expiration Premium: ${dateLabel(profile.premiumUntil) || 'non active'}.`,
     'Les montants de référence sont en FCFA. Le portefeuille Pata est un solde interne, pas un compte bancaire ni un Mobile Money.',
   ];
+  const hasLifetimeIncome = profile.lifetimeIncomeAmount !== undefined && Number.isFinite(Number(profile.lifetimeIncomeAmount));
+  const hasLifetimeExpense = profile.lifetimeExpenseAmount !== undefined && Number.isFinite(Number(profile.lifetimeExpenseAmount));
+  if (hasLifetimeIncome || hasLifetimeExpense) {
+    lines.push(`COMPTEURS HISTORIQUES DU COMPTE: entrées de revenus cumulées ${money(profile.lifetimeIncomeAmount)} FCFA (${Math.max(0, Number(profile.lifetimeIncomeCount) || 0)} enregistrement(s)); sorties de dépenses cumulées ${money(profile.lifetimeExpenseAmount)} FCFA (${Math.max(0, Number(profile.lifetimeExpenseCount) || 0)} enregistrement(s)). Ces compteurs sont distincts du solde du portefeuille et ne constituent pas un solde bancaire.`);
+  }
+  if (profile.monthlyStats && typeof profile.monthlyStats === 'object') {
+    const monthStats = profile.monthlyStats;
+    const currentMonth = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Douala', year: 'numeric', month: '2-digit' }).format(new Date());
+    if (monthStats.lastResetMonth === currentMonth) {
+      lines.push(`UTILISATION CE MOIS-CI: ${Number(monthStats.incomes) || 0} revenu(s) saisi(s), ${Number(monthStats.expenses) || 0} dépense(s) saisie(s), ${Number(monthStats.budgets) || 0} budget(s), ${Number(monthStats.goals) || 0} objectif(s).`);
+    }
+  }
   if (intent.needsIncomes || intent.needsExpenses || intent.overview) {
     const ordinaryIncomes = incomes.filter((item) => item.flowType !== 'debt_borrowed' && item.categoryId !== 'debt_borrowed' && item.neutralFlow !== true);
     const borrowedIncomes = incomes.filter((item) => item.flowType === 'debt_borrowed' || item.categoryId === 'debt_borrowed');
@@ -150,5 +166,22 @@ export function buildCompactAIContext(data = {}, intent = {}) {
     lines.push('PRÉFÉRENCES EXPLICITEMENT MÉMORISÉES:');
     lines.push(...data.memories.slice(0, 12).map((item) => `[${item.kind || 'contexte'}] ${String(item.fact || '').slice(0, 120)}`));
   }
-  return lines.join('\n').slice(0, 10500);
+  if (intent.needsActivityLog) {
+    lines.push('HISTORIQUE DES SUPPRESSIONS RÉCENTES (journal disponible depuis son activation):');
+    const deleted = (Array.isArray(data.activityLog) ? data.activityLog : []).filter((item) => item.eventType === 'deleted');
+    lines.push(...deleted.slice(0, 15).map((item) => {
+      const type = item.entityType === 'income' ? 'revenu supprimé' : item.entityType === 'expense' ? 'dépense supprimée' : String(item.entityType || 'élément supprimé');
+      return `${type} | ${dateLabel(item.date) || dateLabel(item.deletedAt) || 'date inconnue'} | ${money(item.amount)} FCFA | ${String(item.label || item.categoryId || '').slice(0, 80)} | ID ${item.entityId || 'non disponible'}`;
+    }));
+    if (!deleted.length) lines.push('Aucune suppression enregistrée dans le journal disponible. Les suppressions antérieures à son activation ne peuvent pas être reconstituées.');
+  }
+  if (intent.needsReports) {
+    lines.push('RAPPORTS HEBDOMADAIRES ENREGISTRÉS:');
+    const reports = Array.isArray(data.weeklyReports) ? data.weeklyReports : [];
+    lines.push(...reports.slice(0, 4).map((report) =>
+      `Semaine du ${dateLabel(report.weekStart)} au ${dateLabel(report.weekEnd)} | revenus ${money(report.totalIncome)} FCFA | dépenses ${money(report.totalExpense)} FCFA | différence ${money(report.net)} FCFA | semaine précédente: revenus ${money(report.previousIncome)} FCFA, dépenses ${money(report.previousExpense)} FCFA | évolution dépenses ${report.expenseChangePercent == null ? 'non calculée' : report.expenseChangePercent + '%'} | conseils: ${(report.advice || []).slice(0, 3).join(' / ').slice(0, 300)}`
+    ));
+    if (!reports.length) lines.push('Aucun rapport hebdomadaire dans les quatre derniers rapports disponibles.');
+  }
+  return lines.join('\n').slice(0, 11500);
 }

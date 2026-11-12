@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - "package.json"
+      - "src/app/**"
+      - "src/components/**"
+      - "src/context/**"
+      - "src/lib/**"
       - "capacitor.config.json"
       - "native/android/**"
       - "src/components/transactions/OptionalTransactionFields.jsx"
