@@ -11,6 +11,7 @@ const LanguageContext = createContext({
   language: DEFAULT_LANGUAGE,
   setLanguage: async () => {},
   isLanguageSaving: false,
+  languageReady: false,
 });
 
 function translateDom(root, language, originalText, originalAttributes) {
@@ -51,35 +52,67 @@ function translateDom(root, language, originalText, originalAttributes) {
 }
 
 export function LanguageProvider({ children }) {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [language, setLanguageState] = useState(DEFAULT_LANGUAGE);
   const [isLanguageSaving, setIsLanguageSaving] = useState(false);
+  const [languageReady, setLanguageReady] = useState(false);
   const originalText = useRef(new WeakMap());
   const originalAttributes = useRef(new WeakMap());
 
   useEffect(() => {
-    if (!user) {
-      try {
-        setLanguageState(normalizeLanguage(window.localStorage.getItem('pata-language')));
-      } catch {
-        setLanguageState(DEFAULT_LANGUAGE);
-      }
+    if (authLoading) {
+      setLanguageReady(false);
       return undefined;
     }
+
+    if (!user) {
+      let preferred = DEFAULT_LANGUAGE;
+      try {
+        preferred = normalizeLanguage(window.localStorage.getItem('pata-language'));
+      } catch {
+        preferred = DEFAULT_LANGUAGE;
+      }
+      setLanguageState(preferred);
+      setLanguageReady(true);
+      return undefined;
+    }
+
+    setLanguageReady(false);
     return onSnapshot(
       doc(db, 'users', user.uid),
       (snapshot) => {
-        const storedLanguage = snapshot.exists() ? snapshot.data()?.language : DEFAULT_LANGUAGE;
+        let localLanguage = null;
+        let hasPendingChoice = false;
+        try {
+          hasPendingChoice = window.localStorage.getItem('pata-language-pending') === '1';
+          const localValue = window.localStorage.getItem('pata-language');
+          localLanguage = localValue === 'fr' || localValue === 'en' ? localValue : null;
+        } catch {
+          // Le profil Firestore reste la source de secours.
+        }
+
+        const profileLanguage = snapshot.exists() ? snapshot.data()?.language : null;
+        const storedLanguage = hasPendingChoice && localLanguage
+          ? localLanguage
+          : profileLanguage || localLanguage || DEFAULT_LANGUAGE;
         const normalized = normalizeLanguage(storedLanguage);
         setLanguageState(normalized);
         try { window.localStorage.setItem('pata-language', normalized); } catch { /* stockage local indisponible */ }
+        setLanguageReady(true);
       },
       (error) => {
         console.error('[PATA LANGUAGE]', error?.message || error);
-        setLanguageState(DEFAULT_LANGUAGE);
+        let fallback = DEFAULT_LANGUAGE;
+        try {
+          fallback = normalizeLanguage(window.localStorage.getItem('pata-language'));
+        } catch {
+          fallback = DEFAULT_LANGUAGE;
+        }
+        setLanguageState(fallback);
+        setLanguageReady(true);
       },
     );
-  }, [user]);
+  }, [user, authLoading]);
 
   useEffect(() => {
     if (typeof document === 'undefined' || !document.body) return undefined;
@@ -129,20 +162,34 @@ export function LanguageProvider({ children }) {
 
   const setLanguage = useCallback(async (nextLanguage) => {
     const normalized = normalizeLanguage(nextLanguage);
-    if (!user || normalized === language) return;
+
+    if (!user) {
+      try {
+        window.localStorage.setItem('pata-language', normalized);
+        window.localStorage.setItem('pata-language-pending', '1');
+      } catch {
+        // La langue reste modifiable pendant cette session sans stockage local.
+      }
+      setLanguageState(normalized);
+      return;
+    }
+
     setIsLanguageSaving(true);
     try {
       await updateUserProfile(user.uid, { language: normalized });
-      try { window.localStorage.setItem('pata-language', normalized); } catch { /* stockage local indisponible */ }
+      try {
+        window.localStorage.setItem('pata-language', normalized);
+        window.localStorage.removeItem('pata-language-pending');
+      } catch { /* stockage local indisponible */ }
       setLanguageState(normalized);
     } finally {
       setIsLanguageSaving(false);
     }
-  }, [language, user]);
+  }, [user]);
 
   const value = useMemo(
-    () => ({ language, setLanguage, isLanguageSaving }),
-    [language, setLanguage, isLanguageSaving],
+    () => ({ language, setLanguage, isLanguageSaving, languageReady }),
+    [language, setLanguage, isLanguageSaving, languageReady],
   );
 
   return <LanguageContext.Provider value={value}>{children}</LanguageContext.Provider>;

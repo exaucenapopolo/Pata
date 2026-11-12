@@ -4,40 +4,28 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import OnboardingIllustration from '@/components/OnboardingIllustrations';
+import { LanguageSwitcher } from '@/components/LanguageSwitcher';
+import { useLanguage } from '@/context/LanguageContext';
 
 const ONBOARDING_KEY = 'pata-onboarding-completed-v2';
-const slides = [
-  {
-    eyebrow: 'TES FINANCES, AU MÊME ENDROIT',
-    title: 'Tout ton budget en un regard.',
-    description: 'Revenus, dépenses et solde réunis pour savoir où tu en es.',
-  },
-  {
-    eyebrow: 'UN ASSISTANT QUI T’AIDE',
-    title: 'Comprends mieux tes finances.',
-    description: 'Pose tes questions. Mč analyse ton suivi et t’aide à trouver quoi ajuster.',
-  },
-  {
-    eyebrow: 'SUIVI MOBILE MONEY',
-    title: 'Moins de saisie, plus de suivi.',
-    description: 'Sur Android, les SMS MTN MoMo et Orange Money facilitent l’enregistrement de tes opérations.',
-  },
-  {
-    eyebrow: 'ÉPARGNE ET PROJETS',
-    title: 'Avance vers ce qui compte.',
-    description: 'Fixe un objectif, suis tes versements et vois tes progrès.',
-  },
-  {
-    eyebrow: 'TONTINES ET COTISATIONS',
-    title: 'Tes cotisations sous contrôle.',
-    description: 'Suis les contributions, les échéances et l’ordre des bénéficiaires.',
-  },
-  {
-    eyebrow: 'ANALYSES ET DÉCISIONS',
-    title: 'Mesure tes progrès.',
-    description: 'Compare tes périodes et repère les dépenses à ajuster.',
-  },
-];
+const slidesByLanguage = {
+  fr: [
+    { eyebrow: 'TES FINANCES, AU MÊME ENDROIT', title: 'Tout ton budget en un regard.', description: 'Revenus, dépenses et solde réunis pour savoir où tu en es.' },
+    { eyebrow: 'UN ASSISTANT QUI T’AIDE', title: 'Comprends mieux tes finances.', description: 'Pose tes questions. Mč analyse ton suivi et t’aide à trouver quoi ajuster.' },
+    { eyebrow: 'SUIVI MOBILE MONEY', title: 'Moins de saisie, plus de suivi.', description: 'Sur Android, les SMS MTN MoMo et Orange Money facilitent l’enregistrement de tes opérations.' },
+    { eyebrow: 'ÉPARGNE ET PROJETS', title: 'Avance vers ce qui compte.', description: 'Fixe un objectif, suis tes versements et vois tes progrès.' },
+    { eyebrow: 'TONTINES ET COTISATIONS', title: 'Tes cotisations sous contrôle.', description: 'Suis les contributions, les échéances et l’ordre des bénéficiaires.' },
+    { eyebrow: 'ANALYSES ET DÉCISIONS', title: 'Mesure tes progrès.', description: 'Compare tes périodes et repère les dépenses à ajuster.' },
+  ],
+  en: [
+    { eyebrow: 'YOUR FINANCES, IN ONE PLACE', title: 'See your budget at a glance.', description: 'Income, expenses and balance together, so you know where you stand.' },
+    { eyebrow: 'AN ASSISTANT THAT HELPS', title: 'Understand your finances better.', description: 'Ask questions. Mč reviews your records and helps you find what you could adjust.' },
+    { eyebrow: 'MOBILE MONEY TRACKING', title: 'Less manual entry, better tracking.', description: 'On Android, MTN MoMo and Orange Money SMS messages can make it easier to record transactions.' },
+    { eyebrow: 'SAVINGS AND PROJECTS', title: 'Move closer to what matters.', description: 'Set a goal, track your contributions and see your progress.' },
+    { eyebrow: 'SAVINGS GROUPS', title: 'Keep your contributions under control.', description: 'Track contributions, due dates and the order in which members receive payouts.' },
+    { eyebrow: 'INSIGHTS AND DECISIONS', title: 'Measure your progress.', description: 'Compare periods and identify spending you may want to adjust.' },
+  ],
+};
 
 function getRegisterPath() {
   if (typeof window === 'undefined') return '/register';
@@ -55,6 +43,9 @@ function Spinner() {
 
 export default function HomePage() {
   const { user, loading } = useAuth();
+  const { language } = useLanguage();
+  const slides = slidesByLanguage[language] || slidesByLanguage.fr;
+  const isEnglish = language === 'en';
   const router = useRouter();
   const carouselRef = useRef(null);
   const [ready, setReady] = useState(false);
@@ -103,7 +94,7 @@ export default function HomePage() {
   return (
     <main className="relative h-[100dvh] min-h-[100svh] w-full overflow-hidden bg-[#081a13] text-white">
       <div className="absolute inset-0">
-        <div ref={carouselRef} onScroll={onScroll} aria-label="Présentation des fonctionnalités de Pata" className="flex h-full w-full snap-x snap-mandatory overflow-x-auto overflow-y-hidden overscroll-x-contain scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" style={{ WebkitOverflowScrolling: 'touch' }}>
+        <div ref={carouselRef} onScroll={onScroll} aria-label={isEnglish ? 'Pata feature presentation' : 'Présentation des fonctionnalités de Pata'} className="flex h-full w-full snap-x snap-mandatory overflow-x-auto overflow-y-hidden overscroll-x-contain scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" style={{ WebkitOverflowScrolling: 'touch' }}>
           {slides.map((item, index) => <article key={item.eyebrow} className="relative h-full w-full shrink-0 snap-start overflow-hidden"><OnboardingIllustration index={index} content={item} /></article>)}
         </div>
       </div>
@@ -112,22 +103,25 @@ export default function HomePage() {
           <img src="/android-chrome-192x192.png" alt="Pata" className="h-8 w-8 rounded-lg" />
           <span className="text-lg font-extrabold tracking-tight text-white">Pata</span>
         </div>
-        <button type="button" onClick={() => finish('/login')} className="pointer-events-auto rounded-full border border-white/25 bg-black/30 px-4 py-2.5 text-xs font-bold text-white backdrop-blur-md transition hover:bg-black/50">Passer</button>
+        <div className="pointer-events-auto flex items-center gap-2">
+          <LanguageSwitcher appearance="dark" />
+          <button type="button" onClick={() => finish('/login')} className="rounded-full border border-white/25 bg-black/30 px-4 py-2.5 text-xs font-bold text-white backdrop-blur-md transition hover:bg-black/50">{isEnglish ? 'Skip' : 'Passer'}</button>
+        </div>
       </header>
       <div className="pointer-events-none absolute right-4 top-[max(4.7rem,calc(env(safe-area-inset-top)+4rem))] z-20 rounded-full border border-white/20 bg-black/30 px-3 py-1.5 text-xs font-bold tabular-nums text-white backdrop-blur-md">{slide + 1} / {slides.length}</div>
       <div className="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/75 via-black/35 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-16 sm:px-6">
         <div className="mx-auto flex w-full max-w-xl items-center justify-between gap-3">
-          <div className="flex items-center gap-1.5" aria-label="Progression de la présentation">
-            {slides.map((item, index) => <button key={item.eyebrow} type="button" aria-label={'Afficher la page ' + (index + 1)} aria-current={slide === index ? 'step' : undefined} onClick={() => moveSlide(index)} className={'h-2 rounded-full transition-all duration-300 ' + (slide === index ? 'w-7 bg-white' : 'w-2 bg-white/55 hover:bg-white/80')}/>)}
+          <div className="flex items-center gap-1.5" aria-label={isEnglish ? 'Presentation progress' : 'Progression de la présentation'}>
+            {slides.map((item, index) => <button key={item.eyebrow} type="button" aria-label={(isEnglish ? 'Show slide ' : 'Afficher la page ') + (index + 1)} aria-current={slide === index ? 'step' : undefined} onClick={() => moveSlide(index)} className={'h-2 rounded-full transition-all duration-300 ' + (slide === index ? 'w-7 bg-white' : 'w-2 bg-white/55 hover:bg-white/80')}/>)}
           </div>
-          {slide > 0 && <button type="button" onClick={() => moveSlide(slide - 1)} className="rounded-xl border border-white/25 bg-black/25 px-3 py-2 text-xs font-semibold text-white backdrop-blur-md transition hover:bg-black/45">← Précédent</button>}
+          {slide > 0 && <button type="button" onClick={() => moveSlide(slide - 1)} className="rounded-xl border border-white/25 bg-black/25 px-3 py-2 text-xs font-semibold text-white backdrop-blur-md transition hover:bg-black/45">{isEnglish ? '← Previous' : '← Précédent'}</button>}
         </div>
         {slide < slides.length - 1 ? (
-          <button type="button" onClick={() => moveSlide(slide + 1)} className="mx-auto mt-3 flex h-12 w-full max-w-xl items-center justify-center gap-2 rounded-2xl bg-[#0b5c46] text-sm font-bold text-white shadow-lg transition hover:bg-[#084b39]">Suivant <span aria-hidden="true">→</span></button>
+          <button type="button" onClick={() => moveSlide(slide + 1)} className="mx-auto mt-3 flex h-12 w-full max-w-xl items-center justify-center gap-2 rounded-2xl bg-[#0b5c46] text-sm font-bold text-white shadow-lg transition hover:bg-[#084b39]">{isEnglish ? 'Next' : 'Suivant'} <span aria-hidden="true">→</span></button>
         ) : (
           <div className="mx-auto mt-3 grid w-full max-w-xl gap-2 sm:grid-cols-2">
-            <button type="button" onClick={() => finish(getRegisterPath())} className="flex h-12 items-center justify-center gap-2 rounded-2xl bg-[#0b5c46] text-sm font-bold text-white transition hover:bg-[#084b39]">Créer mon compte <span aria-hidden="true">→</span></button>
-            <button type="button" onClick={() => finish('/login')} className="h-12 rounded-2xl border border-white/35 bg-black/35 text-sm font-bold text-white backdrop-blur-md transition hover:bg-black/50">J’ai déjà un compte</button>
+            <button type="button" onClick={() => finish(getRegisterPath())} className="flex h-12 items-center justify-center gap-2 rounded-2xl bg-[#0b5c46] text-sm font-bold text-white transition hover:bg-[#084b39]">{isEnglish ? 'Create my account' : 'Créer mon compte'} <span aria-hidden="true">→</span></button>
+            <button type="button" onClick={() => finish('/login')} className="h-12 rounded-2xl border border-white/35 bg-black/35 text-sm font-bold text-white backdrop-blur-md transition hover:bg-black/50">{isEnglish ? 'I already have an account' : 'J’ai déjà un compte'}</button>
           </div>
         )}
       </div>

@@ -1,5 +1,7 @@
 'use client';
 
+import { useLanguage } from '@/context/LanguageContext';
+
 const VISUALS = {
   0: {
     src: '/onboarding/budget.jpg',
@@ -50,10 +52,13 @@ function OnboardingCopy({ content, className = '' }) {
 }
 
 function AIVisual() {
+  const { language } = useLanguage();
+  const isEnglish = language === 'en';
+
   return (
     <div
       role="img"
-      aria-label="Aperçu de l’assistant financier Pata"
+      aria-label={isEnglish ? 'Preview of the Pata financial assistant' : 'Aperçu de l’assistant financier Pata'}
       className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-[20px] bg-[#e8f2eb] p-1.5 shadow-[0_18px_44px_-18px_rgba(0,0,0,.58)] sm:rounded-[24px] sm:p-2.5"
     >
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(15,107,63,.18),transparent_48%),linear-gradient(145deg,#f8fbf8,#e4efe7)]" />
@@ -64,35 +69,35 @@ function AIVisual() {
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-[8px] font-bold text-slate-900 sm:text-[10px]">Assistant Pata</p>
-            <p className="mt-0.5 truncate text-[7px] font-medium text-[#0b7655] sm:text-[8px]">À partir de ton suivi</p>
+            <p className="mt-0.5 truncate text-[7px] font-medium text-[#0b7655] sm:text-[8px]">{isEnglish ? 'Based on your records' : 'À partir de ton suivi'}</p>
           </div>
           <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
         </div>
 
         <div className="mt-2 rounded-xl rounded-tr-sm bg-[#edf5ef] px-2 py-2">
-          <p className="text-[7px] font-bold uppercase tracking-[.08em] text-[#4b7660] sm:text-[8px]">Ta question</p>
+          <p className="text-[7px] font-bold uppercase tracking-[.08em] text-[#4b7660] sm:text-[8px]">{isEnglish ? 'Your question' : 'Ta question'}</p>
           <p className="mt-1 text-[8px] font-semibold leading-[1.3] text-slate-800 sm:text-[9px]">
-            Comment mieux gérer mon budget ?
+            {isEnglish ? 'How can I manage my budget better?' : 'Comment mieux gérer mon budget ?'}
           </p>
         </div>
 
         <div className="mt-2 rounded-xl border border-[#e2ece5] bg-white p-2 sm:p-2.5">
           <div className="flex items-center gap-1.5">
             <span className="h-1.5 w-1.5 rounded-full bg-[#0b7655]" />
-            <p className="text-[8px] font-bold text-[#0b5c46] sm:text-[9px]">Une première piste</p>
+            <p className="text-[8px] font-bold text-[#0b5c46] sm:text-[9px]">{isEnglish ? 'A first suggestion' : 'Une première piste'}</p>
           </div>
           <p className="mt-1.5 text-[8px] leading-[1.4] text-slate-600 sm:text-[9px]">
-            Compare tes dépenses au prévu pour repérer quoi ajuster.
+            {isEnglish ? 'Compare your spending with your plan to see what you could adjust.' : 'Compare tes dépenses au prévu pour repérer quoi ajuster.'}
           </p>
           <div className="mt-2 space-y-2">
             <div>
-              <p className="mb-1 text-[7px] font-medium text-slate-500 sm:text-[8px]">Transport</p>
+              <p className="mb-1 text-[7px] font-medium text-slate-500 sm:text-[8px]">{isEnglish ? 'Transport' : 'Transport'}</p>
               <div className="h-1 overflow-hidden rounded-full bg-slate-100">
                 <div className="h-full w-[72%] rounded-full bg-[#0b7655]" />
               </div>
             </div>
             <div>
-              <p className="mb-1 text-[7px] font-medium text-slate-500 sm:text-[8px]">Alimentation</p>
+              <p className="mb-1 text-[7px] font-medium text-slate-500 sm:text-[8px]">{isEnglish ? 'Food' : 'Alimentation'}</p>
               <div className="h-1 overflow-hidden rounded-full bg-slate-100">
                 <div className="h-full w-[54%] rounded-full bg-[#80b99a]" />
               </div>
@@ -102,12 +107,12 @@ function AIVisual() {
 
         <div className="mt-auto rounded-xl bg-[#edf5ef] px-2 py-1.5">
           <p className="text-[8px] font-semibold leading-[1.35] text-[#315f49] sm:text-[9px]">
-            Un conseil clair, à ton rythme.
+            {isEnglish ? 'Clear advice, at your own pace.' : 'Un conseil clair, à ton rythme.'}
           </p>
         </div>
 
         <div className="mt-2 flex items-center justify-between rounded-full border border-slate-200 bg-white py-1.5 pl-2.5 pr-1.5">
-          <span className="truncate text-[7px] text-slate-400 sm:text-[8px]">Pose ta question…</span>
+          <span className="truncate text-[7px] text-slate-400 sm:text-[8px]">{isEnglish ? 'Ask your question…' : 'Pose ta question…'}</span>
           <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#0b5c46] text-[10px] font-bold text-white">↑</span>
         </div>
       </div>

@@ -12,20 +12,41 @@ export async function ensureUserProfile(user) {
   // profile setup. Treat a document without createdAt as not initialized yet.
   const created = !snap.exists() || !existing.createdAt;
   const email = user.email || existing.email || '';
+  let localLanguage = null;
+  let hasPendingLanguageChoice = false;
+  try {
+    const value = window.localStorage.getItem('pata-language');
+    localLanguage = value === 'fr' || value === 'en' ? value : null;
+    hasPendingLanguageChoice = window.localStorage.getItem('pata-language-pending') === '1';
+  } catch {
+    // Utilisateur en environnement sans stockage local.
+  }
+  const preferredLanguage = hasPendingLanguageChoice && localLanguage
+    ? localLanguage
+    : ['fr', 'en'].includes(existing.language)
+      ? existing.language
+      : localLanguage || 'fr';
   const defaults = {
     email,
     displayName: existing.displayName || email.split('@')[0] || 'Utilisateur',
     currency: existing.currency || 'XAF',
-    language: existing.language === 'en' ? 'en' : 'fr',
+    language: preferredLanguage,
     currencyRates: existing.currencyRates || { XAF: 1, EUR: 1 / 655.957, USD: 1 / 600 },
     currencyRateUpdatedAt: existing.currencyRateUpdatedAt || new Date().toISOString(),
     ...(!existing.createdAt ? { createdAt: serverTimestamp() } : {}),
   };
   const patch = {};
   Object.entries(defaults).forEach(([key, value]) => {
-    if (existing[key] === undefined || existing[key] === null || existing[key] === '') patch[key] = value;
+    if (key === 'language' && hasPendingLanguageChoice && localLanguage) {
+      if (existing.language !== value) patch[key] = value;
+    } else if (existing[key] === undefined || existing[key] === null || existing[key] === '') {
+      patch[key] = value;
+    }
   });
   if (Object.keys(patch).length) await setDoc(userRef, patch, { merge: true });
+  if (hasPendingLanguageChoice) {
+    try { window.localStorage.removeItem('pata-language-pending'); } catch { /* stockage local indisponible */ }
+  }
   // Le nouvel utilisateur devient immédiatement trouvable par son nom dans
   // l’autocomplétion des dettes, sans lecture globale des profils.
   if (created) {
