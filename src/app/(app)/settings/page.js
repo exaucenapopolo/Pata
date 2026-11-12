@@ -22,6 +22,7 @@ import { PinSecuritySettings } from '@/components/security/PinSecuritySettings';
 import { PasswordSettings } from '@/components/security/PasswordSettings';
 import { ReferralsSettings } from '@/components/ReferralsSettings';
 import { SmsImportSettings } from '@/components/SmsImportSettings';
+import { ProfilePhotoEditor } from '@/components/profile/ProfilePhotoEditor';
 import { useLanguage } from '@/context/LanguageContext';
 import { translateText } from '@/lib/i18n/translations';
 
@@ -243,6 +244,11 @@ export default function SettingsPage() {
               <img src="/android-chrome-192x192.png" alt="Pata" className="h-11 w-11 rounded-xl object-contain"/>
               <div><p className="text-sm font-semibold text-slate-800">{profile?.displayName || 'Ton compte Pata'}</p><p className="mt-0.5 text-xs text-slate-500">Ton identité dans l’application</p></div>
             </div>
+            <ProfilePhotoEditor
+              photoURL={profile?.photoURL || ''}
+              displayName={profile?.displayName || displayName}
+              onSave={(photoURL) => save({ photoURL })}
+            />
             <Input label="Nom affiché" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
             <Input label="Adresse e-mail" value={user?.email || ''} disabled />
             <Select label="Langue" value={language} onChange={(e) => setLanguage(e.target.value).catch(() => alert(isEnglish ? 'Could not save the language. Check your connection and try again.' : 'Impossible d’enregistrer la langue. Vérifie ta connexion puis réessaie.'))}>

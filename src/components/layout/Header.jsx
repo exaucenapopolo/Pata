@@ -35,7 +35,11 @@ export function Header() {
         <div className="relative flex items-center gap-2">
           <NotificationInbox />
           <button type="button" onClick={() => setOpen((value) => !value)} className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50" aria-label="Ouvrir mon profil" aria-expanded={open}>
-            <User size={19} strokeWidth={2}/>
+            {profile?.photoURL ? (
+              <img src={profile.photoURL} alt="" className="h-full w-full rounded-full object-cover" referrerPolicy="no-referrer" />
+            ) : (
+              <User size={19} strokeWidth={2}/>
+            )}
           </button>
           {open && (
             <>
