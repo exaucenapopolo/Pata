@@ -4592,7 +4592,8 @@ async function handleAdminOverview(request) {
     const nowIso = new Date().toISOString();
     const users = adminDb.collection('users');
     const withdrawals = adminDb.collection('withdrawalRequests');
-    const [userTotals, premiumCount, deposits, subscriptions, paidPayouts, pendingPayouts, latestUsers, latestDeposits, latestWithdrawals, topBalances, topExpenses, leastExpenses, topIncomes, lifetimeExpenses, lifetimeIncomes, savings, allDebtDocs] = await Promise.all([
+    const activeDebtQuery = adminDb.collectionGroup('debts').where('status', 'in', ['active', 'partial', 'late']);
+    const [userTotals, premiumCount, deposits, subscriptions, paidPayouts, pendingPayouts, latestUsers, latestDeposits, latestWithdrawals, topBalances, topExpenses, leastExpenses, topIncomes, lifetimeExpenses, lifetimeIncomes, activeDebts] = await Promise.all([
       aggregateTotal(users, 'balance'),
       users.where('premiumUntil', '>', nowIso).count().get().then((snap) => snap.data().count).catch(() => 0),
       aggregateTotal(adminDb.collection('deposits').where('status', '==', 'CONFIRMED')),
@@ -4609,14 +4610,13 @@ async function handleAdminOverview(request) {
       users.orderBy('lifetimeIncomeAmount', 'desc').limit(5).get().catch(() => ({ docs: [] })),
       aggregateTotal(users, 'lifetimeExpenseAmount'),
       aggregateTotal(users, 'lifetimeIncomeAmount'),
-      calculateAdminSavingsOverview(),
-      adminDb.collectionGroup('debts').get().catch((error) => { console.warn('[ADMIN DEBTS]', error.message); return { docs: [] }; }),
+      activeDebtQuery.aggregate({ count: AggregateField.count(), total: AggregateField.sum('remaining') }).get()
+        .then((snapshot) => ({ count: Number(snapshot.data().count) || 0, total: Number(snapshot.data().total) || 0, unavailable: false }))
+        .catch((error) => {
+          console.warn('[ADMIN DEBT AGGREGATE]', error.message);
+          return { count: null, total: null, unavailable: true };
+        }),
     ]);
-    const activeDebts = allDebtDocs.docs.map((doc) => doc.data() || {}).filter((debt) => ['active', 'partial', 'late'].includes(debt.status) && Number(debt.remaining) > 0);
-    const receivableDebts = activeDebts.filter((debt) => debt.type === 'owed_to_me');
-    const payableDebts = activeDebts.filter((debt) => debt.type === 'i_owe');
-    const receivableSummary = { count: receivableDebts.length, total: receivableDebts.reduce((sum, debt) => sum + (Number(debt.remaining) || 0), 0) };
-    const payableSummary = { count: payableDebts.length, total: payableDebts.reduce((sum, debt) => sum + (Number(debt.remaining) || 0), 0) };
     const recentUsers = latestUsers.docs.map(safeAdminUser)
       .sort((a, b) => (Date.parse(b.createdAt || b.lastSeenAt || 0) || 0) - (Date.parse(a.createdAt || a.lastSeenAt || 0) || 0))
       .slice(0, 8);
@@ -4636,14 +4636,10 @@ async function handleAdminOverview(request) {
         pendingWithdrawalCount: pendingPayouts.count,
         lifetimeExpenseVolume: lifetimeExpenses.total,
         lifetimeIncomeVolume: lifetimeIncomes.total,
-        protectedSavings: savings.totalProtectedSavings,
-        activeSavingsGoals: savings.activeGoals,
-        activeReceivables: receivableSummary.total,
-        receivableDebtCount: receivableSummary.count,
-        activePayables: payableSummary.total,
-        payableDebtCount: payableSummary.count,
+        activeDebtTotal: activeDebts.total,
+        activeDebtCount: activeDebts.count,
+        activeDebtsUnavailable: activeDebts.unavailable,
       },
-      savingsSummary: savings,
       latestUsers: recentUsers,
       latestDeposits: latestDeposits.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })),
       latestWithdrawals: latestWithdrawals.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })),
@@ -4653,7 +4649,7 @@ async function handleAdminOverview(request) {
         leastExpenses: leastExpenses.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })),
         incomes: topIncomes.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })),
       },
-      note: 'Le montant protégé correspond à tous les versements présents dans les objectifs encore actifs. La part issue du portefeuille et la part empruntée sont détaillées séparément. Les objectifs déjà retirés sont exclus.',
+      note: 'Les détails par utilisateur et les objectifs d’épargne sont chargés uniquement à l’ouverture de leurs sections.',
     });
   } catch (error) {
     return errorResponse(error.message || 'Accès administrateur refusé.', 401);
