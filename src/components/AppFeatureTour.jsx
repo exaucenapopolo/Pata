@@ -1,6 +1,6 @@
 'use client';
 
-import { Component, useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { X, ChevronLeft, ChevronRight, Check, Sparkles } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
@@ -38,7 +38,7 @@ const TOUR_STEPS = {
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), Math.max(min, max));
 
-function AppFeatureTourContent() {
+export function AppFeatureTour() {
   const { user } = useAuth();
   const { profile, loading: profileLoading, save } = useProfile();
   const { language } = useLanguage();
@@ -52,18 +52,24 @@ function AppFeatureTourContent() {
   const [viewport, setViewport] = useState({ width: 1, height: 1 });
   const [calloutPosition, setCalloutPosition] = useState(null);
   const targetElementRef = useRef(null);
+  const pathnameRef = useRef(pathname);
   const calloutRef = useRef(null);
   const autoStartCheckedRef = useRef(false);
   const storageKey = user?.uid ? 'pata-feature-tour-completed:' + user.uid : '';
 
+  useEffect(() => {
+    pathnameRef.current = pathname;
+  }, [pathname]);
+
   const startTour = useCallback(() => {
     autoStartCheckedRef.current = true;
+    targetElementRef.current = null;
     setStepIndex(0);
     setTargetRect(null);
     setCalloutPosition(null);
     setActive(true);
-    if (pathname !== '/dashboard') router.push('/dashboard');
-  }, [pathname, router]);
+    if (pathnameRef.current !== '/dashboard') router.push('/dashboard');
+  }, [router]);
 
   useEffect(() => {
     if (profileLoading || !user || !profile || pathname !== '/dashboard' || autoStartCheckedRef.current) return;
@@ -96,33 +102,52 @@ function AppFeatureTourContent() {
 
     const measure = (element) => {
       if (cancelled || !element) return;
-      const rect = element.getBoundingClientRect();
-      setViewport({ width: Math.max(1, window.innerWidth), height: Math.max(1, window.innerHeight) });
-      setTargetRect({ top: rect.top, left: rect.left, width: rect.width, height: rect.height });
+      try {
+        const rect = element.getBoundingClientRect();
+        setViewport({ width: Math.max(1, window.innerWidth), height: Math.max(1, window.innerHeight) });
+        setTargetRect({ top: rect.top, left: rect.left, width: rect.width, height: rect.height });
+      } catch (error) {
+        console.warn('[PATA APP TOUR MEASURE]', error?.message || error);
+        setTargetRect(null);
+      }
+    };
+
+    const scrollAndMeasure = (element) => {
+      targetElementRef.current = element;
+      try {
+        element.scrollIntoView?.({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+      } catch (error) {
+        console.warn('[PATA APP TOUR SCROLL]', error?.message || error);
+      }
+      timer = window.setTimeout(() => measure(element), 360);
     };
 
     const locate = () => {
       if (cancelled) return;
-      const selector = '[data-pata-tour="' + currentStep.target + '"]';
-      const element = Array.from(document.querySelectorAll(selector)).find((candidate) => {
-        const rect = candidate.getBoundingClientRect();
-        return rect.width > 0 && rect.height > 0 && window.getComputedStyle(candidate).visibility !== 'hidden';
-      });
-      if (element) {
-        targetElementRef.current = element;
-        element.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
-        timer = window.setTimeout(() => measure(element), 360);
-        return;
-      }
-      attempts += 1;
-      if (attempts < 24) { timer = window.setTimeout(locate, 100); return; }
-      const fallback = document.querySelector('main h1, main header, main section');
-      if (fallback) {
-        targetElementRef.current = fallback;
-        fallback.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
-        timer = window.setTimeout(() => measure(fallback), 360);
-      } else {
+      try {
+        const selector = '[data-pata-tour="' + currentStep.target + '"]';
+        const element = Array.from(document.querySelectorAll(selector)).find((candidate) => {
+          const rect = candidate.getBoundingClientRect();
+          const style = window.getComputedStyle(candidate);
+          return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+        });
+        if (element) {
+          scrollAndMeasure(element);
+          return;
+        }
+        attempts += 1;
+        if (attempts < 24) { timer = window.setTimeout(locate, 100); return; }
+        const fallback = document.querySelector('main h1, main header, main section, main');
+        if (fallback) scrollAndMeasure(fallback);
+        else {
+          // Le texte et les commandes du guide restent utilisables même sans cible détectée.
+          setViewport({ width: Math.max(1, window.innerWidth), height: Math.max(1, window.innerHeight) });
+          setTargetRect(null);
+        }
+      } catch (error) {
+        console.error('[PATA APP TOUR TARGET]', error);
         setViewport({ width: Math.max(1, window.innerWidth), height: Math.max(1, window.innerHeight) });
+        setTargetRect(null);
       }
     };
 
@@ -167,58 +192,63 @@ function AppFeatureTourContent() {
     };
   }, [active, stepIndex, pathname]);
 
-  // Place la bulle au plus près de l'élément, sans le recouvrir.
+  // Place la bulle près de l'élément ciblé. En cas de mesure impossible,
+  // la bulle reste quand même visible dans sa position de secours.
   useEffect(() => {
     if (!active || !targetRect || !calloutRef.current) return;
-    const panel = calloutRef.current.getBoundingClientRect();
-    const margin = 12;
-    const gap = 13;
-    const width = Math.min(360, Math.max(260, viewport.width - margin * 2));
-    const panelHeight = Math.min(panel.height, viewport.height - margin * 2);
-    const rightSpace = viewport.width - (targetRect.left + targetRect.width) - gap - margin;
-    const leftSpace = targetRect.left - gap - margin;
-    const sideSpace = Math.max(rightSpace, leftSpace);
+    try {
+      const panel = calloutRef.current.getBoundingClientRect();
+      const margin = 12;
+      const gap = 13;
+      const width = Math.min(360, Math.max(260, viewport.width - margin * 2));
+      const panelHeight = Math.min(panel.height || 250, viewport.height - margin * 2);
+      const rightSpace = viewport.width - (targetRect.left + targetRect.width) - gap - margin;
+      const leftSpace = targetRect.left - gap - margin;
+      const sideSpace = Math.max(rightSpace, leftSpace);
 
-    // Sur grand écran, une bulle latérale libère complètement le dessus et le dessous.
-    if (viewport.width >= 900 && sideSpace >= width) {
-      const placement = rightSpace >= leftSpace ? 'right' : 'left';
-      const left = placement === 'right'
-        ? targetRect.left + targetRect.width + gap
-        : targetRect.left - width - gap;
-      const top = clamp(
-        targetRect.top + targetRect.height / 2 - panelHeight / 2,
+      if (viewport.width >= 900 && sideSpace >= width) {
+        const placement = rightSpace >= leftSpace ? 'right' : 'left';
+        const left = placement === 'right'
+          ? targetRect.left + targetRect.width + gap
+          : targetRect.left - width - gap;
+        const top = clamp(
+          targetRect.top + targetRect.height / 2 - panelHeight / 2,
+          margin,
+          viewport.height - panelHeight - margin
+        );
+        const arrowOffset = clamp(
+          targetRect.top + targetRect.height / 2 - top - 7,
+          24,
+          Math.max(24, panelHeight - 24)
+        );
+        setCalloutPosition({ left, top, width, maxHeight: Math.min(390, viewport.height * 0.58), placement, arrowOffset });
+        return;
+      }
+
+      const belowSpace = viewport.height - (targetRect.top + targetRect.height) - gap - margin;
+      const aboveSpace = targetRect.top - gap - margin;
+      const placement = belowSpace >= panelHeight || belowSpace >= aboveSpace ? 'bottom' : 'top';
+      const available = Math.max(140, placement === 'bottom' ? belowSpace : aboveSpace);
+      const maxHeight = Math.max(140, Math.min(390, viewport.height * 0.56, available));
+      const fittedHeight = Math.min(panelHeight, maxHeight);
+      const left = clamp(
+        targetRect.left + targetRect.width / 2 - width / 2,
         margin,
-        viewport.height - panelHeight - margin
+        viewport.width - width - margin
       );
+      const top = placement === 'bottom'
+        ? clamp(targetRect.top + targetRect.height + gap, margin, viewport.height - fittedHeight - margin)
+        : clamp(targetRect.top - gap - fittedHeight, margin, viewport.height - fittedHeight - margin);
       const arrowOffset = clamp(
-        targetRect.top + targetRect.height / 2 - top - 7,
+        targetRect.left + targetRect.width / 2 - left - 7,
         24,
-        panelHeight - 24
+        width - 24
       );
-      setCalloutPosition({ left, top, width, maxHeight: Math.min(390, viewport.height * 0.58), placement, arrowOffset });
-      return;
+      setCalloutPosition({ left, top, width, maxHeight, placement, arrowOffset });
+    } catch (error) {
+      console.error('[PATA APP TOUR POSITION]', error);
+      setCalloutPosition(null);
     }
-
-    const belowSpace = viewport.height - (targetRect.top + targetRect.height) - gap - margin;
-    const aboveSpace = targetRect.top - gap - margin;
-    const placement = belowSpace >= panelHeight || belowSpace >= aboveSpace ? 'bottom' : 'top';
-    const available = Math.max(140, placement === 'bottom' ? belowSpace : aboveSpace);
-    const maxHeight = Math.max(140, Math.min(390, viewport.height * 0.56, available));
-    const fittedHeight = Math.min(panelHeight, maxHeight);
-    const left = clamp(
-      targetRect.left + targetRect.width / 2 - width / 2,
-      margin,
-      viewport.width - width - margin
-    );
-    const top = placement === 'bottom'
-      ? clamp(targetRect.top + targetRect.height + gap, margin, viewport.height - fittedHeight - margin)
-      : clamp(targetRect.top - gap - fittedHeight, margin, viewport.height - fittedHeight - margin);
-    const arrowOffset = clamp(
-      targetRect.left + targetRect.width / 2 - left - 7,
-      24,
-      width - 24
-    );
-    setCalloutPosition({ left, top, width, maxHeight, placement, arrowOffset });
   }, [active, targetRect, viewport, stepIndex, currentStep]);
 
   const finishTour = async (reason) => {
@@ -256,7 +286,7 @@ function AppFeatureTourContent() {
     top: calloutPosition?.top ?? 12,
     width: calloutPosition?.width ?? Math.min(360, viewport.width - 24),
     maxHeight: calloutPosition?.maxHeight ?? Math.min(390, viewport.height * 0.56),
-    visibility: calloutPosition ? 'visible' : 'hidden',
+    visibility: 'visible',
   };
   const arrowStyle = calloutPosition?.placement === 'bottom'
     ? { left: calloutPosition.arrowOffset, top: -7 }
@@ -335,29 +365,3 @@ function AppFeatureTourContent() {
   );
 }
 
-class AppFeatureTourErrorBoundary extends Component {
-  constructor(props) {
-    super(props);
-    this.state = { hasError: false };
-  }
-
-  static getDerivedStateFromError() {
-    return { hasError: true };
-  }
-
-  componentDidCatch(error) {
-    console.error('[PATA APP TOUR ERROR]', error);
-  }
-
-  render() {
-    return this.state.hasError ? null : this.props.children;
-  }
-}
-
-export function AppFeatureTour() {
-  return (
-    <AppFeatureTourErrorBoundary>
-      <AppFeatureTourContent />
-    </AppFeatureTourErrorBoundary>
-  );
-}
