@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Component, useCallback, useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { X, ChevronLeft, ChevronRight, Check, Sparkles } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
@@ -38,7 +38,7 @@ const TOUR_STEPS = {
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), Math.max(min, max));
 
-export function AppFeatureTour() {
+function AppFeatureTourContent() {
   const { user } = useAuth();
   const { profile, loading: profileLoading, save } = useProfile();
   const { language } = useLanguage();
@@ -134,13 +134,30 @@ export function AppFeatureTour() {
   }, [active, currentStep, pathname]);
 
   useEffect(() => {
-    if (!active || !targetElementRef.current) return undefined;
+    if (!active) return undefined;
     const measure = () => {
       const element = targetElementRef.current;
       if (!element) return;
       const rect = element.getBoundingClientRect();
-      setViewport({ width: Math.max(1, window.innerWidth), height: Math.max(1, window.innerHeight) });
-      setTargetRect({ top: rect.top, left: rect.left, width: rect.width, height: rect.height });
+      const nextViewport = {
+        width: Math.max(1, window.innerWidth),
+        height: Math.max(1, window.innerHeight),
+      };
+      const nextRect = { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
+      setViewport((previous) => (
+        previous.width === nextViewport.width && previous.height === nextViewport.height
+          ? previous
+          : nextViewport
+      ));
+      setTargetRect((previous) => (
+        previous
+        && Math.abs(previous.top - nextRect.top) < 0.5
+        && Math.abs(previous.left - nextRect.left) < 0.5
+        && Math.abs(previous.width - nextRect.width) < 0.5
+        && Math.abs(previous.height - nextRect.height) < 0.5
+          ? previous
+          : nextRect
+      ));
     };
     window.addEventListener('resize', measure);
     window.addEventListener('scroll', measure, true);
@@ -148,10 +165,10 @@ export function AppFeatureTour() {
       window.removeEventListener('resize', measure);
       window.removeEventListener('scroll', measure, true);
     };
-  }, [active, targetRect, stepIndex, pathname]);
+  }, [active, stepIndex, pathname]);
 
   // Place la bulle au plus près de l'élément, sans le recouvrir.
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (!active || !targetRect || !calloutRef.current) return;
     const panel = calloutRef.current.getBoundingClientRect();
     const margin = 12;
@@ -315,5 +332,32 @@ export function AppFeatureTour() {
         </div>
       </section>
     </>
+  );
+}
+
+class AppFeatureTourErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error) {
+    console.error('[PATA APP TOUR ERROR]', error);
+  }
+
+  render() {
+    return this.state.hasError ? null : this.props.children;
+  }
+}
+
+export function AppFeatureTour() {
+  return (
+    <AppFeatureTourErrorBoundary>
+      <AppFeatureTourContent />
+    </AppFeatureTourErrorBoundary>
   );
 }
