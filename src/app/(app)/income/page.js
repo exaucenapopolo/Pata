@@ -1,11 +1,11 @@
 /* eslint-disable react/no-unescaped-entities */
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   Plus, Trash2, TrendingUp, CheckCircle2, Landmark, Save, RotateCcw, Percent,
-  PiggyBank, Target, Pencil, AlertTriangle, Calculator, ArrowRight, Clock3, MapPin
+  PiggyBank, Target, Pencil, AlertTriangle, Calculator, ArrowRight, Clock3, MapPin, Pin
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -25,7 +25,7 @@ import { useProfile } from '@/hooks/useProfile';
 import { useProjects } from '@/hooks/useProjects';
 import { useBudgetRules } from '@/hooks/useBudgetRules';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
-import { createIncome, updateIncome, deleteIncome } from '@/lib/firestore/incomes';
+import { createIncome, updateIncome, deleteIncome, setIncomePinned } from '@/lib/firestore/incomes';
 import { upsertBudget } from '@/lib/firestore/budgets';
 import { computeBudgetBreakdown } from '@/lib/budgetRules';
 import { INCOME_CATEGORIES, EXPENSE_CATEGORIES, CAMEROON_BANKS } from '@/lib/constants';
@@ -90,6 +90,38 @@ export default function IncomePage() {
   const { budgets: appliedBudgets } = useBudgets(month, selectedIncomeToApply);
   const [deleteId, setDeleteId] = useState(null);
   const [showCotisationReminder, setShowCotisationReminder] = useState(false);
+
+  const [pinMenuId, setPinMenuId] = useState(null);
+  const [pinSavingId, setPinSavingId] = useState('');
+  const pinPressTimerRef = useRef(null);
+  const suppressPinClickRef = useRef(false);
+  const clearPinPressTimer = () => {
+    if (pinPressTimerRef.current) window.clearTimeout(pinPressTimerRef.current);
+    pinPressTimerRef.current = null;
+  };
+  const startIncomeLongPress = (event, item) => {
+    if (event.target.closest('button:not([data-pin-long-press]),a,input,select,textarea')) return;
+    clearPinPressTimer();
+    suppressPinClickRef.current = false;
+    pinPressTimerRef.current = window.setTimeout(() => {
+      suppressPinClickRef.current = true;
+      setPinMenuId(item.id);
+    }, 900);
+  };
+  const openIncomeDetails = (item) => {
+    if (suppressPinClickRef.current) { suppressPinClickRef.current = false; return; }
+    setPinMenuId(null);
+    setSelectedIncome(item);
+  };
+  const toggleIncomePinned = async (item) => {
+    setPinSavingId(item.id);
+    try {
+      await setIncomePinned(user.uid, item.id, !item.isPinned);
+      setPinMenuId(null);
+    } catch (pinError) {
+      setError(pinError.message || 'Impossible de modifier cet épinglage.');
+    } finally { setPinSavingId(''); }
+  };
 
   // 🟢 États des prévisions
   const [vitalOpen, setVitalOpen] = useState(false);
@@ -655,13 +687,19 @@ export default function IncomePage() {
           <EmptyState icon={TrendingUp} title="Aucun revenu enregistré" description="Ajoute ton salaire ou une source de revenu." />
         ) : (
           <ul className="space-y-3">
-            {incomesWithBalance.map((inc) => (
-              <li key={inc.id} className={`rounded-2xl border p-3 transition ${inc.isExhausted ? 'border-slate-100 bg-slate-50/50' : 'border-slate-200 bg-white'}`}>
-                <button type="button" onClick={() => setSelectedIncome(inc)} className="flex w-full items-center justify-between gap-3 rounded-xl text-left focus:outline-none focus:ring-2 focus:ring-brand-200">
+            {[...incomesWithBalance].sort((a, b) => Number(Boolean(b.isPinned)) - Number(Boolean(a.isPinned))).map((inc) => (
+              <li key={inc.id}
+                onPointerDown={(event) => startIncomeLongPress(event, inc)}
+                onPointerUp={clearPinPressTimer}
+                onPointerLeave={clearPinPressTimer}
+                onPointerCancel={clearPinPressTimer}
+                onContextMenu={(event) => { event.preventDefault(); suppressPinClickRef.current = true; setPinMenuId(inc.id); }}
+                className={`rounded-2xl border p-3 transition ${inc.isExhausted ? 'border-slate-100 bg-slate-50/50' : 'border-slate-200 bg-white'}`}>
+                <button type="button" data-pin-long-press="true" onClick={() => openIncomeDetails(inc)} className="flex w-full items-center justify-between gap-3 rounded-xl text-left focus:outline-none focus:ring-2 focus:ring-brand-200">
                   <span className="flex min-w-0 items-center gap-3">
                     <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700"><Landmark size={18}/></span>
                     <span className="min-w-0">
-                      <span className="flex flex-wrap items-center gap-2"><strong className="truncate text-sm text-slate-900">{inc.source}</strong>{inc.isExhausted && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">Épuisé</span>}</span>
+                      <span className="flex flex-wrap items-center gap-2"><strong className="truncate text-sm text-slate-900">{inc.source}</strong>{inc.isPinned && <Pin size={12} className="fill-current text-brand-600" aria-label="Épinglé"/>}{inc.isExhausted && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">Épuisé</span>}</span>
                       <span className="mt-0.5 block text-xs text-slate-500">{formatDate(inc.date)} · {inc.cashPocket ? 'Portefeuille espèces' : INCOME_CATEGORIES.find(c => c.id === inc.categoryId)?.label || 'Revenu'}</span>
                       {inc.cashPocket ? <span className="mt-1 inline-flex rounded-md bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">Espèces · transfert depuis Mobile Money</span> : inc.neutralFlow && <span className="mt-1 inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">Mouvement neutre · Dette contractée</span>}
                       {inc.repaymentDebtId && <span className="mt-1 inline-flex rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Remboursement reçu</span>}
@@ -677,7 +715,14 @@ export default function IncomePage() {
                   </span>
                 </div>
                 {!inc.isExhausted && <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-brand-500" style={{width: `${inc.amount > 0 ? Math.min(100, (inc.spent / inc.amount) * 100) : 0}%`}}/></div>}
-              </li>
+              {pinMenuId === inc.id && (
+                  <div className="mt-2 flex justify-end border-t border-slate-100 pt-2">
+                    <button type="button" onClick={() => toggleIncomePinned(inc)} disabled={pinSavingId === inc.id} className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-brand-200 bg-brand-50 px-3 text-xs font-semibold text-brand-800 disabled:opacity-50">
+                      <Pin size={13} className={inc.isPinned ? 'fill-current' : ''}/>{inc.isPinned ? 'Désépingler' : 'Épingler'}
+                    </button>
+                  </div>
+                )}
+                </li>
             ))}
           </ul>
         )}

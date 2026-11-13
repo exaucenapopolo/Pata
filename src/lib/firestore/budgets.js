@@ -74,3 +74,17 @@ export async function applyBudgetTemplate(templateId, month, incomeSourceId = 'a
 export async function removeBudgetTemplate(templateId) {
   await requestBudgetTemplates('DELETE', { templateId });
 }
+
+export async function setBudgetPinned(uid, id, pinned) {
+  const user = auth.currentUser;
+  if (!user || !user.uid || !id) throw new Error('Session expirée. Reconnecte-toi puis réessaie.');
+  const token = await user.getIdToken();
+  const response = await fetch('/api/budgets/pin', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+    body: JSON.stringify({ budgetId: id, pinned: pinned === true }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de modifier cet épinglage.');
+  return result.isPinned === true;
+}

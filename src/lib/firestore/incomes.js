@@ -55,3 +55,17 @@ export async function updateIncome(uid, id, data) {
   if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de modifier ce revenu.');
   return { id: result.id || id };
 }
+
+export async function setIncomePinned(uid, id, pinned) {
+  const user = auth.currentUser;
+  if (!user || user.uid !== uid || !id) throw new Error('Session expirée. Reconnecte-toi puis réessaie.');
+  const token = await user.getIdToken();
+  const response = await fetch('/api/incomes/pin', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+    body: JSON.stringify({ incomeId: id, pinned: pinned === true }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de modifier cet épinglage.');
+  return result.isPinned === true;
+}

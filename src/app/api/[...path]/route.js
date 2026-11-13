@@ -2608,6 +2608,38 @@ async function handleUpdateIncome(request) {
 }
 
 
+async function handleIncomePin(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const id = String(body.incomeId || '').trim().slice(0, 150);
+    if (!id || id.includes('/')) return errorResponse('Identifiant de revenu invalide.', 400);
+    const ref = adminDb.collection('users').doc(uid).collection('incomes').doc(id);
+    if (!(await ref.get()).exists) return errorResponse('Revenu introuvable.', 404);
+    const isPinned = body.pinned === true;
+    await ref.set({ isPinned, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    return NextResponse.json({ success: true, isPinned });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de modifier cet épinglage.', 400);
+  }
+}
+
+async function handleBudgetPin(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const id = String(body.budgetId || '').trim().slice(0, 150);
+    if (!id || id.includes('/')) return errorResponse('Identifiant de budget invalide.', 400);
+    const ref = adminDb.collection('users').doc(uid).collection('budgets').doc(id);
+    if (!(await ref.get()).exists) return errorResponse('Budget introuvable.', 404);
+    const isPinned = body.pinned === true;
+    await ref.set({ isPinned, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    return NextResponse.json({ success: true, isPinned });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de modifier cet épinglage.', 400);
+  }
+}
+
 async function handleUpsertBudget(request) {
   try {
     const { uid } = await authenticate(request);
@@ -7023,6 +7055,7 @@ const ROUTES = {
   'incomes/add': { POST: handleCreateIncome },
   'incomes/update': { POST: handleUpdateIncome },
   'incomes/delete': { POST: handleDeleteIncome },
+  'incomes/pin': { POST: handleIncomePin },
   'projects/create': { POST: handleCreateProject },
   'cotisations/invite': { GET: handleCotisationInvitePreview },
   'cotisations/scheduler': { GET: handleCotisationsScheduler, POST: handleCotisationsScheduler },
@@ -7040,6 +7073,7 @@ const ROUTES = {
   'projects/update': { POST: handleUpdateProject },
   'projects/delete': { POST: handleDeleteProject },
   'budgets/upsert': { POST: handleUpsertBudget },
+  'budgets/pin': { POST: handleBudgetPin },
   'financial-targets': { GET: handleFinancialTargets, POST: handleFinancialTargets },
   'budgets/templates': { GET: handleBudgetTemplates, POST: handleBudgetTemplates, DELETE: handleBudgetTemplates },
   'goals/create': { POST: handleCreateGoal },

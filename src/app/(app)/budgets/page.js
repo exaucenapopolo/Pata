@@ -1,8 +1,8 @@
 /* eslint-disable react/no-unescaped-entities */
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { PiggyBank, Pencil, Landmark, ChevronRight, MessageCircle, BookmarkPlus, Trash2, Layers3 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { PiggyBank, Pencil, Landmark, ChevronRight, MessageCircle, BookmarkPlus, Trash2, Layers3, Pin } from 'lucide-react';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { Button } from '@/components/ui/Button';
@@ -17,7 +17,7 @@ import { useProfile } from '@/hooks/useProfile';
 import { useBudgets } from '@/hooks/useBudgets';
 import { useExpenses } from '@/hooks/useExpenses';
 import { useIncomes } from '@/hooks/useIncomes';
-import { upsertBudget, deleteBudget, getBudgetTemplates, saveBudgetTemplate, applyBudgetTemplate, removeBudgetTemplate } from '@/lib/firestore/budgets';
+import { upsertBudget, deleteBudget, getBudgetTemplates, saveBudgetTemplate, applyBudgetTemplate, removeBudgetTemplate, setBudgetPinned } from '@/lib/firestore/budgets';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { formatCurrency, getLocalMonth, normalizeExpenseCategoryId } from '@/lib/utils';
 import { buildBudgetSuggestions } from '@/lib/financialPlanning';
@@ -54,6 +54,38 @@ export default function BudgetsPage() {
   const [templateMessage, setTemplateMessage] = useState('');
   const [budgetPersona, setBudgetPersona] = useState('employee');
   const [applySuggestedAfterSave, setApplySuggestedAfterSave] = useState(false);
+
+  const [pinMenuId, setPinMenuId] = useState(null);
+  const [pinSavingId, setPinSavingId] = useState('');
+  const pinPressTimerRef = useRef(null);
+  const suppressPinClickRef = useRef(false);
+  const clearPinPressTimer = () => {
+    if (pinPressTimerRef.current) window.clearTimeout(pinPressTimerRef.current);
+    pinPressTimerRef.current = null;
+  };
+  const startBudgetLongPress = (event, category) => {
+    if (event.target.closest('button:not([data-pin-long-press]),a,input,select,textarea')) return;
+    clearPinPressTimer();
+    suppressPinClickRef.current = false;
+    pinPressTimerRef.current = window.setTimeout(() => {
+      suppressPinClickRef.current = true;
+      setPinMenuId(category.id);
+    }, 900);
+  };
+  const openBudgetDetails = (event, category) => {
+    if (suppressPinClickRef.current) { suppressPinClickRef.current = false; event.preventDefault(); return; }
+    setPinMenuId(null);
+    setDetails(category);
+  };
+  const toggleBudgetPinned = async (category) => {
+    setPinSavingId(category.id);
+    try {
+      await setBudgetPinned(user.uid, category.budgetId, !category.isPinned);
+      setPinMenuId(null);
+    } catch (pinError) {
+      setTemplateMessage(pinError.message || 'Impossible de modifier cet épinglage.');
+    } finally { setPinSavingId(''); }
+  };
 
   useEffect(() => {
     let active = true;
@@ -92,7 +124,7 @@ export default function BudgetsPage() {
       const spent = spentByCategory[c.id] || 0;
       const allocated = budget?.amount || 0;
       const usage = allocated > 0 ? (spent / allocated) * 100 : spent > 0 ? 100 : 0;
-      return { ...c, budgetId: budget?.id, allocated, spent, usage, remaining: allocated - spent, expenses: monthExpenses.filter((expense) => normalizeExpenseCategoryId(expense.categoryId) === c.id) };
+      return { ...c, budgetId: budget?.id, isPinned: budget?.isPinned === true, allocated, spent, usage, remaining: allocated - spent, expenses: monthExpenses.filter((expense) => normalizeExpenseCategoryId(expense.categoryId) === c.id) };
     });
   }, [budgets, spentByCategory, monthExpenses, expenseCategories]);
 
@@ -106,7 +138,8 @@ export default function BudgetsPage() {
   // la source sélectionnée. Les catégories à zéro restent disponibles dans
   // l’éditeur de modèles, mais ne polluent pas la vue du budget actif.
   const budgetedCategories = useMemo(
-    () => enriched.filter((category) => category.budgetId && Number(category.allocated) > 0),
+    () => enriched.filter((category) => category.budgetId && Number(category.allocated) > 0)
+      .sort((a, b) => Number(Boolean(b.isPinned)) - Number(Boolean(a.isPinned))),
     [enriched]
   );
 
@@ -331,11 +364,18 @@ export default function BudgetsPage() {
 
       <div className="grid gap-3 sm:grid-cols-2">
         {budgetedCategories.map((c) => (
-          <Card key={c.id}>
-            <button type="button" onClick={() => setDetails(c)} className="mb-2 flex w-full items-start justify-between text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-300">
+          <Card
+            key={c.id}
+            onPointerDown={(event) => startBudgetLongPress(event, c)}
+            onPointerUp={clearPinPressTimer}
+            onPointerLeave={clearPinPressTimer}
+            onPointerCancel={clearPinPressTimer}
+            onContextMenu={(event) => { event.preventDefault(); suppressPinClickRef.current = true; setPinMenuId(c.id); }}
+          >
+            <button type="button" data-pin-long-press="true" onClick={(event) => openBudgetDetails(event, c)} className="mb-2 flex w-full items-start justify-between text-left rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-300">
               <div className="flex items-center gap-2">
                 <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: c.color }} />
-                <p className="text-sm font-semibold text-slate-800">{translateText(c.label, language)}</p>
+                <p className="text-sm font-semibold text-slate-800">{translateText(c.label, language)}</p>{c.isPinned && <Pin size={12} className="fill-current text-brand-600" aria-label="Épinglé"/>}
               </div>
               <span className="inline-flex items-center gap-1 text-xs text-slate-400">Détails <ChevronRight size={14} /></span>
             </button>
@@ -373,6 +413,13 @@ export default function BudgetsPage() {
               value={Math.min(100, c.usage)}
               color={c.usage > 100 ? '#ef4444' : c.usage > 80 ? '#f59e0b' : c.color}
             />
+          {pinMenuId === c.id && (
+              <div className="mt-3 flex justify-end border-t border-slate-100 pt-2">
+                <button type="button" onClick={() => toggleBudgetPinned(c)} disabled={pinSavingId === c.id} className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-brand-200 bg-brand-50 px-3 text-xs font-semibold text-brand-800 disabled:opacity-50">
+                  <Pin size={13} className={c.isPinned ? 'fill-current' : ''}/>{c.isPinned ? 'Désépingler' : 'Épingler'}
+                </button>
+              </div>
+            )}
           </Card>
         ))}
       </div>
