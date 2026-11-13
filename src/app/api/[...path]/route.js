@@ -2421,6 +2421,28 @@ function readOptionalIncomeMetadata(body = {}, previous = {}) {
   };
 }
 
+async function handleGlobalFinanceSummary(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const userRef = adminDb.collection('users').doc(uid);
+    const [incomesSnapshot, expensesSnapshot] = await Promise.all([
+      userRef.collection('incomes').aggregate({ total: AggregateField.sum('amount') }).get(),
+      userRef.collection('expenses').aggregate({ total: AggregateField.sum('amount') }).get(),
+    ]);
+    const totalIncome = Number(incomesSnapshot.data()?.total) || 0;
+    const totalExpense = Number(expensesSnapshot.data()?.total) || 0;
+    return NextResponse.json({
+      success: true,
+      totalIncome,
+      totalExpense,
+      globalBalance: totalIncome - totalExpense,
+    });
+  } catch (error) {
+    console.error('[PATA GLOBAL FINANCE SUMMARY]', error.message || error);
+    return errorResponse(error.message || 'Impossible de calculer le solde global.', 502);
+  }
+}
+
 async function handleIncomeSpendTotals(request) {
   try {
     const { uid } = await authenticate(request);
@@ -7905,6 +7927,7 @@ const ROUTES = {
   'forecasts/vital/delete': { POST: handleDeleteVitalForecast },
   'forecasts/duration/save': { POST: handleSaveDurationForecast },
   'forecasts/duration/delete': { POST: handleDeleteDurationForecast },
+  'finance/global-summary': { GET: handleGlobalFinanceSummary },
   'incomes/spent': { POST: handleIncomeSpendTotals },
   'incomes/add': { POST: handleCreateIncome },
   'incomes/update': { POST: handleUpdateIncome },
