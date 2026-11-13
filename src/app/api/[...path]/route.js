@@ -6137,9 +6137,21 @@ async function handleCotisationChatMessages(request) {
     const [groupSnap, memberSnap] = await Promise.all([groupRef.get(), memberRef.get()]);
     if (!groupSnap.exists || !memberSnap.exists || memberSnap.data()?.active === false) return errorResponse('Tu ne fais pas partie de ce groupe.', 403);
     if (memberSnap.data()?.chatAccess !== true) return errorResponse('Débloque d’abord le chat de ce groupe.', 402);
-    const snapshot = await groupRef.collection('chatMessages').orderBy('createdAt', 'desc').limit(50).get();
+    const messagesRef = groupRef.collection('chatMessages');
+    const afterId = String(url.searchParams.get('afterId') || '').trim().slice(0, 150);
+    let snapshot = null;
+    let reset = !afterId;
+    if (afterId) {
+      const cursorSnap = await messagesRef.doc(afterId).get();
+      if (cursorSnap.exists) {
+        snapshot = await messagesRef.orderBy('createdAt', 'asc').startAfter(cursorSnap).limit(50).get();
+      } else {
+        reset = true;
+      }
+    }
+    if (reset) snapshot = await messagesRef.orderBy('createdAt', 'desc').limit(30).get();
     const now = Date.now();
-    const messages = snapshot.docs.map((document) => {
+    let messages = snapshot.docs.map((document) => {
       const data = document.data() || {};
       const expiry = data.expiresAt?.toDate ? data.expiresAt.toDate().getTime() : Date.parse(data.expiresAt || '');
       if (Number.isFinite(expiry) && expiry <= now) return null;
@@ -6151,8 +6163,9 @@ async function handleCotisationChatMessages(request) {
         text: String(data.text || '').slice(0, 1000),
         createdAt: serializeAdminValue(data.createdAt || null),
       };
-    }).filter(Boolean).reverse();
-    return NextResponse.json({ success: true, messages, retentionDays: 30, maxMessageLength: 1000 });
+    }).filter(Boolean);
+    if (reset) messages = messages.reverse();
+    return NextResponse.json({ success: true, messages, reset, retentionDays: 30, maxMessageLength: 1000 });
   } catch (error) {
     return errorResponse(error.message || 'Impossible de charger le chat du groupe.', 400);
   }
@@ -6182,7 +6195,11 @@ async function handleCotisationChatSend(request) {
       }
       if (memberSnap.data()?.chatAccess !== true) throw new Error('Débloque d’abord le chat de ce groupe.');
       if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
+      const groupData = groupSnap.data() || {};
       const memberData = memberSnap.data() || {};
+      const notificationValue = groupData.lastChatNotificationAt;
+      const lastNotificationAt = notificationValue?.toDate ? notificationValue.toDate().getTime() : Date.parse(notificationValue || '');
+      const shouldNotifyMembers = !Number.isFinite(lastNotificationAt) || Date.now() - lastNotificationAt >= 30000;
       const lastValue = memberData.lastChatMessageAt;
       const lastAt = lastValue?.toDate ? lastValue.toDate().getTime() : Date.parse(lastValue || '');
       if (Number.isFinite(lastAt) && Date.now() - lastAt < 1200) throw new Error('Attends un instant avant d’envoyer un autre message.');
@@ -6197,11 +6214,14 @@ async function handleCotisationChatSend(request) {
         lastChatMessageAt: FieldValue.serverTimestamp(),
         chatMessageCount: FieldValue.increment(1),
       });
-      transaction.set(groupRef, { lastChatMessageAt: FieldValue.serverTimestamp() }, { merge: true });
+      transaction.set(groupRef, {
+        lastChatMessageAt: FieldValue.serverTimestamp(),
+        ...(shouldNotifyMembers ? { lastChatNotificationAt: FieldValue.serverTimestamp() } : {}),
+      }, { merge: true });
       return {
         id: messageRef.id, authorName, authorPhotoURL, text: messageText,
-        recipientIds: membersSnap.docs.filter((document) => document.id !== uid && document.data()?.active !== false).map((document) => document.id),
-        groupName: String(groupSnap.data()?.name || 'Chat du groupe').slice(0, 80),
+        recipientIds: shouldNotifyMembers ? membersSnap.docs.filter((document) => document.id !== uid && document.data()?.active !== false).map((document) => document.id) : [],
+        groupName: groupData.name ? String(groupData.name).slice(0, 80) : 'Chat du groupe',
       };
     });
 

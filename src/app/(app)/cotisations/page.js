@@ -45,6 +45,7 @@ export default function CotisationsPage() {
   const [chatBusy, setChatBusy] = useState(false);
   const [chatError, setChatError] = useState('');
   const chatScrollRef = useRef(null);
+  const chatLastMessageIdRef = useRef('');
   const [whatsappForms, setWhatsappForms] = useState({});
   const [groupForm, setGroupForm] = useState({ name: '', contributionAmount: '', expectedMembers: '5', frequency: 'monthly', startDate: today(), dueDay: '30', graceDays: '1', lateFeeType: 'none', lateFeeValue: '' });
   const [orderDrafts, setOrderDrafts] = useState({});
@@ -95,6 +96,7 @@ export default function CotisationsPage() {
       if (targetGroup) {
         setChatGroup(targetGroup);
         setChatMessages([]);
+        chatLastMessageIdRef.current = '';
         setChatDraft('');
         setChatError('');
         setChatLoading(Boolean(targetGroup.chatUnlocked));
@@ -181,6 +183,7 @@ export default function CotisationsPage() {
   const openGroupChat = (group) => {
     setChatGroup(group);
     setChatMessages([]);
+    chatLastMessageIdRef.current = '';
     setChatDraft('');
     setChatError('');
     setChatLoading(Boolean(group.chatUnlocked));
@@ -210,7 +213,10 @@ export default function CotisationsPage() {
     setChatError('');
     try {
       const result = await api('cotisations/chat/send', 'POST', { groupId: chatGroup.id, text: chatDraft });
-      if (result.message) setChatMessages((current) => [...current, result.message].slice(-50));
+      if (result.message) {
+        setChatMessages((current) => [...current, result.message].slice(-50));
+        chatLastMessageIdRef.current = result.message.id;
+      }
       setChatDraft('');
     } catch (error) {
       setChatError(error.message || 'Impossible d’envoyer ce message.');
@@ -222,18 +228,28 @@ export default function CotisationsPage() {
   useEffect(() => {
     if (!chatGroup?.id || !chatGroup.chatUnlocked || !user) return undefined;
     let active = true;
-    const refresh = async () => {
+    const refresh = async (replace = false) => {
       try {
-        const result = await api('cotisations/chat/messages?groupId=' + encodeURIComponent(chatGroup.id));
-        if (active) { setChatMessages(result.messages || []); setChatError(''); }
+        const afterId = replace ? '' : chatLastMessageIdRef.current;
+        const suffix = afterId ? '&afterId=' + encodeURIComponent(afterId) : '';
+        const result = await api('cotisations/chat/messages?groupId=' + encodeURIComponent(chatGroup.id) + suffix);
+        if (active) {
+          if (result.reset || !afterId) {
+            setChatMessages(result.messages || []);
+          } else if (result.messages?.length) {
+            setChatMessages((current) => [...current, ...result.messages].slice(-50));
+          }
+          if (result.messages?.length) chatLastMessageIdRef.current = result.messages[result.messages.length - 1].id;
+          setChatError('');
+        }
       } catch (error) {
         if (active) setChatError(error.message || 'Impossible d’actualiser la discussion.');
       } finally {
         if (active) setChatLoading(false);
       }
     };
-    refresh();
-    const interval = window.setInterval(refresh, 8000);
+    refresh(true);
+    const interval = window.setInterval(() => refresh(false), 10000);
     return () => { active = false; window.clearInterval(interval); };
   }, [chatGroup?.id, chatGroup?.chatUnlocked, user, api]);
 
@@ -480,7 +496,7 @@ export default function CotisationsPage() {
               <>
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-xs text-slate-500">Messages entre les membres · conservation pendant 30 jours</p>
-                  <button type="button" onClick={async () => { setChatLoading(true); try { const result = await api('cotisations/chat/messages?groupId=' + encodeURIComponent(chatGroup.id)); setChatMessages(result.messages || []); setChatError(''); } catch (error) { setChatError(error.message || 'Actualisation impossible.'); } finally { setChatLoading(false); } }} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 text-[11px] font-semibold text-slate-600"><RefreshCw size={12}/> Actualiser</button>
+                  <button type="button" onClick={async () => { setChatLoading(true); try { const result = await api('cotisations/chat/messages?groupId=' + encodeURIComponent(chatGroup.id)); setChatMessages(result.messages || []); chatLastMessageIdRef.current = result.messages?.length ? result.messages[result.messages.length - 1].id : ''; setChatError(''); } catch (error) { setChatError(error.message || 'Actualisation impossible.'); } finally { setChatLoading(false); } }} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 text-[11px] font-semibold text-slate-600"><RefreshCw size={12}/> Actualiser</button>
                 </div>
                 <div ref={chatScrollRef} className="max-h-[52dvh] min-h-[220px] space-y-3 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-3">
                   {chatLoading && !chatMessages.length ? <p className="py-8 text-center text-xs text-slate-500">Chargement des messages…</p>
