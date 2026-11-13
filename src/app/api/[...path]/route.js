@@ -2488,10 +2488,30 @@ async function handleIncomeSpendTotals(request) {
       .map((value) => String(value || '').trim())
       .filter((value) => value && !value.includes('/')))].slice(0, 250);
     const expensesRef = adminDb.collection('users').doc(uid).collection('expenses');
-    const matchingExpenses = [];
 
-    // A filtered SUM on (incomeSourceId, amount) required a missing composite
-    // index. Read only matching rows with Firestore's built-in single-field index.
+    // Preferred path: Firestore performs the SUM server-side, avoiding a read
+    // of every expense document when the composite index is available.
+    try {
+      const totals = await Promise.all(incomeIds.map(async (incomeId) => {
+        const snapshot = await expensesRef
+          .where('incomeSourceId', '==', incomeId)
+          .aggregate({ total: AggregateField.sum('amount') })
+          .get();
+        return { incomeId, spent: Math.max(0, Number(snapshot.data()?.total) || 0) };
+      }));
+      return NextResponse.json({ success: true, totals });
+    } catch (aggregateError) {
+      const message = String(aggregateError?.message || aggregateError);
+      const missingIndex = aggregateError?.code === 9
+        || String(aggregateError?.code || '').toLowerCase().includes('failed-precondition')
+        || /requires an index|index is currently building/i.test(message);
+      if (!missingIndex) throw aggregateError;
+      console.warn('[PATA INCOME BALANCE AGGREGATE FALLBACK]', message.slice(0, 500));
+    }
+
+    // Fallback when a new Firestore installation has not finished building the
+    // composite index. The single-field "in" query needs no custom index.
+    const matchingExpenses = [];
     for (let offset = 0; offset < incomeIds.length; offset += 30) {
       const group = incomeIds.slice(offset, offset + 30);
       const snapshot = await expensesRef.where('incomeSourceId', 'in', group).get();
