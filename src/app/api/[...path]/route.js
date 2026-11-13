@@ -4706,13 +4706,16 @@ async function handleAdminUserDetail(request) {
     const uid = String(url.searchParams.get('uid') || '').slice(0, 150);
     if (!uid || uid.includes('/')) return errorResponse('Compte invalide.', 400);
     const userRef = adminDb.collection('users').doc(uid);
-    const [userDoc, chatsSnap, expensesSnap, incomesSnap, goalsSnap, notificationsSnap] = await Promise.all([
+    const [userDoc, chatsSnap, expensesSnap, incomesSnap, goalsSnap, notificationsSnap, billsSnap, debtsSnap, budgetsSnap] = await Promise.all([
       userRef.get(),
       userRef.collection('ai_chats').orderBy('updatedAt', 'desc').limit(12).get().catch(() => ({ docs: [] })),
       userRef.collection('expenses').orderBy('date', 'desc').limit(10).get().catch(() => ({ docs: [] })),
       userRef.collection('incomes').orderBy('date', 'desc').limit(10).get().catch(() => ({ docs: [] })),
-      userRef.collection('goals').orderBy('createdAt', 'desc').get().catch(() => ({ docs: [] })),
+      userRef.collection('goals').orderBy('createdAt', 'desc').limit(30).get().catch(() => ({ docs: [] })),
       userRef.collection('notifications').orderBy('createdAt', 'desc').limit(5).get().catch(() => ({ docs: [] })),
+      userRef.collection('bills').orderBy('nextDueDate', 'asc').limit(20).get().catch(() => ({ docs: [] })),
+      userRef.collection('debts').orderBy('createdAt', 'desc').limit(30).get().catch(() => ({ docs: [] })),
+      userRef.collection('budgets').orderBy('month', 'desc').limit(30).get().catch(() => ({ docs: [] })),
     ]);
     if (!userDoc.exists) return errorResponse('Compte introuvable.', 404);
     const chats = chatsSnap.docs.map((document) => ({ id: document.id, ...serializeAdminValue(document.data()) }));
@@ -4757,6 +4760,10 @@ async function handleAdminUserDetail(request) {
       recentExpenseVolume: recentExpenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
       recentIncomeVolume: recentIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
       expenses: recentExpenses, incomes: recentIncomes,
+      bills: billsSnap.docs.map((document) => ({ id: document.id, ...serializeAdminValue(document.data()) })),
+      debts: debtsSnap.docs.map((document) => ({ id: document.id, ...serializeAdminValue(document.data()) })),
+      budgets: budgetsSnap.docs.map((document) => ({ id: document.id, ...serializeAdminValue(document.data()) })),
+      userCategory: isPremiumAccount(userDoc.data()) ? 'premium' : 'gratuit',
       notifications: notificationsSnap.docs.map((document) => ({ id: document.id, ...serializeAdminValue(document.data()) })),
     });
   } catch (error) {
