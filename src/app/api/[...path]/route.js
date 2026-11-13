@@ -1994,7 +1994,19 @@ async function handleNotificationScheduler(request) {
     for (const userDoc of usersSnapshot.docs) {
       const userData = userDoc.data();
       try {
-        const openDebts = await userDoc.ref.collection('debts').where('status', 'in', ['active', 'partial', 'late']).get();
+        const storedDebtCount = userData.activeDebtCount;
+        const debtCountReady = typeof storedDebtCount === 'number' && Number.isInteger(storedDebtCount) && storedDebtCount >= 0;
+        let openDebts = { docs: [] };
+        if (!debtCountReady || storedDebtCount > 0) {
+          openDebts = await userDoc.ref.collection('debts')
+            .where('status', 'in', ['active', 'partial', 'late'])
+            .limit(200)
+            .get();
+          if (!debtCountReady) {
+            const activeCount = openDebts.docs.filter((document) => Number(document.data()?.remaining) > 0).length;
+            await userDoc.ref.set({ activeDebtCount: activeCount }, { merge: true });
+          }
+        }
         for (const debtDoc of openDebts.docs) {
           const debt = debtDoc.data() || {};
           const dueDate = String(debt.dueDate || '');
@@ -2079,8 +2091,32 @@ async function handleNotificationScheduler(request) {
         console.warn('[PATA DEBT REMINDER]', userDoc.id, debtReminderError.message || debtReminderError);
       }
       try {
-        const billsSnapshot = await userDoc.ref.collection('bills').get();
-        if (billsSnapshot.empty) {
+        const userBillsRef = userDoc.ref.collection('bills');
+        const billState = await adminDb.runTransaction(async (transaction) => {
+          const profileSnapshot = await transaction.get(userDoc.ref);
+          const profile = profileSnapshot.data() || {};
+          if (profile.activeBillCountInitialized === true
+            && typeof profile.activeBillCount === 'number'
+            && Number.isInteger(profile.activeBillCount)
+            && profile.activeBillCount >= 0) {
+            return { count: profile.activeBillCount, documents: null, shouldInvite: false };
+          }
+          // Migration unique des anciens comptes : le total est ensuite maintenu
+          // transactionnellement à chaque création, désactivation ou paiement ponctuel.
+          const legacyBills = await transaction.get(userBillsRef);
+          const activeCount = legacyBills.docs.filter((document) => document.data()?.active !== false).length;
+          transaction.set(userDoc.ref, {
+            activeBillCount: activeCount,
+            activeBillCountInitialized: true,
+          }, { merge: true });
+          return { count: activeCount, documents: legacyBills.docs, shouldInvite: legacyBills.empty };
+        });
+        const billsSnapshot = billState.documents
+          ? { docs: billState.documents, empty: billState.documents.length === 0 }
+          : billState.count > 0
+            ? await userBillsRef.limit(500).get()
+            : { docs: [], empty: false };
+        if (billState.shouldInvite && billsSnapshot.empty) {
           const setupRef = userDoc.ref.collection('notifications').doc('bill-setup-invitation');
           const shouldInvite = await adminDb.runTransaction(async (transaction) => {
             const existing = await transaction.get(setupRef);
@@ -7737,8 +7773,25 @@ async function handleBillsCreate(request) {
     const { uid } = await authenticate(request);
     const body = await request.json();
     const data = normalizePataBill(body);
-    const ref = adminDb.collection('users').doc(uid).collection('bills').doc();
-    await ref.set({ ...data, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+    const userRef = adminDb.collection('users').doc(uid);
+    const billsRef = userRef.collection('bills');
+    const ref = billsRef.doc();
+    await adminDb.runTransaction(async (transaction) => {
+      const userSnapshot = await transaction.get(userRef);
+      const profile = userSnapshot.data() || {};
+      let nextActiveCount;
+      if (profile.activeBillCountInitialized === true
+        && typeof profile.activeBillCount === 'number'
+        && Number.isInteger(profile.activeBillCount)
+        && profile.activeBillCount >= 0) {
+        nextActiveCount = profile.activeBillCount + 1;
+      } else {
+        const existingBills = await transaction.get(billsRef);
+        nextActiveCount = existingBills.docs.filter((document) => document.data()?.active !== false).length + 1;
+      }
+      transaction.create(ref, { ...data, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+      transaction.set(userRef, { activeBillCount: nextActiveCount, activeBillCountInitialized: true }, { merge: true });
+    });
     return NextResponse.json({ success: true, bill: { id: ref.id, ...data } });
   } catch (error) {
     return errorResponse(error.message || 'Impossible d’enregistrer cette facture.', 400);
@@ -7751,12 +7804,25 @@ async function handleBillsUpdate(request) {
     const body = await request.json();
     const billId = String(body.billId || '').trim();
     if (!billId || billId.includes('/')) return errorResponse('Facture introuvable.', 400);
-    const ref = adminDb.collection('users').doc(uid).collection('bills').doc(billId);
-    const snapshot = await ref.get();
-    if (!snapshot.exists) return errorResponse('Facture introuvable.', 404);
-    const data = normalizePataBill(body, snapshot.data() || {});
-    await ref.update({ ...data, updatedAt: FieldValue.serverTimestamp() });
-    return NextResponse.json({ success: true, bill: { id: billId, ...data } });
+    const userRef = adminDb.collection('users').doc(uid);
+    const ref = userRef.collection('bills').doc(billId);
+    let savedData = null;
+    await adminDb.runTransaction(async (transaction) => {
+      const [snapshot, userSnapshot] = await Promise.all([transaction.get(ref), transaction.get(userRef)]);
+      if (!snapshot.exists) throw new Error('Facture introuvable.');
+      const previous = snapshot.data() || {};
+      const data = normalizePataBill(body, previous);
+      const wasActive = previous.active !== false;
+      const isActive = data.active !== false;
+      const profile = userSnapshot.data() || {};
+      if (wasActive !== isActive && profile.activeBillCountInitialized === true
+        && typeof profile.activeBillCount === 'number' && Number.isInteger(profile.activeBillCount)) {
+        transaction.set(userRef, { activeBillCount: Math.max(0, profile.activeBillCount + (isActive ? 1 : -1)) }, { merge: true });
+      }
+      transaction.update(ref, { ...data, updatedAt: FieldValue.serverTimestamp() });
+      savedData = data;
+    });
+    return NextResponse.json({ success: true, bill: { id: billId, ...savedData } });
   } catch (error) {
     return errorResponse(error.message || 'Impossible de modifier cette facture.', 400);
   }
@@ -7768,10 +7834,21 @@ async function handleBillsDelete(request) {
     const body = await request.json();
     const billId = String(body.billId || '').trim();
     if (!billId || billId.includes('/')) return errorResponse('Facture introuvable.', 400);
-    const ref = adminDb.collection('users').doc(uid).collection('bills').doc(billId);
-    const snapshot = await ref.get();
-    if (!snapshot.exists) return errorResponse('Facture introuvable.', 404);
-    await ref.update({ active: false, updatedAt: FieldValue.serverTimestamp() });
+    const userRef = adminDb.collection('users').doc(uid);
+    const ref = userRef.collection('bills').doc(billId);
+    await adminDb.runTransaction(async (transaction) => {
+      const [snapshot, userSnapshot] = await Promise.all([transaction.get(ref), transaction.get(userRef)]);
+      if (!snapshot.exists) throw new Error('Facture introuvable.');
+      const bill = snapshot.data() || {};
+      if (bill.active === false) return;
+      const profile = userSnapshot.data() || {};
+      transaction.update(ref, { active: false, updatedAt: FieldValue.serverTimestamp() });
+      if (profile.activeBillCountInitialized === true
+        && typeof profile.activeBillCount === 'number'
+        && Number.isInteger(profile.activeBillCount)) {
+        transaction.set(userRef, { activeBillCount: Math.max(0, profile.activeBillCount - 1) }, { merge: true });
+      }
+    });
     return NextResponse.json({ success: true });
   } catch (error) {
     return errorResponse(error.message || 'Impossible de désactiver cette facture.', 400);
@@ -7842,6 +7919,15 @@ async function handleBillsPay(request) {
       }
       if (String(latest.nextDueDate || '') !== dueDate) throw new Error('Cette échéance a déjà été modifiée. Vérifie la facture avant de recommencer.');
       nextDueDate = getNextPataBillDate(dueDate, latest.frequency || 'monthly', latest.dueDay);
+      if (!nextDueDate && latest.active !== false) {
+        const profileSnapshot = await transaction.get(userRef);
+        const profile = profileSnapshot.data() || {};
+        if (profile.activeBillCountInitialized === true
+          && typeof profile.activeBillCount === 'number'
+          && Number.isInteger(profile.activeBillCount)) {
+          transaction.set(userRef, { activeBillCount: Math.max(0, profile.activeBillCount - 1) }, { merge: true });
+        }
+      }
       transaction.set(paymentRef, {
         amount,
         paidDate,
