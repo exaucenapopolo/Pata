@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Activity, ArrowDownLeft, ArrowDownToLine, ArrowUpRight, Bell, CheckCircle2, ChevronRight, CircleDollarSign, Clock3, CreditCard, Database, KeyRound, Loader2, LogOut, Mail, MessageCircle, PiggyBank, RefreshCw, Search, ShieldCheck, Users, Wallet, XCircle } from 'lucide-react';
+import { Activity, ArrowDownLeft, ArrowDownToLine, ArrowUpRight, Bell, CheckCircle2, ChevronRight, CircleDollarSign, Clock3, CreditCard, Database, FileText, KeyRound, Loader2, LogOut, Mail, MessageCircle, PiggyBank, RefreshCw, Search, ShieldCheck, Users, Wallet, XCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/context/LanguageContext';
 
