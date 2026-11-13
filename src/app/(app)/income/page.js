@@ -67,7 +67,7 @@ export default function IncomePage() {
   const { incomes } = useIncomes();
   const { debts } = useDebts();
   const activeReceivableDebts = debts.filter((debt) => debt.type === 'owed_to_me' && ['active', 'partial', 'late'].includes(debt.status) && Number(debt.remaining) > 0);
-  const { expenses } = useExpenses();
+  const { expenses } = useExpenses({ days: 30, limit: 500 });
   const { profile, save } = useProfile();
   const { projects } = useProjects();
   const premiumExpiry = profile?.premiumUntil?.toDate ? profile.premiumUntil.toDate() : new Date(profile?.premiumUntil || 0);
