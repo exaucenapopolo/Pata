@@ -36,7 +36,7 @@ const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => 
 export default function ReportsPage() {
   const { language } = useLanguage();
   const isEnglish = language === 'en';
-  const { expenses } = useExpenses();
+
   const { incomes } = useIncomes();
   const { budgets } = useAllBudgets();
   const { goals } = useGoals();
@@ -44,37 +44,7 @@ export default function ReportsPage() {
   const { profile } = useProfile();
   const { customCategories } = useCustomCategories('expense');
   const { report: weeklyReport } = useWeeklyReport();
-  const weeklyCategoryAnalysis = useMemo(() => {
-    if (!weeklyReport?.weekStart || !weeklyReport?.weekEnd) return [];
-    const currentStart = weeklyReport.weekStart;
-    const currentEnd = weeklyReport.weekEnd;
-    const dateMinusSeven = (value) => {
-      const date = new Date(value + 'T12:00:00');
-      date.setDate(date.getDate() - 7);
-      return iso(date);
-    };
-    const previousStart = weeklyReport.previousWeekStart || dateMinusSeven(currentStart);
-    const previousEnd = weeklyReport.previousWeekEnd || dateMinusSeven(currentEnd);
-    const eligible = (item) => item.neutralFlow !== true
-      && item.flowType !== 'loan_given' && item.categoryId !== 'loan_given';
-    const sumByCategory = (start, end) => {
-      const map = new Map();
-      expenses.filter((item) => item.date >= start && item.date <= end && eligible(item)).forEach((item) => {
-        const id = normalizeExpenseCategoryId(item.categoryId || 'other');
-        map.set(id, (map.get(id) || 0) + (Number(item.amount) || 0));
-      });
-      return map;
-    };
-    const current = sumByCategory(currentStart, currentEnd);
-    const previous = sumByCategory(previousStart, previousEnd);
-    const ids = new Set([...current.keys(), ...previous.keys()]);
-    return [...ids].map((id) => {
-      const nowAmount = current.get(id) || 0;
-      const previousAmount = previous.get(id) || 0;
-      const category = resolveCategory(id, 'expense', customCategories);
-      return { id, label: category.label, amount: nowAmount, previousAmount, change: nowAmount - previousAmount };
-    }).sort((a, b) => Math.abs(b.change) - Math.abs(a.change)).slice(0, 6);
-  }, [expenses, weeklyReport, customCategories]);
+
   const weeklyReportAdvice = (weeklyReport?.advice || []).map((item) => {
     if (String(item).includes('Vérifie les catégories qui ont le plus progressé')) {
       return 'Pata a comparé les dépenses par catégorie et présente les principales évolutions juste en dessous.';
@@ -133,6 +103,44 @@ export default function ReportsPage() {
   }, [periodType, selectedDay, selectedWeekDate, year, customStart, customEnd, month]);
 
   const rangeValid = Boolean(range.start && range.end && range.start <= range.end);
+  const reportsLoadStart = weeklyReport?.previousWeekStart && weeklyReport.previousWeekStart < range.start
+    ? weeklyReport.previousWeekStart : range.start;
+  const { expenses } = useExpenses({
+    startDate: reportsLoadStart,
+    endDate: range.end,
+    limit: 1000,
+  });
+  const weeklyCategoryAnalysis = useMemo(() => {
+    if (!weeklyReport?.weekStart || !weeklyReport?.weekEnd) return [];
+    const currentStart = weeklyReport.weekStart;
+    const currentEnd = weeklyReport.weekEnd;
+    const dateMinusSeven = (value) => {
+      const date = new Date(value + 'T12:00:00');
+      date.setDate(date.getDate() - 7);
+      return iso(date);
+    };
+    const previousStart = weeklyReport.previousWeekStart || dateMinusSeven(currentStart);
+    const previousEnd = weeklyReport.previousWeekEnd || dateMinusSeven(currentEnd);
+    const eligible = (item) => item.neutralFlow !== true
+      && item.flowType !== 'loan_given' && item.categoryId !== 'loan_given';
+    const sumByCategory = (start, end) => {
+      const map = new Map();
+      expenses.filter((item) => item.date >= start && item.date <= end && eligible(item)).forEach((item) => {
+        const id = normalizeExpenseCategoryId(item.categoryId || 'other');
+        map.set(id, (map.get(id) || 0) + (Number(item.amount) || 0));
+      });
+      return map;
+    };
+    const current = sumByCategory(currentStart, currentEnd);
+    const previous = sumByCategory(previousStart, previousEnd);
+    const ids = new Set([...current.keys(), ...previous.keys()]);
+    return [...ids].map((id) => {
+      const nowAmount = current.get(id) || 0;
+      const previousAmount = previous.get(id) || 0;
+      const category = resolveCategory(id, 'expense', customCategories);
+      return { id, label: category.label, amount: nowAmount, previousAmount, change: nowAmount - previousAmount };
+    }).sort((a, b) => Math.abs(b.change) - Math.abs(a.change)).slice(0, 6);
+  }, [expenses, weeklyReport, customCategories]);
   const periodExpenses = useMemo(() => rangeValid ? expenses.filter((item) => item.date >= range.start && item.date <= range.end) : [], [expenses, range, rangeValid]);
   const periodIncomes = useMemo(() => rangeValid ? incomes.filter((item) => {
     const date = item.date || `${item.month || ''}-01`;
