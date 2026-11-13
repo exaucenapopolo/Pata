@@ -14,6 +14,7 @@ import { PinGate } from '@/components/security/PinGate';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { SmsImportCoordinator } from '@/components/SmsImportCoordinator';
 import { AndroidUpdateChecker } from '@/components/AndroidUpdateChecker';
+import { AppFeatureTour } from '@/components/AppFeatureTour';
 
 export default function AppLayout({ children }) {
   const { loading, user } = useAuthGuard();
@@ -41,6 +42,7 @@ export default function AppLayout({ children }) {
       <MobileNav />
       <AssistantButton />
       <PinGate />
+      <AppFeatureTour />
     </div>
   );
 }

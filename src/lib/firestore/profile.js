@@ -33,6 +33,7 @@ export async function ensureUserProfile(user) {
     language: preferredLanguage,
     currencyRates: existing.currencyRates || { XAF: 1, EUR: 1 / 655.957, USD: 1 / 600 },
     currencyRateUpdatedAt: existing.currencyRateUpdatedAt || new Date().toISOString(),
+    ...(created ? { appTourCompleted: false } : {}),
     ...(!existing.createdAt ? { createdAt: serverTimestamp() } : {}),
   };
   const patch = {};

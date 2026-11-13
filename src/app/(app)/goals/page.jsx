@@ -695,7 +695,7 @@ export default function GoalsPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div><h1 className="text-2xl font-bold text-slate-900">Épargne & Objectifs</h1><p className="text-sm text-slate-500">Gère tes objectifs datés ou ta tirelire libre.</p></div>
-        <Button onClick={openCreate} disabled={goalQuotaReached} className={goalQuotaReached ? 'opacity-50 grayscale' : ''}><Plus size={16} /> {goalQuotaReached ? 'Limite atteinte' : 'Créer une épargne'}</Button>
+        <Button onClick={openCreate} data-pata-tour="goal-create" disabled={goalQuotaReached} className={goalQuotaReached ? 'opacity-50 grayscale' : ''}><Plus size={16} /> {goalQuotaReached ? 'Limite atteinte' : 'Créer une épargne'}</Button>
       </div>
       {!premiumActive && (
         <div className={`rounded-xl border p-3 ${goalQuotaReached ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-white'}`}>

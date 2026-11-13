@@ -312,7 +312,7 @@ export default function BudgetsPage() {
             <option value="family">Foyer / famille</option>
             <option value="retired">Retraité</option>
           </select>
-          <Button type="button" variant="outline" size="sm" onClick={openSuggestedBudget} disabled={!enriched.length}><Layers3 size={15}/> Proposer un budget</Button>
+          <Button type="button" variant="outline" size="sm" onClick={openSuggestedBudget} data-pata-tour="budget-plan" disabled={!enriched.length}><Layers3 size={15}/> Proposer un budget</Button>
           <Button type="button" variant="outline" size="sm" onClick={openNewTemplate} disabled={!enriched.length || (!budgetPremium && budgetQuotaReached)}><BookmarkPlus size={15}/> Enregistrer un modèle</Button>
           <MonthPicker value={month} onChange={setMonth} className="w-full sm:w-auto" />
           <select

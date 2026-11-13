@@ -308,7 +308,7 @@ export default function ReportsPage() {
   return (
     <div className="space-y-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
-        <div><h1 className="text-2xl font-bold text-slate-900">Rapports financiers</h1><p className="mt-1 text-sm text-slate-500">Une analyse détaillée de tes opérations, de tes budgets, de ton épargne et de ton portefeuille.</p></div>
+        <div><h1 data-pata-tour="reports-overview" className="text-2xl font-bold text-slate-900">Rapports financiers</h1><p className="mt-1 text-sm text-slate-500">Une analyse détaillée de tes opérations, de tes budgets, de ton épargne et de ton portefeuille.</p></div>
         <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={exportPdf}><FileText size={15}/> PDF</Button><Button variant="outline" onClick={exportExcel}><FileSpreadsheet size={15}/> Excel</Button></div>
       </header>
 

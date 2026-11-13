@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Save, LogOut, Download, FileText, FileSpreadsheet, Bell, ShieldCheck, LockKeyhole, KeyRound, ChevronRight, UserRound, Crown, Sun, Moon, Gift, MessageSquareText, Smartphone, Share2 } from 'lucide-react';
+import { Save, LogOut, Download, FileText, FileSpreadsheet, Bell, ShieldCheck, LockKeyhole, KeyRound, ChevronRight, UserRound, Crown, Sun, Moon, Gift, MessageSquareText, Smartphone, Globe, BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -246,8 +246,8 @@ export default function SettingsPage() {
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white divide-y divide-slate-100">
           <SettingRow icon={LockKeyhole} title="Code secret" description="Verrouille l’accès à ton espace personnel" value="PIN à 4 chiffres" onClick={() => setActivePanel('security')} />
           <SettingRow icon={KeyRound} title="Mot de passe" description={user?.providerData?.some((provider) => provider.providerId === 'password') ? "Modifier ou réinitialiser ton mot de passe" : "Ajouter un mot de passe à ton compte"} onClick={() => setActivePanel('password')} />
-          <SettingRow icon={Bell} title="Notifications" description="Alertes et rappels sur cet appareil" onClick={() => setActivePanel('notifications')} />
-          <SettingRow icon={MessageSquareText} title="Import SMS Mobile Money" description="Détecter les opérations MTN MoMo et Orange Money" onClick={() => setActivePanel('smsImport')} />
+          <SettingRow icon={Bell} title="Notifications" description="Alertes et rappels sur cet appareil" tourTarget="notifications-settings" onClick={() => setActivePanel('notifications')} />
+          <SettingRow icon={MessageSquareText} title="Import SMS Mobile Money" description="Détecter les opérations MTN MoMo et Orange Money" tourTarget="sms-import-settings" onClick={() => setActivePanel('smsImport')} />
         </div>
       </section>
 
@@ -258,8 +258,15 @@ export default function SettingsPage() {
           <SettingRow icon={Smartphone} title="Télécharger l’application Android" description="Installer la version mobile Pata (APK)" onClick={() => router.push('/telecharger')} />
           <SettingRow icon={Download} title="Exporter mes données" description="Télécharger tes opérations et tes bilans" onClick={() => setActivePanel('exports')} />
           <SettingRow icon={Gift} title="Parrainage" description="Ton lien, tes invitations et tes bonus" onClick={() => setActivePanel('referrals')} />
-          <SettingRow icon={Share2} title="Réseaux sociaux" description="Retrouve les pages officielles de Pata" onClick={() => setActivePanel('social')} />
+          <SettingRow icon={Globe} title="Réseaux sociaux" description="Retrouve les pages officielles de Pata" onClick={() => setActivePanel('social')} />
           <SettingRow icon={ShieldCheck} title="Confidentialité et documents" description="Conditions d’utilisation et politique de confidentialité" onClick={() => setActivePanel('legal')} />
+        </div>
+      </section>
+
+      <section className="space-y-2.5">
+        <h2 className="px-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">{isEnglish ? 'Help and discovery' : 'Aide et découverte'}</h2>
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white divide-y divide-slate-100">
+          <SettingRow icon={BookOpen} title={isEnglish ? 'Replay the Pata guide' : 'Revoir le guide de Pata'} description={isEnglish ? 'Take the animated tour of the main features again' : 'Revoir la présentation animée des principales fonctions'} onClick={() => window.dispatchEvent(new Event('pata:app-tour-start'))} />
         </div>
       </section>
 
@@ -402,14 +409,20 @@ export default function SettingsPage() {
         )}
 
         {activePanel === 'social' && (
-          <div className="space-y-2">
-            <a href="https://www.facebook.com/share/1Rd13NJTpL/" target="_blank" rel="noreferrer" className="flex min-h-14 items-center gap-3 rounded-xl border border-slate-200 px-3 py-3 transition hover:bg-slate-50">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><Share2 size={17}/></span>
-              <span className="min-w-0 flex-1"><strong className="block text-sm text-slate-800">Facebook</strong><span className="mt-0.5 block text-[11px] text-slate-500">Page officielle de Pata</span></span><ChevronRight size={16} className="text-slate-400"/>
+          <div className="space-y-3">
+            <a href="https://www.facebook.com/share/1Rd13NJTpL/" target="_blank" rel="noreferrer" aria-label={isEnglish ? 'Follow Pata on Facebook' : 'Suivre Pata sur Facebook'} className="flex min-h-16 items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3.5 py-3 transition hover:border-blue-200 hover:bg-blue-50/40">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#1877F2] text-white shadow-sm">
+                <svg viewBox="0 0 24 24" className="h-6 w-6" aria-hidden="true"><path fill="currentColor" d="M24 12.073C24 5.405 18.627 0 12 0S0 5.405 0 12.073c0 6.019 4.388 11.003 10.125 11.854v-8.385H7.078v-3.469h3.047V9.429c0-3.02 1.792-4.693 4.533-4.693 1.312 0 2.686.236 2.686.236v2.98h-1.513c-1.49 0-1.955.93-1.955 1.883v2.258h3.328l-.532 3.469h-2.796v8.385C19.612 23.076 24 18.092 24 12.073Z"/></svg>
+              </span>
+              <span className="min-w-0 flex-1"><strong className="block text-sm text-slate-900">Facebook</strong><span className="mt-0.5 block text-[11px] text-slate-500">{isEnglish ? 'Follow the official Pata page' : 'Suivre la page officielle de Pata'}</span></span>
+              <ChevronRight size={17} className="shrink-0 text-slate-400"/>
             </a>
-            <a href="https://whatsapp.com/channel/0029VbEP2fSAInPrijieOK3k" target="_blank" rel="noreferrer" className="flex min-h-14 items-center gap-3 rounded-xl border border-slate-200 px-3 py-3 transition hover:bg-slate-50">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><MessageSquareText size={17}/></span>
-              <span className="min-w-0 flex-1"><strong className="block text-sm text-slate-800">Chaîne WhatsApp</strong><span className="mt-0.5 block text-[11px] text-slate-500">Actualités et informations de Pata</span></span><ChevronRight size={16} className="text-slate-400"/>
+            <a href="https://whatsapp.com/channel/0029VbEP2fSAInPrijieOK3k" target="_blank" rel="noreferrer" aria-label={isEnglish ? 'Join the Pata WhatsApp channel' : 'Rejoindre la chaîne WhatsApp de Pata'} className="flex min-h-16 items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3.5 py-3 transition hover:border-emerald-200 hover:bg-emerald-50/40">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#25D366] text-white shadow-sm">
+                <svg viewBox="0 0 24 24" className="h-6 w-6" aria-hidden="true"><path fill="currentColor" d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.198-.347.223-.644.074-.297-.149-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.611-.916-2.207-.242-.579-.487-.5-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.077 4.487.709.306 1.262.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.999-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.002-5.45 4.437-9.884 9.893-9.884 2.644.001 5.127 1.031 6.994 2.899a9.825 9.825 0 0 1 2.893 6.989c-.003 5.45-4.438 9.886-9.897 9.886m8.413-18.297A11.815 11.815 0 0 0 12.017 0C5.503 0 .197 5.305 .194 11.818c0 2.08.543 4.11 1.575 5.9L.1 24l6.43-1.686a11.89 11.89 0 0 0 5.477 1.396h.005c6.514 0 11.82-5.305 11.823-11.819a11.79 11.79 0 0 0-3.471-8.403Z"/></svg>
+              </span>
+              <span className="min-w-0 flex-1"><strong className="block text-sm text-slate-900">WhatsApp</strong><span className="mt-0.5 block text-[11px] text-slate-500">{isEnglish ? 'Join the official Pata news channel' : 'Rejoindre le canal officiel d’actualités Pata'}</span></span>
+              <ChevronRight size={17} className="shrink-0 text-slate-400"/>
             </a>
           </div>
         )}
@@ -429,9 +442,9 @@ export default function SettingsPage() {
   );
 }
 
-function SettingRow({ icon: Icon, title, description, value, onClick }) {
+function SettingRow({ icon: Icon, title, description, value, onClick, tourTarget }) {
   return (
-    <button type="button" onClick={onClick} className="flex min-h-[70px] w-full items-center gap-3 px-3.5 py-3 text-left transition-colors hover:bg-slate-50 active:bg-slate-100 sm:px-4">
+    <button type="button" onClick={onClick} data-pata-tour={tourTarget || undefined} className="flex min-h-[70px] w-full items-center gap-3 px-3.5 py-3 text-left transition-colors hover:bg-slate-50 active:bg-slate-100 sm:px-4">
       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700"><Icon size={17}/></span>
       <span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold text-slate-800">{title}</span><span className="mt-1 block text-[11px] leading-4 text-slate-500">{description}</span></span>
       <span className="flex shrink-0 items-center gap-1.5">{value && <span className="max-w-[88px] truncate text-[10px] font-semibold text-slate-500">{value}</span>}<ChevronRight size={16} className="text-slate-400"/></span>

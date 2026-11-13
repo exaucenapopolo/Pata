@@ -396,7 +396,7 @@ export default function DashboardPage() {
         </div>
         <div className="relative mt-6 border-t border-white/15 pt-4"><p className="text-[11px] font-medium text-emerald-100">Solde global enregistré</p><p className="mt-1 break-words text-3xl font-bold tracking-tight sm:text-4xl">{formatCurrency(globalBalance)}</p><p className="mt-2 text-[10px] text-emerald-100">Variation réelle du solde : revenus et dépenses, prêts et dettes compris.</p></div>
       </section>
-      <section>
+      <section data-pata-tour="dashboard-overview">
         <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-bold text-slate-900">Actions rapides</h2><span className="text-[10px] font-medium text-slate-400">Gérer mon argent</span></div>
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
           <Link href="/expenses?new=1" className="group flex min-h-[112px] flex-col justify-between rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:-translate-y-0.5 hover:border-rose-200 hover:shadow-md active:scale-[0.98]"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-rose-50 text-rose-700"><ArrowUpRight size={19}/></span><span><strong className="block text-xs text-slate-900">Ajouter une dépense</strong><span className="mt-0.5 block text-[10px] text-slate-500">Enregistrer une sortie</span></span></Link>

@@ -743,7 +743,7 @@ export default function IncomePage() {
       <Card>
         <div className="mb-3 flex items-center justify-between">
           <CardTitle>Toutes mes sources de revenus</CardTitle>
-          <Button size="sm" onClick={openNewIncome} disabled={incomeQuotaReached} className={incomeQuotaReached ? "opacity-50 grayscale" : ""}><Plus size={14} /> {incomeQuotaReached ? "Limite atteinte" : "Ajouter"}</Button>
+          <Button size="sm" onClick={openNewIncome} data-pata-tour="income-create" disabled={incomeQuotaReached} className={incomeQuotaReached ? "opacity-50 grayscale" : ""}><Plus size={14} /> {incomeQuotaReached ? "Limite atteinte" : "Ajouter"}</Button>
         </div>
         {incomesWithBalance.length === 0 ? (
           <EmptyState icon={TrendingUp} title="Aucun revenu enregistré" description="Ajoute ton salaire ou une source de revenu." />

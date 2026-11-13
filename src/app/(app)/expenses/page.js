@@ -428,7 +428,7 @@ export default function ExpensesPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <AssistantShortcut label="Analyser mes dépenses" prompt="Analyse mes dépenses enregistrées dans Pata. Mets en évidence les catégories qui pèsent le plus, les évolutions utiles et les pistes réalistes pour mieux gérer mon argent. Ne modifie aucune opération sans me demander confirmation." promptEn="Analyze my recorded expenses in Pata. Highlight the categories that cost me the most, useful spending trends and realistic ways to manage my money better. Do not change any transaction without asking for my confirmation." />
-          <Button onClick={openNew} className="shadow-sm">
+          <Button onClick={openNew} data-pata-tour="expense-create" className="shadow-sm">
             <Plus size={16} /> Nouvelle dépense
           </Button>
         </div>

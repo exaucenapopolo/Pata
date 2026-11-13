@@ -611,7 +611,7 @@ export default function CotisationsPage() {
             <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">Cotisations et tontines</h1>
             <p className="mt-2 text-sm leading-6 text-slate-600">Crée un groupe, invite les membres et suis chaque versement. Chaque paiement est vérifié avant d’être ajouté à la cagnotte.</p>
           </div>
-          <Button onClick={() => setShowCreate((value) => !value)}><Plus size={16}/> Créer un groupe</Button>
+          <Button onClick={() => setShowCreate((value) => !value)} data-pata-tour="cotisation-create"><Plus size={16}/> Créer un groupe</Button>
         </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-3">
           <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Mes groupes</p><p className="mt-1 text-lg font-bold text-slate-900">{totalInGroups}</p></div>
