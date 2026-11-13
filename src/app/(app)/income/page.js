@@ -188,6 +188,38 @@ export default function IncomePage() {
   const totalAvailable = activeIncomes.reduce((s, i) => s + i.remaining, 0);
   const cashPocketBalances = useMemo(() => incomesWithBalance.filter((item) => item.cashPocket === true), [incomesWithBalance]);
   const cashAvailable = cashPocketBalances.reduce((sum, item) => sum + item.remaining, 0);
+  const cashflowForecast = useMemo(() => {
+    const today = todayIso();
+    const start = new Date(today + 'T12:00:00');
+    start.setDate(start.getDate() - 29);
+    const startKey = start.getFullYear() + '-' + String(start.getMonth() + 1).padStart(2, '0') + '-' + String(start.getDate()).padStart(2, '0');
+    const recentOutflows = expenses.filter((item) => {
+      const date = String(item.date || '').slice(0, 10);
+      return date >= startKey && date <= today
+        && item.flowType !== 'cash_withdrawal'
+        && item.cashWithdrawal !== true
+        && item.status !== 'pending_confirmation'
+        && Number(item.amount) > 0;
+    });
+    const totalOutflows = recentOutflows.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+    const firstDate = recentOutflows.map((item) => String(item.date || '').slice(0, 10)).filter(Boolean).sort()[0];
+    const observedDays = firstDate
+      ? Math.max(1, Math.min(30, Math.floor((Date.parse(today + 'T12:00:00') - Date.parse(firstDate + 'T12:00:00')) / 86400000) + 1))
+      : 30;
+    const averageDailyOutflow = totalOutflows / observedDays;
+    const availableNow = Math.max(0, (Number(totalAvailable) || 0) + (Number(cashAvailable) || 0));
+    return {
+      availableNow,
+      totalOutflows,
+      observedDays,
+      averageDailyOutflow,
+      projections: [3, 7, 30].map((days) => ({
+        days,
+        plannedOutflow: Math.round(averageDailyOutflow * days),
+        remaining: Math.round(availableNow - averageDailyOutflow * days),
+      })),
+    };
+  }, [expenses, totalAvailable, cashAvailable]);
   const currentMonthKey = todayMonth();
   const premiumUntilDate = profile?.premiumUntil?.toDate ? profile.premiumUntil.toDate() : new Date(profile?.premiumUntil || 0);
   const premiumActive = Number.isFinite(premiumUntilDate.getTime()) && premiumUntilDate > new Date();
@@ -536,6 +568,36 @@ export default function IncomePage() {
           {incomeQuotaReached && <div className="mt-3 flex flex-wrap items-center justify-between gap-2"><p className="text-xs text-amber-800">Tu as utilisé tes deux créations de revenus pour ce mois.</p><Button type="button" size="sm" onClick={() => window.location.assign('/premium')}>Passer à Premium</Button></div>}
         </div>
       )}
+
+      <Card>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle>Prévision de trésorerie</CardTitle>
+            <p className="mt-1 max-w-2xl text-xs leading-5 text-slate-500">Si tu gardes le rythme de sorties observé récemment, voici ce qu’il pourrait te rester dans 3, 7 ou 30 jours, sans nouveau revenu.</p>
+          </div>
+          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">Basée sur les 30 derniers jours</span>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+          <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+            <p className="text-[11px] text-slate-500">Disponible maintenant</p>
+            <p className="mt-1 text-sm font-bold text-slate-900">{formatCurrency(cashflowForecast.availableNow)}</p>
+          </div>
+          <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+            <p className="text-[11px] text-slate-500">Sorties moyennes / jour</p>
+            <p className="mt-1 text-sm font-bold text-slate-900">{formatCurrency(Math.round(cashflowForecast.averageDailyOutflow))}</p>
+          </div>
+          {cashflowForecast.projections.map((item) => (
+            <div key={item.days} className="rounded-xl border border-slate-100 p-3">
+              <p className="text-[11px] text-slate-500">Dans {item.days} jours</p>
+              <p className={'mt-1 text-sm font-bold ' + (item.remaining < 0 ? 'text-red-600' : 'text-emerald-700')}>{item.remaining < 0 ? 'Déficit estimé : ' + formatCurrency(Math.abs(item.remaining)) : formatCurrency(item.remaining)}</p>
+              <p className="mt-1 text-[10px] text-slate-400">Sorties prévues : {formatCurrency(item.plannedOutflow)}</p>
+            </div>
+          ))}
+        </div>
+        {cashflowForecast.totalOutflows <= 0
+          ? <p className="mt-3 text-xs text-amber-700">Pas encore de sortie exploitable sur la période. Enregistre tes dépenses pour obtenir une estimation plus pertinente.</p>
+          : <p className="mt-3 text-[11px] text-slate-400">Calcul fondé sur {cashflowForecast.observedDays} jour(s) d’observation et les sorties enregistrées. Les revenus futurs et les dépenses exceptionnelles ne sont pas anticipés.</p>}
+      </Card>
 
       {Array.isArray(profile?.vitalForecastHistory) && profile.vitalForecastHistory.length > 0 && (
         <Card>
