@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, Camera, Check, Clock3, FileText, ImagePlus, Pencil, Plus, Receipt, Trash2 } from 'lucide-react';
+import { CalendarDays, Camera, Check, Clock3, FileText, ImagePlus, Loader2, Pencil, Plus, Receipt, Trash2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/context/LanguageContext';
 import { translateText } from '@/lib/i18n/translations';
@@ -121,11 +121,13 @@ export default function BillsPage() {
   const monthlyTotal = useMemo(() => activeBills.reduce((sum, bill) => sum + monthlyEquivalent(bill), 0), [activeBills]);
 
   const openCreate = () => {
+    setScanFeedback(''); setScanError(false);
     setForm(makeEmptyBill());
     setShowEditor(true);
   };
 
   const openEdit = (bill) => {
+    setScanFeedback(''); setScanError(false);
     setForm({
       id: bill.id,
       name: bill.name || '',
