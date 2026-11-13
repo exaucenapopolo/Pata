@@ -5,6 +5,10 @@ import { db, auth } from '@/lib/firebase/client';
 
 const col = (uid) => collection(db, 'users', uid, 'incomes');
 
+function notifyIncomeBalancesChanged() {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('pata:income-balances-refresh'));
+}
+
 export function subscribeIncomes(uid, cb) {
   const q = query(col(uid), orderBy('date', 'desc'));
   return onSnapshot(q, (snap) => {
@@ -23,6 +27,7 @@ export async function createIncome(uid, data) {
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok || !result.success) throw new Error(result.error || 'Impossible d’enregistrer ce revenu.');
+  notifyIncomeBalancesChanged();
   return result;
 }
 
@@ -38,6 +43,7 @@ export async function deleteIncome(uid, id) {
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de supprimer ce revenu.');
+  notifyIncomeBalancesChanged();
   return result;
 }
 
@@ -53,6 +59,7 @@ export async function updateIncome(uid, id, data) {
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de modifier ce revenu.');
+  notifyIncomeBalancesChanged();
   return { id: result.id || id };
 }
 
