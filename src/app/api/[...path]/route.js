@@ -17,6 +17,7 @@ import { computeGoalPlan, GOAL_LATE_PENALTY_RATE, GOAL_PENALTY_EFFECTIVE_DATE } 
 import { COTISATION_CHAT_PACK_PRICE, COTISATION_CHAT_PACK_SIZE, summarizeCotisationChatQuota, consumeCotisationChatQuota, sanitizeCotisationChatMessage, cotisationChatExpiry } from '@/lib/cotisations/chatPolicy.mjs';
 import {
   sendPataEmail, welcomeEmail, savingsCreatedEmail, customAdminEmail, pinResetEmail, referralJoinedEmail, referralRewardActivatedEmail,
+  getResendEmailConfigurationStatus,
   cotisationCreatedEmail, cotisationJoinedEmail, cotisationOwnerJoinedEmail, cotisationStartedEmail, cotisationTurnEmail, cotisationDueEmail, cotisationContributionPaidEmail, financialReminderEmail,
 } from '@/lib/email/resend';
 
@@ -5251,6 +5252,17 @@ async function buildAdminEmailHighlights(uid) {
   };
 }
 
+async function handleAdminEmailStatus(request) {
+  try {
+    await requireAdmin(request);
+    const status = await getResendEmailConfigurationStatus();
+    return NextResponse.json({ success: true, ...status });
+  } catch (error) {
+    console.error('[PATA ADMIN EMAIL STATUS]', error.message || error);
+    return errorResponse(error.message || 'Impossible de vérifier la configuration e-mail.', 502);
+  }
+}
+
 async function handleAdminEmailSend(request) {
   try {
     const admin = await requireAdmin(request);
@@ -7729,6 +7741,7 @@ const ROUTES = {
   'admin/withdrawal/approve': { POST: handleAdminApproveWithdrawal },
   'admin/withdrawal/reject': { POST: handleAdminRejectWithdrawal },
   'admin/notifications/broadcast': { POST: handleAdminBroadcast },
+  'admin/email/status': { GET: handleAdminEmailStatus },
   'admin/email/send': { POST: handleAdminEmailSend },
   'email/welcome': { POST: handleWelcomeEmail },
   'security/pin/status': { GET: handlePinStatus },
