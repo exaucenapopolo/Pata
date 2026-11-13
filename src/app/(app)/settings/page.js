@@ -244,7 +244,7 @@ export default function SettingsPage() {
       <section className="space-y-2.5">
         <h2 className="px-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Sécurité et notifications</h2>
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white divide-y divide-slate-100">
-          <SettingRow icon={LockKeyhole} title="Code secret" description="Verrouille l’accès à ton espace personnel" value="PIN à 4 chiffres" onClick={() => setActivePanel('security')} />
+          <SettingRow icon={LockKeyhole} title="Code secret" description="Verrouille l’accès à ton espace personnel" value="PIN à 4 chiffres" tourTarget="pin-security-settings" onClick={() => setActivePanel('security')} />
           <SettingRow icon={KeyRound} title="Mot de passe" description={user?.providerData?.some((provider) => provider.providerId === 'password') ? "Modifier ou réinitialiser ton mot de passe" : "Ajouter un mot de passe à ton compte"} onClick={() => setActivePanel('password')} />
           <SettingRow icon={Bell} title="Notifications" description="Alertes et rappels sur cet appareil" tourTarget="notifications-settings" onClick={() => setActivePanel('notifications')} />
           <SettingRow icon={MessageSquareText} title="Import SMS Mobile Money" description="Détecter les opérations MTN MoMo et Orange Money" tourTarget="sms-import-settings" onClick={() => setActivePanel('smsImport')} />

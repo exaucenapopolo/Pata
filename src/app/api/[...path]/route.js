@@ -10,6 +10,7 @@ import { dispatchPushNotification } from '@/lib/notifications/dispatcher.mjs';
 import { AI_TOOLS, createExpenseForUser, updateExpenseForUser, deleteExpenseForUser, deleteIncomeForUser, executeAITool, runAutomationForUser, generateWeeklyReportForUser } from '@/lib/ai/financialTools';
 import { generateAudioWithGemini } from '@/lib/ai/geminiTTS';
 import { buildIncomePriorityReminder } from '@/lib/finance/incomePriorities.mjs';
+import { sumIncomeSpendTotals } from '@/lib/finance/incomeBalances.mjs';
 import { chatWithGroqVision, extractBillDataWithGroqVision } from '@/lib/ai/groqVision';
 import { generateImageWithPollinations } from '@/lib/ai/pollinationsImage';
 import { classifyAIRequest, selectAIToolsForIntent, buildCompactAIContext } from '@/lib/ai/compactContext';
@@ -2484,15 +2485,20 @@ async function handleIncomeSpendTotals(request) {
     const { uid } = await authenticate(request);
     const body = await request.json();
     const incomeIds = [...new Set((Array.isArray(body.incomeIds) ? body.incomeIds : [])
-      .map((value) => String(value || '').trim()).filter((value) => value && !value.includes('/')))].slice(0, 120);
-    const userRef = adminDb.collection('users').doc(uid);
-    const totals = await Promise.all(incomeIds.map(async (incomeId) => {
-      const snapshot = await userRef.collection('expenses')
-        .where('incomeSourceId', '==', incomeId)
-        .aggregate({ total: AggregateField.sum('amount') })
-        .get();
-      return { incomeId, spent: Math.max(0, Number(snapshot.data()?.total) || 0) };
-    }));
+      .map((value) => String(value || '').trim())
+      .filter((value) => value && !value.includes('/')))].slice(0, 250);
+    const expensesRef = adminDb.collection('users').doc(uid).collection('expenses');
+    const matchingExpenses = [];
+
+    // A filtered SUM on (incomeSourceId, amount) required a missing composite
+    // index. Read only matching rows with Firestore's built-in single-field index.
+    for (let offset = 0; offset < incomeIds.length; offset += 30) {
+      const group = incomeIds.slice(offset, offset + 30);
+      const snapshot = await expensesRef.where('incomeSourceId', 'in', group).get();
+      matchingExpenses.push(...snapshot.docs.map((document) => document.data() || {}));
+    }
+
+    const totals = sumIncomeSpendTotals(incomeIds, matchingExpenses);
     return NextResponse.json({ success: true, totals });
   } catch (error) {
     console.error('[PATA INCOME BALANCE SUMMARY]', error.message || error);

@@ -12,12 +12,14 @@ const TOUR_STEPS = {
     { target: 'dashboard-overview', href: '/dashboard', eyebrow: 'VUE D’ENSEMBLE', title: 'Bienvenue dans ton espace Pata', description: 'Ton tableau de bord rassemble les informations essentielles : ton solde, tes mouvements récents et les accès rapides aux principales fonctions.', tip: 'Tu peux revenir ici à tout moment pour faire le point sur tes finances.' },
     { target: 'expense-create', href: '/expenses', eyebrow: 'DÉPENSES', title: 'Enregistrer une dépense', description: 'Ouvre ce formulaire pour saisir le montant, la catégorie, la date et les détails utiles. Pata tient ensuite ton historique à jour et t’aide à comprendre où part ton argent.', tip: 'Une dépense peut aussi être liée à un revenu ou à un projet lorsque c’est nécessaire.' },
     { target: 'income-create', href: '/income', eyebrow: 'REVENUS', title: 'Ajouter un revenu', description: 'Enregistre ton salaire, tes ventes, tes prestations ou toute autre entrée d’argent. Tu peux préciser sa source et suivre ce qu’il reste disponible.', tip: 'Ajouter tes premiers revenus aide Pata à proposer des budgets plus pertinents.' },
+    { target: 'bill-create', href: '/bills', eyebrow: 'FACTURES ET ÉCHÉANCES', title: 'Garder tes factures sous contrôle', description: 'Ajoute tes factures régulières ou ponctuelles, indique leur montant et leur prochaine date de paiement. Pata t’aide à anticiper les échéances et à garder ton historique clair.', tip: 'Lorsque tu marques une facture payée, Pata enregistre la dépense correspondante. Aucun paiement n’est prélevé automatiquement.' },
     { target: 'budget-plan', href: '/budgets', eyebrow: 'BUDGETS', title: 'Prévoir avant de dépenser', description: 'Cette rubrique sert à répartir tes revenus entre les catégories de dépenses et à comparer le montant prévu à ce que tu as réellement dépensé.', tip: 'La proposition automatique devient plus utile après l’enregistrement de tes revenus.' },
     { target: 'debt-create', href: '/debts', eyebrow: 'DETTES ET PRÊTS', title: 'Ne perds plus le suivi des remboursements', description: 'Enregistre ici une dette que tu dois ou un prêt que tu as accordé. Pata suit les montants restants, les échéances et les remboursements.', tip: 'Les deux situations sont distinctes : « Nouvelle dette » et « Nouveau prêt ».' },
     { target: 'goal-create', href: '/goals', eyebrow: 'ÉPARGNE', title: 'Préparer tes projets', description: 'Crée un objectif avec un montant à atteindre ou une tirelire libre. Ajoute tes versements et observe ta progression.', tip: 'Tu peux suivre une épargne même sans fixer de date de fin.' },
     { target: 'cotisation-create', href: '/cotisations', eyebrow: 'COTISATIONS ET TONTINES', title: 'Organiser un groupe', description: 'Crée un groupe, définis les règles, invite les participants et suis les versements, les échéances ainsi que les tours de bénéficiaires.', tip: 'Les paiements et les confirmations restent consultables dans l’espace du groupe.' },
     { target: 'reports-overview', href: '/reports', eyebrow: 'RAPPORTS', title: 'Comprendre l’évolution de tes finances', description: 'Les rapports regroupent les analyses de tes revenus, dépenses, budgets et épargnes. Tu peux choisir une période et exporter tes bilans.', tip: 'Compare plusieurs périodes pour mieux repérer les changements.' },
-    { target: 'notifications-settings', href: '/settings', eyebrow: 'NOTIFICATIONS', title: 'Recevoir les rappels utiles', description: 'Dans Paramètres, ouvre Notifications pour gérer les alertes sur cet appareil et les rappels concernant tes opérations et échéances.', tip: 'Les autorisations du téléphone restent sous ton contrôle.' },
+    { target: 'pin-security-settings', href: '/settings', eyebrow: 'SÉCURITÉ', title: 'Protéger ton espace avec un code secret', description: 'Dans Paramètres, ouvre Code secret pour activer ou modifier ton PIN à 4 chiffres et renforcer la protection de ton espace personnel.', tip: 'Choisis un code facile à retenir pour toi, mais ne le partage avec personne.' },
+    { target: 'notifications-settings', href: '/settings', eyebrow: 'NOTIFICATIONS', title: 'Recevoir les rappels utiles', description: 'Dans Paramètres, ouvre Notifications pour gérer les alertes de Pata et les rappels de factures, dettes et cotisations.', tip: 'Vérifie aussi que les notifications de Pata sont autorisées dans les réglages de ton téléphone.' },
     { target: 'sms-import-settings', href: '/settings', eyebrow: 'IMPORT SMS MOBILE MONEY', title: 'Gagner du temps avec la détection des SMS', description: 'Sur Android, Pata peut reconnaître les SMS de transaction MTN MoMo et Orange Money pour t’aider à importer les opérations, après autorisation.', tip: 'Cette fonction est facultative : tu peux continuer à saisir tes opérations manuellement.' },
     { target: 'assistant-entry', href: '/dashboard', eyebrow: 'ASSISTANTE FINANCIÈRE', title: 'Tu peux aussi poser tes questions à Mč', description: 'Ouvre l’assistante depuis ce bouton pour demander une explication de tes chiffres, des pistes d’amélioration ou de l’aide pour utiliser Pata.', tip: 'Plus tes opérations sont bien renseignées, plus les conseils peuvent tenir compte de ta situation.' },
   ],
@@ -25,12 +27,14 @@ const TOUR_STEPS = {
     { target: 'dashboard-overview', href: '/dashboard', eyebrow: 'OVERVIEW', title: 'Welcome to your Pata space', description: 'Your dashboard brings together the essentials: your balance, recent activity and shortcuts to the main features.', tip: 'Come back here anytime to review your finances.' },
     { target: 'expense-create', href: '/expenses', eyebrow: 'EXPENSES', title: 'Record an expense', description: 'Open this form to enter the amount, category, date and useful details. Pata keeps your history up to date and helps you understand where your money goes.', tip: 'An expense can also be linked to an income source or a project when needed.' },
     { target: 'income-create', href: '/income', eyebrow: 'INCOME', title: 'Add an income', description: 'Record your salary, sales, services or any other incoming money. You can specify its source and track what remains available.', tip: 'Adding your first income entries helps Pata suggest more relevant budgets.' },
+    { target: 'bill-create', href: '/bills', eyebrow: 'BILLS AND DUE DATES', title: 'Keep your bills under control', description: 'Add recurring or one-off bills, enter their amounts and next due dates. Pata helps you anticipate payments and keep your history clear.', tip: 'When you mark a bill as paid, Pata records the related expense. It never withdraws money automatically.' },
     { target: 'budget-plan', href: '/budgets', eyebrow: 'BUDGETS', title: 'Plan before you spend', description: 'Use this area to allocate income across spending categories and compare planned amounts with actual expenses.', tip: 'Automatic suggestions become more useful after you have recorded income.' },
     { target: 'debt-create', href: '/debts', eyebrow: 'DEBTS AND LOANS', title: 'Keep track of repayments', description: 'Record money you owe or a loan you have given. Pata tracks remaining balances, due dates and repayments.', tip: 'These are separate actions: “New debt” and “New loan”.' },
     { target: 'goal-create', href: '/goals', eyebrow: 'SAVINGS', title: 'Plan for your goals', description: 'Create a savings target or a flexible savings pot. Add deposits and follow your progress.', tip: 'You can track savings without setting an end date.' },
     { target: 'cotisation-create', href: '/cotisations', eyebrow: 'GROUP CONTRIBUTIONS', title: 'Organise a savings group', description: 'Create a group, set its rules, invite participants and follow contributions, due dates and payout turns.', tip: 'Payments and confirmations remain available in the group space.' },
     { target: 'reports-overview', href: '/reports', eyebrow: 'REPORTS', title: 'Understand your financial progress', description: 'Reports bring together analyses of your income, expenses, budgets and savings. Choose a period and export your summaries.', tip: 'Compare periods to spot meaningful changes.' },
-    { target: 'notifications-settings', href: '/settings', eyebrow: 'NOTIFICATIONS', title: 'Get useful reminders', description: 'In Settings, open Notifications to manage alerts on this device and reminders about transactions and due dates.', tip: 'Phone permissions always remain under your control.' },
+    { target: 'pin-security-settings', href: '/settings', eyebrow: 'SECURITY', title: 'Protect your space with a passcode', description: 'In Settings, open Passcode to enable or change your 4-digit PIN and add protection to your personal space.', tip: 'Choose a code you can remember, and never share it.' },
+    { target: 'notifications-settings', href: '/settings', eyebrow: 'NOTIFICATIONS', title: 'Get useful reminders', description: 'In Settings, open Notifications to manage Pata alerts and reminders for bills, debts and group contributions.', tip: 'Also make sure Pata notifications are allowed in your phone settings.' },
     { target: 'sms-import-settings', href: '/settings', eyebrow: 'MOBILE MONEY SMS IMPORT', title: 'Save time by detecting transaction messages', description: 'On Android, Pata can recognise MTN MoMo and Orange Money transaction SMS messages to help import activity, after you grant permission.', tip: 'This feature is optional: you can keep entering transactions manually.' },
     { target: 'assistant-entry', href: '/dashboard', eyebrow: 'FINANCIAL ASSISTANT', title: 'You can also ask Mč questions', description: 'Open the assistant from this button to ask about your figures, get ideas for improvement or learn how to use Pata.', tip: 'The more accurately you record transactions, the more relevant its guidance can be.' },
   ],
@@ -75,6 +79,13 @@ function AppFeatureTourContent({ startRequest }) {
     }
   }, [router]);
 
+  // Le composant du guide reçoit directement l'action du bouton Paramètres.
+  // Le parent ne relaie l'événement que lorsque cette limite d'erreur doit être réinitialisée.
+  useEffect(() => {
+    window.addEventListener('pata:app-tour-start', startTour);
+    return () => window.removeEventListener('pata:app-tour-start', startTour);
+  }, [startTour]);
+
   useEffect(() => {
     if (!user || pathname !== '/dashboard' || autoStartCheckedRef.current) return undefined;
     autoStartCheckedRef.current = true;
@@ -88,7 +99,7 @@ function AppFeatureTourContent({ startRequest }) {
 
     ensureUserProfile(user)
       .then((profile) => {
-        if (cancelled || locallyCompleted || profile?.appTourCompleted !== false) return;
+        if (cancelled || locallyCompleted || profile?.appTourCompleted === true) return;
         setStepIndex(0);
         targetElementRef.current = null;
         setTargetRect(null);
@@ -97,6 +108,13 @@ function AppFeatureTourContent({ startRequest }) {
       })
       .catch((error) => {
         console.warn('[PATA APP TOUR PROFILE INIT]', error?.message || error);
+        // Le guide reste accessible même si le profil Firestore est momentanément indisponible.
+        if (cancelled || locallyCompleted) return;
+        setStepIndex(0);
+        targetElementRef.current = null;
+        setTargetRect(null);
+        setCalloutPosition(null);
+        setActive(true);
       });
 
     return () => {
@@ -163,19 +181,11 @@ function AppFeatureTourContent({ startRequest }) {
         }
         attempts += 1;
         if (attempts < 24) { timer = window.setTimeout(locate, 100); return; }
-        const fallback = document.querySelector('main h1, main header, main section, main');
-        if (fallback) {
-          targetElementRef.current = fallback;
-          try {
-            fallback.scrollIntoView?.({ behavior: 'smooth', block: 'center', inline: 'nearest' });
-          } catch (error) {
-            console.warn('[PATA APP TOUR FALLBACK SCROLL]', error?.message || error);
-          }
-          timer = window.setTimeout(() => measure(fallback), 360);
-        } else {
-          setViewport({ width: Math.max(1, window.innerWidth), height: Math.max(1, window.innerHeight) });
-          setTargetRect(null);
-        }
+        // Ne jamais mettre en évidence une autre zone par défaut : cela ferait
+        // croire à l’utilisateur que l’explication concerne un mauvais bouton.
+        setViewport({ width: Math.max(1, window.innerWidth), height: Math.max(1, window.innerHeight) });
+        setTargetRect(null);
+        targetElementRef.current = null;
       } catch (error) {
         console.error('[PATA APP TOUR TARGET]', error);
         setViewport({ width: Math.max(1, window.innerWidth), height: Math.max(1, window.innerHeight) });
@@ -217,8 +227,8 @@ function AppFeatureTourContent({ startRequest }) {
     try {
     const panel = calloutRef.current.getBoundingClientRect();
     const margin = 12;
-    const gap = 13;
-    const width = Math.min(360, Math.max(260, viewport.width - margin * 2));
+    const gap = 10;
+    const width = Math.max(1, Math.min(360, viewport.width - margin * 2));
     const panelHeight = Math.min(panel.height, viewport.height - margin * 2);
     const rightSpace = viewport.width - (targetRect.left + targetRect.width) - gap - margin;
     const leftSpace = targetRect.left - gap - margin;
@@ -317,7 +327,7 @@ function AppFeatureTourContent({ startRequest }) {
   const panelStyle = {
     left: calloutPosition?.left ?? 12,
     top: calloutPosition?.top ?? 12,
-    width: calloutPosition?.width ?? Math.min(360, viewport.width - 24),
+    width: calloutPosition?.width ?? Math.max(1, Math.min(360, viewport.width - 24)),
     maxHeight: calloutPosition?.maxHeight ?? Math.min(390, viewport.height * 0.56),
     visibility: 'visible',
   };
@@ -329,12 +339,12 @@ function AppFeatureTourContent({ startRequest }) {
         ? { left: -7, top: calloutPosition.arrowOffset }
         : { right: -7, top: calloutPosition.arrowOffset };
   const arrowClass = calloutPosition?.placement === 'bottom'
-    ? 'absolute h-3.5 w-3.5 rotate-45 rounded-[2px] border-l border-t border-slate-200 bg-white/95'
+    ? 'absolute h-3.5 w-3.5 rotate-45 rounded-[2px] border-l border-t border-slate-200 bg-white/85'
     : calloutPosition?.placement === 'top'
-      ? 'absolute h-3.5 w-3.5 rotate-45 rounded-[2px] border-b border-r border-slate-200 bg-white/95'
+      ? 'absolute h-3.5 w-3.5 rotate-45 rounded-[2px] border-b border-r border-slate-200 bg-white/85'
       : calloutPosition?.placement === 'right'
-        ? 'absolute h-3.5 w-3.5 rotate-45 rounded-[2px] border-b border-l border-slate-200 bg-white/95'
-        : 'absolute h-3.5 w-3.5 rotate-45 rounded-[2px] border-r border-t border-slate-200 bg-white/95';
+        ? 'absolute h-3.5 w-3.5 rotate-45 rounded-[2px] border-b border-l border-slate-200 bg-white/85'
+        : 'absolute h-3.5 w-3.5 rotate-45 rounded-[2px] border-r border-t border-slate-200 bg-white/85';
 
   return (
     <>
@@ -360,14 +370,14 @@ function AppFeatureTourContent({ startRequest }) {
         aria-modal="true"
         aria-labelledby="pata-feature-tour-title"
         aria-describedby="pata-feature-tour-description"
-        className="fixed z-[93] overflow-y-auto rounded-2xl border border-slate-200/90 bg-white/95 p-3.5 text-slate-900 shadow-[0_12px_42px_rgba(2,8,23,0.20)] backdrop-blur-xl transition-[top,left,opacity] duration-250 sm:p-4"
+        className="fixed z-[93] overflow-y-auto rounded-2xl border border-white/70 bg-white/80 p-4 text-slate-900 shadow-[0_16px_48px_rgba(2,8,23,0.24)] backdrop-blur-2xl backdrop-saturate-150 transition-[top,left,opacity] duration-250 sm:p-4"
         style={panelStyle}
       >
         {calloutPosition && <span aria-hidden="true" className={arrowClass} style={arrowStyle}/>}
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><Sparkles size={14}/></span>
-            <p className="truncate text-[9px] font-extrabold uppercase tracking-[0.13em] text-emerald-800">{currentStep.eyebrow}</p>
+            <p className="truncate text-[10px] font-extrabold uppercase tracking-[0.13em] text-emerald-800">{currentStep.eyebrow}</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <span className="text-[10px] font-semibold tabular-nums text-slate-400">{stepIndex + 1}/{steps.length}</span>
@@ -377,19 +387,19 @@ function AppFeatureTourContent({ startRequest }) {
         <div className="mt-2 h-1 overflow-hidden rounded-full bg-slate-100" aria-hidden="true">
           <div className="h-full rounded-full bg-emerald-600 transition-all duration-300" style={{ width: ((stepIndex + 1) / steps.length * 100) + '%' }}/>
         </div>
-        <h2 id="pata-feature-tour-title" className="mt-2.5 text-[15px] font-bold leading-5 tracking-tight text-slate-950 sm:text-base">{currentStep.title}</h2>
-        <p id="pata-feature-tour-description" className="mt-1.5 text-[12px] leading-[1.55] text-slate-600">{currentStep.description}</p>
-        <p className="mt-2.5 border-l-2 border-emerald-400 bg-slate-50 px-2.5 py-2 text-[10px] leading-[1.45] text-slate-600">{currentStep.tip}</p>
+        <h2 id="pata-feature-tour-title" className="mt-2.5 text-base font-bold leading-6 tracking-tight text-slate-950">{currentStep.title}</h2>
+        <p id="pata-feature-tour-description" className="mt-2 text-[13px] leading-[1.6] text-slate-700">{currentStep.description}</p>
+        <p className="mt-3 border-l-2 border-emerald-400 bg-slate-50/70 px-3 py-2.5 text-[11px] leading-[1.5] text-slate-700">{currentStep.tip}</p>
         <div className="mt-3 flex items-center justify-between gap-2">
-          <button type="button" onClick={() => finishTour('skipped')} className="min-h-9 rounded-lg px-2 text-[11px] font-semibold text-slate-500 transition hover:bg-slate-100">{isEnglish ? 'Skip' : 'Passer'}</button>
+          <button type="button" onClick={() => finishTour('skipped')} className="min-h-10 rounded-lg px-2.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-100">{isEnglish ? 'Skip' : 'Passer'}</button>
           <div className="flex items-center gap-1.5">
             {stepIndex > 0 && (
-              <button type="button" onClick={() => goToStep(stepIndex - 1)} className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-slate-200 px-2.5 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-50"><ChevronLeft size={13}/>{isEnglish ? 'Previous' : 'Précédent'}</button>
+              <button type="button" onClick={() => goToStep(stepIndex - 1)} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"><ChevronLeft size={13}/>{isEnglish ? 'Previous' : 'Précédent'}</button>
             )}
             {stepIndex < steps.length - 1 ? (
-              <button type="button" onClick={() => goToStep(stepIndex + 1)} className="inline-flex min-h-9 items-center gap-1 rounded-lg bg-[#075b43] px-3 text-[11px] font-bold text-white shadow-sm transition hover:bg-[#064b38]">{isEnglish ? 'Next' : 'Suivant'} <ChevronRight size={13}/></button>
+              <button type="button" onClick={() => goToStep(stepIndex + 1)} className="inline-flex min-h-10 items-center gap-1 rounded-lg bg-[#075b43] px-3.5 text-xs font-bold text-white shadow-sm transition hover:bg-[#064b38]">{isEnglish ? 'Next' : 'Suivant'} <ChevronRight size={13}/></button>
             ) : (
-              <button type="button" onClick={() => finishTour('completed')} className="inline-flex min-h-9 items-center gap-1 rounded-lg bg-[#075b43] px-3 text-[11px] font-bold text-white shadow-sm transition hover:bg-[#064b38]"><Check size={13}/>{isEnglish ? 'Finish' : 'Terminer'}</button>
+              <button type="button" onClick={() => finishTour('completed')} className="inline-flex min-h-10 items-center gap-1 rounded-lg bg-[#075b43] px-3.5 text-xs font-bold text-white shadow-sm transition hover:bg-[#064b38]"><Check size={13}/>{isEnglish ? 'Finish' : 'Terminer'}</button>
             )}
           </div>
         </div>
@@ -404,7 +414,7 @@ function AppFeatureTourContent({ startRequest }) {
 class AppFeatureTourErrorBoundary extends Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false, revision: 0, startRequest: 0 };
+    this.state = { hasError: false, errorMessage: '', revision: 0, startRequest: 0 };
     this.handleTourRequest = this.handleTourRequest.bind(this);
   }
 
@@ -416,8 +426,11 @@ class AppFeatureTourErrorBoundary extends Component {
     window.removeEventListener('pata:app-tour-start', this.handleTourRequest);
   }
 
-  static getDerivedStateFromError() {
-    return { hasError: true };
+  static getDerivedStateFromError(error) {
+    return {
+      hasError: true,
+      errorMessage: String(error?.message || error || 'Erreur inconnue').slice(0, 240),
+    };
   }
 
   componentDidCatch(error, info) {
@@ -425,9 +438,13 @@ class AppFeatureTourErrorBoundary extends Component {
   }
 
   handleTourRequest() {
+    // En fonctionnement normal, AppFeatureTourContent traite directement l'événement.
+    // Si le composant a planté, le parent le remonte et lui transmet une demande de départ.
+    if (!this.state.hasError) return;
     this.setState((state) => ({
       hasError: false,
-      revision: state.hasError ? state.revision + 1 : state.revision,
+      errorMessage: '',
+      revision: state.revision + 1,
       startRequest: state.startRequest + 1,
     }));
   }
@@ -438,6 +455,7 @@ class AppFeatureTourErrorBoundary extends Component {
         <section className="fixed bottom-4 left-1/2 z-[999] w-[min(420px,calc(100vw-24px))] -translate-x-1/2 rounded-2xl border border-amber-200 bg-white p-4 text-slate-900 shadow-xl" role="alert">
           <p className="text-sm font-semibold">Le guide n’a pas pu s’ouvrir.</p>
           <p className="mt-1 text-xs leading-5 text-slate-600">Le reste de Pata reste disponible. Appuie sur le bouton pour relancer le guide.</p>
+          {this.state.errorMessage && <p className="mt-2 break-words rounded-lg bg-amber-50 px-2.5 py-2 text-[10px] leading-4 text-amber-900">Détail technique : {this.state.errorMessage}</p>}
           <button type="button" onClick={this.handleTourRequest} className="mt-3 min-h-9 rounded-lg bg-[#075b43] px-3 text-xs font-bold text-white">Relancer le guide</button>
         </section>
       );
