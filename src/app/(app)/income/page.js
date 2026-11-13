@@ -715,13 +715,6 @@ export default function IncomePage() {
                   </span>
                 </div>
                 {!inc.isExhausted && <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-brand-500" style={{width: `${inc.amount > 0 ? Math.min(100, (inc.spent / inc.amount) * 100) : 0}%`}}/></div>}
-              {pinMenuId === inc.id && (
-                  <div className="mt-2 flex justify-end border-t border-slate-100 pt-2">
-                    <button type="button" onClick={() => toggleIncomePinned(inc)} disabled={pinSavingId === inc.id} className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-brand-200 bg-brand-50 px-3 text-xs font-semibold text-brand-800 disabled:opacity-50">
-                      <Pin size={13} className={inc.isPinned ? 'fill-current' : ''}/>{inc.isPinned ? 'Désépingler' : 'Épingler'}
-                    </button>
-                  </div>
-                )}
                 </li>
             ))}
           </ul>
@@ -773,6 +766,26 @@ export default function IncomePage() {
           <Button onClick={onApplyBudgets} className="w-full" variant={applied ? 'secondary' : 'primary'} disabled={savingApplied || applied || !isValid}>{applied ? 'Budgets appliqués' : savingApplied ? 'Application…' : 'Appliquer'}</Button>
         </Card>
       )}
+
+      <Modal open={Boolean(pinMenuId)} onClose={() => setPinMenuId(null)} title="Options du revenu">
+        {(() => {
+          const incomeToPin = incomesWithBalance.find((item) => item.id === pinMenuId);
+          if (!incomeToPin) return <p className="text-sm text-slate-500">Ce revenu n’est plus disponible.</p>;
+          return (
+            <div className="space-y-4">
+              <div className="rounded-xl bg-slate-50 p-3">
+                <p className="text-sm font-semibold text-slate-900">{incomeToPin.source || 'Revenu'}</p>
+                <p className="mt-1 text-xs text-slate-500">{formatCurrency(incomeToPin.amount)}</p>
+              </div>
+              <Button type="button" className="w-full" onClick={() => toggleIncomePinned(incomeToPin)} disabled={pinSavingId === incomeToPin.id}>
+                <Pin size={14} className={incomeToPin.isPinned ? 'fill-current' : ''}/>
+                {pinSavingId === incomeToPin.id ? 'Enregistrement…' : incomeToPin.isPinned ? 'Désépingler ce revenu' : 'Épingler ce revenu'}
+              </Button>
+              <Button type="button" variant="outline" className="w-full" onClick={() => setPinMenuId(null)}>Annuler</Button>
+            </div>
+          );
+        })()}
+      </Modal>
 
       <Modal open={!!selectedIncome} onClose={() => setSelectedIncome(null)} title={selectedIncome?.cashPocket ? 'Détail des espèces' : 'Détail du revenu'}>
         {selectedIncome && (() => {

@@ -25,40 +25,6 @@ function getInitial(value = '') {
   return name ? name.charAt(0).toUpperCase() : 'P';
 }
 
-function resizeAvatar(file, maxSize = 800, quality = 0.9) {
-  return new Promise((resolve, reject) => {
-    const sourceUrl = URL.createObjectURL(file);
-    const image = new Image();
-    image.onload = () => {
-      try {
-        let { width, height } = image;
-        const scale = Math.min(1, maxSize / Math.max(width, height));
-        width = Math.max(1, Math.round(width * scale));
-        height = Math.max(1, Math.round(height * scale));
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const context = canvas.getContext('2d');
-        if (!context) throw new Error('Impossible de préparer cette image.');
-        context.drawImage(image, 0, 0, width, height);
-        canvas.toBlob((blob) => {
-          URL.revokeObjectURL(sourceUrl);
-          if (!blob) return reject(new Error('La compression de la photo a échoué.'));
-          resolve(blob);
-        }, 'image/jpeg', quality);
-      } catch (error) {
-        URL.revokeObjectURL(sourceUrl);
-        reject(error);
-      }
-    };
-    image.onerror = () => {
-      URL.revokeObjectURL(sourceUrl);
-      reject(new Error('Le fichier ne contient pas une image valide.'));
-    };
-    image.src = sourceUrl;
-  });
-}
-
 export function ProfilePhotoEditor({ photoURL = '', displayName = '', onSave }) {
   const { language } = useLanguage();
   const isEnglish = language === 'en';
@@ -81,14 +47,13 @@ export function ProfilePhotoEditor({ photoURL = '', displayName = '', onSave }) 
     avatars: 'Avatars',
     upload: 'My photo',
     uploadTitle: 'Upload a photo',
-    uploadHint: 'JPG, PNG or WEBP · 5 MB maximum',
+    uploadHint: 'Any photo format · 5 MB maximum',
     selectFile: 'Choose a file',
     clear: 'Remove photo',
     save: 'Save photo',
     saving: 'Saving…',
     cancel: 'Cancel',
     invalidSize: 'The file is too large. Maximum size: 5 MB.',
-    invalidType: 'Unsupported format. Use JPG, PNG or WEBP.',
     cloudinaryResponse: 'Cloudinary returned an invalid response.',
     uploadFailed: 'The photo could not be uploaded. Check the upload preset and try again.',
     saveFailed: 'The profile photo could not be saved. Please try again.',
@@ -100,14 +65,13 @@ export function ProfilePhotoEditor({ photoURL = '', displayName = '', onSave }) 
     avatars: 'Avatars',
     upload: 'Ma photo',
     uploadTitle: 'Télécharger une photo',
-    uploadHint: 'JPG, PNG ou WEBP · 5 Mo maximum',
+    uploadHint: 'Toute photo · 5 Mo maximum',
     selectFile: 'Choisir un fichier',
     clear: 'Retirer la photo',
     save: 'Enregistrer la photo',
     saving: 'Enregistrement…',
     cancel: 'Annuler',
     invalidSize: 'Le fichier est trop volumineux. Taille maximale : 5 Mo.',
-    invalidType: 'Format non pris en charge. Utilise JPG, PNG ou WEBP.',
     cloudinaryResponse: 'Cloudinary a renvoyé une réponse invalide.',
     uploadFailed: 'La photo n’a pas pu être téléchargée. Vérifie le preset d’envoi puis réessaie.',
     saveFailed: 'La photo de profil n’a pas pu être enregistrée. Réessaie.',
@@ -149,10 +113,6 @@ export function ProfilePhotoEditor({ photoURL = '', displayName = '', onSave }) 
       setError(text.invalidSize);
       return;
     }
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-      setError(text.invalidType);
-      return;
-    }
     setSelectedFile(file);
     setSelectionMode('file');
     setSelectedAvatar('');
@@ -172,11 +132,11 @@ export function ProfilePhotoEditor({ photoURL = '', displayName = '', onSave }) 
       if (selectionMode === 'remove' || removePhoto) {
         nextPhotoURL = null;
       } else if (selectionMode === 'file' && selectedFile) {
-        setProgress(15);
-        const compressed = await resizeAvatar(selectedFile);
-        setProgress(40);
+        setProgress(25);
         const formData = new FormData();
-        formData.append('file', compressed, 'pata-avatar.jpg');
+        // Send the original image to Cloudinary: the browser must not decode or
+        // re-encode it, which rejects valid formats on some devices.
+        formData.append('file', selectedFile, selectedFile.name || 'pata-avatar');
         formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
         formData.append('folder', 'pata/avatars');
         setProgress(60);
@@ -191,7 +151,7 @@ export function ProfilePhotoEditor({ photoURL = '', displayName = '', onSave }) 
           throw new Error(text.cloudinaryResponse);
         }
         setProgress(85);
-        if (!response.ok || !isValidCloudinaryAvatarUrl(result?.secure_url)) {
+        if (!response.ok || result?.resource_type !== 'image' || !isValidCloudinaryAvatarUrl(result?.secure_url)) {
           throw new Error(result?.error?.message || text.uploadFailed);
         }
         nextPhotoURL = result.secure_url;
@@ -268,7 +228,7 @@ export function ProfilePhotoEditor({ photoURL = '', displayName = '', onSave }) 
               <UploadCloud size={28} className="mx-auto text-[#0b5c46]"/>
               <p className="mt-2 text-sm font-semibold text-slate-800">{text.uploadTitle}</p>
               <p className="mt-1 text-xs text-slate-500">{text.uploadHint}</p>
-              <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleFileChange} className="sr-only"/>
+              <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileChange} className="sr-only"/>
               <button type="button" onClick={() => fileInputRef.current?.click()} className="mt-4 inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700 hover:bg-slate-50">
                 <ImagePlus size={14}/>{text.selectFile}
               </button>
