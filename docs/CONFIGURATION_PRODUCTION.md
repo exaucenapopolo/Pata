@@ -39,7 +39,7 @@ Les deux routes exigent `CRON_SECRET`. Configure cette variable dans Vercel pour
 Les canaux sont indépendants :
 - Les notifications push sont envoyées uniquement aux appareils qui ont accepté l'autorisation et possèdent un jeton valide.
 - Les rappels d'échéance par e-mail (dettes, factures et cotisations) sont activés par défaut si le compte possède une adresse e-mail. L'utilisateur peut les désactiver dans Paramètres → Notifications.
-- Le résumé financier quotidien par e-mail est facultatif et désactivé par défaut. Il s'active séparément dans Paramètres → Notifications.
+- Le point financier quotidien par e-mail est facultatif et désactivé par défaut. Il reprend la notification prioritaire du jour ; ce n'est pas un rapport PDF complet. Il s'active séparément dans Paramètres → Notifications.
 - Les confirmations transactionnelles (création de groupe, paiement confirmé, réinitialisation du code secret, etc.) restent distinctes des préférences de rappel.
 
 Les e-mails de dette et de facture qui échouent sont retentés lors de l'exécution quotidienne suivante sans renvoyer inutilement la notification push. Pour une meilleure délivrabilité, vérifie le domaine expéditeur dans Resend. Le domaine `pata-yam.site` peut être utilisé comme expéditeur après validation de ses enregistrements DNS dans Resend ; ne remplace pas l'adresse actuellement configurée avant cette validation.

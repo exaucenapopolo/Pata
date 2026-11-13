@@ -202,9 +202,14 @@ export function cotisationTurnEmail({ name, groupName, frequency, position, cont
   return renderPataEmail({ preheader: 'Ton ordre de passage est disponible.', eyebrow: 'ORDRE DE PASSAGE', headline: isMyTurn ? 'Tu es le bénéficiaire de ce tour.' : 'Ton tour de cotisation est planifié.', bodyHtml, ctaLabel: 'Voir l’ordre et les versements', ctaUrl: '/cotisations' });
 }
 
-export function cotisationDueEmail({ name, groupName, contributionAmount, paidAmount, remainingAmount, dueLabel, graceDays, lateFeeLabel, overdue = false }) {
+export function cotisationDueEmail({ name, groupName, contributionAmount, paidAmount, remainingAmount, dueLabel, graceDays, lateFeeLabel, overdue = false, upcoming = false }) {
+  const timingIntro = overdue
+    ? 'la période de grâce de ta cotisation est arrivée à son terme.'
+    : upcoming
+      ? 'la date limite de contribution de ton groupe est prévue dans trois jours.'
+      : 'la date limite de contribution de ton groupe est aujourd’hui.';
   const bodyHtml = `
-    <p style="margin:0 0 14px;color:#334155;font-size:14px;line-height:1.75;">Bonjour ${escapeEmailHtml(name || '')}, ${overdue ? 'la période de grâce de ta cotisation est arrivée à son terme.' : 'la date limite de contribution de ton groupe approche aujourd’hui.'} Nous t’écrivons pour que tu puisses vérifier ta situation avant que la période ne soit clôturée.</p>
+    <p style="margin:0 0 14px;color:#334155;font-size:14px;line-height:1.75;">Bonjour ${escapeEmailHtml(name || '')}, ${timingIntro} Nous t’écrivons pour que tu puisses vérifier ta situation avant la clôture de la période.</p>
     ${cotisationDetailsTable([
       ['Groupe', groupName],
       ['Montant prévu pour toi', Number(contributionAmount || 0).toLocaleString('fr-FR') + ' FCFA'],
@@ -214,8 +219,27 @@ export function cotisationDueEmail({ name, groupName, contributionAmount, paidAm
       ['Délai de grâce défini par le chef', String(graceDays ?? 0) + ' jour(s)'],
       ['Règle de retard', lateFeeLabel || 'Aucune majoration'],
     ])}
-    <p style="margin:0;color:#475569;font-size:13px;line-height:1.75;">${overdue ? 'Selon les règles du groupe, une majoration peut maintenant s’appliquer à ton prochain versement. Son montant exact sera affiché avant de confirmer le paiement.' : 'Tu peux cotiser petit à petit depuis Pata. Le total versé sera mis à jour uniquement après confirmation effective du paiement par le service de paiement.'} Si tu as déjà effectué un versement, vérifie son statut dans ton espace avant de recommencer.</p>`;
-  return renderPataEmail({ preheader: overdue ? 'La période de grâce de ta cotisation est terminée.' : 'La date limite de cotisation est arrivée.', eyebrow: 'RAPPEL DE COTISATION', headline: overdue ? 'Pense à régulariser ta contribution.' : 'La date de cotisation est arrivée.', bodyHtml, ctaLabel: 'Voir ma cotisation', ctaUrl: '/cotisations' });
+    <p style="margin:0;color:#475569;font-size:13px;line-height:1.75;">${overdue
+      ? 'Selon les règles du groupe, une majoration peut maintenant s’appliquer à ton prochain versement. Son montant exact sera affiché avant de confirmer le paiement.'
+      : upcoming
+        ? 'Tu disposes encore de trois jours pour organiser ton versement. Tu peux cotiser petit à petit depuis Pata.'
+        : 'Tu peux cotiser petit à petit depuis Pata. Le total versé sera mis à jour uniquement après confirmation effective du paiement par le service de paiement.'} Si tu as déjà effectué un versement, vérifie son statut dans ton espace avant de recommencer.</p>`;
+  return renderPataEmail({
+    preheader: overdue
+      ? 'La période de grâce de ta cotisation est terminée.'
+      : upcoming
+        ? 'Ta cotisation arrive à échéance dans trois jours.'
+        : 'La date limite de cotisation est arrivée.',
+    eyebrow: 'RAPPEL DE COTISATION',
+    headline: overdue
+      ? 'Pense à régulariser ta contribution.'
+      : upcoming
+        ? 'Prépare ton versement avant l’échéance.'
+        : 'La date de cotisation est arrivée.',
+    bodyHtml,
+    ctaLabel: 'Voir ma cotisation',
+    ctaUrl: '/cotisations',
+  });
 }
 
 

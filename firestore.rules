@@ -19,7 +19,9 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'displayName', 'currency', 'currencyRates', 'currencyRateUpdatedAt',
           'theme', 'budgetRules', 'photoURL', 'emailRemindersEnabled', 'dailySummaryEmailEnabled', 'updatedAt'
-        ]);
+        ])
+        && (!('emailRemindersEnabled' in request.resource.data) || request.resource.data.emailRemindersEnabled is bool)
+        && (!('dailySummaryEmailEnabled' in request.resource.data) || request.resource.data.dailySummaryEmailEnabled is bool);
       allow delete: if false;
 
       match /incomes/{incomeId} {

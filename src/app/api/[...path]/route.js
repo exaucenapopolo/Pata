@@ -7124,6 +7124,7 @@ async function handleCotisationsScheduler(request) {
                 ? cotisationPenaltyLabel(group) + ' — montant appliqué : ' + penaltyDue.toLocaleString('fr-FR') + ' FCFA'
                 : cotisationPenaltyLabel(group),
               overdue: String(reminderType || '').startsWith('overdue-week-'),
+              upcoming: reminderType === 'upcoming',
             }),
             idempotencyKey: 'pata-' + reminderId,
           });

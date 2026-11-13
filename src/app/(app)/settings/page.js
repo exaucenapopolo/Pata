@@ -360,8 +360,8 @@ export default function SettingsPage() {
               <label className="mt-2 flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 bg-white p-3">
                 <input type="checkbox" checked={dailySummaryEmailEnabled} disabled={emailPreferencesSaving || !user?.email} onChange={(event) => updateEmailPreference('dailySummaryEmailEnabled', event.target.checked)} className="mt-0.5 h-4 w-4 accent-emerald-700" />
                 <span>
-                  <span className="block text-xs font-semibold text-slate-800">{isEnglish ? 'Receive a daily financial summary by email' : 'Recevoir un résumé financier quotidien par e-mail'}</span>
-                  <span className="mt-1 block text-[11px] leading-4 text-slate-500">{isEnglish ? 'Optional and disabled by default.' : 'Facultatif et désactivé par défaut.'}</span>
+                  <span className="block text-xs font-semibold text-slate-800">{isEnglish ? 'Receive Pata’s daily financial check-in by email' : 'Recevoir le point financier quotidien de Pata par e-mail'}</span>
+                  <span className="mt-1 block text-[11px] leading-4 text-slate-500">{isEnglish ? 'Optional and disabled by default. Pata sends the day’s priority reminder, not a full PDF report.' : 'Facultatif et désactivé par défaut. Pata envoie le point prioritaire du jour, pas un rapport PDF détaillé.'}</span>
                 </span>
               </label>
               {emailPreferencesSaving && <p className="mt-2 text-[11px] text-slate-500">{isEnglish ? 'Saving…' : 'Enregistrement…'}</p>}
