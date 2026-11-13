@@ -6426,14 +6426,11 @@ async function handleCotisationChatSend(request) {
       };
     });
 
-    const dateKeyNow = getDoualaDateKey();
-    const eligibleRecipients = await Promise.all(result.recipientIds.map(async (recipientUid) => {
-      const usage = await groupRef.collection('members').doc(recipientUid).collection('chatUsage').doc(dateKeyNow).get();
-      return summarizeCotisationChatQuota(usage.data() || {}).remaining > 0 ? recipientUid : null;
-    }));
+    // Le quota limite l’envoi, pas la lecture : tous les autres membres actifs
+    // doivent pouvoir être avertis d’un nouveau message.
     const notificationBody = (result.authorName + ' : ' + result.text).slice(0, 220);
     const appUrl = getPataAppUrl(request);
-    await Promise.all(eligibleRecipients.filter(Boolean).map(async (recipientUid) => {
+    await Promise.all(result.recipientIds.map(async (recipientUid) => {
       const recipientRef = adminDb.collection('users').doc(recipientUid);
       const notificationId = 'cotisation-chat-' + groupId;
       await recipientRef.collection('notifications').doc(notificationId).set({
