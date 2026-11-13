@@ -5816,11 +5816,27 @@ async function restoreCotisationCycle(data, status) {
 }
 
 
+
+function cotisationAvatarURL(value) {
+  const candidate = String(value || '').trim().slice(0, 2048);
+  if (!candidate) return '';
+  try {
+    const url = new URL(candidate);
+    if (url.protocol !== 'https:') return '';
+    if (url.hostname === 'res.cloudinary.com' && url.pathname.includes('/image/upload/')) return candidate;
+    if (url.hostname === 'raw.githubusercontent.com'
+      && url.pathname.startsWith('/exaucenapopolo/Social-Boost-Horizon-/refs/heads/main/assets/Photo/')) return candidate;
+    return '';
+  } catch {
+    return '';
+  }
+}
+
 async function hydrateCotisationMemberProfiles(memberDocuments) {
   const members = memberDocuments.map((document) => ({ uid: document.id, ...document.data() }));
   const missingProfiles = members.filter((member) =>
     member.active !== false
-    && (!member.photoURL || !String(member.photoURL).startsWith('https://res.cloudinary.com/'))
+    && !cotisationAvatarURL(member.photoURL)
   );
   const profileSnapshots = await Promise.all(missingProfiles.map((member) =>
     adminDb.collection('users').doc(member.uid).get().catch(() => null)
@@ -5831,8 +5847,8 @@ async function hydrateCotisationMemberProfiles(memberDocuments) {
   ]));
   return members.map((member) => {
     const profile = profiles.get(member.uid) || {};
-    const storedPhoto = typeof member.photoURL === 'string' && member.photoURL.startsWith('https://res.cloudinary.com/') ? member.photoURL : '';
-    const profilePhoto = typeof profile.photoURL === 'string' && profile.photoURL.startsWith('https://res.cloudinary.com/') ? profile.photoURL.slice(0, 2048) : '';
+    const storedPhoto = cotisationAvatarURL(member.photoURL);
+    const profilePhoto = cotisationAvatarURL(profile.photoURL);
     return {
       ...member,
       displayName: String(member.displayName || profile.displayName || 'Membre').slice(0, 100),
@@ -5852,7 +5868,7 @@ async function handleCotisationProfileSync(request) {
     if (!userSnap.exists) return errorResponse('Profil utilisateur introuvable.', 404);
     const user = userSnap.data() || {};
     const displayName = String(user.displayName || 'Membre').trim().slice(0, 100);
-    const photoURL = typeof user.photoURL === 'string' && user.photoURL.startsWith('https://res.cloudinary.com/') ? user.photoURL.slice(0, 2048) : '';
+    const photoURL = cotisationAvatarURL(user.photoURL);
     const batch = adminDb.batch();
     let synced = 0;
     membershipsSnap.docs.forEach((membership) => {
@@ -5938,7 +5954,7 @@ async function handleCotisationsList(request) {
         return {
           uid: member.uid,
           displayName: member.displayName || 'Membre',
-          photoURL: typeof member.photoURL === 'string' && member.photoURL.startsWith('https://res.cloudinary.com/') ? member.photoURL.slice(0, 2048) : '',
+          photoURL: cotisationAvatarURL(member.photoURL),
           isOwner: member.isOwner === true,
           roleLabel: member.isOwner === true ? 'Chef de la cotisation' : String(member.roleLabel || 'Membre').trim().slice(0, 36) || 'Membre',
           hasReceivedTurn: (receivedTurnCounts.get(member.uid) || 0) > 0,
@@ -6043,7 +6059,7 @@ async function handleCotisationCreate(request) {
       const member = {
         uid,
         displayName: String(userData.displayName || 'Organisateur').slice(0, 100),
-        photoURL: typeof userData.photoURL === 'string' && userData.photoURL.startsWith('https://res.cloudinary.com/') ? userData.photoURL.slice(0, 2048) : '',
+        photoURL: cotisationAvatarURL(userData.photoURL),
         email: String(userData.email || '').slice(0, 180),
         isOwner: true, roleLabel: 'Chef de la cotisation', turnOrder: null, joinedAt: FieldValue.serverTimestamp(), active: true,
       };
@@ -6278,7 +6294,7 @@ async function handleCotisationChatMessages(request) {
         authorUid: String(data.authorUid || ''),
         authorName: String(data.authorName || 'Membre').slice(0, 100),
         authorRoleLabel: String(data.authorRoleLabel || 'Membre').slice(0, 36),
-        authorPhotoURL: typeof data.authorPhotoURL === 'string' && data.authorPhotoURL.startsWith('https://res.cloudinary.com/') ? data.authorPhotoURL.slice(0, 2048) : '',
+        authorPhotoURL: cotisationAvatarURL(data.authorPhotoURL),
         text: String(data.text || '').slice(0, 1000),
         createdAt: serializeAdminValue(data.createdAt || null),
       };
@@ -6330,7 +6346,7 @@ async function handleCotisationChatSend(request) {
       const authorRoleLabel = memberData.isOwner === true || groupData.ownerId === uid
         ? 'Chef de la cotisation'
         : String(memberData.roleLabel || 'Membre').trim().slice(0, 36) || 'Membre';
-      const authorPhotoURL = typeof userData.photoURL === 'string' && userData.photoURL.startsWith('https://res.cloudinary.com/') ? userData.photoURL.slice(0, 2048) : '';
+      const authorPhotoURL = cotisationAvatarURL(userData.photoURL);
       transaction.create(messageRef, {
         authorUid: uid, authorName, authorRoleLabel, authorPhotoURL, text: messageText,
         createdAt: FieldValue.serverTimestamp(), expiresAt: cotisationChatExpiry(),
@@ -6463,7 +6479,7 @@ async function handleCotisationJoin(request) {
       transaction.create(memberRef, {
         uid,
         displayName: String(user.displayName || 'Membre').slice(0, 100),
-        photoURL: typeof user.photoURL === 'string' && user.photoURL.startsWith('https://res.cloudinary.com/') ? user.photoURL.slice(0, 2048) : '',
+        photoURL: cotisationAvatarURL(user.photoURL),
         email: String(user.email || '').slice(0, 180),
         isOwner: false, roleLabel: 'Membre', turnOrder: null,
         joinedAt: FieldValue.serverTimestamp(), active: true,
@@ -6549,7 +6565,7 @@ async function handleCotisationInvitePreview(request) {
       .map((member) => ({
         uid: member.uid,
         displayName: String(member.displayName || 'Membre').slice(0, 100),
-        photoURL: typeof member.photoURL === 'string' && member.photoURL.startsWith('https://res.cloudinary.com/') ? member.photoURL.slice(0, 2048) : '',
+        photoURL: cotisationAvatarURL(member.photoURL),
         isOwner: member.isOwner === true,
         roleLabel: member.isOwner === true ? 'Chef de la cotisation' : String(member.roleLabel || 'Membre').slice(0, 36),
         turnOrder: group.orderConfirmedAt && Number.isInteger(Number(member.turnOrder)) ? Number(member.turnOrder) : null,
@@ -6563,7 +6579,7 @@ async function handleCotisationInvitePreview(request) {
         description: String(group.description || ''),
         imageURL: typeof group.imageURL === 'string' && group.imageURL.startsWith('https://res.cloudinary.com/') ? group.imageURL.slice(0, 2048) : '',
         ownerName: String(owner.displayName || 'Organisateur'),
-        ownerPhotoURL: typeof owner.photoURL === 'string' && owner.photoURL.startsWith('https://res.cloudinary.com/') ? owner.photoURL.slice(0, 2048) : '',
+        ownerPhotoURL: cotisationAvatarURL(owner.photoURL),
         contributionAmount: cotisationMoney(group.contributionAmount),
         frequency: group.frequency,
         dueDay: group.dueDay || null,
