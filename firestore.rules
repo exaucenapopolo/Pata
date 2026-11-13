@@ -18,7 +18,7 @@ service cloud.firestore {
       allow update: if owner(userId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'displayName', 'currency', 'currencyRates', 'currencyRateUpdatedAt',
-          'theme', 'budgetRules', 'photoURL', 'updatedAt'
+          'theme', 'budgetRules', 'photoURL', 'emailRemindersEnabled', 'dailySummaryEmailEnabled', 'updatedAt'
         ]);
       allow delete: if false;
 

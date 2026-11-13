@@ -12,12 +12,25 @@ export const metadata = {
   },
 };
 
+const comparison = [
+  ['Dépenses enregistrées', '60 par mois', 'Sans limite mensuelle'],
+  ['Revenus enregistrés', '2 par mois', 'Sans limite mensuelle'],
+  ['Budgets créés', '2 par mois', 'Sans limite mensuelle'],
+  ['Objectifs d’épargne créés', '1 par mois', 'Sans limite mensuelle'],
+  ['Prévisions vitales', '1 création par mois', 'Sans limite mensuelle'],
+  ['Prévisions de durée', '1 création par mois', 'Sans limite mensuelle'],
+  ['Questions à l’assistante Mč', '3 par jour', 'Utilisation élargie*'],
+  ['Dettes et prêts actifs', '2 actifs', 'Sans limite'],
+  ['Détection Mobile Money sur Android', 'Non incluse', 'Incluse'],
+  ['Projets de dépenses', 'Non inclus', 'Inclus'],
+];
+
 const benefits = [
-  ['Opérations financières', 'Enregistre davantage de revenus, dépenses et mouvements selon les limites du forfait.'],
-  ['Budgets et objectifs', 'Organise plus de budgets et d’objectifs d’épargne pour suivre tes différents projets.'],
-  ['Assistante Mč', 'Utilise davantage l’assistante financière pour comprendre tes données et préparer tes décisions.'],
+  ['Organisation des opérations', 'Centralise revenus et dépenses, puis consulte les mouvements utiles à ton suivi financier.'],
+  ['Budget et objectifs', 'Crée davantage de budgets et d’objectifs pour organiser tes priorités.'],
+  ['Assistante Mč', 'Utilise plus largement l’assistante financière pour comprendre tes données et préparer tes décisions.'],
   ['Suivi Mobile Money sur Android', 'Active le suivi des confirmations MTN MoMo et Orange Money lorsque ton appareil et ses autorisations le permettent.'],
-  ['Dettes et prêts', 'Suis un nombre plus important de dettes et de créances actives.'],
+  ['Projets de dépenses', 'Crée des projets, réserve des revenus et suis les dépenses correspondantes avec Premium.'],
   ['Rapports et organisation', 'Retrouve tes analyses, tes bilans et tes outils de planification dans un espace unique.'],
 ];
 
@@ -61,6 +74,32 @@ export default function SubscriptionPage() {
           </div>
         </div>
       </section>
+      <section className="mx-auto max-w-5xl px-4 py-12 sm:px-6">
+        <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">Compte gratuit ou Premium : les différences</h2>
+        <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">Voici les principales limites actuellement appliquées à la version gratuite et les capacités supplémentaires de l’abonnement Premium.</p>
+        <div className="mt-6 overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+          <table className="w-full min-w-[620px] border-collapse text-left">
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="px-4 py-3 text-xs font-bold text-slate-700">Fonctionnalité</th>
+                <th className="px-4 py-3 text-xs font-bold text-slate-700">Gratuit</th>
+                <th className="px-4 py-3 text-xs font-bold text-[#075b43]">Premium</th>
+              </tr>
+            </thead>
+            <tbody>
+              {comparison.map(([label, free, paid]) => (
+                <tr key={label} className="border-t border-slate-100">
+                  <th scope="row" className="px-4 py-3 text-xs font-semibold text-slate-800">{label}</th>
+                  <td className="px-4 py-3 text-xs text-slate-600">{free}</td>
+                  <td className="px-4 py-3 text-xs font-semibold text-slate-800">{paid}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-3 text-[11px] leading-5 text-slate-500">* L’utilisation de Mč, de la génération d’images et des réponses vocales reste soumise à la disponibilité des fournisseurs et aux règles de sécurité de Pata. Premium élargit l’accès sans garantir une capacité technique illimitée. Le suivi Mobile Money nécessite l’application Android et les autorisations compatibles.</p>
+      </section>
+
       <section className="mx-auto max-w-5xl px-4 py-14 sm:px-6">
         <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">Ce que Premium apporte à ton suivi</h2>
         <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">Les capacités supplémentaires sont utiles lorsque tes opérations, tes objectifs et tes engagements deviennent plus nombreux.</p>

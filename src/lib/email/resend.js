@@ -1,6 +1,6 @@
 const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || 'https://www.pata-yam.site').replace(/\/$/, '');
 const FROM = process.env.RESEND_FROM_EMAIL || 'Pata <notifications@socialboosthorizon.com>';
-const SUPPORT_PHONE = '14236752034';
+const SUPPORT_PHONE = '237681144638';
 
 export function escapeEmailHtml(value = '') {
   return String(value).replace(/[&<>"']/g, (char) => ({
@@ -8,21 +8,10 @@ export function escapeEmailHtml(value = '') {
   }[char]));
 }
 
-const partners = [
-  { name: 'Social Boost Horizon', description: 'Développe ta présence sur les réseaux sociaux.', url: 'https://socialboosthorizon.com/' },
-  { name: 'Texerra SMS', description: 'Obtiens un numéro étranger pour tes inscriptions en ligne.', url: 'https://www.texerra.site/' },
-  { name: 'TRIXHUB', description: 'Découvre une plateforme de tâches rémunérées.', url: 'https://www.trixhub.store/?ref=EXA0001HJB' },
-];
-
 export function renderPataEmail({ preheader = '', eyebrow = 'PATA', headline, intro = '', bodyHtml = '', ctaLabel = 'Ouvrir Pata', ctaUrl = '/dashboard', signoff = 'L’équipe Pata' }) {
   const safeHeadline = escapeEmailHtml(headline || 'Un message de Pata');
   const safeIntro = intro ? '<p style="margin:0 0 18px;color:#475569;font-size:15px;line-height:1.75;">' + escapeEmailHtml(intro) + '</p>' : '';
   const destination = new URL(ctaUrl, APP_URL).toString();
-  const partnerHtml = partners.map((partner) => `
-    <td style="width:33.33%;vertical-align:top;padding:8px 7px;">
-      <a href="${partner.url}" style="color:#0b5c46;text-decoration:none;font-weight:700;font-size:12px;">${escapeEmailHtml(partner.name)}</a>
-      <div style="margin-top:5px;color:#64748b;font-size:11px;line-height:1.5;">${escapeEmailHtml(partner.description)}</div>
-    </td>`).join('');
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${safeHeadline}</title></head>
   <body style="margin:0;padding:0;background:#f3f6f5;font-family:Arial,Helvetica,sans-serif;color:#17231f;">
   <div style="display:none;max-height:0;overflow:hidden;opacity:0;">${escapeEmailHtml(preheader)}</div>
@@ -42,10 +31,10 @@ export function renderPataEmail({ preheader = '', eyebrow = 'PATA', headline, in
         <p style="margin:25px 0 0;color:#475569;font-size:13px;line-height:1.7;">${escapeEmailHtml(signoff)}</p>
       </td></tr>
       <tr><td style="padding:20px 22px;background:#f8faf9;border-top:1px solid #edf1ee;">
-        <div style="color:#64748b;font-size:10px;font-weight:700;letter-spacing:1.3px;margin:0 0 8px;">DÉCOUVRIR AUSSI</div>
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr>${partnerHtml}</tr></table>
-        <div style="margin-top:18px;padding-top:14px;border-top:1px solid #e5ebe7;color:#64748b;font-size:11px;line-height:1.7;">
-          Besoin d’aide ? <a href="https://wa.me/${SUPPORT_PHONE}?text=Bonjour%20Pata%2C%20j%E2%80%99ai%20besoin%20d%E2%80%99aide." style="color:#0b5c46;text-decoration:none;font-weight:700;">Contacter l’assistance sur WhatsApp</a><br>
+        <div style="color:#64748b;font-size:11px;line-height:1.7;">
+          Besoin d’aide ? <a href="https://wa.me/${SUPPORT_PHONE}?text=Bonjour%20Pata%2C%20j%E2%80%99ai%20besoin%20d%E2%80%99aide." style="color:#0b5c46;text-decoration:none;font-weight:700;">Contacter l’assistance Pata sur WhatsApp</a><br>
+          <a href="${APP_URL}/support" style="color:#0b5c46;text-decoration:none;font-weight:700;">Centre d’assistance</a> ·
+          <a href="${APP_URL}/confidentialite" style="color:#0b5c46;text-decoration:none;">Confidentialité</a><br>
           © ${new Date().getFullYear()} Pata · Gestion financière personnelle
         </div>
       </td></tr>

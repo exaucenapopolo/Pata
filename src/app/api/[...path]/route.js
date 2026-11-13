@@ -2016,7 +2016,7 @@ async function handleNotificationScheduler(request) {
             title = 'Rappel de dette en retard';
             body = (debt.type === 'owed_to_me' ? 'Le remboursement attendu de ' : 'Le remboursement dû à ') + debt.person + ' est en retard de ' + Math.abs(daysUntil) + ' jour(s). Solde restant : ' + Number(debt.remaining).toLocaleString('fr-FR') + ' FCFA.';
           }
-          const retryEmailOnly = !reminderKey
+          const retryEmailOnly = userData.emailRemindersEnabled !== false && !reminderKey
             && Boolean(debt.lastReminderKey)
             && debt.lastReminderEmailSent === false
             && Boolean(debt.lastReminderTitle)
@@ -2036,7 +2036,7 @@ async function handleNotificationScheduler(request) {
             });
           let emailSent = false;
           const recipientEmail = String(userData.email || '').trim();
-          if (recipientEmail.includes('@')) {
+          if (userData.emailRemindersEnabled !== false && recipientEmail.includes('@')) {
             try {
               await sendPataEmail({
                 to: recipientEmail,
@@ -2069,7 +2069,7 @@ async function handleNotificationScheduler(request) {
           await debtDoc.ref.update({
             lastReminderKey: reminderKey,
             lastReminderAt: FieldValue.serverTimestamp(),
-            lastReminderEmailSent: recipientEmail.includes('@') ? emailSent : null,
+            lastReminderEmailSent: userData.emailRemindersEnabled !== false && recipientEmail.includes('@') ? emailSent : null,
             lastReminderTitle: title,
             lastReminderBody: body,
           });
@@ -2137,7 +2137,7 @@ async function handleNotificationScheduler(request) {
               (Number(bill.amount) > 0 ? ' Montant estimé : ' + Number(bill.amount).toLocaleString('fr-FR') + ' FCFA.' : '') +
               ' Mets son statut à jour dans Pata.';
           }
-          const retryEmailOnly = !reminderKey
+          const retryEmailOnly = userData.emailRemindersEnabled !== false && !reminderKey
             && Boolean(bill.lastReminderKey)
             && bill.lastReminderEmailSent === false
             && Boolean(bill.lastReminderTitle)
@@ -2157,7 +2157,7 @@ async function handleNotificationScheduler(request) {
             });
           let emailSent = false;
           const recipientEmail = String(userData.email || '').trim();
-          if (recipientEmail.includes('@')) {
+          if (userData.emailRemindersEnabled !== false && recipientEmail.includes('@')) {
             try {
               await sendPataEmail({
                 to: recipientEmail,
@@ -2190,7 +2190,7 @@ async function handleNotificationScheduler(request) {
           await billDoc.ref.update({
             lastReminderKey: reminderKey,
             lastReminderAt: FieldValue.serverTimestamp(),
-            lastReminderEmailSent: recipientEmail.includes('@') ? emailSent : null,
+            lastReminderEmailSent: userData.emailRemindersEnabled !== false && recipientEmail.includes('@') ? emailSent : null,
             lastReminderTitle: title,
             lastReminderBody: body,
           });
@@ -2289,7 +2289,7 @@ async function handleNotificationScheduler(request) {
         body = personalized.body;
         let delivered = 0;
         let emailSent = false;
-        if(userData.email&&String(userData.email).includes('@')){try{await sendPataEmail({to:userData.email,subject:title,html:financialReminderEmail({name:userData.displayName,headline:title,message:body,category:overBudget?({food:'Alimentation',transport:'Transport',housing:'Logement',internet:'Internet',health:'Santé',leisure:'Loisirs',investment:'Investissement',contribution:'Cotisations',savings:'Épargne',other:'Autres'}[overBudget.categoryId]||'Dépenses'):'',amount:overBudget?overBudget.spent:null,budgetAmount:overBudget?overBudget.allocated:null,targetUrl:target}),idempotencyKey:'pata-daily-financial-'+userDoc.id+'-'+today});emailSent=true;}catch(emailError){console.warn('[DAILY FINANCIAL EMAIL]',userDoc.id,emailError.message||emailError);}}
+        if(userData.dailySummaryEmailEnabled===true&&userData.email&&String(userData.email).includes('@')){try{await sendPataEmail({to:userData.email,subject:title,html:financialReminderEmail({name:userData.displayName,headline:title,message:body,category:overBudget?({food:'Alimentation',transport:'Transport',housing:'Logement',internet:'Internet',health:'Santé',leisure:'Loisirs',investment:'Investissement',contribution:'Cotisations',savings:'Épargne',other:'Autres'}[overBudget.categoryId]||'Dépenses'):'',amount:overBudget?overBudget.spent:null,budgetAmount:overBudget?overBudget.allocated:null,targetUrl:target}),idempotencyKey:'pata-daily-financial-'+userDoc.id+'-'+today});emailSent=true;}catch(emailError){console.warn('[DAILY FINANCIAL EMAIL]',userDoc.id,emailError.message||emailError);}}
         const pushResult = await sendPataPushToUser(userDoc.ref, { title, body, url: target, tag: 'pata-' + today, source: 'daily_reminder' }, appUrl, userData);
         delivered = pushResult.fcmSent + pushResult.webPushSent;
         await userDoc.ref.update({
@@ -7108,7 +7108,7 @@ async function handleCotisationsScheduler(request) {
         await inAppRef.set({ title: personalized.title, body: personalized.body, target: '/cotisations', source: 'cotisation', groupId: group.id, cycleKey: meta.cycleKey, read: false, readAt: null, createdAt: FieldValue.serverTimestamp() }, { merge: true });
 
         const recipientEmail = String(userData.email || member.email || '').trim();
-        if (recipientEmail.includes('@')) {
+        if (userData.emailRemindersEnabled !== false && recipientEmail.includes('@')) {
           await sendPataEmail({
             to: recipientEmail,
             subject: title,

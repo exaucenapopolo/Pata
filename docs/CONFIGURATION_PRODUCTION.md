@@ -10,6 +10,9 @@ Ajoute ou vérifie également les variables suivantes :
 
 - `NEXT_PUBLIC_FIREBASE_VAPID_KEY` : clé Web Push publique créée dans les paramètres Cloud Messaging du projet Firebase. Elle permet au navigateur de s'abonner aux notifications web.
 - `CRON_SECRET` : secret aléatoire long et privé. Vercel l'utilise pour autoriser les appels aux planificateurs de Pata.
+- `RESEND_API_KEY` : clé serveur Resend pour les e-mails transactionnels et les rappels.
+- `RESEND_FROM_EMAIL` : adresse d'expédition Pata dont le domaine doit être vérifié chez Resend.
+- `NEXT_PUBLIC_APP_URL` : URL publique de Pata utilisée dans les liens des e-mails.
 
 Les variables `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` et `NEXT_PUBLIC_FIREBASE_APP_ID` doivent déjà correspondre au même projet Firebase que le compte de service Admin.
 
@@ -29,11 +32,19 @@ Le service worker PWA principal (`/sw.js`) et le service worker Firebase (`/fire
 `vercel.json` déclare deux tâches planifiées :
 
 - `/api/automations/scheduler` à 00:00 UTC, soit environ 01:00 au Cameroun (UTC+1). Il vérifie les opérations récurrentes dues et génère le bilan hebdomadaire lorsqu'il est disponible.
-- `/api/notifications/scheduler` à 19:30 UTC, soit 20:30 au Cameroun (UTC+1). Il choisit un rappel quotidien selon les données réelles du compte et évite d'envoyer plus d'un rappel journalier au même compte.
+- `/api/notifications/scheduler` à 19:30 UTC, soit 20:30 au Cameroun (UTC+1). Il gère les rappels de dettes et de factures, le résumé quotidien et appelle aussi le planificateur des cotisations. Les rappels de cotisation sont donc exécutés sans ajouter un troisième Cron.
 
 Les deux routes exigent `CRON_SECRET`. Configure cette variable dans Vercel pour les environnements de production, puis redéploie. Vérifie ensuite l'historique des Cron Jobs et les journaux de fonctions Vercel.
 
-Les notifications ne sont envoyées qu'aux utilisateurs qui ont activé les notifications et dont un appareil possède un jeton valide. L'heure d'exécution dépend du planificateur et du plan Vercel du projet.
+Les canaux sont indépendants :
+- Les notifications push sont envoyées uniquement aux appareils qui ont accepté l'autorisation et possèdent un jeton valide.
+- Les rappels d'échéance par e-mail (dettes, factures et cotisations) sont activés par défaut si le compte possède une adresse e-mail. L'utilisateur peut les désactiver dans Paramètres → Notifications.
+- Le résumé financier quotidien par e-mail est facultatif et désactivé par défaut. Il s'active séparément dans Paramètres → Notifications.
+- Les confirmations transactionnelles (création de groupe, paiement confirmé, réinitialisation du code secret, etc.) restent distinctes des préférences de rappel.
+
+Les e-mails de dette et de facture qui échouent sont retentés lors de l'exécution quotidienne suivante sans renvoyer inutilement la notification push. Pour une meilleure délivrabilité, vérifie le domaine expéditeur dans Resend. Le domaine `pata-yam.site` peut être utilisé comme expéditeur après validation de ses enregistrements DNS dans Resend ; ne remplace pas l'adresse actuellement configurée avant cette validation.
+
+L'heure d'exécution dépend du planificateur et du plan Vercel du projet.
 
 ## 4. Confidentialité et déploiement
 

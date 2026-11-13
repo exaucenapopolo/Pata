@@ -46,6 +46,10 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [activePanel, setActivePanel] = useState('');
+  const [emailRemindersEnabled, setEmailRemindersEnabled] = useState(true);
+  const [dailySummaryEmailEnabled, setDailySummaryEmailEnabled] = useState(false);
+  const [emailPreferencesSaving, setEmailPreferencesSaving] = useState(false);
+  const [emailPreferencesMessage, setEmailPreferencesMessage] = useState('');
 
   useEffect(() => {
     if (!user) { setAutomations([]); return undefined; }
@@ -57,6 +61,8 @@ export default function SettingsPage() {
       setDisplayName(profile.displayName || '');
       setCurrency(profile.currency || 'XAF');
       setTheme(profile.theme === 'dark' ? 'dark' : 'light');
+      setEmailRemindersEnabled(profile.emailRemindersEnabled !== false);
+      setDailySummaryEmailEnabled(profile.dailySummaryEmailEnabled === true);
     }
   }, [profile]);
 
@@ -103,6 +109,25 @@ export default function SettingsPage() {
       setTimeout(() => setSaved(false), 2500);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const updateEmailPreference = async (field, value) => {
+    if (!user || emailPreferencesSaving) return;
+    const previous = field === 'emailRemindersEnabled' ? emailRemindersEnabled : dailySummaryEmailEnabled;
+    if (field === 'emailRemindersEnabled') setEmailRemindersEnabled(value);
+    else setDailySummaryEmailEnabled(value);
+    setEmailPreferencesSaving(true);
+    setEmailPreferencesMessage('');
+    try {
+      await save({ [field]: value });
+      setEmailPreferencesMessage(isEnglish ? 'Email preference saved.' : 'Préférence e-mail enregistrée.');
+    } catch (error) {
+      if (field === 'emailRemindersEnabled') setEmailRemindersEnabled(previous);
+      else setDailySummaryEmailEnabled(previous);
+      setEmailPreferencesMessage(error?.message || (isEnglish ? 'Could not save this preference.' : 'Impossible d’enregistrer cette préférence.'));
+    } finally {
+      setEmailPreferencesSaving(false);
     }
   };
 
@@ -316,9 +341,36 @@ export default function SettingsPage() {
         {activePanel === 'password' && <PasswordSettings />}
         {activePanel === 'smsImport' && <SmsImportSettings />}
         {activePanel === 'notifications' && (
-          <div className="space-y-3">
-            <p className="text-xs leading-5 text-slate-500">Configure les alertes système de Pata pour cet appareil. Tu peux aussi tester leur réception.</p>
-            <NotificationSettings />
+          <div className="space-y-4">
+            <section className="rounded-xl border border-slate-200 bg-slate-50 p-3.5">
+              <h3 className="text-sm font-bold text-slate-900">{isEnglish ? 'Email reminders' : 'Rappels par e-mail'}</h3>
+              <p className="mt-1 text-xs leading-5 text-slate-600">
+                {isEnglish
+                  ? 'Important due-date reminders can reach your account email even when phone notifications are disabled.'
+                  : 'Les rappels importants d’échéance peuvent arriver sur l’adresse e-mail de ton compte, même si les notifications du téléphone sont désactivées.'}
+              </p>
+              <p className="mt-2 break-all text-[11px] font-semibold text-slate-700">{user?.email || (isEnglish ? 'No email address available' : 'Aucune adresse e-mail disponible')}</p>
+              <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 bg-white p-3">
+                <input type="checkbox" checked={emailRemindersEnabled} disabled={emailPreferencesSaving || !user?.email} onChange={(event) => updateEmailPreference('emailRemindersEnabled', event.target.checked)} className="mt-0.5 h-4 w-4 accent-emerald-700" />
+                <span>
+                  <span className="block text-xs font-semibold text-slate-800">{isEnglish ? 'Email me about debts, bills and contribution deadlines' : 'M’envoyer les rappels de dettes, factures et cotisations'}</span>
+                  <span className="mt-1 block text-[11px] leading-4 text-slate-500">{isEnglish ? 'Enabled by default. You can turn these emails off at any time.' : 'Activé par défaut. Tu peux désactiver ces e-mails à tout moment.'}</span>
+                </span>
+              </label>
+              <label className="mt-2 flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 bg-white p-3">
+                <input type="checkbox" checked={dailySummaryEmailEnabled} disabled={emailPreferencesSaving || !user?.email} onChange={(event) => updateEmailPreference('dailySummaryEmailEnabled', event.target.checked)} className="mt-0.5 h-4 w-4 accent-emerald-700" />
+                <span>
+                  <span className="block text-xs font-semibold text-slate-800">{isEnglish ? 'Receive a daily financial summary by email' : 'Recevoir un résumé financier quotidien par e-mail'}</span>
+                  <span className="mt-1 block text-[11px] leading-4 text-slate-500">{isEnglish ? 'Optional and disabled by default.' : 'Facultatif et désactivé par défaut.'}</span>
+                </span>
+              </label>
+              {emailPreferencesSaving && <p className="mt-2 text-[11px] text-slate-500">{isEnglish ? 'Saving…' : 'Enregistrement…'}</p>}
+              {emailPreferencesMessage && <p role="status" className="mt-2 text-[11px] leading-4 text-slate-600">{emailPreferencesMessage}</p>}
+            </section>
+            <div className="space-y-2">
+              <p className="text-xs leading-5 text-slate-500">{isEnglish ? 'Configure system alerts for this device. You can also test delivery.' : 'Configure les alertes système de Pata pour cet appareil. Tu peux aussi tester leur réception.'}</p>
+              <NotificationSettings />
+            </div>
           </div>
         )}
 
