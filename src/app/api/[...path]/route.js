@@ -5263,6 +5263,31 @@ async function handleAdminEmailStatus(request) {
   }
 }
 
+async function handleAdminEmailTest(request) {
+  try {
+    const admin = await requireAdmin(request);
+    const adminSnap = await adminDb.collection('users').doc(admin.uid).get();
+    const email = String(adminSnap.data()?.email || admin.email || '').trim();
+    if (!email || !email.includes('@')) return errorResponse('Aucune adresse e-mail valide n’est associée au compte administrateur.', 400);
+    const sent = await sendPataEmail({
+      to: email,
+      subject: 'Pata — vérification de la réception des e-mails',
+      html: customAdminEmail({
+        name: String(adminSnap.data()?.displayName || 'Administrateur'),
+        headline: 'Le canal e-mail de Pata est en cours de test.',
+        body: 'Ce message confirme que Pata a pu transmettre un e-mail à Resend depuis l’adresse notifications@pata-yam.site. Vérifie également la boîte de réception et le dossier courrier indésirable.',
+        ctaUrl: '/dashboard',
+        ctaLabel: 'Ouvrir Pata',
+      }),
+      idempotencyKey: 'pata-admin-email-test-' + admin.uid + '-' + Date.now(),
+    });
+    return NextResponse.json({ success: true, accepted: true, recipientEmail: email, emailId: sent.id || null });
+  } catch (error) {
+    console.error('[PATA ADMIN EMAIL TEST]', error.message || error);
+    return errorResponse(error.message || 'Le test d’envoi e-mail a échoué.', 502);
+  }
+}
+
 async function handleAdminEmailSend(request) {
   try {
     const admin = await requireAdmin(request);
@@ -7742,6 +7767,7 @@ const ROUTES = {
   'admin/withdrawal/reject': { POST: handleAdminRejectWithdrawal },
   'admin/notifications/broadcast': { POST: handleAdminBroadcast },
   'admin/email/status': { GET: handleAdminEmailStatus },
+  'admin/email/test': { POST: handleAdminEmailTest },
   'admin/email/send': { POST: handleAdminEmailSend },
   'email/welcome': { POST: handleWelcomeEmail },
   'security/pin/status': { GET: handlePinStatus },
