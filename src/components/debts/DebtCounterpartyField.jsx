@@ -131,7 +131,9 @@ export function DebtCounterpartyField({
                   }}
                   className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition hover:bg-emerald-50"
                 >
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-700"><UserRound size={15}/></span>
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-emerald-50 text-emerald-700">
+                    {account.photoURL ? <img src={account.photoURL} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer"/> : <UserRound size={15}/>}
+                  </span>
                   <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">{account.displayName}</span>
                   <span className="shrink-0 text-[10px] font-medium text-emerald-700">Compte Pata</span>
                 </button>

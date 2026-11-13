@@ -106,7 +106,9 @@ async function handleDebtUserSearch(request) {
       .filter((document) => document.id !== uid)
       .map((document) => {
         const data = document.data() || {};
-        return { uid: document.id, displayName: String(data.displayName || '').trim().slice(0, 100) };
+        const photoURL = typeof data.photoURL === 'string' && data.photoURL.startsWith('https://res.cloudinary.com/')
+          ? data.photoURL.slice(0, 2048) : '';
+        return { uid: document.id, displayName: String(data.displayName || '').trim().slice(0, 100), photoURL };
       })
       .filter((item) => item.displayName);
     return NextResponse.json({ success: true, users });
@@ -4180,6 +4182,8 @@ async function handleProfileActivity(request) {
       adminDb.collection('userDirectory').doc(decoded.uid).set({
         displayName,
         searchName,
+        photoURL: typeof profile.photoURL === 'string' && profile.photoURL.startsWith('https://res.cloudinary.com/')
+          ? profile.photoURL.slice(0, 2048) : '',
         updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true }),
     ]);

@@ -39,6 +39,17 @@ export function useProfile() {
   const save = async (patch) => {
     if (!user) return;
     await updateUserProfile(user.uid, patch);
+    if (patch.photoURL !== undefined || patch.displayName !== undefined) {
+      try {
+        const token = await user.getIdToken();
+        await fetch('/api/profile/activity', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + token },
+        });
+      } catch (error) {
+        console.warn('[PATA USER DIRECTORY SYNC]', error?.message || error);
+      }
+    }
   };
 
   return { profile, loading, save };
