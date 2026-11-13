@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Component, useCallback, useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { X, ChevronLeft, ChevronRight, Check, Sparkles } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
@@ -36,25 +36,17 @@ const TOUR_STEPS = {
   ],
 };
 
-const clamp = (value, min, max) => Math.min(Math.max(value, min), Math.max(min, max));
-
-export function AppFeatureTour() {
+function AppFeatureTourContent() {
   const { user } = useAuth();
   const { profile, loading: profileLoading, save } = useProfile();
   const { language } = useLanguage();
-  const isEnglish = language === 'en';
-  const steps = isEnglish ? TOUR_STEPS.en : TOUR_STEPS.fr;
+  const steps = language === 'en' ? TOUR_STEPS.en : TOUR_STEPS.fr;
   const pathname = usePathname();
   const router = useRouter();
   const [active, setActive] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
-  const [targetRect, setTargetRect] = useState(null);
-  const [viewport, setViewport] = useState({ width: 360, height: 800 });
-  const [calloutPosition, setCalloutPosition] = useState(null);
-  const targetElementRef = useRef(null);
-  const pathnameRef = useRef(pathname);
-  const calloutRef = useRef(null);
   const autoStartCheckedRef = useRef(false);
+  const pathnameRef = useRef(pathname);
   const storageKey = user?.uid ? 'pata-feature-tour-completed:' + user.uid : '';
 
   useEffect(() => {
@@ -62,24 +54,30 @@ export function AppFeatureTour() {
   }, [pathname]);
 
   const startTour = useCallback(() => {
-    autoStartCheckedRef.current = true;
-    targetElementRef.current = null;
-    setStepIndex(0);
-    setTargetRect(null);
-    setCalloutPosition(null);
-    setActive(true);
-    if (pathnameRef.current !== '/dashboard') router.push('/dashboard');
+    try {
+      autoStartCheckedRef.current = true;
+      setStepIndex(0);
+      setActive(true);
+      if (pathnameRef.current !== '/dashboard') router.push('/dashboard');
+    } catch (error) {
+      console.error('[PATA APP TOUR START]', error);
+      setActive(false);
+    }
   }, [router]);
 
   useEffect(() => {
     if (profileLoading || !user || !profile || pathname !== '/dashboard' || autoStartCheckedRef.current) return;
     autoStartCheckedRef.current = true;
+
     let locallyCompleted = false;
-    try { locallyCompleted = localStorage.getItem(storageKey) === '1'; } catch { /* Le profil reste prioritaire. */ }
+    try {
+      locallyCompleted = window.localStorage.getItem(storageKey) === '1';
+    } catch {
+      // Le profil conserve l’état du guide lorsque le stockage local est indisponible.
+    }
+
     if (profile.appTourCompleted === false && !locallyCompleted) {
       setStepIndex(0);
-      setTargetRect(null);
-      setCalloutPosition(null);
       setActive(true);
     }
   }, [profile, profileLoading, pathname, user, storageKey]);
@@ -91,272 +89,113 @@ export function AppFeatureTour() {
 
   const currentStep = steps[stepIndex];
 
+  // Le guide ne mesure plus le DOM ni ne calcule de coordonnées SVG.
+  // Il fait uniquement défiler la cible lorsqu’elle existe ; la carte reste
+  // toujours visible même si la cible d’une page n’est pas disponible.
   useEffect(() => {
     if (!active || !currentStep) return undefined;
+
     let cancelled = false;
     let timer = null;
     let attempts = 0;
-    targetElementRef.current = null;
-    setTargetRect(null);
-    setCalloutPosition(null);
 
-    const measure = (element) => {
-      if (cancelled || !element) return;
-      try {
-        const rect = element.getBoundingClientRect();
-        setViewport({ width: Math.max(1, window.innerWidth), height: Math.max(1, window.innerHeight) });
-        setTargetRect({ top: rect.top, left: rect.left, width: rect.width, height: rect.height });
-      } catch (error) {
-        console.warn('[PATA APP TOUR MEASURE]', error?.message || error);
-        setTargetRect(null);
-      }
-    };
-
-    const scrollAndMeasure = (element) => {
-      targetElementRef.current = element;
-      try {
-        element.scrollIntoView?.({ behavior: 'smooth', block: 'center', inline: 'nearest' });
-      } catch (error) {
-        console.warn('[PATA APP TOUR SCROLL]', error?.message || error);
-      }
-      timer = window.setTimeout(() => measure(element), 360);
-    };
-
-    const locate = () => {
+    const locateTarget = () => {
       if (cancelled) return;
       try {
-        const selector = '[data-pata-tour="' + currentStep.target + '"]';
-        const element = Array.from(document.querySelectorAll(selector)).find((candidate) => {
-          const rect = candidate.getBoundingClientRect();
-          const style = window.getComputedStyle(candidate);
-          return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
-        });
-        if (element) {
-          scrollAndMeasure(element);
+        const target = document.querySelector('[data-pata-tour="' + currentStep.target + '"]');
+        if (target) {
+          target.scrollIntoView?.({ behavior: 'smooth', block: 'center', inline: 'nearest' });
           return;
         }
-        attempts += 1;
-        if (attempts < 24) { timer = window.setTimeout(locate, 100); return; }
-        const fallback = document.querySelector('main h1, main header, main section, main');
-        if (fallback) scrollAndMeasure(fallback);
-        else {
-          // Le texte et les commandes du guide restent utilisables même sans cible détectée.
-          setViewport({ width: Math.max(1, window.innerWidth), height: Math.max(1, window.innerHeight) });
-          setTargetRect(null);
-        }
       } catch (error) {
-        console.error('[PATA APP TOUR TARGET]', error);
-        setViewport({ width: Math.max(1, window.innerWidth), height: Math.max(1, window.innerHeight) });
-        setTargetRect(null);
+        console.warn('[PATA APP TOUR TARGET]', error?.message || error);
       }
+
+      attempts += 1;
+      if (attempts < 8) timer = window.setTimeout(locateTarget, 180);
     };
 
-    timer = window.setTimeout(locate, 80);
+    timer = window.setTimeout(locateTarget, 180);
     return () => {
       cancelled = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [active, currentStep, pathname]);
-
-  useEffect(() => {
-    if (!active) return undefined;
-    const measure = () => {
-      const element = targetElementRef.current;
-      if (!element) return;
-      const rect = element.getBoundingClientRect();
-      const nextViewport = {
-        width: Math.max(1, window.innerWidth),
-        height: Math.max(1, window.innerHeight),
-      };
-      const nextRect = { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
-      setViewport((previous) => (
-        previous.width === nextViewport.width && previous.height === nextViewport.height
-          ? previous
-          : nextViewport
-      ));
-      setTargetRect((previous) => (
-        previous
-        && Math.abs(previous.top - nextRect.top) < 0.5
-        && Math.abs(previous.left - nextRect.left) < 0.5
-        && Math.abs(previous.width - nextRect.width) < 0.5
-        && Math.abs(previous.height - nextRect.height) < 0.5
-          ? previous
-          : nextRect
-      ));
-    };
-    window.addEventListener('resize', measure);
-    window.addEventListener('scroll', measure, true);
-    return () => {
-      window.removeEventListener('resize', measure);
-      window.removeEventListener('scroll', measure, true);
-    };
-  }, [active, stepIndex, pathname]);
-
-  // Place la bulle près de l'élément ciblé. En cas de mesure impossible,
-  // la bulle reste quand même visible dans sa position de secours.
-  useEffect(() => {
-    if (!active || !targetRect || !calloutRef.current) return;
-    try {
-      const panel = calloutRef.current.getBoundingClientRect();
-      const margin = 12;
-      const gap = 13;
-      const width = Math.min(360, Math.max(260, viewport.width - margin * 2));
-      const panelHeight = Math.min(panel.height || 250, viewport.height - margin * 2);
-      const rightSpace = viewport.width - (targetRect.left + targetRect.width) - gap - margin;
-      const leftSpace = targetRect.left - gap - margin;
-      const sideSpace = Math.max(rightSpace, leftSpace);
-
-      if (viewport.width >= 900 && sideSpace >= width) {
-        const placement = rightSpace >= leftSpace ? 'right' : 'left';
-        const left = placement === 'right'
-          ? targetRect.left + targetRect.width + gap
-          : targetRect.left - width - gap;
-        const top = clamp(
-          targetRect.top + targetRect.height / 2 - panelHeight / 2,
-          margin,
-          viewport.height - panelHeight - margin
-        );
-        const arrowOffset = clamp(
-          targetRect.top + targetRect.height / 2 - top - 7,
-          24,
-          Math.max(24, panelHeight - 24)
-        );
-        setCalloutPosition({ left, top, width, maxHeight: Math.min(390, viewport.height * 0.58), placement, arrowOffset });
-        return;
-      }
-
-      const belowSpace = viewport.height - (targetRect.top + targetRect.height) - gap - margin;
-      const aboveSpace = targetRect.top - gap - margin;
-      const placement = belowSpace >= panelHeight || belowSpace >= aboveSpace ? 'bottom' : 'top';
-      const available = Math.max(140, placement === 'bottom' ? belowSpace : aboveSpace);
-      const maxHeight = Math.max(140, Math.min(390, viewport.height * 0.56, available));
-      const fittedHeight = Math.min(panelHeight, maxHeight);
-      const left = clamp(
-        targetRect.left + targetRect.width / 2 - width / 2,
-        margin,
-        viewport.width - width - margin
-      );
-      const top = placement === 'bottom'
-        ? clamp(targetRect.top + targetRect.height + gap, margin, viewport.height - fittedHeight - margin)
-        : clamp(targetRect.top - gap - fittedHeight, margin, viewport.height - fittedHeight - margin);
-      const arrowOffset = clamp(
-        targetRect.left + targetRect.width / 2 - left - 7,
-        24,
-        width - 24
-      );
-      setCalloutPosition({ left, top, width, maxHeight, placement, arrowOffset });
-    } catch (error) {
-      console.error('[PATA APP TOUR POSITION]', error);
-      setCalloutPosition(null);
-    }
-  }, [active, targetRect, viewport, stepIndex, currentStep]);
+  }, [active, stepIndex, pathname, currentStep]);
 
   const finishTour = async (reason) => {
+    setActive(false);
     if (storageKey) {
-      try { localStorage.setItem(storageKey, '1'); } catch { /* Le profil conserve l’état entre appareils. */ }
+      try {
+        window.localStorage.setItem(storageKey, '1');
+      } catch {
+        // La sauvegarde du profil reste la référence entre appareils.
+      }
     }
+
     try {
-      await save({ appTourCompleted: true, appTourCompletedAt: new Date().toISOString(), appTourCompletionReason: reason });
+      await save({
+        appTourCompleted: true,
+        appTourCompletedAt: new Date().toISOString(),
+        appTourCompletionReason: reason,
+      });
     } catch (error) {
-      console.warn('[PATA APP TOUR]', error?.message || error);
-    } finally {
-      setActive(false);
-      setTargetRect(null);
-      setCalloutPosition(null);
-      targetElementRef.current = null;
+      console.warn('[PATA APP TOUR SAVE]', error?.message || error);
     }
   };
 
   const goToStep = (nextIndex) => {
     const bounded = Math.max(0, Math.min(steps.length - 1, nextIndex));
-    setTargetRect(null);
-    setCalloutPosition(null);
+    const nextStep = steps[bounded];
+    if (!nextStep) return;
+
     setStepIndex(bounded);
-    if (steps[bounded].href !== pathname) router.push(steps[bounded].href);
+    if (nextStep.href !== pathname) {
+      try {
+        router.push(nextStep.href);
+      } catch (error) {
+        console.error('[PATA APP TOUR NAVIGATION]', error);
+      }
+    }
   };
 
   if (!active || !currentStep) return null;
 
-  const left = targetRect ? Math.max(0, targetRect.left - 8) : 0;
-  const top = targetRect ? Math.max(0, targetRect.top - 8) : 0;
-  const width = targetRect ? Math.min(viewport.width - left, targetRect.width + 16) : 0;
-  const height = targetRect ? Math.min(viewport.height - top, targetRect.height + 16) : 0;
-  const panelStyle = {
-    left: calloutPosition?.left ?? 12,
-    top: calloutPosition?.top ?? 12,
-    width: calloutPosition?.width ?? Math.min(360, viewport.width - 24),
-    maxHeight: calloutPosition?.maxHeight ?? Math.min(390, viewport.height * 0.56),
-    visibility: 'visible',
-  };
-  const arrowStyle = calloutPosition?.placement === 'bottom'
-    ? { left: calloutPosition.arrowOffset, top: -7 }
-    : calloutPosition?.placement === 'top'
-      ? { left: calloutPosition.arrowOffset, bottom: -7 }
-      : calloutPosition?.placement === 'right'
-        ? { left: -7, top: calloutPosition.arrowOffset }
-        : { right: -7, top: calloutPosition.arrowOffset };
-  const arrowClass = calloutPosition?.placement === 'bottom'
-    ? 'absolute h-3.5 w-3.5 rotate-45 rounded-[2px] border-l border-t border-slate-200 bg-white/95'
-    : calloutPosition?.placement === 'top'
-      ? 'absolute h-3.5 w-3.5 rotate-45 rounded-[2px] border-b border-r border-slate-200 bg-white/95'
-      : calloutPosition?.placement === 'right'
-        ? 'absolute h-3.5 w-3.5 rotate-45 rounded-[2px] border-b border-l border-slate-200 bg-white/95'
-        : 'absolute h-3.5 w-3.5 rotate-45 rounded-[2px] border-r border-t border-slate-200 bg-white/95';
-
   return (
     <>
-      <svg className="fixed inset-0 z-[90] h-full w-full" viewBox={'0 0 ' + viewport.width + ' ' + viewport.height} preserveAspectRatio="none" aria-hidden="true">
-        <defs>
-          <mask id="pata-feature-tour-mask" maskUnits="userSpaceOnUse" x="0" y="0" width={viewport.width} height={viewport.height}>
-            <rect x="0" y="0" width={viewport.width} height={viewport.height} fill="white"/>
-            {targetRect && <rect x={left} y={top} width={Math.max(0, width)} height={Math.max(0, height)} rx="18" fill="black"/>}
-          </mask>
-        </defs>
-        <rect x="0" y="0" width={viewport.width} height={viewport.height} fill="rgba(2, 8, 23, 0.30)" mask="url(#pata-feature-tour-mask)"/>
-      </svg>
-      <div className="fixed inset-0 z-[91]" aria-hidden="true"/>
-      {targetRect && (
-        <div
-          className="pointer-events-none fixed z-[92] rounded-[18px] border-2 border-white bg-white/10 shadow-[0_0_0_4px_rgba(11,92,70,0.18)]"
-          style={{ top, left, width, height, transition: 'top 260ms ease, left 260ms ease, width 260ms ease, height 260ms ease' }}
-        />
-      )}
+      <div className="pointer-events-auto fixed inset-0 z-[90] bg-slate-950/35" aria-hidden="true" />
       <section
-        ref={calloutRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="pata-feature-tour-title"
         aria-describedby="pata-feature-tour-description"
-        className="fixed z-[93] overflow-y-auto rounded-2xl border border-slate-200/90 bg-white/95 p-3.5 text-slate-900 shadow-[0_12px_42px_rgba(2,8,23,0.20)] backdrop-blur-xl transition-[top,left,opacity] duration-250 sm:p-4"
-        style={panelStyle}
+        className="pointer-events-auto fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom))] left-1/2 z-[93] w-[min(440px,calc(100vw-24px))] max-h-[min(70dvh,520px)] -translate-x-1/2 overflow-y-auto rounded-2xl border border-slate-200/90 bg-white p-4 text-slate-900 shadow-[0_12px_42px_rgba(2,8,23,0.24)] sm:bottom-6 sm:p-5"
       >
-        {calloutPosition && <span aria-hidden="true" className={arrowClass} style={arrowStyle}/>}
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><Sparkles size={14}/></span>
-            <p className="truncate text-[9px] font-extrabold uppercase tracking-[0.13em] text-emerald-800">{currentStep.eyebrow}</p>
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><Sparkles size={15}/></span>
+            <p className="truncate text-[10px] font-extrabold uppercase tracking-[0.13em] text-emerald-800">{currentStep.eyebrow}</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <span className="text-[10px] font-semibold tabular-nums text-slate-400">{stepIndex + 1}/{steps.length}</span>
-            <button type="button" onClick={() => finishTour('skipped')} aria-label={isEnglish ? 'Close the guide' : 'Fermer le guide'} className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"><X size={15}/></button>
+            <button type="button" onClick={() => finishTour('skipped')} aria-label={language === 'en' ? 'Close the guide' : 'Fermer le guide'} className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"><X size={16}/></button>
           </div>
         </div>
-        <div className="mt-2 h-1 overflow-hidden rounded-full bg-slate-100" aria-hidden="true">
+        <div className="mt-3 h-1 overflow-hidden rounded-full bg-slate-100" aria-hidden="true">
           <div className="h-full rounded-full bg-emerald-600 transition-all duration-300" style={{ width: ((stepIndex + 1) / steps.length * 100) + '%' }}/>
         </div>
-        <h2 id="pata-feature-tour-title" className="mt-2.5 text-[15px] font-bold leading-5 tracking-tight text-slate-950 sm:text-base">{currentStep.title}</h2>
-        <p id="pata-feature-tour-description" className="mt-1.5 text-[12px] leading-[1.55] text-slate-600">{currentStep.description}</p>
-        <p className="mt-2.5 border-l-2 border-emerald-400 bg-slate-50 px-2.5 py-2 text-[10px] leading-[1.45] text-slate-600">{currentStep.tip}</p>
-        <div className="mt-3 flex items-center justify-between gap-2">
-          <button type="button" onClick={() => finishTour('skipped')} className="min-h-9 rounded-lg px-2 text-[11px] font-semibold text-slate-500 transition hover:bg-slate-100">{isEnglish ? 'Skip' : 'Passer'}</button>
-          <div className="flex items-center gap-1.5">
+        <h2 id="pata-feature-tour-title" className="mt-3 text-base font-bold leading-6 tracking-tight text-slate-950">{currentStep.title}</h2>
+        <p id="pata-feature-tour-description" className="mt-2 text-sm leading-6 text-slate-600">{currentStep.description}</p>
+        <p className="mt-3 border-l-2 border-emerald-400 bg-slate-50 px-3 py-2.5 text-xs leading-5 text-slate-600">{currentStep.tip}</p>
+        <div className="mt-4 flex items-center justify-between gap-2">
+          <button type="button" onClick={() => finishTour('skipped')} className="min-h-10 rounded-lg px-2.5 text-xs font-semibold text-slate-500 transition hover:bg-slate-100">{language === 'en' ? 'Skip' : 'Passer'}</button>
+          <div className="flex items-center gap-2">
             {stepIndex > 0 && (
-              <button type="button" onClick={() => goToStep(stepIndex - 1)} className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-slate-200 px-2.5 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-50"><ChevronLeft size={13}/>{isEnglish ? 'Previous' : 'Précédent'}</button>
+              <button type="button" onClick={() => goToStep(stepIndex - 1)} className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"><ChevronLeft size={14}/>{language === 'en' ? 'Previous' : 'Précédent'}</button>
             )}
             {stepIndex < steps.length - 1 ? (
-              <button type="button" onClick={() => goToStep(stepIndex + 1)} className="inline-flex min-h-9 items-center gap-1 rounded-lg bg-[#075b43] px-3 text-[11px] font-bold text-white shadow-sm transition hover:bg-[#064b38]">{isEnglish ? 'Next' : 'Suivant'} <ChevronRight size={13}/></button>
+              <button type="button" onClick={() => goToStep(stepIndex + 1)} className="inline-flex min-h-10 items-center gap-1 rounded-lg bg-[#075b43] px-3.5 text-xs font-bold text-white shadow-sm transition hover:bg-[#064b38]">{language === 'en' ? 'Next' : 'Suivant'} <ChevronRight size={14}/></button>
             ) : (
-              <button type="button" onClick={() => finishTour('completed')} className="inline-flex min-h-9 items-center gap-1 rounded-lg bg-[#075b43] px-3 text-[11px] font-bold text-white shadow-sm transition hover:bg-[#064b38]"><Check size={13}/>{isEnglish ? 'Finish' : 'Terminer'}</button>
+              <button type="button" onClick={() => finishTour('completed')} className="inline-flex min-h-10 items-center gap-1 rounded-lg bg-[#075b43] px-3.5 text-xs font-bold text-white shadow-sm transition hover:bg-[#064b38]"><Check size={14}/>{language === 'en' ? 'Finish' : 'Terminer'}</button>
             )}
           </div>
         </div>
@@ -365,3 +204,52 @@ export function AppFeatureTour() {
   );
 }
 
+// Une erreur propre au guide ne doit jamais faire tomber la page courante.
+// Le garde peut être réinitialisé en relançant le guide depuis Paramètres.
+class AppFeatureTourErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, revision: 0 };
+    this.handleReplay = this.handleReplay.bind(this);
+  }
+
+  componentDidMount() {
+    window.addEventListener('pata:app-tour-start', this.handleReplay);
+  }
+
+  componentWillUnmount() {
+    window.removeEventListener('pata:app-tour-start', this.handleReplay);
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error, info) {
+    console.error('[PATA APP TOUR RENDER ERROR]', error, info?.componentStack || '');
+  }
+
+  handleReplay() {
+    if (this.state.hasError) {
+      this.setState((state) => ({ hasError: false, revision: state.revision + 1 }));
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <section className="fixed bottom-4 left-1/2 z-[999] w-[min(420px,calc(100vw-24px))] -translate-x-1/2 rounded-2xl border border-amber-200 bg-white p-4 text-slate-900 shadow-xl" role="alert">
+          <p className="text-sm font-semibold">{'Le guide a rencontré un problème.'}</p>
+          <p className="mt-1 text-xs leading-5 text-slate-600">{'Le reste de Pata reste disponible. Tu peux relancer le guide depuis Paramètres.'}</p>
+          <button type="button" onClick={this.handleReplay} className="mt-3 min-h-9 rounded-lg bg-[#075b43] px-3 text-xs font-bold text-white">{'Réessayer'}</button>
+        </section>
+      );
+    }
+
+    return <AppFeatureTourContent key={this.state.revision}/>;
+  }
+}
+
+export function AppFeatureTour() {
+  return <AppFeatureTourErrorBoundary />;
+}
