@@ -5894,7 +5894,7 @@ async function handleCotisationsList(request) {
         cycleRef.get(),
         cycleRef.collection('contributions').limit(50).get(),
         cycleRef.collection('payments').orderBy('createdAt', 'desc').limit(200).get(),
-        group.startedAt ? groupRef.collection('cycles').where('status', '==', 'PAID').limit(50).get() : Promise.resolve({ docs: [] }),
+        group.startedAt ? groupRef.collection('cycles').orderBy('cycleIndex', 'desc').limit(50).get() : Promise.resolve({ docs: [] }),
       ]);
       const contributions = new Map(contributionsSnap.docs.map((doc) => [doc.id, doc.data()]));
       const paymentCounts = new Map();
@@ -5906,6 +5906,7 @@ async function handleCotisationsList(request) {
       const nextTurnMember = group.startedAt && members.length > 1 ? members[(meta.cycleIndex + 1) % members.length] : null;
       const receivedTurns = paidCyclesSnap.docs
         .map((document) => ({ id: document.id, ...document.data() }))
+        .filter((cycle) => cycle.status === 'PAID')
         .map((cycle) => {
           const cycleIndex = Number.isInteger(Number(cycle.cycleIndex)) ? Number(cycle.cycleIndex) : Number(String(cycle.cycleKey || cycle.id).replace(/^cycle-/, '')) - 1;
           const beneficiary = Number.isInteger(cycleIndex) && members.length ? members[cycleIndex % members.length] : null;
