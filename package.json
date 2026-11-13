@@ -12,7 +12,8 @@
     "cap:sync:android": "npx cap sync android",
     "test:notifications": "node --test tests/webPush.test.mjs tests/nativePushConfig.test.mjs tests/notificationDispatcher.test.mjs",
     "test:profile-notifications": "node --test tests/notificationState.test.mjs tests/cloudinaryAvatar.test.mjs tests/bodyScrollLock.test.mjs tests/categoryType.test.mjs",
-    "test:finance-priorities": "node --test tests/incomePriorities.test.mjs"
+    "test:finance-priorities": "node --test tests/incomePriorities.test.mjs",
+    "test:cotisation-chat": "node --test tests/cotisationChatPolicy.test.mjs"
   },
   "dependencies": {
     "@capacitor-firebase/authentication": "6.3.1",

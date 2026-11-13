@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { CloudinaryImageField } from '@/components/ui/CloudinaryImageField';
-import { Users, Plus, Copy, RefreshCw, Wallet, CalendarDays, ArrowDownToLine, Clock3, CheckCircle2, AlertCircle, ArrowUp, ArrowDown, PlayCircle, Save, Pin, ChevronDown, ChevronUp, Camera } from 'lucide-react';
+import { Users, Plus, Copy, RefreshCw, Wallet, CalendarDays, ArrowDownToLine, Clock3, CheckCircle2, AlertCircle, ArrowUp, ArrowDown, PlayCircle, Save, Pin, ChevronDown, ChevronUp, Camera, MessageCircle, Send, LockKeyhole } from 'lucide-react';
 
 const currency = (value) => new Intl.NumberFormat(getPreferredLocale(), { maximumFractionDigits: 0 }).format(Number(value) || 0) + ' FCFA';
 const today = () => {
@@ -38,6 +38,13 @@ export default function CotisationsPage() {
   const [expandedGroups, setExpandedGroups] = useState({});
   const [photoEditingGroup, setPhotoEditingGroup] = useState(null);
   const [groupPhotoDraft, setGroupPhotoDraft] = useState('');
+  const [chatGroup, setChatGroup] = useState(null);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatDraft, setChatDraft] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatBusy, setChatBusy] = useState(false);
+  const [chatError, setChatError] = useState('');
+  const chatScrollRef = useRef(null);
   const [whatsappForms, setWhatsappForms] = useState({});
   const [groupForm, setGroupForm] = useState({ name: '', contributionAmount: '', expectedMembers: '5', frequency: 'monthly', startDate: today(), dueDay: '30', graceDays: '1', lateFeeType: 'none', lateFeeValue: '' });
   const [orderDrafts, setOrderDrafts] = useState({});
@@ -83,6 +90,19 @@ export default function CotisationsPage() {
     if (!groupId || !groups.some((group) => group.id === groupId)) return;
     setExpandedGroups((current) => ({ ...current, [groupId]: true }));
     document.getElementById('cotisation-' + groupId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (new URLSearchParams(window.location.search).get('chat') === '1') {
+      const targetGroup = groups.find((item) => item.id === groupId);
+      if (targetGroup) {
+        setChatGroup(targetGroup);
+        setChatMessages([]);
+        setChatDraft('');
+        setChatError('');
+        setChatLoading(Boolean(targetGroup.chatUnlocked));
+      }
+      const params = new URLSearchParams(window.location.search);
+      params.delete('chat');
+      window.history.replaceState(null, '', window.location.pathname + (params.toString() ? '?' + params.toString() : ''));
+    }
   }, [groups]);
   const orderedGroups = useMemo(() => [...groups].sort((x,y)=>{const xp=pinnedGroups.includes(x.id)?1:0,yp=pinnedGroups.includes(y.id)?1:0;if(xp!==yp)return yp-xp;return (Date.parse(y.createdAt||0)||0)-(Date.parse(x.createdAt||0)||0);}),[groups,pinnedGroups]);
   const togglePinned = async (group) => {
@@ -158,6 +178,70 @@ export default function CotisationsPage() {
     setPayForms((current) => ({ ...current, [groupId]: { ...(current[groupId] || {}), [field]: value } }));
   };
   const saveWhatsApp=async(group)=>{const whatsappPhone=String(whatsappForms[group.id]??group.members.find((m)=>m.uid===user?.uid)?.whatsappPhone??'').trim();setBusy('whatsapp-'+group.id);setError('');try{const result=await api('cotisations/contact','POST',{groupId:group.id,whatsappPhone});setNotice(result.message||'Numéro WhatsApp enregistré.');await load();}catch(err){setError(err.message||'Impossible d’enregistrer ce numéro.');}finally{setBusy('');}};
+  const openGroupChat = (group) => {
+    setChatGroup(group);
+    setChatMessages([]);
+    setChatDraft('');
+    setChatError('');
+    setChatLoading(Boolean(group.chatUnlocked));
+  };
+
+  const unlockGroupChat = async () => {
+    if (!chatGroup) return;
+    setChatBusy(true);
+    setChatError('');
+    try {
+      const result = await api('cotisations/chat/unlock', 'POST', { groupId: chatGroup.id });
+      setChatGroup({ ...chatGroup, chatUnlocked: true });
+      setGroups((current) => current.map((group) => group.id === chatGroup.id ? { ...group, chatUnlocked: true } : group));
+      setNotice(result.message || 'Chat du groupe débloqué.');
+      setChatLoading(true);
+    } catch (error) {
+      setChatError(error.message || 'Impossible de débloquer le chat. Recharge ton portefeuille puis réessaie.');
+    } finally {
+      setChatBusy(false);
+    }
+  };
+
+  const sendGroupChatMessage = async (event) => {
+    event.preventDefault();
+    if (!chatGroup || !chatDraft.trim()) return;
+    setChatBusy(true);
+    setChatError('');
+    try {
+      const result = await api('cotisations/chat/send', 'POST', { groupId: chatGroup.id, text: chatDraft });
+      if (result.message) setChatMessages((current) => [...current, result.message].slice(-50));
+      setChatDraft('');
+    } catch (error) {
+      setChatError(error.message || 'Impossible d’envoyer ce message.');
+    } finally {
+      setChatBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!chatGroup?.id || !chatGroup.chatUnlocked || !user) return undefined;
+    let active = true;
+    const refresh = async () => {
+      try {
+        const result = await api('cotisations/chat/messages?groupId=' + encodeURIComponent(chatGroup.id));
+        if (active) { setChatMessages(result.messages || []); setChatError(''); }
+      } catch (error) {
+        if (active) setChatError(error.message || 'Impossible d’actualiser la discussion.');
+      } finally {
+        if (active) setChatLoading(false);
+      }
+    };
+    refresh();
+    const interval = window.setInterval(refresh, 8000);
+    return () => { active = false; window.clearInterval(interval); };
+  }, [chatGroup?.id, chatGroup?.chatUnlocked, user, api]);
+
+  useEffect(() => {
+    if (!chatScrollRef.current) return;
+    chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+  }, [chatMessages.length, chatGroup?.id]);
+
   const openGroupPhotoEditor = (group) => {
     setPhotoEditingGroup(group);
     setGroupPhotoDraft(group.imageURL || '');
@@ -376,6 +460,59 @@ export default function CotisationsPage() {
         </form>
       </Card>}
 
+      <Modal open={Boolean(chatGroup)} onClose={() => { if (!chatBusy) { setChatGroup(null); setChatMessages([]); setChatError(''); } }} title={chatGroup ? 'Discussion · ' + chatGroup.name : 'Discussion'} className="max-w-2xl">
+        {chatGroup && (
+          <div className="space-y-3">
+            {!chatGroup.chatUnlocked ? (
+              <div className="space-y-3">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-slate-700"><LockKeyhole size={19}/></span>
+                    <div><h3 className="text-sm font-bold text-slate-900">Débloquer le chat du groupe</h3><p className="mt-1 text-xs text-slate-600">Accès réservé aux membres de cette cotisation.</p></div>
+                  </div>
+                  <p className="mt-3 text-sm leading-6 text-slate-700">Un paiement unique de <strong>500 FCFA</strong> depuis ton portefeuille débloque définitivement la discussion pour toi dans ce groupe. Tu ne paieras pas par message et tu ne seras pas débité une deuxième fois.</p>
+                  <p className="mt-2 text-xs text-slate-500">Cette activation est individuelle : chaque membre choisit de débloquer ou non le chat.</p>
+                </div>
+                <Button type="button" className="w-full" onClick={unlockGroupChat} disabled={chatBusy}><LockKeyhole size={15}/>{chatBusy ? 'Déblocage…' : 'Débloquer pour 500 FCFA'}</Button>
+                <a href="/wallet" className="block text-center text-xs font-semibold text-brand-700">Recharger mon portefeuille</a>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs text-slate-500">Messages entre les membres · conservation pendant 30 jours</p>
+                  <button type="button" onClick={async () => { setChatLoading(true); try { const result = await api('cotisations/chat/messages?groupId=' + encodeURIComponent(chatGroup.id)); setChatMessages(result.messages || []); setChatError(''); } catch (error) { setChatError(error.message || 'Actualisation impossible.'); } finally { setChatLoading(false); } }} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 text-[11px] font-semibold text-slate-600"><RefreshCw size={12}/> Actualiser</button>
+                </div>
+                <div ref={chatScrollRef} className="max-h-[52dvh] min-h-[220px] space-y-3 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  {chatLoading && !chatMessages.length ? <p className="py-8 text-center text-xs text-slate-500">Chargement des messages…</p>
+                    : !chatMessages.length ? <p className="py-8 text-center text-xs text-slate-500">Aucun message pour le moment. Lance la discussion avec les membres du groupe.</p>
+                    : chatMessages.map((message) => {
+                      const mine = message.authorUid === user?.uid;
+                      const ownMember = chatGroup.members?.find((member) => member.uid === user?.uid);
+                      return <div key={message.id} className={'flex items-end gap-2 ' + (mine ? 'justify-end' : 'justify-start')}>
+                        {!mine && <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white text-[11px] font-bold text-slate-600">{message.authorPhotoURL ? <img src={message.authorPhotoURL} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer"/> : (message.authorName || 'M').slice(0,1).toUpperCase()}</span>}
+                        <div className={'max-w-[82%] rounded-2xl px-3 py-2 ' + (mine ? 'rounded-br-sm bg-brand-700 text-white' : 'rounded-bl-sm border border-slate-200 bg-white text-slate-800')}>
+                          {!mine && <p className="mb-1 text-[10px] font-bold text-slate-500">{message.authorName}</p>}
+                          <p className="whitespace-pre-wrap break-words text-sm leading-5">{message.text}</p>
+                          <p className={'mt-1 text-right text-[9px] ' + (mine ? 'text-white/70' : 'text-slate-400')}>{message.createdAt ? new Date(message.createdAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : 'À l’instant'}</p>
+                        </div>
+                        {mine && <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white text-[11px] font-bold text-slate-600">{ownMember?.photoURL ? <img src={ownMember.photoURL} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer"/> : (ownMember?.displayName || 'M').slice(0,1).toUpperCase()}</span>}
+                      </div>;
+                    })}
+                </div>
+                <form onSubmit={sendGroupChatMessage} className="space-y-2">
+                  <textarea value={chatDraft} onChange={(event) => setChatDraft(event.target.value.slice(0, 1000))} maxLength={1000} rows={2} placeholder="Écris un message aux membres du groupe…" className="w-full resize-y rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"/>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-[10px] text-slate-400">{chatDraft.length}/1000 caractères</span>
+                    <Button type="submit" disabled={chatBusy || !chatDraft.trim()}><Send size={14}/>{chatBusy ? 'Envoi…' : 'Envoyer'}</Button>
+                  </div>
+                </form>
+              </>
+            )}
+            {chatError && <p role="alert" className="rounded-lg bg-red-50 p-2 text-xs text-red-700">{chatError}</p>}
+          </div>
+        )}
+      </Modal>
+
       <Modal open={Boolean(photoEditingGroup)} onClose={() => { if (busy !== 'group-photo') setPhotoEditingGroup(null); }} title="Photo du groupe">
         <div className="space-y-4">
           <p className="text-xs leading-5 text-slate-500">Le chef du groupe peut modifier cette photo à tout moment. Elle sera visible par tous les membres.</p>
@@ -412,6 +549,7 @@ export default function CotisationsPage() {
                     <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="text-base font-bold text-slate-950">{group.name}</h3>{group.isOwner && <span className="rounded-full bg-brand-50 px-2 py-1 text-[10px] font-semibold text-brand-700">Chef de groupe</span>}</div><p className="mt-1 text-xs text-slate-500">{currency(group.contributionAmount)} par membre · {frequencyLabels[group.frequency] || group.frequency} · Échéance {group.frequency === 'monthly' ? 'le ' + group.dueDay + ' du mois' : 'à chaque période'} · Début {group.startDate}</p><p className="mt-1 text-[11px] text-slate-500">Majoration : {group.lateFeeLabel} · Délai de grâce : {group.graceDays} jour(s)</p></div></div>
                   <div className="flex items-center gap-2">
                     {group.isOwner && <button type="button" onClick={() => openGroupPhotoEditor(group)} aria-label="Modifier la photo du groupe" title="Modifier la photo du groupe" className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50"><Camera size={15}/></button>}
+                    <button type="button" onClick={() => openGroupChat(group)} aria-label="Ouvrir la discussion du groupe" title={group.chatUnlocked ? 'Ouvrir le chat' : 'Débloquer le chat · 500 FCFA'} className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50"><MessageCircle size={15}/></button>
                     <button type="button" onClick={() => togglePinned(group)} aria-label={pinnedGroups.includes(group.id)?'Désépingler ce groupe':'Épingler ce groupe'} className={'inline-flex h-9 w-9 items-center justify-center rounded-xl border '+(pinnedGroups.includes(group.id)?'border-brand-200 bg-brand-50 text-brand-700':'border-slate-200 text-slate-500')}><Pin size={15}/></button>{group.isOwner && !group.startedAt && <Button size="sm" variant="outline" onClick={() => { setEditingGroupId(group.id); setResponsibilityAccepted(Boolean(group.responsibilityAccepted)); setGroupForm({ name: group.name || '', contributionAmount: String(group.contributionAmount || ''), expectedMembers: String(group.expectedMembers || 2), frequency: group.frequency || 'monthly', startDate: group.startDate || today(), dueDay: String(group.dueDay || 30), graceDays: String(group.graceDays ?? 1), lateFeeType: group.lateFeeType || 'none', lateFeeValue: String(group.lateFeeValue || '') }); setShowCreate(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><Save size={13}/> Paramètres</Button>}{group.isOwner && <Button variant="outline" onClick={() => shareInvite(group)}><Users size={14}/> Inviter</Button>}<button type="button" onClick={() => setExpandedGroups((old)=>({...old,[group.id]:!old[group.id]}))} className="inline-flex h-9 items-center gap-1 rounded-xl border border-slate-200 px-2.5 text-xs font-semibold text-slate-600">{expandedGroups[group.id]?'Masquer':'Détails'}{expandedGroups[group.id]?<ChevronUp size={14}/>:<ChevronDown size={14}/>}</button><span className="rounded-full bg-slate-100 px-2.5 py-1.5 text-[10px] font-semibold text-slate-600">{group.memberCount}/{group.expectedMembers} membres</span></div>
                 </div>
                 {!group.startedAt && <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-900">{group.isOwner ? <><strong>Avant de lancer :</strong> invite {Math.max(0, group.expectedMembers - group.memberCount)} participant(s) supplémentaire(s), puis attribue personnellement une position à chaque membre. Aucun ordre n’est imposé par la date d’arrivée ni par le rôle de chef. Enregistre l’ordre choisi avant de lancer la collecte.</> : <>Le groupe attend encore {Math.max(0, group.expectedMembers - group.memberCount)} participant(s). Le chef attribuera lui-même les positions avant le lancement ; ni la date d’arrivée ni son rôle ne lui donnent automatiquement le premier tour.</>}</div>}
