@@ -59,6 +59,48 @@ export function renderPataEmail({ preheader = '', eyebrow = 'PATA', headline, in
   </td></tr></table></body></html>`;
 }
 
+export async function getResendEmailConfigurationStatus() {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    return { configured: false, error: 'RESEND_API_KEY est absente de la configuration serveur.' };
+  }
+
+  const from = getConfiguredFromAddress();
+  const emailMatch = from.match(/<([^<>]+)>/);
+  const fromAddress = emailMatch?.[1] || from;
+  const fromDomain = String(fromAddress.split('@')[1] || '').toLowerCase();
+  const response = await fetch('https://api.resend.com/domains', {
+    method: 'GET',
+    headers: { Authorization: 'Bearer ' + apiKey },
+    cache: 'no-store',
+    signal: AbortSignal.timeout(10000),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    return {
+      configured: true,
+      fromAddress,
+      fromDomain,
+      domainsCheckAvailable: false,
+      domainsCheckError: String(payload?.message || payload?.error || ('Resend a répondu avec le statut ' + response.status)).slice(0, 300),
+    };
+  }
+
+  const domains = Array.isArray(payload?.data) ? payload.data : [];
+  const matchingDomain = domains.find((item) => String(item?.name || '').toLowerCase() === fromDomain);
+  return {
+    configured: true,
+    fromAddress,
+    fromDomain,
+    domainsCheckAvailable: true,
+    senderDomainVerified: String(matchingDomain?.status || '').toLowerCase() === 'verified',
+    matchingDomainStatus: String(matchingDomain?.status || 'not_found'),
+    verifiedDomains: domains
+      .filter((item) => String(item?.status || '').toLowerCase() === 'verified')
+      .map((item) => ({ name: String(item.name || ''), status: String(item.status || '') })),
+  };
+}
+
 export async function sendPataEmail({ to, subject, html, idempotencyKey }) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) throw new Error('RESEND_API_KEY est absente de la configuration serveur.');
