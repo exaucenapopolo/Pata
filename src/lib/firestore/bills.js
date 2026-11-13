@@ -3,6 +3,10 @@ import { auth, db } from '@/lib/firebase/client';
 
 const billsCollection = (uid) => collection(db, 'users', uid, 'bills');
 
+function notifyIncomeBalancesChanged() {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('pata:income-balances-refresh'));
+}
+
 export function subscribeBills(uid, callback, onError) {
   if (!uid) return () => {};
   const billsQuery = query(billsCollection(uid), orderBy('nextDueDate', 'asc'));
@@ -25,6 +29,7 @@ async function postBillAction(action, payload = {}) {
   const result = await response.json().catch(() => ({}));
   if (result.confirmationRequired) return result;
   if (!response.ok || !result.success) throw new Error(result.error || 'Opération impossible.');
+  if (action === 'pay') notifyIncomeBalancesChanged();
   return result;
 }
 
