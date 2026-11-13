@@ -4,7 +4,7 @@ import { Component, useCallback, useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { X, ChevronLeft, ChevronRight, Check, Sparkles } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { useProfile } from '@/hooks/useProfile';
+import { ensureUserProfile, updateUserProfile } from '@/lib/firestore/profile';
 import { useLanguage } from '@/context/LanguageContext';
 
 const TOUR_STEPS = {
@@ -38,9 +38,8 @@ const TOUR_STEPS = {
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), Math.max(min, max));
 
-function AppFeatureTourContent() {
+function AppFeatureTourContent({ startRequest }) {
   const { user } = useAuth();
-  const { profile, loading: profileLoading, save } = useProfile();
   const { language } = useLanguage();
   const isEnglish = language === 'en';
   const steps = isEnglish ? TOUR_STEPS.en : TOUR_STEPS.fr;
@@ -77,22 +76,48 @@ function AppFeatureTourContent() {
   }, [router]);
 
   useEffect(() => {
-    if (profileLoading || !user || !profile || pathname !== '/dashboard' || autoStartCheckedRef.current) return;
+    if (!user || pathname !== '/dashboard' || autoStartCheckedRef.current) return undefined;
     autoStartCheckedRef.current = true;
+    let cancelled = false;
     let locallyCompleted = false;
-    try { locallyCompleted = window.localStorage.getItem(storageKey) === '1'; } catch { /* Le profil reste prioritaire. */ }
-    if (profile.appTourCompleted === false && !locallyCompleted) {
-      setStepIndex(0);
-      setTargetRect(null);
-      setCalloutPosition(null);
-      setActive(true);
+    try {
+      locallyCompleted = window.localStorage.getItem(storageKey) === '1';
+    } catch {
+      // Le profil Firestore reste la référence si le stockage local est indisponible.
     }
-  }, [profile, profileLoading, pathname, user, storageKey]);
 
+    ensureUserProfile(user)
+      .then((profile) => {
+        if (cancelled || locallyCompleted || profile?.appTourCompleted !== false) return;
+        setStepIndex(0);
+        targetElementRef.current = null;
+        setTargetRect(null);
+        setCalloutPosition(null);
+        setActive(true);
+      })
+      .catch((error) => {
+        console.warn('[PATA APP TOUR PROFILE INIT]', error?.message || error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, pathname, storageKey]);
+
+  // Le parent gère le signal de lancement. Le guide reçoit un compteur :
+  // aucune course entre le remontage du composant et l’installation d’un écouteur.
+  const handledStartRequestRef = useRef(0);
   useEffect(() => {
-    window.addEventListener('pata:app-tour-start', startTour);
-    return () => window.removeEventListener('pata:app-tour-start', startTour);
-  }, [startTour]);
+    if (!startRequest || startRequest === handledStartRequestRef.current) return;
+    handledStartRequestRef.current = startRequest;
+    autoStartCheckedRef.current = true;
+    targetElementRef.current = null;
+    setStepIndex(0);
+    setTargetRect(null);
+    setCalloutPosition(null);
+    setActive(true);
+    if (pathnameRef.current !== '/dashboard') router.push('/dashboard');
+  }, [startRequest, router]);
 
   const currentStep = steps[stepIndex];
 
@@ -250,9 +275,15 @@ function AppFeatureTourContent() {
       try { localStorage.setItem(storageKey, '1'); } catch { /* Le profil conserve l’état entre appareils. */ }
     }
     try {
-      await save({ appTourCompleted: true, appTourCompletedAt: new Date().toISOString(), appTourCompletionReason: reason });
+      if (user?.uid) {
+        await updateUserProfile(user.uid, {
+          appTourCompleted: true,
+          appTourCompletedAt: new Date().toISOString(),
+          appTourCompletionReason: reason,
+        });
+      }
     } catch (error) {
-      console.warn('[PATA APP TOUR]', error?.message || error);
+      console.warn('[PATA APP TOUR SAVE]', error?.message || error);
     } finally {
       setActive(false);
       setTargetRect(null);
@@ -373,16 +404,16 @@ function AppFeatureTourContent() {
 class AppFeatureTourErrorBoundary extends Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false, revision: 0 };
-    this.handleReplay = this.handleReplay.bind(this);
+    this.state = { hasError: false, revision: 0, startRequest: 0 };
+    this.handleTourRequest = this.handleTourRequest.bind(this);
   }
 
   componentDidMount() {
-    window.addEventListener('pata:app-tour-start', this.handleReplay);
+    window.addEventListener('pata:app-tour-start', this.handleTourRequest);
   }
 
   componentWillUnmount() {
-    window.removeEventListener('pata:app-tour-start', this.handleReplay);
+    window.removeEventListener('pata:app-tour-start', this.handleTourRequest);
   }
 
   static getDerivedStateFromError() {
@@ -393,26 +424,26 @@ class AppFeatureTourErrorBoundary extends Component {
     console.error('[PATA APP TOUR RENDER ERROR]', error, info?.componentStack || '');
   }
 
-  handleReplay() {
-    if (!this.state.hasError) return;
-    this.setState(
-      (state) => ({ hasError: false, revision: state.revision + 1 }),
-      () => window.dispatchEvent(new Event('pata:app-tour-start')),
-    );
+  handleTourRequest() {
+    this.setState((state) => ({
+      hasError: false,
+      revision: state.hasError ? state.revision + 1 : state.revision,
+      startRequest: state.startRequest + 1,
+    }));
   }
 
   render() {
     if (this.state.hasError) {
       return (
         <section className="fixed bottom-4 left-1/2 z-[999] w-[min(420px,calc(100vw-24px))] -translate-x-1/2 rounded-2xl border border-amber-200 bg-white p-4 text-slate-900 shadow-xl" role="alert">
-          <p className="text-sm font-semibold">Le guide a rencontré un problème.</p>
-          <p className="mt-1 text-xs leading-5 text-slate-600">Le reste de Pata reste disponible. Tu peux relancer le guide depuis Paramètres.</p>
-          <button type="button" onClick={this.handleReplay} className="mt-3 min-h-9 rounded-lg bg-[#075b43] px-3 text-xs font-bold text-white">Réessayer</button>
+          <p className="text-sm font-semibold">Le guide n’a pas pu s’ouvrir.</p>
+          <p className="mt-1 text-xs leading-5 text-slate-600">Le reste de Pata reste disponible. Appuie sur le bouton pour relancer le guide.</p>
+          <button type="button" onClick={this.handleTourRequest} className="mt-3 min-h-9 rounded-lg bg-[#075b43] px-3 text-xs font-bold text-white">Relancer le guide</button>
         </section>
       );
     }
 
-    return <AppFeatureTourContent key={this.state.revision} />;
+    return <AppFeatureTourContent key={this.state.revision} startRequest={this.state.startRequest} />;
   }
 }
 
