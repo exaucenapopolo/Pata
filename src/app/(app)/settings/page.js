@@ -60,6 +60,18 @@ export default function SettingsPage() {
     }
   }, [profile]);
 
+  const syncCotisationProfile = async () => {
+    if (!user) return;
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch('/api/cotisations/profile-sync', { method: 'POST', headers: { Authorization: 'Bearer ' + token } });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) throw new Error(result.error || 'Synchronisation indisponible.');
+    } catch (error) {
+      console.warn('[PATA COTISATION PROFILE SYNC]', error.message || error);
+    }
+  };
+
   const onSave = async (e) => {
     e.preventDefault();
     setSaving(true);
@@ -83,6 +95,7 @@ export default function SettingsPage() {
         currencyRates,
         currencyRateUpdatedAt: new Date().toISOString(),
       });
+      await syncCotisationProfile();
       setSaved(true);
       setActivePanel('');
       setTimeout(() => setSaved(false), 2500);
@@ -249,7 +262,7 @@ export default function SettingsPage() {
             <ProfilePhotoEditor
               photoURL={profile?.photoURL || ''}
               displayName={profile?.displayName || displayName}
-              onSave={(photoURL) => save({ photoURL })}
+              onSave={async (photoURL) => { await save({ photoURL }); await syncCotisationProfile(); }}
             />
             <Input label="Nom affiché" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
             <Input label="Adresse e-mail" value={user?.email || ''} disabled />

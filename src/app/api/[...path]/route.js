@@ -5815,6 +5815,63 @@ async function restoreCotisationCycle(data, status) {
   }, { merge: true });
 }
 
+
+async function hydrateCotisationMemberProfiles(memberDocuments) {
+  const members = memberDocuments.map((document) => ({ uid: document.id, ...document.data() }));
+  const missingProfiles = members.filter((member) =>
+    member.active !== false
+    && (!member.photoURL || !String(member.photoURL).startsWith('https://res.cloudinary.com/'))
+  );
+  const profileSnapshots = await Promise.all(missingProfiles.map((member) =>
+    adminDb.collection('users').doc(member.uid).get().catch(() => null)
+  ));
+  const profiles = new Map(missingProfiles.map((member, index) => [
+    member.uid,
+    profileSnapshots[index]?.exists ? profileSnapshots[index].data() || {} : {},
+  ]));
+  return members.map((member) => {
+    const profile = profiles.get(member.uid) || {};
+    const storedPhoto = typeof member.photoURL === 'string' && member.photoURL.startsWith('https://res.cloudinary.com/') ? member.photoURL : '';
+    const profilePhoto = typeof profile.photoURL === 'string' && profile.photoURL.startsWith('https://res.cloudinary.com/') ? profile.photoURL.slice(0, 2048) : '';
+    return {
+      ...member,
+      displayName: String(member.displayName || profile.displayName || 'Membre').slice(0, 100),
+      photoURL: storedPhoto || profilePhoto,
+    };
+  }).filter((member) => member.active !== false);
+}
+
+async function handleCotisationProfileSync(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const userRef = adminDb.collection('users').doc(uid);
+    const [userSnap, membershipsSnap] = await Promise.all([
+      userRef.get(),
+      userRef.collection('cotisationMemberships').limit(100).get(),
+    ]);
+    if (!userSnap.exists) return errorResponse('Profil utilisateur introuvable.', 404);
+    const user = userSnap.data() || {};
+    const displayName = String(user.displayName || 'Membre').trim().slice(0, 100);
+    const photoURL = typeof user.photoURL === 'string' && user.photoURL.startsWith('https://res.cloudinary.com/') ? user.photoURL.slice(0, 2048) : '';
+    const batch = adminDb.batch();
+    let synced = 0;
+    membershipsSnap.docs.forEach((membership) => {
+      const groupId = String(membership.data()?.groupId || membership.id).trim();
+      if (!groupId || groupId.includes('/')) return;
+      const memberRef = adminDb.collection('cotisationGroups').doc(groupId).collection('members').doc(uid);
+      batch.set(memberRef, {
+        displayName, photoURL,
+        profileSyncedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      synced += 1;
+    });
+    if (synced) await batch.commit();
+    return NextResponse.json({ success: true, syncedGroups: synced });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de synchroniser ton profil avec les cotisations.', 400);
+  }
+}
+
 async function handleCotisationsList(request) {
   try {
     const { uid } = await authenticate(request);
@@ -5826,17 +5883,18 @@ async function handleCotisationsList(request) {
       if (!groupSnap.exists) return null;
       const group = groupSnap.data();
       const membersSnap = await groupRef.collection('members').orderBy('joinedAt', 'asc').limit(50).get();
-      const members = membersSnap.docs.map((doc) => ({ uid: doc.id, ...doc.data() })).filter((member) => member.active !== false);
+      const members = await hydrateCotisationMemberProfiles(membersSnap.docs);
       const hasAssignedOrder = Boolean(group.orderConfirmedAt) && members.length > 0 && members.every((member) => Number.isInteger(Number(member.turnOrder)) && Number(member.turnOrder) >= 1);
       members.sort((a, b) => hasAssignedOrder || group.startedAt
         ? Number(a.turnOrder) - Number(b.turnOrder)
         : String(a.displayName || '').localeCompare(String(b.displayName || ''), 'fr'));
       const meta = await resolveCurrentCotisationCycleMeta(groupRef, group);
       const cycleRef = groupRef.collection('cycles').doc(meta.cycleKey);
-      const [cycleSnap, contributionsSnap, paymentsSnap] = await Promise.all([
+      const [cycleSnap, contributionsSnap, paymentsSnap, paidCyclesSnap] = await Promise.all([
         cycleRef.get(),
         cycleRef.collection('contributions').limit(50).get(),
         cycleRef.collection('payments').orderBy('createdAt', 'desc').limit(200).get(),
+        group.startedAt ? groupRef.collection('cycles').where('status', '==', 'PAID').limit(50).get() : Promise.resolve({ docs: [] }),
       ]);
       const contributions = new Map(contributionsSnap.docs.map((doc) => [doc.id, doc.data()]));
       const paymentCounts = new Map();
@@ -5846,6 +5904,26 @@ async function handleCotisationsList(request) {
       });
       const turnMember = group.startedAt && members.length ? members[meta.cycleIndex % members.length] : null;
       const nextTurnMember = group.startedAt && members.length > 1 ? members[(meta.cycleIndex + 1) % members.length] : null;
+      const receivedTurns = paidCyclesSnap.docs
+        .map((document) => ({ id: document.id, ...document.data() }))
+        .map((cycle) => {
+          const cycleIndex = Number.isInteger(Number(cycle.cycleIndex)) ? Number(cycle.cycleIndex) : Number(String(cycle.cycleKey || cycle.id).replace(/^cycle-/, '')) - 1;
+          const beneficiary = Number.isInteger(cycleIndex) && members.length ? members[cycleIndex % members.length] : null;
+          if (!beneficiary) return null;
+          return {
+            id: cycle.id,
+            cycleIndex,
+            beneficiaryUid: beneficiary.uid,
+            beneficiaryName: beneficiary.displayName || 'Membre',
+            beneficiaryPhotoURL: beneficiary.photoURL || '',
+            beneficiaryPosition: beneficiary.turnOrder || null,
+            paidAt: serializeAdminValue(cycle.paidAt || null),
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.cycleIndex - b.cycleIndex);
+      const receivedTurnCounts = new Map();
+      receivedTurns.forEach((turn) => receivedTurnCounts.set(turn.beneficiaryUid, (receivedTurnCounts.get(turn.beneficiaryUid) || 0) + 1));
       const contributionAmount = cotisationMoney(group.contributionAmount);
       const expectedMembers = cotisationExpectedMembers(group, members.length);
       const baseTarget = cotisationMoney(cycleSnap.data()?.baseTargetAmount) || contributionAmount * expectedMembers;
@@ -5862,8 +5940,8 @@ async function handleCotisationsList(request) {
           photoURL: typeof member.photoURL === 'string' && member.photoURL.startsWith('https://res.cloudinary.com/') ? member.photoURL.slice(0, 2048) : '',
           isOwner: member.isOwner === true,
           roleLabel: member.isOwner === true ? 'Chef de la cotisation' : String(member.roleLabel || 'Membre').trim().slice(0, 36) || 'Membre',
-          hasReceivedTurn: Boolean(group.startedAt) && members.indexOf(member) < meta.cycleIndex,
-          receivedTurnCount: Boolean(group.startedAt) && members.indexOf(member) < meta.cycleIndex ? 1 + Math.floor((meta.cycleIndex - 1 - members.indexOf(member)) / Math.max(1, members.length)) : 0,
+          hasReceivedTurn: (receivedTurnCounts.get(member.uid) || 0) > 0,
+          receivedTurnCount: receivedTurnCounts.get(member.uid) || 0,
           turnOrder: group.orderConfirmedAt && member.turnOrder != null ? cotisationMoney(member.turnOrder) : null,
           whatsappPhone: member.uid === uid || group.ownerId === uid ? String(member.whatsappPhone || '') : undefined,
           paid: principalPaid + penaltyPaid,
@@ -5911,6 +5989,7 @@ async function handleCotisationsList(request) {
           beneficiaryName: turnMember?.displayName || 'Membre', beneficiaryPhotoURL: turnMember?.photoURL || '', beneficiaryPosition: turnMember?.turnOrder || null,
           nextBeneficiaryUid: nextTurnMember?.uid || null, nextBeneficiaryName: nextTurnMember?.displayName || 'Membre',
           nextBeneficiaryPhotoURL: nextTurnMember?.photoURL || '', nextBeneficiaryPosition: nextTurnMember?.turnOrder || null,
+          receivedTurns,
           isMyTurn: turnMember?.uid === uid,
           myPaid: myPaid + myPenaltyPaid,
           myPrincipalPaid: myPaid, myPenaltyPaid,
@@ -6461,9 +6540,8 @@ async function handleCotisationInvitePreview(request) {
     ]);
     const owner = ownerSnap.exists ? ownerSnap.data() : {};
     const expectedMembers = cotisationExpectedMembers(group, group.memberCount);
-    const members = membersSnap.docs
-      .map((document) => ({ uid: document.id, ...document.data() }))
-      .filter((member) => member.active !== false)
+    const hydratedMembers = await hydrateCotisationMemberProfiles(membersSnap.docs);
+    const members = hydratedMembers
       .sort((a, b) => group.orderConfirmedAt || group.startedAt
         ? Number(a.turnOrder || 999) - Number(b.turnOrder || 999)
         : String(a.displayName || '').localeCompare(String(b.displayName || ''), 'fr'))
@@ -7413,6 +7491,7 @@ const ROUTES = {
   'cotisations/update': { POST: handleCotisationUpdate },
   'cotisations/photo': { POST: handleCotisationPhoto },
   'wallet/transactions': { GET: handleWalletTransactions },
+  'cotisations/profile-sync': { POST: handleCotisationProfileSync },
   'cotisations/chat/unlock': { POST: handleCotisationChatUnlock },
   'cotisations/chat/purchase': { POST: handleCotisationChatPurchase },
   'cotisations/chat/messages': { GET: handleCotisationChatMessages },
