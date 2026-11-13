@@ -33,8 +33,33 @@ export default function WalletPage() {
   const [amount, setAmount] = useState('1000');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [walletTransactions, setWalletTransactions] = useState([]);
+  const [transactionsLoading, setTransactionsLoading] = useState(true);
 
   const pollRef = useRef(null);
+
+  useEffect(() => {
+    let active = true;
+    const loadWalletTransactions = async () => {
+      if (!user) { setTransactionsLoading(false); return; }
+      try {
+        const token = await user.getIdToken();
+        const response = await fetch('/api/wallet/transactions', {
+          headers: { Authorization: 'Bearer ' + token },
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de charger les opérations.');
+        if (active) setWalletTransactions(result.transactions || []);
+      } catch (loadError) {
+        if (active) console.warn('[PATA WALLET TRANSACTIONS]', loadError.message || loadError);
+      } finally {
+        if (active) setTransactionsLoading(false);
+      }
+    };
+    loadWalletTransactions();
+    return () => { active = false; };
+  }, [user]);
+
   const balance = profile?.balance || 0;
 
   const pendingDeposits = useMemo(
@@ -161,6 +186,26 @@ export default function WalletPage() {
           </p>
         </form>
       </Card>
+
+      {walletTransactions.length > 0 && (
+        <Card>
+          <CardTitle className="mb-3">Autres opérations du portefeuille</CardTitle>
+          {transactionsLoading ? <p className="py-3 text-xs text-slate-500">Chargement…</p> : (
+            <ul className="divide-y divide-slate-100">
+              {walletTransactions.map((transaction) => (
+                <li key={transaction.id} className="flex items-center justify-between gap-3 py-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-800">{transaction.description || (transaction.type === 'COTISATION_CHAT_ACCESS' ? 'Déblocage du chat d’une cotisation' : 'Opération du portefeuille')}</p>
+                    {transaction.groupName && <p className="mt-0.5 truncate text-xs text-slate-500">{transaction.groupName}</p>}
+                    <p className="mt-0.5 text-[10px] text-slate-400">{transaction.createdAt ? new Date(transaction.createdAt).toLocaleString(getPreferredLocale()) : 'Date non disponible'}</p>
+                  </div>
+                  <span className="shrink-0 text-sm font-bold text-red-600">− {formatCurrency(transaction.amount)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      )}
 
       <Card>
         <div className="mb-3 flex items-center justify-between">

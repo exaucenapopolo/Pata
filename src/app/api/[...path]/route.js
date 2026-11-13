@@ -6052,6 +6052,24 @@ async function handleCotisationUpdate(request) {
   }
 }
 
+async function handleWalletTransactions(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const snapshot = await adminDb.collection('users').doc(uid)
+      .collection('walletTransactions')
+      .orderBy('createdAt', 'desc')
+      .limit(50)
+      .get();
+    const transactions = snapshot.docs.map((document) => ({
+      id: document.id,
+      ...serializeAdminValue(document.data()),
+    }));
+    return NextResponse.json({ success: true, transactions });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de charger les autres opérations du portefeuille.', 401);
+  }
+}
+
 async function handleCotisationChatUnlock(request) {
   try {
     const { uid } = await authenticate(request);
@@ -6220,7 +6238,7 @@ async function handleCotisationChatSend(request) {
       }, { merge: true });
       return {
         id: messageRef.id, authorName, authorPhotoURL, text: messageText,
-        recipientIds: shouldNotifyMembers ? membersSnap.docs.filter((document) => document.id !== uid && document.data()?.active !== false).map((document) => document.id) : [],
+        recipientIds: shouldNotifyMembers ? membersSnap.docs.filter((document) => document.id !== uid && document.data()?.active !== false && document.data()?.chatAccess === true).map((document) => document.id) : [],
         groupName: groupData.name ? String(groupData.name).slice(0, 80) : 'Chat du groupe',
       };
     });
@@ -7316,6 +7334,7 @@ const ROUTES = {
   'cotisations/create': { POST: handleCotisationCreate },
   'cotisations/update': { POST: handleCotisationUpdate },
   'cotisations/photo': { POST: handleCotisationPhoto },
+  'wallet/transactions': { GET: handleWalletTransactions },
   'cotisations/chat/unlock': { POST: handleCotisationChatUnlock },
   'cotisations/chat/messages': { GET: handleCotisationChatMessages },
   'cotisations/chat/send': { POST: handleCotisationChatSend },
