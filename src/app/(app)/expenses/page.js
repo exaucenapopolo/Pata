@@ -68,7 +68,7 @@ export default function ExpensesPage() {
   const [projectFinancials, setProjectFinancials] = useState({});
   const premiumDate = profile?.premiumUntil?.toDate ? profile.premiumUntil.toDate() : new Date(profile?.premiumUntil || 0);
   const isPremium = Number.isFinite(premiumDate.getTime()) && premiumDate > new Date();
-  const { incomes } = useIncomes();
+  const { incomes, balancesReady } = useIncomes();
   const { debts } = useDebts();
   const activePayableDebts = debts.filter((debt) => debt.type === 'i_owe' && ['active', 'partial', 'late'].includes(debt.status) && Number(debt.remaining) > 0);
   const { customCategories } = useCustomCategories('expense');
@@ -157,16 +157,24 @@ export default function ExpensesPage() {
     window.history.replaceState(null, '', window.location.pathname + (query ? '?' + query : ''));
   }, [expenses]);
 
-  const incomesWithBalance = useMemo(() => incomes.map((income) => ({
-    ...income,
-    spent: Math.max(0, Number(income.spent) || 0),
-    remaining: Math.max(0, Number(income.remaining) || 0),
-    isExhausted: Number(income.remaining) <= 0 && Number(income.spent) > 0,
-  })), [incomes]);
+  const incomesWithBalance = useMemo(() => incomes.map((income) => {
+    const balanceAvailable = income.balanceAvailable === true;
+    const spent = balanceAvailable ? Math.max(0, Number(income.spent) || 0) : null;
+    const remaining = balanceAvailable ? Math.max(0, Number(income.remaining) || 0) : null;
+    return {
+      ...income,
+      spent,
+      remaining,
+      balanceAvailable,
+      isExhausted: balanceAvailable && remaining <= 0 && spent > 0,
+    };
+  }), [incomes]);
 
   const totalGlobalBalance = useMemo(
-    () => incomesWithBalance.reduce((s, i) => s + i.remaining, 0),
-    [incomesWithBalance]
+    () => balancesReady && incomesWithBalance.every((income) => income.balanceAvailable)
+      ? incomesWithBalance.reduce((sum, income) => sum + income.remaining, 0)
+      : null,
+    [balancesReady, incomesWithBalance]
   );
 
   const sortedIncomesForSelect = useMemo(() => {
@@ -217,7 +225,7 @@ export default function ExpensesPage() {
   const activeProjects = projectTotals.filter((project) => project.status !== 'completed' && project.status !== 'archived');
   const completedProjects = projectTotals.filter((project) => project.status === 'completed' || project.status === 'archived');
   const displayedProjects = showCompletedProjects ? [...activeProjects, ...completedProjects] : activeProjects;
-  const eligibleIncomesForExpense = sortedIncomesForSelect.filter((income) => !income.projectId || income.projectId === (form.expenseType === 'project' ? form.projectId : ''));
+  const eligibleIncomesForExpense = sortedIncomesForSelect.filter((income) => income.balanceAvailable && (!income.projectId || income.projectId === (form.expenseType === 'project' ? form.projectId : '')));
 
   const openNew = () => {
     setForm(emptyForm());
@@ -618,6 +626,7 @@ export default function ExpensesPage() {
 
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">D'où vient cet argent ?</label>
+            {!balancesReady && <p className="mb-2 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">Les soldes des revenus ne sont pas encore vérifiés. Les sources individuelles seront affichées dès que le calcul sera disponible ; Pata vérifiera toujours les fonds avant d’enregistrer la dépense.</p>}
             <select
               value={form.incomeSourceId}
               onChange={(e) => {
@@ -632,7 +641,7 @@ export default function ExpensesPage() {
               className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"
             >
               {/* 🟢 AFFICHAGE DU VRAI SOLDE TOTAL */}
-              <option value="all">Toutes les sources disponibles ({formatCurrency(eligibleIncomesForExpense.reduce((sum, income) => sum + income.remaining, 0))})</option>
+              <option value="all">Toutes les sources disponibles ({balancesReady ? formatCurrency(eligibleIncomesForExpense.reduce((sum, income) => sum + income.remaining, 0)) : 'solde indisponible'})</option>
               {eligibleIncomesForExpense.map((inc) => (
                 <option 
                   key={inc.id} 

@@ -2484,28 +2484,15 @@ async function handleIncomeSpendTotals(request) {
     const { uid } = await authenticate(request);
     const body = await request.json();
     const incomeIds = [...new Set((Array.isArray(body.incomeIds) ? body.incomeIds : [])
-      .map((value) => String(value || '').trim())
-      .filter((value) => value && !value.includes('/')))].slice(0, 250);
-    const totalsById = new Map(incomeIds.map((incomeId) => [incomeId, 0]));
-    const expensesRef = adminDb.collection('users').doc(uid).collection('expenses');
-
-    // A filtered SUM on (incomeSourceId, amount) required a missing composite
-    // index. Use Firestore's built-in single-field index instead, in safe groups.
-    for (let offset = 0; offset < incomeIds.length; offset += 30) {
-      const group = incomeIds.slice(offset, offset + 30);
-      const snapshot = await expensesRef.where('incomeSourceId', 'in', group).get();
-      for (const document of snapshot.docs) {
-        const expense = document.data() || {};
-        const incomeId = String(expense.incomeSourceId || '');
-        if (!totalsById.has(incomeId)) continue;
-        const amount = Number(expense.amount);
-        if (Number.isFinite(amount) && amount > 0) {
-          totalsById.set(incomeId, totalsById.get(incomeId) + amount);
-        }
-      }
-    }
-
-    const totals = [...totalsById.entries()].map(([incomeId, spent]) => ({ incomeId, spent }));
+      .map((value) => String(value || '').trim()).filter((value) => value && !value.includes('/')))].slice(0, 120);
+    const userRef = adminDb.collection('users').doc(uid);
+    const totals = await Promise.all(incomeIds.map(async (incomeId) => {
+      const snapshot = await userRef.collection('expenses')
+        .where('incomeSourceId', '==', incomeId)
+        .aggregate({ total: AggregateField.sum('amount') })
+        .get();
+      return { incomeId, spent: Math.max(0, Number(snapshot.data()?.total) || 0) };
+    }));
     return NextResponse.json({ success: true, totals });
   } catch (error) {
     console.error('[PATA INCOME BALANCE SUMMARY]', error.message || error);

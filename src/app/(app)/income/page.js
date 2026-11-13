@@ -64,7 +64,7 @@ export default function IncomePage() {
   const { user } = useAuth();
   const { language } = useLanguage();
   const isEnglish = language === 'en';
-  const { incomes } = useIncomes();
+  const { incomes, balancesReady } = useIncomes();
   const { debts } = useDebts();
   const activeReceivableDebts = debts.filter((debt) => debt.type === 'owed_to_me' && ['active', 'partial', 'late'].includes(debt.status) && Number(debt.remaining) > 0);
   const { expenses } = useExpenses({ days: 30, limit: 500 });
@@ -167,23 +167,26 @@ export default function IncomePage() {
   }, [incomes]);
 
   const incomesWithBalance = useMemo(() => incomes.map((income) => {
-    const spent = Math.max(0, Number(income.spent) || 0);
-    const remaining = Math.max(0, Number(income.remaining) || 0);
+    const balanceAvailable = income.balanceAvailable === true;
+    const spent = balanceAvailable ? Math.max(0, Number(income.spent) || 0) : null;
+    const remaining = balanceAvailable ? Math.max(0, Number(income.remaining) || 0) : null;
     const createdDate = income.date || (income.createdAt?.toDate ? income.createdAt.toDate().toISOString().slice(0, 10) : null);
     return {
       ...income,
       spent,
       remaining,
+      balanceAvailable,
       createdDate,
       exhaustedDate: null,
-      isExhausted: remaining === 0 && spent > 0,
+      isExhausted: balanceAvailable && remaining === 0 && spent > 0,
     };
   }), [incomes]);
 
-  const activeIncomes = useMemo(() => incomesWithBalance.filter(i => !i.neutralFlow && !i.isExhausted), [incomesWithBalance]);
-  const totalAvailable = activeIncomes.reduce((s, i) => s + i.remaining, 0);
-  const cashPocketBalances = useMemo(() => incomesWithBalance.filter((item) => item.cashPocket === true), [incomesWithBalance]);
-  const cashAvailable = cashPocketBalances.reduce((sum, item) => sum + item.remaining, 0);
+  const incomeBalancesAvailable = balancesReady && incomesWithBalance.every((item) => item.balanceAvailable);
+  const activeIncomes = useMemo(() => incomesWithBalance.filter(i => i.balanceAvailable && !i.neutralFlow && !i.isExhausted), [incomesWithBalance]);
+  const totalAvailable = incomeBalancesAvailable ? activeIncomes.reduce((s, i) => s + i.remaining, 0) : null;
+  const cashPocketBalances = useMemo(() => incomesWithBalance.filter((item) => item.balanceAvailable && item.cashPocket === true), [incomesWithBalance]);
+  const cashAvailable = incomeBalancesAvailable ? cashPocketBalances.reduce((sum, item) => sum + item.remaining, 0) : null;
   const cashflowForecast = useMemo(() => {
     const today = todayIso();
     const start = new Date(today + 'T12:00:00');
@@ -203,7 +206,7 @@ export default function IncomePage() {
       ? Math.max(1, Math.min(30, Math.floor((Date.parse(today + 'T12:00:00') - Date.parse(firstDate + 'T12:00:00')) / 86400000) + 1))
       : 30;
     const averageDailyOutflow = totalOutflows / observedDays;
-    const availableNow = Math.max(0, (Number(totalAvailable) || 0) + (Number(cashAvailable) || 0));
+    const availableNow = totalAvailable == null || cashAvailable == null ? null : Math.max(0, totalAvailable + cashAvailable);
     return {
       availableNow,
       totalOutflows,
@@ -212,7 +215,7 @@ export default function IncomePage() {
       projections: [3, 7, 30].map((days) => ({
         days,
         plannedOutflow: Math.round(averageDailyOutflow * days),
-        remaining: Math.round(availableNow - averageDailyOutflow * days),
+        remaining: availableNow == null ? null : Math.round(availableNow - averageDailyOutflow * days),
       })),
     };
   }, [expenses, totalAvailable, cashAvailable]);
@@ -543,7 +546,7 @@ export default function IncomePage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Revenus</h1>
           <p className="text-sm text-slate-500">
-            {activeIncomes.length} source(s) de revenu active(s) — Disponible : <span className="font-semibold text-brand-600">{formatCurrency(totalAvailable)}</span> · Espèces disponibles : <span className="font-semibold text-slate-700">{formatCurrency(cashAvailable)}</span>
+            {activeIncomes.length} source(s) de revenu active(s) — Disponible : <span className="font-semibold text-brand-600">{totalAvailable == null ? 'Indisponible' : formatCurrency(totalAvailable)}</span> · Espèces disponibles : <span className="font-semibold text-slate-700">{cashAvailable == null ? 'Indisponible' : formatCurrency(cashAvailable)}</span>
           </p>
           <p className="mt-1 max-w-xl text-xs leading-5 text-slate-500">
             Centralise tes entrées d’argent, suis leur disponibilité et distingue les revenus des emprunts et remboursements.
@@ -576,7 +579,7 @@ export default function IncomePage() {
         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
           <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
             <p className="text-[11px] text-slate-500">Disponible maintenant</p>
-            <p className="mt-1 text-sm font-bold text-slate-900">{formatCurrency(cashflowForecast.availableNow)}</p>
+            <p className="mt-1 text-sm font-bold text-slate-900">{cashflowForecast.availableNow == null ? 'Indisponible' : formatCurrency(cashflowForecast.availableNow)}</p>
           </div>
           <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
             <p className="text-[11px] text-slate-500">Sorties moyennes / jour</p>
@@ -585,7 +588,7 @@ export default function IncomePage() {
           {cashflowForecast.projections.map((item) => (
             <div key={item.days} className="rounded-xl border border-slate-100 p-3">
               <p className="text-[11px] text-slate-500">Dans {item.days} jours</p>
-              <p className={'mt-1 text-sm font-bold ' + (item.remaining < 0 ? 'text-red-600' : 'text-emerald-700')}>{item.remaining < 0 ? 'Déficit estimé : ' + formatCurrency(Math.abs(item.remaining)) : formatCurrency(item.remaining)}</p>
+              <p className={'mt-1 text-sm font-bold ' + (item.remaining != null && item.remaining < 0 ? 'text-red-600' : 'text-emerald-700')}>{item.remaining == null ? 'Indisponible' : item.remaining < 0 ? 'Déficit estimé : ' + formatCurrency(Math.abs(item.remaining)) : formatCurrency(item.remaining)}</p>
               <p className="mt-1 text-[10px] text-slate-400">Sorties prévues : {formatCurrency(item.plannedOutflow)}</p>
             </div>
           ))}
@@ -771,12 +774,12 @@ export default function IncomePage() {
                   <span className="shrink-0 text-right"><strong className="block text-sm font-bold text-slate-900">{formatCurrency(inc.amount)}</strong><span className="text-[10px] font-medium text-brand-700">Voir le détail</span></span>
                 </button>
                 <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2">
-                  <span className="text-[11px] text-slate-500">{inc.isExhausted ? (inc.exhaustedDate ? `Épuisé le ${formatDate(inc.exhaustedDate)}` : 'Source épuisée') : `Disponible : ${formatCurrency(inc.remaining)}`}</span>
+                  <span className="text-[11px] text-slate-500">{!inc.balanceAvailable ? 'Solde indisponible — vérification nécessaire' : inc.isExhausted ? (inc.exhaustedDate ? `Épuisé le ${formatDate(inc.exhaustedDate)}` : 'Source épuisée') : `Disponible : ${formatCurrency(inc.remaining)}`}</span>
                   <span className="flex items-center gap-1">
                     {!inc.neutralFlow && <button type="button" onClick={() => setDeleteId(inc.id)} className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600" aria-label="Supprimer ce revenu"><Trash2 size={14}/></button>}
                   </span>
                 </div>
-                {!inc.isExhausted && <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-brand-500" style={{width: `${inc.amount > 0 ? Math.min(100, (inc.spent / inc.amount) * 100) : 0}%`}}/></div>}
+                {inc.balanceAvailable && !inc.isExhausted && <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-brand-500" style={{width: `${inc.amount > 0 ? Math.min(100, (inc.spent / inc.amount) * 100) : 0}%`}}/></div>}
                 </li>
             ))}
           </ul>
