@@ -5572,6 +5572,39 @@ async function handleAdminBroadcast(request) {
 
 /* ═══════════════════ PROJETS PREMIUM ═══════════════════ */
 
+async function handleProjectFinancialSummary(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const projectIds = [...new Set((Array.isArray(body.projectIds) ? body.projectIds : [])
+      .map((value) => String(value || '').trim())
+      .filter((value) => value && !value.includes('/')))].slice(0, 40);
+    const userRef = adminDb.collection('users').doc(uid);
+    const summaries = await Promise.all(projectIds.map(async (projectId) => {
+      const [expensesSnap, incomesSnap, borrowedSnap] = await Promise.all([
+        userRef.collection('expenses').where('projectId', '==', projectId)
+          .aggregate({ total: AggregateField.sum('amount') }).get(),
+        userRef.collection('incomes').where('projectId', '==', projectId)
+          .aggregate({ total: AggregateField.sum('amount') }).get(),
+        userRef.collection('incomes').where('projectId', '==', projectId).where('flowType', '==', 'debt_borrowed')
+          .aggregate({ total: AggregateField.sum('amount') }).get(),
+      ]);
+      const totalIncome = Math.max(0, Number(incomesSnap.data()?.total) || 0);
+      const borrowedFunding = Math.min(totalIncome, Math.max(0, Number(borrowedSnap.data()?.total) || 0));
+      return {
+        projectId,
+        spent: Math.max(0, Number(expensesSnap.data()?.total) || 0),
+        income: Math.max(0, totalIncome - borrowedFunding),
+        borrowedFunding,
+      };
+    }));
+    return NextResponse.json({ success: true, summaries });
+  } catch (error) {
+    console.error('[PATA PROJECT SUMMARY]', error.message || error);
+    return errorResponse(error.message || 'Impossible de calculer les totaux des projets.', 502);
+  }
+}
+
 async function handleCreateProject(request) {
   try {
     const { uid } = await authenticate(request);
@@ -7877,6 +7910,7 @@ const ROUTES = {
   'incomes/update': { POST: handleUpdateIncome },
   'incomes/delete': { POST: handleDeleteIncome },
   'incomes/pin': { POST: handleIncomePin },
+  'projects/financial-summary': { POST: handleProjectFinancialSummary },
   'projects/create': { POST: handleCreateProject },
   'cotisations/invite': { GET: handleCotisationInvitePreview },
   'cotisations/scheduler': { GET: handleCotisationsScheduler, POST: handleCotisationsScheduler },
