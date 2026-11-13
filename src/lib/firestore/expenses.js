@@ -5,6 +5,10 @@ import { db, auth } from '@/lib/firebase/client';
 
 const col = (uid) => collection(db, 'users', uid, 'expenses');
 
+function notifyIncomeBalancesChanged() {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('pata:income-balances-refresh'));
+}
+
 export function subscribeExpenses(uid, cb) {
   const q = query(col(uid), orderBy('date', 'desc'));
   return onSnapshot(q, (snap) => {
@@ -33,6 +37,7 @@ export async function createExpense(uid, data) {
     throw new Error(result.error || 'Erreur lors de l\'enregistrement de la dépense.');
   }
   
+  notifyIncomeBalancesChanged();
   return result;
 }
 
@@ -48,6 +53,7 @@ async function postExpenseAction(path, payload) {
   const result = await response.json();
   if (result.confirmationRequired) return result;
   if (!response.ok || !result.success) throw new Error(result.error || 'Opération impossible.');
+  notifyIncomeBalancesChanged();
   return result;
 }
 
