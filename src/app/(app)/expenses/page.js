@@ -128,14 +128,12 @@ export default function ExpensesPage() {
   const startDate = showCustomPeriod ? customStart : getFirstOfMonth();
   const endDate = showCustomPeriod ? customEnd : getLastOfMonth();
 
-  const incomesWithBalance = useMemo(() => {
-    return incomes.map((inc) => {
-      const linkedExpenses = expenses.filter((e) => e.incomeSourceId === inc.id);
-      const spent = linkedExpenses.reduce((s, e) => s + (e.amount || 0), 0);
-      const remaining = Math.max(0, (inc.amount || 0) - spent);
-      return { ...inc, spent, remaining, isExhausted: remaining === 0 && spent > 0 };
-    });
-  }, [incomes, expenses]);
+  const incomesWithBalance = useMemo(() => incomes.map((income) => ({
+    ...income,
+    spent: Math.max(0, Number(income.spent) || 0),
+    remaining: Math.max(0, Number(income.remaining) || 0),
+    isExhausted: Number(income.remaining) <= 0 && Number(income.spent) > 0,
+  })), [incomes]);
 
   const totalGlobalBalance = useMemo(
     () => incomesWithBalance.reduce((s, i) => s + i.remaining, 0),
