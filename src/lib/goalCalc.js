@@ -118,11 +118,11 @@ export function computeGoalPlan(goal, deposits = [], today = new Date()) {
     if (missedForThisDueDate > 0) {
       missedPayments += 1;
       missedAmount += missedForThisDueDate;
-      penalty += Math.round(missedForThisDueDate * GOAL_LATE_PENALTY_RATE);
+      if (penaltyEnabled) penalty += Math.round(missedForThisDueDate * GOAL_LATE_PENALTY_RATE);
     }
   }
-  const penaltyEnabled = true;
-  const unitPenalty = missedPayments ? Math.round((missedAmount / missedPayments) * GOAL_LATE_PENALTY_RATE) : 0;
+  const penaltyEnabled = goal.penaltyEnabled === true;
+  const unitPenalty = penaltyEnabled && missedPayments ? Math.round((missedAmount / missedPayments) * GOAL_LATE_PENALTY_RATE) : 0;
 
   // Calcul de la prochaine date de paiement (pour l'afficher)
   let nextPaymentDate = null;
@@ -169,7 +169,7 @@ export function computeGoalPlan(goal, deposits = [], today = new Date()) {
     progress,
     remaining,
     daysLeft,
-    isLate: penalty > 0,
+    isLate: missedPayments > 0,
     isReached,
     totalDebt,
     notStarted,

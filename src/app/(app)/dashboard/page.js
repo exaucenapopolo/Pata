@@ -91,6 +91,7 @@ export default function DashboardPage() {
   const [targetSaving, setTargetSaving] = useState(false);
   const [targetError, setTargetError] = useState('');
   const [targetSaved, setTargetSaved] = useState(false);
+  const [targetCollapsed, setTargetCollapsed] = useState(false);
   const { user } = useAuth();
   const { language } = useLanguage();
   const isEnglish = language === 'en';
@@ -122,6 +123,9 @@ export default function DashboardPage() {
       if (!active) return;
       const target = data.target || null;
       setFinancialTarget(target);
+      const configuredTargetCount = ['incomeTarget', 'expenseLimit', 'debtLimit', 'loanGivenLimit']
+        .filter((field) => target?.[field] !== undefined && target?.[field] !== null && String(target[field]).trim() !== '').length;
+      setTargetCollapsed(configuredTargetCount >= 2);
       setTargetDraft({
         incomeTarget: target?.incomeTarget == null ? '' : String(target.incomeTarget),
         expenseLimit: target?.expenseLimit == null ? '' : String(target.expenseLimit),
@@ -324,6 +328,7 @@ export default function DashboardPage() {
         resolutions: payload.resolutions,
       });
       setTargetSaved(true);
+      setTargetCollapsed(true);
     } catch (error) {
       setTargetError(error.message || 'Impossible d’enregistrer les objectifs.');
     } finally {
@@ -364,8 +369,15 @@ export default function DashboardPage() {
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div><h2 className="text-sm font-bold text-slate-900">Mes objectifs financiers</h2><p className="mt-1 text-xs text-slate-500">Pata étudie tes opérations et te propose des repères réalistes. Tu peux les accepter, les modifier ou choisir les tiens.</p></div>
-          {targetSaved && <span className="text-xs font-semibold text-emerald-700">Enregistré</span>}
+          <div className="flex items-center gap-2">
+            {targetSaved && <span className="text-xs font-semibold text-emerald-700">Enregistré</span>}
+            <button type="button" onClick={() => setTargetCollapsed((value) => !value)} className="min-h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+              {targetCollapsed ? 'Modifier' : 'Replier'}
+            </button>
+          </div>
         </div>
+        {targetCollapsed && <p className="mt-3 rounded-xl bg-slate-50 px-3 py-2.5 text-xs leading-5 text-slate-600">Tes objectifs et résolutions enregistrés sont repliés pour alléger le tableau de bord. Appuie sur « Modifier » pour les consulter ou les changer.</p>}
+        <div hidden={targetCollapsed}>
         <div className="mt-4 flex flex-wrap gap-2">
           {[
             ['day', 'Aujourd’hui'],
@@ -432,6 +444,7 @@ export default function DashboardPage() {
             <button type="button" onClick={saveFinancialTargets} disabled={targetSaving} className="min-h-10 rounded-xl bg-brand-700 px-4 text-xs font-bold text-white transition hover:bg-brand-800 disabled:opacity-50">{targetSaving ? 'Enregistrement…' : 'Valider et enregistrer'}</button>
           </div>
         </>}
+        </div>
       </section>
       <section className="pata-feature-carousel overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" aria-roledescription="carrousel de fonctionnalités" aria-label="Fonctionnalités principales de Pata">
         {DASHBOARD_FEATURES.map((feature, index) => {

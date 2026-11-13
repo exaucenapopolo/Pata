@@ -79,7 +79,9 @@ function buildGoalAdvices(plan, balance, goalName, language = 'fr') {
     const missedLabel = isEnglish ? `${plan.missedPayments} missed payment${plan.missedPayments > 1 ? 's' : ''}` : `${plan.missedPayments} échéance${plan.missedPayments > 1 ? 's' : ''} manquée${plan.missedPayments > 1 ? 's' : ''}`;
     advices.push({
       type: 'danger',
-      message: isEnglish ? `${missedLabel}: late adjustments of ${formatCurrency(plan.penalty)} are due. The adjustment is limited to 7% of the amount still unpaid at each missed due date and will be deducted when you withdraw or close the goal.` : `${missedLabel} : des ajustements liés aux échéances de ${formatCurrency(plan.penalty)} sont dus. Le calcul est limité à 7 % du montant resté impayé à chaque échéance et sera déduit au retrait ou à la clôture.`,
+      message: plan.penaltyEnabled
+        ? (isEnglish ? `${missedLabel}: a late adjustment of ${formatCurrency(plan.penalty)} is due under the option you enabled. It is calculated only on the amount still unpaid at each missed due date.` : `${missedLabel} : une pénalité de ${formatCurrency(plan.penalty)} est prévue selon l’option que tu as activée. Elle est calculée uniquement sur la somme restée impayée à chaque échéance.`)
+        : (isEnglish ? `${missedLabel}. No late penalty is enabled for this goal. Pata will keep reminding you about missed payments; no amount will be deducted.` : `${missedLabel}. Aucune pénalité de retard n’est activée pour cette épargne. Pata continuera à t’envoyer des rappels ; aucun montant ne sera déduit.`),
     });
   } else if (plan.totalDeposited >= plan.expectedAmount) {
     advices.push({ type: 'success', message: isEnglish ? `You are up to date: ${formatCurrency(plan.totalDeposited)} paid in. Keep it up.` : `Tu es à jour : ${formatCurrency(plan.totalDeposited)} versés. Continue comme ça.` });
@@ -352,7 +354,7 @@ function GoalFormModal({ open, onClose, goal }) {
     deadline: goal.deadline || todayIso(),
     frequencyDays: String(goal.frequencyDays || 7),
     penaltyAmount: '',
-    penaltyEnabled: true,
+    penaltyEnabled: goal.penaltyEnabled === true,
     purposeType: goal.purposeType || 'personal',
     beneficiaryName: goal.beneficiaryName || '',
     beneficiaryRelation: goal.beneficiaryRelation || '',
@@ -369,7 +371,7 @@ function GoalFormModal({ open, onClose, goal }) {
     deadline: new Date(new Date().setMonth(new Date().getMonth() + 2)).toISOString().slice(0, 10),
     frequencyDays: '7',
     penaltyAmount: '',
-    penaltyEnabled: true,
+    penaltyEnabled: false,
     purposeType: 'personal',
     beneficiaryName: '',
     beneficiaryRelation: '',
@@ -387,6 +389,7 @@ function GoalFormModal({ open, onClose, goal }) {
   const [deadline, setDeadline] = useState(initial.deadline);
   const [frequencyPreset, setFrequencyPreset] = useState(initial.frequencyDays);
   const [frequencyCustom, setFrequencyCustom] = useState('');
+  const [penaltyEnabled, setPenaltyEnabled] = useState(initial.penaltyEnabled);
   const [purposeType, setPurposeType] = useState(initial.purposeType);
   const [beneficiaryName, setBeneficiaryName] = useState(initial.beneficiaryName);
   const [beneficiaryRelation, setBeneficiaryRelation] = useState(initial.beneficiaryRelation);
@@ -441,6 +444,7 @@ function GoalFormModal({ open, onClose, goal }) {
         startDate,
         deadline,
         frequencyDays,
+        penaltyEnabled,
       };
     } else {
       payload.targetAmount = piggyTargetEnabled && Number(targetAmount) > 0 ? Math.round(Number(targetAmount)) : null;
@@ -539,9 +543,15 @@ function GoalFormModal({ open, onClose, goal }) {
               {frequencyPreset === 'custom' && <div className="mt-2"><Input label="Tous les X jours" type="number" min="1" value={frequencyCustom} onChange={(event) => setFrequencyCustom(event.target.value)}/></div>}
             </div>
             <div className="rounded-xl border border-brand-100 bg-brand-50/60 p-3 text-sm"><span className="font-medium text-brand-800">Aperçu : </span><strong className="text-slate-800">{totalPayments} versements de {formatCurrency(amountPerPayment)}</strong></div>
-            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
-              <p className="text-xs font-medium text-slate-700">Information sur les versements</p>
-              <p className="mt-1 text-xs leading-5 text-slate-600">Pour un objectif daté, l’ajustement est calculé à hauteur de 7 % du montant qui reste réellement impayé à la date de chaque échéance manquée. Il ne s’applique pas à une caisse ou tirelire libre.</p>
+            <div className="rounded-xl border border-slate-200 bg-white p-3">
+              <label className="flex items-start gap-3">
+                <input type="checkbox" checked={penaltyEnabled} onChange={(event) => setPenaltyEnabled(event.target.checked)} className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-700 focus:ring-brand-500"/>
+                <span>
+                  <strong className="block text-xs font-semibold text-slate-800">Activer les pénalités de retard</strong>
+                  <span className="mt-1 block text-[11px] leading-5 text-slate-500">Option facultative. Si tu la désactives, aucune pénalité ne sera calculée ni déduite. Pata continuera simplement à t’envoyer des rappels en cas de versement manqué.</span>
+                </span>
+              </label>
+              {penaltyEnabled && <p className="mt-2 border-t border-slate-100 pt-2 text-[11px] leading-5 text-slate-600">Le montant éventuel correspond à 7 % de la part restée impayée à chaque échéance manquée. Il est à ton avantage et ne constitue pas un prélèvement au profit de Pata.</p>}
             </div>
           </>
         )}
@@ -605,7 +615,7 @@ function GoalCard({ goal, onOpen, onEdit, onAskWithdraw, onTogglePin, onDelete }
           <div className="flex-1 space-y-1">
             <div className="flex justify-between text-sm"><span className="text-slate-500">Épargné</span><span className="font-semibold text-brand-600">{formatCurrency(plan.totalDeposited)}</span></div>
             {plan.totalDebt > 0 && (<div className="flex justify-between text-sm"><span className="text-red-500">Dettes</span><span className="font-semibold text-red-600">{formatCurrency(plan.totalDebt)}</span></div>)}
-            {plan.isLate && (<div className="flex justify-between text-sm"><span className="text-red-500">Ajustement de régularité</span><span className="font-semibold text-red-600">{formatCurrency(plan.penalty)}</span></div>)}
+            {plan.penalty > 0 && (<div className="flex justify-between text-sm"><span className="text-red-500">Pénalité de retard</span><span className="font-semibold text-red-600">{formatCurrency(plan.penalty)}</span></div>)}
             <div className="flex justify-between text-xs pt-1 border-t border-slate-100"><span className="text-slate-400">Échéance</span><span className="font-medium text-slate-600">{formatDate(goal.deadline)}</span></div>
           </div>
         </div>

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Save, LogOut, Download, FileText, FileSpreadsheet, Bell, ShieldCheck, LockKeyhole, KeyRound, ChevronRight, UserRound, Crown, Sun, Moon, Gift, MessageSquareText, Smartphone } from 'lucide-react';
+import { Save, LogOut, Download, FileText, FileSpreadsheet, Bell, ShieldCheck, LockKeyhole, KeyRound, ChevronRight, UserRound, Crown, Sun, Moon, Gift, MessageSquareText, Smartphone, Share2 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -218,6 +218,7 @@ export default function SettingsPage() {
           <SettingRow icon={Smartphone} title="Télécharger l’application Android" description="Installer la version mobile Pata (APK)" onClick={() => router.push('/telecharger')} />
           <SettingRow icon={Download} title="Exporter mes données" description="Télécharger tes opérations et tes bilans" onClick={() => setActivePanel('exports')} />
           <SettingRow icon={Gift} title="Parrainage" description="Ton lien, tes invitations et tes bonus" onClick={() => setActivePanel('referrals')} />
+          <SettingRow icon={Share2} title="Réseaux sociaux" description="Retrouve les pages officielles de Pata" onClick={() => setActivePanel('social')} />
           <SettingRow icon={ShieldCheck} title="Confidentialité et documents" description="Conditions d’utilisation et politique de confidentialité" onClick={() => setActivePanel('legal')} />
         </div>
       </section>
@@ -236,6 +237,7 @@ export default function SettingsPage() {
         appearance: 'Apparence de Pata',
         exports: 'Exporter mes données',
         referrals: 'Parrainage',
+        social: 'Réseaux sociaux',
         legal: 'Confidentialité et documents',
       }[activePanel] || 'Paramètres'} className="max-w-lg">
         {activePanel === 'profile' && (
@@ -332,7 +334,19 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {activePanel === 'referrals' && <ReferralsSettings />}
+        {activePanel === 'social' && (
+          <div className="space-y-2">
+            <a href="https://www.facebook.com/share/1Rd13NJTpL/" target="_blank" rel="noreferrer" className="flex min-h-14 items-center gap-3 rounded-xl border border-slate-200 px-3 py-3 transition hover:bg-slate-50">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><Share2 size={17}/></span>
+              <span className="min-w-0 flex-1"><strong className="block text-sm text-slate-800">Facebook</strong><span className="mt-0.5 block text-[11px] text-slate-500">Page officielle de Pata</span></span><ChevronRight size={16} className="text-slate-400"/>
+            </a>
+            <a href="https://whatsapp.com/channel/0029VbEP2fSAInPrijieOK3k" target="_blank" rel="noreferrer" className="flex min-h-14 items-center gap-3 rounded-xl border border-slate-200 px-3 py-3 transition hover:bg-slate-50">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><MessageSquareText size={17}/></span>
+              <span className="min-w-0 flex-1"><strong className="block text-sm text-slate-800">Chaîne WhatsApp</strong><span className="mt-0.5 block text-[11px] text-slate-500">Actualités et informations de Pata</span></span><ChevronRight size={16} className="text-slate-400"/>
+            </a>
+          </div>
+        )}
+                {activePanel === 'referrals' && <ReferralsSettings />}
         {activePanel === 'legal' && (
           <div className="space-y-2">
             <Link href="/conditions" className="flex min-h-14 items-center gap-3 rounded-xl border border-slate-200 px-3 py-3 transition hover:bg-slate-50">

@@ -3172,7 +3172,7 @@ async function handleCreateGoal(request) {
       if (type === 'goal') Object.assign(record, {
         targetAmount, startDate, deadline,
         frequencyDays: Math.max(1, Math.floor(Number(body.frequencyDays) || 7)),
-        penaltyEnabled: true,
+        penaltyEnabled: body.penaltyEnabled === true,
         penaltyRate: GOAL_LATE_PENALTY_RATE,
         penaltyPolicyStartedOn: GOAL_PENALTY_EFFECTIVE_DATE,
       });
@@ -3473,10 +3473,10 @@ async function handleUpdateGoal(request) {
         }
       }
       if (body.frequencyDays !== undefined) patch.frequencyDays = Math.max(1, Math.min(365, Math.floor(Number(body.frequencyDays) || 7)));
-      if (current.type === 'goal') {
-        patch.penaltyEnabled = true;
+      if (current.type === 'goal' && body.penaltyEnabled !== undefined) {
+        patch.penaltyEnabled = body.penaltyEnabled === true;
         patch.penaltyRate = GOAL_LATE_PENALTY_RATE;
-        patch.penaltyPolicyStartedOn = GOAL_PENALTY_EFFECTIVE_DATE;
+        patch.penaltyPolicyStartedOn = current.penaltyPolicyStartedOn || GOAL_PENALTY_EFFECTIVE_DATE;
       }
       if (body.pinned !== undefined) patch.pinned = body.pinned === true;
       const nextStart = String(body.startDate ?? current.startDate ?? '');
