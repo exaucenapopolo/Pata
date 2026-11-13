@@ -142,6 +142,10 @@ export default function ExpensesPage() {
     return () => { active = false; };
   }, [user, projectIdSignature]);
 
+  const startDate = showCustomPeriod ? customStart : getFirstOfMonth();
+  const endDate = showCustomPeriod ? customEnd : getLastOfMonth();
+  const { expenses, loading } = useExpenses({ startDate, endDate, limit: 1000 });
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const highlightedId = params.get('highlight');
@@ -152,10 +156,6 @@ export default function ExpensesPage() {
     const query = params.toString();
     window.history.replaceState(null, '', window.location.pathname + (query ? '?' + query : ''));
   }, [expenses]);
-
-  const startDate = showCustomPeriod ? customStart : getFirstOfMonth();
-  const endDate = showCustomPeriod ? customEnd : getLastOfMonth();
-  const { expenses, loading } = useExpenses({ startDate, endDate, limit: 1000 });
 
   const incomesWithBalance = useMemo(() => incomes.map((income) => ({
     ...income,
