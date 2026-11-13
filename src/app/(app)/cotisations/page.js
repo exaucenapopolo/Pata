@@ -348,7 +348,7 @@ export default function CotisationsPage() {
         const afterId = replace ? '' : chatLastMessageIdRef.current;
         const suffix = afterId ? '&afterId=' + encodeURIComponent(afterId) : '';
         const updatedSuffix = !replace && chatLastSyncAtRef.current
-          ? '&updatedAfter=' + encodeURIComponent(chatLastSyncAtRef.current)
+          ? '&updatedAfter=' + encodeURIComponent(Math.max(0, chatLastSyncAtRef.current - 5000))
           : '';
         const result = await api('cotisations/chat/messages?groupId=' + encodeURIComponent(chatGroup.id) + suffix + updatedSuffix);
         if (!active) return;
@@ -645,7 +645,8 @@ export default function CotisationsPage() {
           clearChatMessagePressTimer();
         }}
         title={chatGroup?.name || 'Discussion du groupe'}
-        className="h-[100dvh] max-h-[100dvh] max-w-none rounded-none sm:max-h-[100dvh] sm:rounded-none"
+        fullScreen
+        bodyClassName="flex flex-1 flex-col !overflow-hidden p-3 sm:p-4"
       >
         {chatGroup && (
           <div className="flex h-full min-h-0 flex-col">

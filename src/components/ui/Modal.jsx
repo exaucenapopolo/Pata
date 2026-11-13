@@ -6,7 +6,7 @@ import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { bodyScrollLockManager } from '@/lib/ui/bodyScrollLock.mjs';
 
-export function Modal({ open, onClose, title, children, className }) {
+export function Modal({ open, onClose, title, children, className, bodyClassName, fullScreen = false }) {
   const [mounted, setMounted] = useState(false);
   const onCloseRef = useRef(onClose);
 
@@ -30,7 +30,10 @@ export function Modal({ open, onClose, title, children, className }) {
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/40 px-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] backdrop-blur-[2px] sm:items-center sm:px-4 sm:py-4"
+      className={cn(
+        'fixed inset-0 z-50 flex bg-slate-950/40 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] backdrop-blur-[2px]',
+        fullScreen ? 'items-stretch justify-center px-0' : 'items-end justify-center px-0 sm:items-center sm:px-4 sm:py-4'
+      )}
       onMouseDown={(event) => { if (event.target === event.currentTarget) onCloseRef.current?.(); }}
     >
       <section
@@ -40,6 +43,7 @@ export function Modal({ open, onClose, title, children, className }) {
         aria-label={title || 'Fenêtre de dialogue'}
         className={cn(
           'flex max-h-[calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-full max-w-md flex-col overflow-hidden rounded-t-[24px] border border-slate-200/90 bg-white shadow-[0_20px_60px_rgba(8,39,70,0.18)] sm:max-h-[90dvh] sm:rounded-3xl',
+          fullScreen && 'h-full max-h-full max-w-none rounded-none sm:max-h-full sm:rounded-none',
           className
         )}
         onMouseDown={(event) => event.stopPropagation()}
@@ -50,7 +54,7 @@ export function Modal({ open, onClose, title, children, className }) {
             <X size={18} />
           </button>
         </header>
-        <div className="min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-5">{children}</div>
+        <div className={cn('min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-5', bodyClassName)}>{children}</div>
       </section>
     </div>,
     document.body
