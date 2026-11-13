@@ -231,7 +231,13 @@ class AppFeatureTourErrorBoundary extends Component {
 
   handleReplay() {
     if (this.state.hasError) {
-      this.setState((state) => ({ hasError: false, revision: state.revision + 1 }));
+      this.setState(
+        (state) => ({ hasError: false, revision: state.revision + 1 }),
+        () => {
+          // Le composant enfant vient d’être remonté : on peut relancer le guide.
+          window.dispatchEvent(new Event('pata:app-tour-start'));
+        },
+      );
     }
   }
 
