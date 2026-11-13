@@ -7,11 +7,13 @@ function getConfiguredFromAddress() {
     throw new Error('RESEND_FROM_EMAIL est absente ou invalide. Configure une adresse appartenant au domaine vérifié dans Resend.');
   }
 
-  const addressPattern = /^[A-Z0-9.!#$%&'*+/=?^_\`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+$/i;
-  if (addressPattern.test(configured)) return \`Pata <\${configured}>\`;
+  const addressPattern = /^[A-Z0-9.!#$%&'*+/=?^_{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+$/i;
+  if (addressPattern.test(configured)) return 'Pata <' + configured + '>';
 
   const formattedMatch = configured.match(/^([^<>\r\n]{1,80})<\s*([^<>\s]+)\s*>$/);
-  if (formattedMatch && addressPattern.test(formattedMatch[2])) return \`\${formattedMatch[1].trim()} <\${formattedMatch[2]}>\`;
+  if (formattedMatch && addressPattern.test(formattedMatch[2])) {
+    return formattedMatch[1].trim() + ' <' + formattedMatch[2] + '>';
+  }
 
   throw new Error('RESEND_FROM_EMAIL doit être une adresse valide ou au format « Pata <adresse@domaine> ». Vérifie aussi que le domaine correspond exactement à celui vérifié dans Resend.');
 }
