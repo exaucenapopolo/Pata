@@ -88,14 +88,16 @@ export default function SettingsPage() {
           console.warn('Taux de change non actualisés; conservation des derniers taux connus.', rateError);
         }
       }
+      const nextDisplayName = displayName.trim() || 'Utilisateur';
+      const profileIdentityChanged = String(profile?.displayName || '') !== nextDisplayName;
       await save({
-        displayName: displayName.trim() || 'Utilisateur',
+        displayName: nextDisplayName,
         currency,
         theme,
         currencyRates,
         currencyRateUpdatedAt: new Date().toISOString(),
       });
-      await syncCotisationProfile();
+      if (profileIdentityChanged) await syncCotisationProfile();
       setSaved(true);
       setActivePanel('');
       setTimeout(() => setSaved(false), 2500);

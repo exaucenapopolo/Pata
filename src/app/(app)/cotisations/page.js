@@ -297,9 +297,9 @@ export default function CotisationsPage() {
       }
     };
     refresh(true);
-    const interval = window.setInterval(() => refresh(false), 15000);
+    const interval = window.setInterval(() => refresh(false), chatQuotaBlocked ? 60000 : 15000);
     return () => { active = false; window.clearInterval(interval); };
-  }, [chatGroup?.id, user, api]);
+  }, [chatGroup?.id, user, api, chatQuotaBlocked]);
 
   useEffect(() => {
     if (!chatScrollRef.current) return;
