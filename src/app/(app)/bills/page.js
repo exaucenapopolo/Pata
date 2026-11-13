@@ -315,7 +315,7 @@ export default function BillsPage() {
           <h1 className="text-2xl font-bold text-slate-900">Factures et échéances</h1>
           <p className="mt-1 max-w-2xl text-sm leading-5 text-slate-500">Centralise l’électricité, l’eau, le loyer, la télévision, Internet, les impôts et toutes tes factures personnalisées.</p>
         </div>
-        <Button onClick={openCreate} data-pata-tour="bill-create"><Plus size={16}/> Ajouter une facture</Button>
+        <Button onClick={openCreate}><Plus size={16}/> Ajouter une facture</Button>
       </header>
 
       {feedback && <div role="status" className={'rounded-xl border px-3 py-2.5 text-sm ' + (feedbackError ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800')}>{feedback}</div>}
