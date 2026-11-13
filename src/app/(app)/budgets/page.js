@@ -34,7 +34,7 @@ export default function BudgetsPage() {
   
   const { incomes } = useIncomes();
   const { budgets } = useBudgets(month, selectedIncome);
-  const { expenses } = useExpenses();
+  const { expenses } = useExpenses({ startDate: month + '-01', endDate: month + '-31', limit: 500 });
   const { categories: allExpenseCategories } = useCustomCategories('expense');
   const expenseCategories = useMemo(() => allExpenseCategories.filter((category) => category.id !== 'loan_given'), [allExpenseCategories]);
 
