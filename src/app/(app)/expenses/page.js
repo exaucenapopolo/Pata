@@ -65,7 +65,7 @@ export default function ExpensesPage() {
   const t = (value) => translateText(value, language);
   const { profile } = useProfile();
   const { projects } = useProjects();
-  const { expenses, loading } = useExpenses();
+  const [projectFinancials, setProjectFinancials] = useState({});
   const premiumDate = profile?.premiumUntil?.toDate ? profile.premiumUntil.toDate() : new Date(profile?.premiumUntil || 0);
   const isPremium = Number.isFinite(premiumDate.getTime()) && premiumDate > new Date();
   const { incomes } = useIncomes();
@@ -114,6 +114,34 @@ export default function ExpensesPage() {
     return () => window.removeEventListener('pata:expense-new', openFromShortcut);
   }, []);
 
+  const projectIdSignature = projects.map((project) => project.id).filter(Boolean).sort().join('|');
+  useEffect(() => {
+    let active = true;
+    if (!user?.uid || !projectIdSignature) {
+      setProjectFinancials({});
+      return () => { active = false; };
+    }
+    const loadProjectFinancials = async () => {
+      try {
+        const token = await user.getIdToken();
+        const response = await fetch('/api/projects/financial-summary', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+          body: JSON.stringify({ projectIds: projectIdSignature.split('|') }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de charger les totaux des projets.');
+        if (!active) return;
+        setProjectFinancials(Object.fromEntries((result.summaries || []).map((item) => [item.projectId, item])));
+      } catch (error) {
+        console.warn('[PATA PROJECT SUMMARY]', error.message || error);
+        if (active) setProjectFinancials({});
+      }
+    };
+    loadProjectFinancials();
+    return () => { active = false; };
+  }, [user, projectIdSignature]);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const highlightedId = params.get('highlight');
@@ -127,6 +155,7 @@ export default function ExpensesPage() {
 
   const startDate = showCustomPeriod ? customStart : getFirstOfMonth();
   const endDate = showCustomPeriod ? customEnd : getLastOfMonth();
+  const { expenses, loading } = useExpenses({ startDate, endDate, limit: 1000 });
 
   const incomesWithBalance = useMemo(() => incomes.map((income) => ({
     ...income,
@@ -174,21 +203,17 @@ export default function ExpensesPage() {
       return totals;
     }, { consumption: 0, project: 0, savings: 0, investment: 0 }), [expenses, startDate, endDate]);
   const projectTotals = useMemo(() => projects.map((project) => {
-    const linkedExpenses = expenses.filter((item) => !item.neutralFlow && item.projectId === project.id);
-    const linkedIncomes = incomes.filter((item) => !item.neutralFlow && item.projectId === project.id);
-    const linkedBorrowings = incomes.filter((item) =>
-      item.projectId === project.id && (item.flowType === 'debt_borrowed' || item.categoryId === 'debt_borrowed')
-    );
-    const income = linkedIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-    const borrowedFunding = linkedBorrowings.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+    const summary = projectFinancials[project.id] || {};
+    const income = Math.max(0, Number(summary.income) || 0);
+    const borrowedFunding = Math.max(0, Number(summary.borrowedFunding) || 0);
     return {
       ...project,
-      spent: linkedExpenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
+      spent: Math.max(0, Number(summary.spent) || 0),
       income,
       borrowedFunding,
       totalFunding: income + borrowedFunding,
     };
-  }), [projects, expenses, incomes]);
+  }), [projects, projectFinancials]);
   const activeProjects = projectTotals.filter((project) => project.status !== 'completed' && project.status !== 'archived');
   const completedProjects = projectTotals.filter((project) => project.status === 'completed' || project.status === 'archived');
   const displayedProjects = showCompletedProjects ? [...activeProjects, ...completedProjects] : activeProjects;
