@@ -10,7 +10,7 @@ import { dispatchPushNotification } from '@/lib/notifications/dispatcher.mjs';
 import { AI_TOOLS, createExpenseForUser, updateExpenseForUser, deleteExpenseForUser, deleteIncomeForUser, executeAITool, runAutomationForUser, generateWeeklyReportForUser } from '@/lib/ai/financialTools';
 import { generateAudioWithGemini } from '@/lib/ai/geminiTTS';
 import { buildIncomePriorityReminder } from '@/lib/finance/incomePriorities.mjs';
-import { chatWithGroqVision } from '@/lib/ai/groqVision';
+import { chatWithGroqVision, extractBillDataWithGroqVision } from '@/lib/ai/groqVision';
 import { generateImageWithPollinations } from '@/lib/ai/pollinationsImage';
 import { classifyAIRequest, selectAIToolsForIntent, buildCompactAIContext } from '@/lib/ai/compactContext';
 import { computeGoalPlan, GOAL_LATE_PENALTY_RATE, GOAL_PENALTY_EFFECTIVE_DATE } from '@/lib/goalCalc';
@@ -7613,6 +7613,47 @@ async function handleBillsList(request) {
   }
 }
 
+async function handleBillsScan(request) {
+  try {
+    await authenticate(request);
+    const body = await request.json();
+    const imageData = String(body.imageData || '');
+    if (!imageData.startsWith('data:image/') || imageData.length > 6_500_000) {
+      return errorResponse('Photo invalide ou trop volumineuse. Choisis une image de moins de 4,5 Mo.', 400);
+    }
+    const language = body.language === 'en' ? 'en' : 'fr';
+    const raw = await extractBillDataWithGroqVision(imageData, language);
+    const start = raw.indexOf('{');
+    const end = raw.lastIndexOf('}');
+    if (start < 0 || end <= start) throw new Error('L’image a été lue, mais les informations n’ont pas pu être structurées. Essaie une photo plus nette.');
+    let parsed;
+    try { parsed = JSON.parse(raw.slice(start, end + 1)); }
+    catch { throw new Error('Les informations lues sur la facture sont incomplètes. Essaie une photo plus nette.'); }
+    const clean = (value, max = 120) => String(value || '').trim().slice(0, max);
+    const validDate = (value) => /^\d{4}-\d{2}-\d{2}$/.test(String(value || '')) ? String(value) : null;
+    const amount = parsed.totalAmount == null || parsed.totalAmount === '' ? null : Number(parsed.totalAmount);
+    return NextResponse.json({ success: true, extracted: {
+      documentType: clean(parsed.documentType, 30) || 'other',
+      merchantName: clean(parsed.merchantName, 100) || null,
+      customerName: clean(parsed.customerName, 100) || null,
+      invoiceNumber: clean(parsed.invoiceNumber, 100) || null,
+      accountReference: clean(parsed.accountReference, 100) || null,
+      invoiceDate: validDate(parsed.invoiceDate),
+      dueDate: validDate(parsed.dueDate),
+      totalAmount: Number.isFinite(amount) && amount > 0 && amount <= 1000000000 ? Math.round(amount) : null,
+      currency: clean(parsed.currency, 12) || null,
+      subtotal: Number.isFinite(Number(parsed.subtotal)) ? Math.round(Number(parsed.subtotal)) : null,
+      taxAmount: Number.isFinite(Number(parsed.taxAmount)) ? Math.round(Number(parsed.taxAmount)) : null,
+      suggestedBillType: PATA_BILL_TYPES.has(String(parsed.suggestedBillType || '')) ? String(parsed.suggestedBillType) : 'other',
+      suggestedCategory: PATA_BILL_EXPENSE_CATEGORIES.has(String(parsed.suggestedCategory || '')) ? String(parsed.suggestedCategory) : 'other',
+      description: clean(parsed.description, 250) || null,
+      uncertainFields: Array.isArray(parsed.uncertainFields) ? parsed.uncertainFields.map((value) => clean(value, 50)).filter(Boolean).slice(0, 10) : [],
+    } });
+  } catch (error) {
+    console.error('[PATA BILL SCAN]', error.message || error);
+    return errorResponse(error.message || 'Impossible de lire cette facture.', 502);
+  }
+}
 async function handleBillsCreate(request) {
   try {
     const { uid } = await authenticate(request);
@@ -7799,6 +7840,7 @@ const ROUTES = {
   'notifications/read': { POST: handleNotificationRead },
   'notifications/scheduler': { GET: handleNotificationScheduler, POST: handleNotificationScheduler },
   'bills/list': { GET: handleBillsList },
+  'bills/scan': { POST: handleBillsScan },
   'bills/create': { POST: handleBillsCreate },
   'bills/update': { POST: handleBillsUpdate },
   'bills/delete': { POST: handleBillsDelete },
