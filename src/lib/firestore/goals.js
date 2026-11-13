@@ -1,5 +1,5 @@
 import {
-  collection, doc, onSnapshot, query, orderBy,
+  collection, doc, limit, onSnapshot, query, orderBy,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase/client';
 import { auth } from '@/lib/firebase/client';
@@ -8,14 +8,14 @@ const col = (uid) => collection(db, 'users', uid, 'goals');
 const depositsCol = (uid, gid) => collection(db, 'users', uid, 'goals', gid, 'deposits');
 
 export function subscribeGoals(uid, cb) {
-  const q = query(col(uid), orderBy('createdAt', 'desc'));
+  const q = query(col(uid), orderBy('createdAt', 'desc'), limit(100));
   return onSnapshot(q, (snap) => {
     cb(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
   });
 }
 
 export function subscribeDeposits(uid, goalId, cb) {
-  const q = query(depositsCol(uid, goalId), orderBy('date', 'desc'));
+  const q = query(depositsCol(uid, goalId), orderBy('date', 'desc'), limit(100));
   return onSnapshot(q, (snap) => {
     cb(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
   });

@@ -1,5 +1,5 @@
 import {
-  collection, onSnapshot, query, orderBy,
+  collection, limit, onSnapshot, query, orderBy,
 } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase/client';
 
@@ -10,7 +10,7 @@ function notifyIncomeBalancesChanged() {
 }
 
 export function subscribeIncomes(uid, cb) {
-  const q = query(col(uid), orderBy('date', 'desc'));
+  const q = query(col(uid), orderBy('date', 'desc'), limit(250));
   return onSnapshot(q, (snap) => {
     cb(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
   });

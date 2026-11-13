@@ -3259,6 +3259,30 @@ function readGoalOptionalDetails(body = {}) {
   };
 }
 
+async function handleGoalDepositSummaries(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const goalIds = [...new Set((Array.isArray(body.goalIds) ? body.goalIds : [])
+      .map((value) => String(value || '').trim())
+      .filter((value) => value && !value.includes('/')))].slice(0, 100);
+    const userRef = adminDb.collection('users').doc(uid);
+    const summaries = [];
+    for (let offset = 0; offset < goalIds.length; offset += 10) {
+      const group = goalIds.slice(offset, offset + 10);
+      const results = await Promise.all(group.map(async (goalId) => {
+        const summary = await getGoalCashDepositSummary(userRef.collection('goals').doc(goalId));
+        return { goalId, saved: summary.cashTotal, unavailable: summary.unavailable === true };
+      }));
+      summaries.push(...results);
+    }
+    return NextResponse.json({ success: true, summaries });
+  } catch (error) {
+    console.error('[PATA GOAL DEPOSIT SUMMARIES]', error.message || error);
+    return errorResponse(error.message || 'Impossible de calculer les montants des objectifs.', 502);
+  }
+}
+
 async function handleCreateGoal(request) {
   try {
     const decoded = await authenticate(request);
@@ -4493,37 +4517,11 @@ async function getGoalCashDepositSummary(goalRef) {
       unavailable: false,
     };
   } catch (aggregateError) {
-    // Repli sur les documents : inclut les anciens dépôts sans champ « source ».
-    try {
-      const snapshot = await depositsRef.get();
-      let total = 0;
-      let borrowedTotal = 0;
-      let borrowedCount = 0;
-      let cashCount = 0;
-      snapshot.docs.forEach((document) => {
-        const item = document.data() || {};
-        const value = Number(item.amount);
-        const amount = Number.isFinite(value) && value > 0 ? value : 0;
-        total += amount;
-        if (item.source === 'loan') {
-          borrowedTotal += amount;
-          borrowedCount += 1;
-        } else {
-          cashCount += 1;
-        }
-      });
-      return {
-        total, count: snapshot.size, borrowedTotal, borrowedCount,
-        cashTotal: Math.max(0, total - borrowedTotal), cashCount,
-        unavailable: false,
-      };
-    } catch (readError) {
-      console.error('[ADMIN SAVINGS READ]', goalRef.path, aggregateError.message, readError.message);
-      return {
-        total: null, count: null, borrowedTotal: null, borrowedCount: null,
-        cashTotal: null, cashCount: null, unavailable: true,
-      };
-    }
+    console.error('[PATA GOAL AGGREGATE UNAVAILABLE]', goalRef.path, aggregateError.message || aggregateError);
+    return {
+      total: null, count: null, borrowedTotal: null, borrowedCount: null,
+      cashTotal: null, cashCount: null, unavailable: true,
+    };
   }
 }
 
@@ -7967,6 +7965,7 @@ const ROUTES = {
   'budgets/pin': { POST: handleBudgetPin },
   'financial-targets': { GET: handleFinancialTargets, POST: handleFinancialTargets },
   'budgets/templates': { GET: handleBudgetTemplates, POST: handleBudgetTemplates, DELETE: handleBudgetTemplates },
+  'goals/deposits-summary': { POST: handleGoalDepositSummaries },
   'goals/create': { POST: handleCreateGoal },
   'goals/update': { POST: handleUpdateGoal },
   'goals/delete': { POST: handleDeleteGoal },

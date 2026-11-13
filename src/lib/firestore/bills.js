@@ -1,4 +1,4 @@
-import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
+import { collection, limit, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase/client';
 
 const billsCollection = (uid) => collection(db, 'users', uid, 'bills');
@@ -9,7 +9,7 @@ function notifyIncomeBalancesChanged() {
 
 export function subscribeBills(uid, callback, onError) {
   if (!uid) return () => {};
-  const billsQuery = query(billsCollection(uid), orderBy('nextDueDate', 'asc'));
+  const billsQuery = query(billsCollection(uid), orderBy('nextDueDate', 'asc'), limit(100));
   return onSnapshot(
     billsQuery,
     (snapshot) => callback(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))),

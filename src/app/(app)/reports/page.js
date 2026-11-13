@@ -13,6 +13,7 @@ import { useIncomes } from '@/hooks/useIncomes';
 import { useAllBudgets } from '@/hooks/useAllBudgets';
 import { useGoals } from '@/hooks/useGoals';
 import { useProfile } from '@/hooks/useProfile';
+import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/context/LanguageContext';
 import { useDeposits } from '@/hooks/useDeposits';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
@@ -42,6 +43,7 @@ export default function ReportsPage() {
   const { goals } = useGoals();
   const { deposits: walletDeposits } = useDeposits();
   const { profile } = useProfile();
+  const { user } = useAuth();
   const { customCategories } = useCustomCategories('expense');
   const { report: weeklyReport } = useWeeklyReport();
 
@@ -66,23 +68,30 @@ export default function ReportsPage() {
 
   useEffect(() => {
     let active = true;
-    if (!goals.length) { setGoalDepositTotals({}); return () => { active = false; }; }
+    if (!goals.length || !user) {
+      setGoalDepositTotals({});
+      return () => { active = false; };
+    }
     const load = async () => {
       try {
-        const { db } = await import('@/lib/firebase/client');
-        const { collection, getDocs } = await import('firebase/firestore');
-        const values = await Promise.all(goals.map(async (goal) => {
-          const snapshot = await getDocs(collection(db, 'users', profile?.id || '', 'goals', goal.id, 'deposits'));
-          return [goal.id, snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))];
-        }));
-        if (active) setGoalDepositTotals(Object.fromEntries(values));
+        const token = await user.getIdToken();
+        const response = await fetch('/api/goals/deposits-summary', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+          body: JSON.stringify({ goalIds: goals.map((goal) => goal.id) }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de calculer les montants des objectifs.');
+        if (!active) return;
+        setGoalDepositTotals(Object.fromEntries((result.summaries || []).map((item) => [item.goalId, item.unavailable ? null : Number(item.saved) || 0])));
       } catch (error) {
-        console.warn('Impossible de charger le détail de l’épargne des objectifs.', error);
+        console.warn('[PATA REPORT GOAL SUMMARIES]', error.message || error);
+        if (active) setGoalDepositTotals({});
       }
     };
-    if (profile?.id) load();
+    load();
     return () => { active = false; };
-  }, [goals, profile?.id]);
+  }, [goals, user]);
 
   const range = useMemo(() => {
     const now = new Date();
@@ -244,11 +253,11 @@ export default function ReportsPage() {
   }), [periodBudgets, financialExpenses, periodMonths, customCategories]);
 
   const goalAnalysis = goals.map((goal) => {
-    const deposits = goalDepositTotals[goal.id] || [];
-    const saved = deposits.reduce((sum, item) => sum + (item.source === 'loan' ? 0 : Number(item.amount)||0), 0);
-    return { id: goal.id, name: goal.name || 'Objectif', target: Number(goal.targetAmount)||0, saved, deadline: goal.deadline || '', progress: Number(goal.targetAmount) > 0 ? Math.min(100, saved / Number(goal.targetAmount) * 100) : null };
+    const saved = Object.prototype.hasOwnProperty.call(goalDepositTotals, goal.id) ? goalDepositTotals[goal.id] : null;
+    return { id: goal.id, name: goal.name || 'Objectif', target: Number(goal.targetAmount)||0, saved: saved == null ? null : Number(saved), deadline: goal.deadline || '', progress: saved != null && Number(goal.targetAmount) > 0 ? Math.min(100, Number(saved) / Number(goal.targetAmount) * 100) : null };
   });
-  const totalSavedGoals = goalAnalysis.reduce((sum, item) => sum + item.saved, 0);
+  const goalSavingsUnavailable = goalAnalysis.some((item) => item.saved === null);
+  const totalSavedGoals = goalAnalysis.reduce((sum, item) => sum + (Number(item.saved) || 0), 0);
   const periodWalletDeposits = walletDeposits.filter((item) => {
     const date = item.createdAt?.toDate ? item.createdAt.toDate().toISOString().slice(0,10) : String(item.createdAt || '').slice(0,10);
     return date >= range.start && date <= range.end && String(item.status || '').toUpperCase() === 'CONFIRMED';
@@ -257,8 +266,8 @@ export default function ReportsPage() {
 
   const askAssistant = () => {
     const prompt = isEnglish
-      ? `Provide an in-depth analysis of my financial report for ${range.label}. Income: ${totalIncome} XAF (excluding borrowed debt). Expenses: ${totalExpense} XAF (excluding loans given). Actual balance change, including loans and debts: ${cashBalanceMovement} XAF. Everyday expenses: ${expenseTypeTotals.consumption} XAF. Project outflows: ${expenseTypeTotals.project} XAF. Savings: ${expenseTypeTotals.savings} XAF. Investments: ${expenseTypeTotals.investment} XAF. Cash movement difference: ${net} XAF. Everyday expenses by category: ${categoryData.map((item) => `${item.name}: ${item.value} XAF`).join('; ')}. Budgets: ${budgetAnalysis.map((item) => `${item.category} (${item.month}): ${item.spent}/${item.allocated} XAF`).join('; ')}. Goals: ${goalAnalysis.map((item) => `${item.name}: ${item.saved}/${item.target} XAF`).join('; ')}. Wallet balance: ${Number(profile?.balance)||0} XAF. Highlight trends, risks and practical actions. Do not invent data or modify my transactions.`
-      : `Réalise une analyse approfondie de mon rapport financier pour la période ${range.label}. Revenus : ${totalIncome} FCFA (hors dette contractée). Dépenses : ${totalExpense} FCFA (hors prêts accordés). Variation réelle du solde, prêts et dettes compris : ${cashBalanceMovement} FCFA. Dépenses courantes : ${expenseTypeTotals.consumption} FCFA. Projets : ${expenseTypeTotals.project} FCFA. Épargne : ${expenseTypeTotals.savings} FCFA. Investissements : ${expenseTypeTotals.investment} FCFA. Différence de trésorerie : ${net} FCFA. Dépenses courantes par catégorie : ${categoryData.map((item) => `${item.name}: ${item.value} FCFA`).join('; ')}. Budgets : ${budgetAnalysis.map((item) => `${item.category} (${item.month}) : ${item.spent}/${item.allocated} FCFA`).join('; ')}. Objectifs : ${goalAnalysis.map((item) => `${item.name}: ${item.saved}/${item.target} FCFA`).join('; ')}. Solde du portefeuille : ${Number(profile?.balance)||0} FCFA. Fais ressortir les tendances, risques et actions concrètes sans inventer de données ni modifier mes opérations.`;
+      ? `Provide an in-depth analysis of my financial report for ${range.label}. Income: ${totalIncome} XAF (excluding borrowed debt). Expenses: ${totalExpense} XAF (excluding loans given). Actual balance change, including loans and debts: ${cashBalanceMovement} XAF. Everyday expenses: ${expenseTypeTotals.consumption} XAF. Project outflows: ${expenseTypeTotals.project} XAF. Savings: ${expenseTypeTotals.savings} XAF. Investments: ${expenseTypeTotals.investment} XAF. Cash movement difference: ${net} XAF. Everyday expenses by category: ${categoryData.map((item) => `${item.name}: ${item.value} XAF`).join('; ')}. Budgets: ${budgetAnalysis.map((item) => `${item.category} (${item.month}): ${item.spent}/${item.allocated} XAF`).join('; ')}. Goals: ${goalAnalysis.map((item) => `${item.name}: ${item.saved == null ? 'indisponible' : item.saved}/${item.target} XAF`).join('; ')}. Wallet balance: ${Number(profile?.balance)||0} XAF. Highlight trends, risks and practical actions. Do not invent data or modify my transactions.`
+      : `Réalise une analyse approfondie de mon rapport financier pour la période ${range.label}. Revenus : ${totalIncome} FCFA (hors dette contractée). Dépenses : ${totalExpense} FCFA (hors prêts accordés). Variation réelle du solde, prêts et dettes compris : ${cashBalanceMovement} FCFA. Dépenses courantes : ${expenseTypeTotals.consumption} FCFA. Projets : ${expenseTypeTotals.project} FCFA. Épargne : ${expenseTypeTotals.savings} FCFA. Investissements : ${expenseTypeTotals.investment} FCFA. Différence de trésorerie : ${net} FCFA. Dépenses courantes par catégorie : ${categoryData.map((item) => `${item.name}: ${item.value} FCFA`).join('; ')}. Budgets : ${budgetAnalysis.map((item) => `${item.category} (${item.month}) : ${item.spent}/${item.allocated} FCFA`).join('; ')}. Objectifs : ${goalAnalysis.map((item) => `${item.name}: ${item.saved == null ? 'indisponible' : item.saved}/${item.target} FCFA`).join('; ')}. Solde du portefeuille : ${Number(profile?.balance)||0} FCFA. Fais ressortir les tendances, risques et actions concrètes sans inventer de données ni modifier mes opérations.`;
     window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt } }));
   };
 
@@ -279,7 +288,7 @@ export default function ReportsPage() {
     ...periodExpenses.map((item) => [exportLabels.outflow, item.cashWithdrawal ? exportLabels.cashTransfer : item.neutralFlow ? exportLabels.loanGiven : translateText(EXPENSE_TYPE_LABELS[getExpenseType(item)], language), item.date || '', item.note || exportLabels.expense, resolveCategory(item.categoryId, 'expense', customCategories).label, convertCurrencyAmount(Number(item.amount)||0), item.incomeSourceName || '']),
     ...periodWalletDeposits.map((item) => [exportLabels.movement, exportLabels.walletTopup, item.createdAt?.toDate ? item.createdAt.toDate().toISOString().slice(0,10) : '', exportLabels.pataTopup, item.status || '', convertCurrencyAmount(Number(item.amount)||0), item.phone || '']),
     ...budgetAnalysis.map((item) => [exportLabels.budget, exportLabels.everydayExpense, item.month, item.category, exportLabels.consumedAllocated, convertCurrencyAmount(item.spent), `${formatCurrency(item.allocated)} ${exportLabels.allocated}`]),
-    ...goalAnalysis.map((item) => [exportLabels.goal, exportLabels.savings, item.deadline, item.name, exportLabels.accumulatedSavings, convertCurrencyAmount(item.saved), `${formatCurrency(item.target)} ${exportLabels.target}`]),
+    ...goalAnalysis.map((item) => [exportLabels.goal, exportLabels.savings, item.deadline, item.name, exportLabels.accumulatedSavings, item.saved == null ? 'Indisponible' : convertCurrencyAmount(item.saved), `${formatCurrency(item.target)} ${exportLabels.target}`]),
   ];
   const exportPdf = () => {
     const rows = getRows();
@@ -458,8 +467,8 @@ export default function ReportsPage() {
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <div className="mb-3 flex items-center gap-2"><Target size={17} className="text-slate-500"/><CardTitle>Objectifs d’épargne</CardTitle></div>
-          <div className="mb-3 grid grid-cols-2 gap-2"><div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Objectifs actifs</p><p className="mt-1 text-xl font-bold">{goals.length}</p></div><div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Total épargné</p><p className="mt-1 text-xl font-bold text-emerald-700">{formatCurrency(totalSavedGoals)}</p></div></div>
-          {goalAnalysis.length ? <div className="space-y-3">{goalAnalysis.map((item)=><div key={item.id}><div className="flex justify-between gap-2 text-sm"><span className="font-medium">{item.name}</span><strong>{formatCurrency(item.saved)}{item.target?` / ${formatCurrency(item.target)}`:''}</strong></div>{item.progress!==null&&<div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-600" style={{width:`${item.progress}%`}}/></div>}</div>)}</div> : <p className="text-sm text-slate-500">Aucun objectif enregistré.</p>}
+          <div className="mb-3 grid grid-cols-2 gap-2"><div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Objectifs actifs</p><p className="mt-1 text-xl font-bold">{goals.length}</p></div><div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Total épargné</p><p className="mt-1 text-xl font-bold text-emerald-700">{goalSavingsUnavailable ? 'Partiellement indisponible' : formatCurrency(totalSavedGoals)}</p></div></div>
+          {goalAnalysis.length ? <div className="space-y-3">{goalAnalysis.map((item)=><div key={item.id}><div className="flex justify-between gap-2 text-sm"><span className="font-medium">{item.name}</span><strong>{item.saved == null ? 'Indisponible' : formatCurrency(item.saved)}{item.target?` / ${formatCurrency(item.target)}`:''}</strong></div>{item.progress!==null&&<div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-600" style={{width:`${item.progress}%`}}/></div>}</div>)}</div> : <p className="text-sm text-slate-500">Aucun objectif enregistré.</p>}
         </Card>
         <Card>
           <div className="mb-3 flex items-center gap-2"><PiggyBank size={17} className="text-slate-500"/><CardTitle>Portefeuille Pata</CardTitle></div>
