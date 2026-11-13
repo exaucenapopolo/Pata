@@ -49,7 +49,7 @@ export function AppFeatureTour() {
   const [active, setActive] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
   const [targetRect, setTargetRect] = useState(null);
-  const [viewport, setViewport] = useState({ width: 1, height: 1 });
+  const [viewport, setViewport] = useState({ width: 360, height: 800 });
   const [calloutPosition, setCalloutPosition] = useState(null);
   const targetElementRef = useRef(null);
   const pathnameRef = useRef(pathname);
