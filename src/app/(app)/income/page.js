@@ -77,6 +77,7 @@ export default function IncomePage() {
   const { rules, updatePercent, saveRules, resetRules, total, isValid, loading: rulesLoading } = useBudgetRules();
 
   const [month, setMonth] = useState(todayMonth());
+  const [incomeSection, setIncomeSection] = useState('all');
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyIncomeForm());
   const [selectedIncome, setSelectedIncome] = useState(null);
@@ -557,7 +558,25 @@ export default function IncomePage() {
           <MonthPicker value={month} onChange={setMonth} className="w-full sm:w-auto" />
         </div>
       </div>
-      {!premiumActive && (
+      <nav aria-label={isEnglish ? 'Income sections' : 'Rubriques des revenus'} className="-mx-1 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="flex min-w-max gap-2 px-1" role="tablist">
+          {[
+            ['all', isEnglish ? 'All' : 'Tout'],
+            ['revenues', isEnglish ? 'Income sources' : 'Revenus'],
+            ['cashflow', isEnglish ? 'Cash flow' : 'Trésorerie'],
+            ['vital', isEnglish ? 'Essential forecasts' : 'Prévisions vitales'],
+            ['duration', isEnglish ? 'Money duration' : 'Durée du capital'],
+            ['budgets', isEnglish ? 'Budgets' : 'Budgets'],
+          ].map(([value, label]) => (
+            <button key={value} type="button" role="tab" aria-selected={incomeSection === value}
+              onClick={() => setIncomeSection(value)}
+              className={'min-h-10 shrink-0 rounded-xl border px-3.5 text-xs font-semibold transition ' + (incomeSection === value ? 'border-brand-700 bg-brand-700 text-white shadow-sm' : 'border-slate-200 bg-white text-slate-600 hover:border-brand-200 hover:bg-brand-50 hover:text-brand-800')}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </nav>
+      {(incomeSection === 'all' || incomeSection === 'revenues') && !premiumActive && (
         <div className={`rounded-xl border p-3 ${incomeQuotaReached ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-white'}`}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div><p className="text-sm font-semibold text-slate-800">Revenus créés ce mois-ci</p><p className="text-xs text-slate-500">{usedIncomeQuota} sur 2 autorisés avec le compte gratuit.</p></div>
@@ -568,6 +587,7 @@ export default function IncomePage() {
         </div>
       )}
 
+      {(incomeSection === 'all' || incomeSection === 'cashflow') && (
       <Card>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -597,8 +617,9 @@ export default function IncomePage() {
           ? <p className="mt-3 text-xs text-amber-700">Pas encore de sortie exploitable sur la période. Enregistre tes dépenses pour obtenir une estimation plus pertinente.</p>
           : <p className="mt-3 text-[11px] text-slate-400">Calcul fondé sur {cashflowForecast.observedDays} jour(s) d’observation et les sorties enregistrées. Les revenus futurs et les dépenses exceptionnelles ne sont pas anticipés.</p>}
       </Card>
+      )}
 
-      {Array.isArray(profile?.vitalForecastHistory) && profile.vitalForecastHistory.length > 0 && (
+      {(incomeSection === 'all' || incomeSection === 'vital') && Array.isArray(profile?.vitalForecastHistory) && profile.vitalForecastHistory.length > 0 && (
         <Card>
           <div className="mb-3 flex items-center justify-between"><CardTitle>Historique des prévisions vitales</CardTitle><span className="text-xs text-slate-400">{profile.vitalForecastHistory.length} enregistrée(s)</span></div>
           <div className="space-y-2">
@@ -613,6 +634,7 @@ export default function IncomePage() {
       )}
 
       {/* 🟢 CARTE DES PRÉVISIONS ENREGISTRÉES */}
+      {(incomeSection === 'all' || incomeSection === 'vital') && (
       <Card className={savedTotalVital > 0 && Number(totalBudget) >= savedTotalVital ? 'border-brand-200' : isSavedOverBudget ? 'border-red-200' : ''}>
         <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -690,7 +712,9 @@ export default function IncomePage() {
           </>
         )}
       </Card>
+      )}
 
+      {(incomeSection === 'all' || incomeSection === 'duration') && (
       <Card>
         <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
           <div>
@@ -742,7 +766,9 @@ export default function IncomePage() {
           </div>
         )}
       </Card>
+      )}
 
+      {(incomeSection === 'all' || incomeSection === 'revenues') && (
       <Card>
         <div className="mb-3 flex items-center justify-between">
           <CardTitle>Toutes mes sources de revenus</CardTitle>
@@ -785,7 +811,9 @@ export default function IncomePage() {
           </ul>
         )}
       </Card>
+      )}
 
+      {(incomeSection === 'all' || incomeSection === 'budgets') && (
       <Card>
         <div className="mb-3 flex items-center justify-between">
           <CardTitle>Règles de répartition</CardTitle>
@@ -811,8 +839,9 @@ export default function IncomePage() {
           <span>Total</span><span>{total.toFixed(0)} % {isValid ? '✓' : '— doit faire 100%'}</span>
         </div>
       </Card>
+      )}
 
-      {totalIncome > 0 && breakdown.length > 0 && (
+      {(incomeSection === 'all' || incomeSection === 'budgets') && totalIncome > 0 && breakdown.length > 0 && (
          <Card>
           <div className="mb-3 flex items-center justify-between">
             <CardTitle>Appliquer aux budgets</CardTitle>

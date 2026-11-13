@@ -84,6 +84,7 @@ export default function DashboardPage() {
   const [customEnd, setCustomEnd] = useState(todayIso());
   const [showCustomPeriod, setShowCustomPeriod] = useState(false);
   const [activeFeature, setActiveFeature] = useState(0);
+  const [dashboardView, setDashboardView] = useState('all');
   const [financialTarget, setFinancialTarget] = useState(null);
   const [targetPeriodType, setTargetPeriodType] = useState('month');
   const [targetDraft, setTargetDraft] = useState({ incomeTarget: '', expenseLimit: '', debtLimit: '', loanGivenLimit: '', resolutions: [] });
@@ -409,6 +410,23 @@ export default function DashboardPage() {
         <Link href="/debts" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-emerald-200"><p className="text-xs font-semibold text-slate-500">On me doit</p><p className="mt-1 text-xl font-bold text-emerald-700">{formatCurrency(receivableTotal)}</p><p className="mt-1 text-[11px] text-slate-500">{receivables.length} créance(s) active(s)</p></Link>
         <Link href="/debts" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-amber-200"><p className="text-xs font-semibold text-slate-500">Je dois</p><p className="mt-1 text-xl font-bold text-amber-700">{formatCurrency(payableTotal)}</p><p className="mt-1 text-[11px] text-slate-500">{payables.length} dette(s) active(s)</p></Link>
       </section>
+      <nav aria-label={isEnglish ? 'Dashboard sections' : 'Rubriques du tableau de bord'} className="-mx-1 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="flex min-w-max gap-2 px-1" role="tablist">
+          {[
+            ['all', isEnglish ? 'All' : 'Tout'],
+            ['goals', isEnglish ? 'Financial goals' : 'Objectifs financiers'],
+            ['spending', isEnglish ? 'Top spending' : 'Dépenses principales'],
+            ['assistant', isEnglish ? 'Assistant advice' : 'Conseils de Mč'],
+          ].map(([value, label]) => (
+            <button key={value} type="button" role="tab" aria-selected={dashboardView === value}
+              onClick={() => setDashboardView(value)}
+              className={'min-h-10 shrink-0 rounded-xl border px-3.5 text-xs font-semibold transition ' + (dashboardView === value ? 'border-brand-700 bg-brand-700 text-white shadow-sm' : 'border-slate-200 bg-white text-slate-600 hover:border-brand-200 hover:bg-brand-50 hover:text-brand-800')}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </nav>
+      {(dashboardView === 'all' || dashboardView === 'goals') && (
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div><h2 className="text-sm font-bold text-slate-900">Mes objectifs financiers</h2><p className="mt-1 text-xs text-slate-500">Pata étudie tes opérations et te propose des repères réalistes. Tu peux les accepter, les modifier ou choisir les tiens.</p></div>
@@ -489,6 +507,8 @@ export default function DashboardPage() {
         </>}
         </div>
       </section>
+      )}
+      {dashboardView === 'all' && (
       <section className="pata-feature-carousel overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" aria-roledescription="carrousel de fonctionnalités" aria-label="Fonctionnalités principales de Pata">
         {DASHBOARD_FEATURES.map((feature, index) => {
           const Icon = feature.icon;
@@ -514,7 +534,10 @@ export default function DashboardPage() {
           </div>
         </div>
       </section>
-      <div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="text-base font-bold text-slate-900">Vue d’ensemble</h2><p className="text-xs text-slate-500">Activité et comparaisons financières.</p></div></div>
+      )}
+      {(dashboardView === 'all' || dashboardView === 'spending') && (
+      <>
+      <div className="flex flex-wrap items-center justify-between gap-2"><div><h2 className="text-base font-bold text-slate-900">{dashboardView === 'spending' ? 'Analyse des dépenses' : 'Vue d’ensemble'}</h2><p className="text-xs text-slate-500">{dashboardView === 'spending' ? 'Repère les catégories et opérations qui pèsent le plus.' : 'Activité et comparaisons financières.'}</p></div></div>
 
       <Card>
         <div className="flex flex-wrap items-center gap-3">
@@ -549,7 +572,11 @@ export default function DashboardPage() {
           Période affichée : {formatDate(startDate)} → {formatDate(endDate)}
         </p>
       </Card>
+      </>
+      )}
 
+      {dashboardView === 'all' && (
+      <>
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <Card>
           <div className="flex items-center gap-2 text-brand-600">
@@ -611,8 +638,10 @@ export default function DashboardPage() {
           Une partie de tes dépenses ({formatCurrency(previousIncomeSpend)}) a été financée par des revenus reçus avant la période affichée. Cet argent ne vient donc pas de revenus générés ce mois-ci : tu utilises une réserve déjà disponible.
         </div>
       )}
+      </>
+      )}
 
-      {advices.length > 0 && (
+      {(dashboardView === 'assistant' || (dashboardView === 'all' && advices.length > 0)) && (
         <Card>
           <div className="mb-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -623,7 +652,7 @@ export default function DashboardPage() {
               Détails <ChevronRight size={14} />
             </Link>
           </div>
-          <div className="space-y-3">
+          {advices.length === 0 ? <EmptyState icon={Lightbulb} title={isEnglish ? 'No advice yet' : 'Aucun conseil pour le moment'} description={isEnglish ? 'Pata will show advice here as your financial activity grows.' : 'Pata affichera ici des conseils à mesure que ton activité financière sera renseignée.'} /> : <div className="space-y-3">
             {advices.slice(0, 4).map((a) => {
               const Icon = ADVICE_ICONS[a.type] || Info;
               return (
@@ -633,12 +662,12 @@ export default function DashboardPage() {
                 </div>
               );
             })}
-          </div>
+          </div>}
         </Card>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
+      {(dashboardView === 'all' || dashboardView === 'spending' || dashboardView === 'goals') && <div className={'grid gap-4 ' + (dashboardView === 'all' ? 'lg:grid-cols-2' : '')}>
+        {(dashboardView === 'all' || dashboardView === 'spending') && <Card>
           <div className="mb-4 flex items-center justify-between">
             <CardTitle>Consommation courante par catégorie</CardTitle>
             <Link href="/expenses" className="flex items-center text-xs font-medium text-brand-600 hover:underline">
@@ -675,9 +704,9 @@ export default function DashboardPage() {
               </ul>
             </>
           )}
-        </Card>
+        </Card>}
 
-        <Card>
+        {(dashboardView === 'all' || dashboardView === 'goals') && <Card>
           <div className="mb-4 flex items-center justify-between">
             <CardTitle>Objectifs en cours</CardTitle>
             <Link href="/goals" className="flex items-center text-xs font-medium text-brand-600 hover:underline">
@@ -704,10 +733,10 @@ export default function DashboardPage() {
               })}
             </ul>
           )}
-        </Card>
-      </div>
+        </Card>}
+      </div>}
 
-      <Card>
+      {(dashboardView === 'all' || dashboardView === 'spending') && <Card>
         <div className="mb-4 flex items-center justify-between">
           <CardTitle>Sorties d’argent les plus élevées</CardTitle>
           <Link href="/expenses" className="flex items-center text-xs font-medium text-brand-600 hover:underline">
@@ -740,7 +769,7 @@ export default function DashboardPage() {
             })}
           </ul>
         )}
-      </Card>
+      </Card>}
     </div>
   );
       }

@@ -94,6 +94,7 @@ export function computeGoalPlan(goal, deposits = [], today = new Date()) {
   let missedPayments = 0;
   let missedAmount = 0;
   let penalty = 0;
+  const penaltyEnabled = goal.penaltyEnabled === true;
   for (let installment = 1; installment <= paymentsDue; installment += 1) {
     const scheduled = new Date(startMs + installment * frequencyDays * msPerDay);
     const dueDate = scheduled.getTime() > deadline.getTime() ? deadline : scheduled;
@@ -121,7 +122,6 @@ export function computeGoalPlan(goal, deposits = [], today = new Date()) {
       if (penaltyEnabled) penalty += Math.round(missedForThisDueDate * GOAL_LATE_PENALTY_RATE);
     }
   }
-  const penaltyEnabled = goal.penaltyEnabled === true;
   const unitPenalty = penaltyEnabled && missedPayments ? Math.round((missedAmount / missedPayments) * GOAL_LATE_PENALTY_RATE) : 0;
 
   // Calcul de la prochaine date de paiement (pour l'afficher)

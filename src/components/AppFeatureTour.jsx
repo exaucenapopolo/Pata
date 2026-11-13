@@ -331,13 +331,18 @@ function AppFeatureTourContent({ startRequest }) {
     maxHeight: calloutPosition?.maxHeight ?? Math.min(390, viewport.height * 0.56),
     visibility: 'visible',
   };
-  const arrowStyle = calloutPosition?.placement === 'bottom'
-    ? { left: calloutPosition.arrowOffset, top: -7 }
-    : calloutPosition?.placement === 'top'
-      ? { left: calloutPosition.arrowOffset, bottom: -7 }
-      : calloutPosition?.placement === 'right'
-        ? { left: -7, top: calloutPosition.arrowOffset }
-        : { right: -7, top: calloutPosition.arrowOffset };
+  // Le positionnement peut être momentanément absent (mobile, cible introuvable
+  // ou première mesure). Ne jamais lire arrowOffset tant que la position n'existe pas.
+  const arrowOffset = Number.isFinite(calloutPosition?.arrowOffset)
+    ? calloutPosition.arrowOffset
+    : 24;
+  const arrowStyle = !calloutPosition ? undefined : calloutPosition.placement === 'bottom'
+    ? { left: arrowOffset, top: -7 }
+    : calloutPosition.placement === 'top'
+      ? { left: arrowOffset, bottom: -7 }
+      : calloutPosition.placement === 'right'
+        ? { left: -7, top: arrowOffset }
+        : { right: -7, top: arrowOffset };
   const arrowClass = calloutPosition?.placement === 'bottom'
     ? 'absolute h-3.5 w-3.5 rotate-45 rounded-[2px] border-l border-t border-slate-200 bg-white/85'
     : calloutPosition?.placement === 'top'
