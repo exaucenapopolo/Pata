@@ -120,6 +120,37 @@ export async function sendPataEmail({ to, subject, html, idempotencyKey }) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const detail = data?.message || data?.error || `Resend a répondu avec le statut ${response.status}.`;
+    const fromAddress = getConfiguredFromAddress().match(/<([^<>]+)>/)?.[1] || getConfiguredFromAddress();
+    const fromDomain = String(fromAddress.split('@')[1] || '').toLowerCase();
+    try {
+      // Diagnostic sans secret : vérifie les domaines visibles par EXACTEMENT la clé qui vient d'échouer.
+      const domainsResponse = await fetch('https://api.resend.com/domains', {
+        method: 'GET',
+        headers: { Authorization: 'Bearer ' + apiKey },
+        cache: 'no-store',
+        signal: AbortSignal.timeout(8000),
+      });
+      const domainsPayload = await domainsResponse.json().catch(() => ({}));
+      const domains = Array.isArray(domainsPayload?.data) ? domainsPayload.data : [];
+      const matching = domains.find((item) => String(item?.name || '').toLowerCase() === fromDomain);
+      console.error('[PATA RESEND DOMAIN DIAGNOSTIC]', JSON.stringify({
+        senderDomain: fromDomain,
+        senderDomainVisibleToApiKey: Boolean(matching),
+        matchingDomainStatus: String(matching?.status || 'not_found'),
+        verifiedDomains: domains.filter((item) => String(item?.status || '').toLowerCase() === 'verified').map((item) => String(item.name || '')),
+        domainsApiStatus: domainsResponse.status,
+        domainsApiError: domainsResponse.ok ? undefined : String(domainsPayload?.message || domainsPayload?.error || 'Domain listing unavailable').slice(0, 250),
+        emailApiStatus: response.status,
+        emailApiError: String(detail).slice(0, 300),
+      }));
+    } catch (diagnosticError) {
+      console.error('[PATA RESEND DOMAIN DIAGNOSTIC]', JSON.stringify({
+        senderDomain: fromDomain,
+        emailApiStatus: response.status,
+        emailApiError: String(detail).slice(0, 300),
+        domainsCheckError: String(diagnosticError?.message || diagnosticError).slice(0, 250),
+      }));
+    }
     throw new Error(String(detail).slice(0, 500));
   }
   return { id: data.id || null };
