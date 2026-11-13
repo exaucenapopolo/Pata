@@ -2,8 +2,9 @@ import Link from 'next/link';
 import { LegalSummaryButton } from '@/components/legal/LegalSummaryButton';
 
 export const metadata = {
-  title: 'Conditions d’utilisation — Pata',
-  description: 'Conditions d’utilisation de l’application Pata.',
+  title: 'Conditions d’utilisation',
+  description: 'Consulte les conditions d’utilisation de Pata : compte, sécurité, opérations financières, budgets, épargne, paiements, abonnement Premium et responsabilités.',
+  alternates: { canonical: '/conditions' },
 };
 
 const sections = [

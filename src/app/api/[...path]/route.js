@@ -2018,12 +2018,42 @@ async function handleNotificationScheduler(request) {
           }
           if (!reminderKey || debt.lastReminderKey === reminderKey) continue;
           const notification = { title, body, url: '/debts', tag: 'pata-debt-' + debtDoc.id + '-' + reminderKey, source: 'debt_reminder' };
-          const pushResult = await sendPataPushToUser(userDoc.ref, notification, appUrl, userData);
+          const pushResult = await sendPataPushToUser(userDoc.ref, notification, appUrl, userData).catch((pushError) => {
+            console.warn('[PATA DEBT PUSH]', userDoc.id, pushError.message || pushError);
+            return { fcmSent: 0, webPushSent: 0 };
+          });
+          let emailSent = false;
+          const recipientEmail = String(userData.email || '').trim();
+          if (recipientEmail.includes('@')) {
+            try {
+              await sendPataEmail({
+                to: recipientEmail,
+                subject: title,
+                html: financialReminderEmail({
+                  name: userData.displayName,
+                  headline: title,
+                  message: body + ' Date prévue : ' + dueDate + '.',
+                  category: debt.type === 'owed_to_me' ? 'Somme à recevoir' : 'Somme à rembourser',
+                  targetUrl: '/debts',
+                }),
+                idempotencyKey: 'pata-debt-reminder-' + userDoc.id + '-' + debtDoc.id + '-' + reminderKey,
+              });
+              emailSent = true;
+            } catch (emailError) {
+              console.warn('[PATA DEBT EMAIL]', userDoc.id, emailError.message || emailError);
+            }
+          }
           await userDoc.ref.collection('notifications').doc('debt-' + debtDoc.id + '-' + reminderKey).set({
-            title, body, target: '/debts', date: today, delivered: pushResult.fcmSent + pushResult.webPushSent,
+            title, body, target: '/debts', date: today,
+            delivered: pushResult.fcmSent + pushResult.webPushSent,
+            emailSent,
             source: 'debt_reminder', read: false, readAt: null, createdAt: FieldValue.serverTimestamp(),
           });
-          await debtDoc.ref.update({ lastReminderKey: reminderKey, lastReminderAt: FieldValue.serverTimestamp() });
+          await debtDoc.ref.update({
+            lastReminderKey: reminderKey,
+            lastReminderAt: FieldValue.serverTimestamp(),
+            lastReminderEmailSent: emailSent,
+          });
         }
       } catch (debtReminderError) {
         console.warn('[PATA DEBT REMINDER]', userDoc.id, debtReminderError.message || debtReminderError);
@@ -2090,12 +2120,42 @@ async function handleNotificationScheduler(request) {
           }
           if (!reminderKey || bill.lastReminderKey === reminderKey) continue;
           const notification = { title, body, url: '/bills', tag: 'pata-bill-' + billDoc.id + '-' + reminderKey, source: 'bill_reminder' };
-          const pushResult = await sendPataPushToUser(userDoc.ref, notification, appUrl, userData);
+          const pushResult = await sendPataPushToUser(userDoc.ref, notification, appUrl, userData).catch((pushError) => {
+            console.warn('[PATA BILL PUSH]', userDoc.id, pushError.message || pushError);
+            return { fcmSent: 0, webPushSent: 0 };
+          });
+          let emailSent = false;
+          const recipientEmail = String(userData.email || '').trim();
+          if (recipientEmail.includes('@')) {
+            try {
+              await sendPataEmail({
+                to: recipientEmail,
+                subject: title,
+                html: financialReminderEmail({
+                  name: userData.displayName,
+                  headline: title,
+                  message: body,
+                  category: 'Facture à régler',
+                  targetUrl: '/bills',
+                }),
+                idempotencyKey: 'pata-bill-reminder-' + userDoc.id + '-' + billDoc.id + '-' + reminderKey,
+              });
+              emailSent = true;
+            } catch (emailError) {
+              console.warn('[PATA BILL EMAIL]', userDoc.id, emailError.message || emailError);
+            }
+          }
           await userDoc.ref.collection('notifications').doc('bill-' + billDoc.id + '-' + reminderKey).set({
-            title, body, target: '/bills', date: today, delivered: pushResult.fcmSent + pushResult.webPushSent,
+            title, body, target: '/bills', date: today,
+            delivered: pushResult.fcmSent + pushResult.webPushSent,
+            emailSent,
             source: 'bill_reminder', read: false, readAt: null, createdAt: FieldValue.serverTimestamp(),
           });
-          await billDoc.ref.update({ lastReminderKey: reminderKey, lastReminderAt: FieldValue.serverTimestamp() });
+          await billDoc.ref.update({
+            lastReminderKey: reminderKey,
+            lastReminderAt: FieldValue.serverTimestamp(),
+            lastReminderEmailSent: emailSent,
+          });
         }
       } catch (billReminderError) {
         console.warn('[PATA BILL REMINDER]', userDoc.id, billReminderError.message || billReminderError);
@@ -6972,7 +7032,7 @@ async function handleCotisationsScheduler(request) {
 
     const today = cotisationToday();
     const groupsSnap = await adminDb.collection('cotisationGroups').where('status', '==', 'active').limit(500).get();
-    const totals = { groupsChecked: groupsSnap.size, turnEmails: 0, dueReminders: 0, overdueReminders: 0, pushSent: 0, failed: 0, chatMessagesDeleted: 0, chatGroupsPruned: 0 };
+    const totals = { groupsChecked: groupsSnap.size, turnEmails: 0, upcomingReminders: 0, dueReminders: 0, overdueReminders: 0, pushSent: 0, failed: 0, chatMessagesDeleted: 0, chatGroupsPruned: 0 };
     const appUrl = getPataAppUrl(request);
 
     const claimMessage = async (ref) => {
@@ -7009,12 +7069,13 @@ async function handleCotisationsScheduler(request) {
         const personalized = personalizeNotification({ title, body, url: '/cotisations', tag: reminderId, source: 'cotisation' }, { displayName: userData.displayName || member.displayName || '' });
         await inAppRef.set({ title: personalized.title, body: personalized.body, target: '/cotisations', source: 'cotisation', groupId: group.id, cycleKey: meta.cycleKey, read: false, readAt: null, createdAt: FieldValue.serverTimestamp() }, { merge: true });
 
-        if (member.email && String(member.email).includes('@')) {
+        const recipientEmail = String(userData.email || member.email || '').trim();
+        if (recipientEmail.includes('@')) {
           await sendPataEmail({
-            to: member.email,
+            to: recipientEmail,
             subject: title,
             html: cotisationDueEmail({
-              name: member.displayName,
+              name: userData.displayName || member.displayName,
               groupName: group.name,
               contributionAmount: group.contributionAmount,
               paidAmount: member.paid,
@@ -7024,7 +7085,7 @@ async function handleCotisationsScheduler(request) {
               lateFeeLabel: penaltyDue > 0
                 ? cotisationPenaltyLabel(group) + ' — montant appliqué : ' + penaltyDue.toLocaleString('fr-FR') + ' FCFA'
                 : cotisationPenaltyLabel(group),
-              overdue: reminderType === 'overdue',
+              overdue: String(reminderType || '').startsWith('overdue-week-'),
             }),
             idempotencyKey: 'pata-' + reminderId,
           });
@@ -7131,10 +7192,17 @@ async function handleCotisationsScheduler(request) {
           cycleRef.collection('contributions').limit(50).get(),
         ]);
         const contributions = new Map(contributionsSnap.docs.map((doc) => [doc.id, doc.data()]));
+        const dueTimestamp = Date.parse(String(meta.dueAt || '') + 'T00:00:00Z');
+        if (!Number.isFinite(dueTimestamp)) continue;
+        const upcomingDate = new Date(dueTimestamp - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        const isUpcomingDay = today === upcomingDate;
         const isDueDay = today === meta.dueAt;
         const graceEnd = cotisationAddDays(meta.dueAt, cotisationMoney(group.graceDays));
         const isOverdueDay = today > graceEnd;
-        if (!isDueDay && !isOverdueDay) continue;
+        const overdueDays = isOverdueDay
+          ? Math.max(1, Math.floor((Date.parse(today + 'T00:00:00Z') - Date.parse(graceEnd + 'T00:00:00Z')) / 86400000))
+          : 0;
+        if (!isUpcomingDay && !isDueDay && !isOverdueDay) continue;
 
         const expectedPrincipal = cotisationMoney(group.contributionAmount);
         for (const member of members) {
@@ -7143,18 +7211,26 @@ async function handleCotisationsScheduler(request) {
           const remaining = Math.max(0, expectedPrincipal - paid);
           if (!remaining) continue;
           const penaltyDue = isOverdueDay && !cotisationMoney(contribution.penaltyPaid) ? cotisationLateFee(group) : 0;
-          const reminderType = isOverdueDay ? 'overdue' : 'due';
-          const title = isOverdueDay ? 'Délai de grâce terminé — cotisation à régulariser' : 'La date limite de ta cotisation est arrivée';
+          const overdueWeek = isOverdueDay ? Math.floor((overdueDays - 1) / 7) + 1 : 0;
+          const reminderType = isOverdueDay ? 'overdue-week-' + overdueWeek : isDueDay ? 'due' : 'upcoming';
+          const title = isOverdueDay
+            ? 'Délai de grâce terminé — cotisation à régulariser'
+            : isDueDay
+              ? 'La date limite de ta cotisation est arrivée'
+              : 'Ta cotisation arrive à échéance dans 3 jours';
           const body = isOverdueDay
-            ? 'Il te reste ' + remaining.toLocaleString('fr-FR') + ' FCFA à verser dans « ' + group.name + ' ». Le délai de grâce est terminé. La règle du groupe prévoit une majoration de ' + penaltyDue.toLocaleString('fr-FR') + ' FCFA, le cas échéant.'
-            : 'La date limite de paiement de « ' + group.name + ' » est aujourd’hui. Il te reste ' + remaining.toLocaleString('fr-FR') + ' FCFA à verser. Tu peux cotiser en plusieurs fois dans Pata.';
+            ? 'Il te reste ' + remaining.toLocaleString('fr-FR') + ' FCFA à verser dans « ' + group.name + ' ». Le délai de grâce est terminé depuis ' + overdueDays + ' jour(s). La règle du groupe prévoit une majoration de ' + penaltyDue.toLocaleString('fr-FR') + ' FCFA, le cas échéant.'
+            : isDueDay
+              ? 'La date limite de paiement de « ' + group.name + ' » est aujourd’hui. Il te reste ' + remaining.toLocaleString('fr-FR') + ' FCFA à verser. Tu peux cotiser en plusieurs fois dans Pata.'
+              : 'La date limite de paiement de « ' + group.name + ' » est prévue le ' + meta.dueAt + '. Il te reste ' + remaining.toLocaleString('fr-FR') + ' FCFA à verser. Prévois ton versement dans Pata.';
           const sent = await sendCotisationMessage({
             group, member, meta, title, body,
             dueAmount: remaining, penaltyDue, reminderType,
           });
           if (sent) {
             if (isOverdueDay) totals.overdueReminders += 1;
-            else totals.dueReminders += 1;
+            else if (isDueDay) totals.dueReminders += 1;
+            else totals.upcomingReminders += 1;
           }
         }
       } catch (error) {

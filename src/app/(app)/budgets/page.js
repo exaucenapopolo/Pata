@@ -293,6 +293,9 @@ export default function BudgetsPage() {
           <p className="text-sm text-slate-500">
             {formatCurrency(totalSpent)} dépensés sur {formatCurrency(totalAllocated)} alloués
           </p>
+          <p className="mt-1 max-w-xl text-xs leading-5 text-slate-500">
+            Fixe des limites par catégorie, compare tes dépenses aux montants prévus et repère rapidement les dépassements.
+          </p>
           {!budgetPremium && <p className="mt-1 text-xs text-slate-500">Créations de budgets et modèles : {usedBudgetQuota} / 2 ce mois-ci.</p>}
         </div>
         <div className="flex w-full flex-wrap gap-2 sm:w-auto">

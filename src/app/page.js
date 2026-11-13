@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
 import OnboardingIllustration from '@/components/OnboardingIllustrations';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
@@ -172,6 +173,11 @@ export default function HomePage() {
             <button type="button" onClick={() => finish('/login')} className="h-12 rounded-2xl border border-white/35 bg-black/35 text-sm font-bold text-white backdrop-blur-md transition hover:bg-black/50">{isEnglish ? 'I already have an account' : 'J’ai déjà un compte'}</button>
           </div>
         )}
+        <div className="mx-auto mt-3 w-full max-w-xl text-center">
+          <Link href="/fonctionnalites" className="text-xs font-semibold text-white/80 underline decoration-white/40 underline-offset-4 transition hover:text-white">
+            {isEnglish ? 'Discover all Pata features' : 'Découvrir toutes les fonctionnalités de Pata'}
+          </Link>
+        </div>
       </div>
     </main>
   );

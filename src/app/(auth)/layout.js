@@ -1,5 +1,9 @@
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 
+export const metadata = {
+  robots: { index: false, follow: true, noarchive: true },
+};
+
 export default function AuthLayout({ children }) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-brand-50 via-white to-slate-50 px-4">

@@ -80,6 +80,25 @@ export default function CotisationsPage() {
   const [orderDrafts, setOrderDrafts] = useState({});
   const [payForms, setPayForms] = useState({});
   const [withdrawForms, setWithdrawForms] = useState({});
+
+  useEffect(() => {
+    if (!chatGroup?.name || typeof document === 'undefined') return undefined;
+    const previousTitle = document.title;
+    const descriptionTag = document.querySelector('meta[name="description"]');
+    const previousDescription = descriptionTag?.getAttribute('content');
+    const groupName = String(chatGroup.name).trim();
+    document.title = 'Cotisation « ' + groupName + ' » | Pata';
+    descriptionTag?.setAttribute(
+      'content',
+      'Discussion et suivi du groupe « ' + groupName + ' » dans Pata : versements, membres, échéances et ordre de passage.'
+    );
+    return () => {
+      document.title = previousTitle;
+      if (descriptionTag && previousDescription !== null && previousDescription !== undefined) {
+        descriptionTag.setAttribute('content', previousDescription);
+      }
+    };
+  }, [chatGroup?.id, chatGroup?.name]);
   const autoVerifiedPayments = useRef(new Set());
 
   const api = useCallback(async (path, method = 'GET', payload) => {

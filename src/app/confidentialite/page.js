@@ -2,8 +2,9 @@ import Link from 'next/link';
 import { LegalSummaryButton } from '@/components/legal/LegalSummaryButton';
 
 export const metadata = {
-  title: 'Politique de confidentialité — Pata',
-  description: 'Comment Pata utilise et protège les données personnelles de ses utilisateurs.',
+  title: 'Politique de confidentialité',
+  description: 'Découvre quelles données Pata traite, pourquoi elles sont utilisées, comment elles sont protégées et quels choix tu conserves sur tes informations personnelles et financières.',
+  alternates: { canonical: '/confidentialite' },
 };
 
 const sections = [

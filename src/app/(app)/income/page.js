@@ -517,6 +517,9 @@ export default function IncomePage() {
           <p className="text-sm text-slate-500">
             {activeIncomes.length} source(s) de revenu active(s) — Disponible : <span className="font-semibold text-brand-600">{formatCurrency(totalAvailable)}</span> · Espèces disponibles : <span className="font-semibold text-slate-700">{formatCurrency(cashAvailable)}</span>
           </p>
+          <p className="mt-1 max-w-xl text-xs leading-5 text-slate-500">
+            Centralise tes entrées d’argent, suis leur disponibilité et distingue les revenus des emprunts et remboursements.
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <AssistantShortcut label="Analyser mes revenus" prompt="Analyse mes sources de revenus dans Pata. Aide-moi à comprendre leur régularité, leur répartition et les risques de dépendance à une seule source. Propose des pistes adaptées sans modifier mes opérations." promptEn="Analyze my income sources in Pata. Help me understand how regular they are, how they are distributed and the risks of relying on a single source. Suggest practical improvements without changing my transactions." />

@@ -3,8 +3,15 @@ import { ArrowLeft, BatteryCharging, CheckCircle2, Download, ShieldCheck, Smartp
 import { AndroidDownloadCard } from '@/components/AndroidDownloadCard';
 
 export const metadata = {
-  title: 'Télécharger Pata Android',
-  description: 'Installe Pata sur Android pour suivre automatiquement tes confirmations Mobile Money.',
+  title: 'Télécharger Pata sur Android',
+  description: 'Télécharge l’application Pata pour Android et découvre le suivi des confirmations MTN MoMo et Orange Money, des dépenses et des revenus.',
+  alternates: { canonical: '/telecharger' },
+  openGraph: {
+    title: 'Télécharger Pata sur Android',
+    description: 'Installe Pata sur Android pour suivre tes finances et les confirmations Mobile Money.',
+    url: '/telecharger',
+    images: ['/android-chrome-512x512.png'],
+  },
 };
 
 function Step({ number, title, children }) {
