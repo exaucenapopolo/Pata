@@ -5946,11 +5946,13 @@ async function handleCotisationsList(request) {
       const baseTarget = cotisationMoney(cycleSnap.data()?.baseTargetAmount) || contributionAmount * expectedMembers;
       const totalCollected = cotisationMoney(cycleSnap.data()?.totalCollected);
       const targetAmount = cotisationMoney(cycleSnap.data()?.targetAmount) || baseTarget;
+      const ownerCanViewMemberPayments = group.ownerId === uid;
       const memberRows = members.map((member) => {
         const data = contributions.get(member.uid) || {};
         const principalPaid = cotisationMoney(data.amount);
         const penaltyPaid = cotisationMoney(data.penaltyPaid);
-        // Ne jamais exposer les e-mails ni les jetons de paiement internes aux autres membres.
+        // Les membres ordinaires voient le rôle, la position et les tours reçus.
+        // Les montants et échéances de versement restent réservés au chef du groupe.
         return {
           uid: member.uid,
           displayName: member.displayName || 'Membre',
@@ -5961,11 +5963,13 @@ async function handleCotisationsList(request) {
           receivedTurnCount: receivedTurnCounts.get(member.uid) || 0,
           turnOrder: group.orderConfirmedAt && member.turnOrder != null ? cotisationMoney(member.turnOrder) : null,
           whatsappPhone: member.uid === uid || group.ownerId === uid ? String(member.whatsappPhone || '') : undefined,
-          paid: principalPaid + penaltyPaid,
-          principalPaid,
-          penaltyPaid,
-          remaining: Math.max(0, contributionAmount - principalPaid),
-          installments: paymentCounts.get(member.uid) || 0,
+          ...(ownerCanViewMemberPayments ? {
+            paid: principalPaid + penaltyPaid,
+            principalPaid,
+            penaltyPaid,
+            remaining: Math.max(0, contributionAmount - principalPaid),
+            installments: paymentCounts.get(member.uid) || 0,
+          } : {}),
         };
       });
       const myContribution = contributions.get(uid) || {};
@@ -6265,12 +6269,6 @@ async function handleCotisationChatMessages(request) {
     ]);
     if (!groupSnap.exists || !memberSnap.exists || memberSnap.data()?.active === false) return errorResponse('Tu ne fais pas partie de ce groupe.', 403);
     const quota = summarizeCotisationChatQuota(usageSnap.data() || {});
-    if (quota.remaining <= 0) {
-      return NextResponse.json({
-        success: false, error: 'Tu as épuisé tes 10 messages gratuits et tes messages supplémentaires pour aujourd’hui.',
-        quota, messages: [],
-      }, { status: 402 });
-    }
     const messagesRef = groupRef.collection('chatMessages');
     const afterId = String(url.searchParams.get('afterId') || '').trim().slice(0, 150);
     let snapshot = null;
@@ -6284,11 +6282,37 @@ async function handleCotisationChatMessages(request) {
       }
     }
     if (reset) snapshot = await messagesRef.orderBy('createdAt', 'desc').limit(30).get();
+
+    const updatedAfter = Number(url.searchParams.get('updatedAfter') || 0);
+    let changedSnapshot = { docs: [] };
+    if (!reset && Number.isFinite(updatedAfter) && updatedAfter > 0) {
+      changedSnapshot = await messagesRef
+        .where('updatedAt', '>', new Date(updatedAfter))
+        .orderBy('updatedAt', 'asc')
+        .limit(50)
+        .get();
+    }
+
+    const documentsById = new Map();
+    [...(snapshot?.docs || []), ...(changedSnapshot?.docs || [])]
+      .forEach((document) => documentsById.set(document.id, document));
+    const documents = [...documentsById.values()].sort((a, b) => {
+      const left = a.data()?.createdAt?.toDate?.()?.getTime?.() || Date.parse(a.data()?.createdAt || '') || 0;
+      const right = b.data()?.createdAt?.toDate?.()?.getTime?.() || Date.parse(b.data()?.createdAt || '') || 0;
+      return left - right;
+    });
+
     const now = Date.now();
-    let messages = snapshot.docs.map((document) => {
+    const messages = documents.map((document) => {
       const data = document.data() || {};
       const expiry = data.expiresAt?.toDate ? data.expiresAt.toDate().getTime() : Date.parse(data.expiresAt || '');
       if (Number.isFinite(expiry) && expiry <= now) return null;
+      const reply = data.replyTo && typeof data.replyTo === 'object' ? {
+        messageId: String(data.replyTo.messageId || ''),
+        authorUid: String(data.replyTo.authorUid || ''),
+        authorName: String(data.replyTo.authorName || 'Membre').slice(0, 100),
+        text: String(data.replyTo.text || '').slice(0, 240),
+      } : null;
       return {
         id: document.id,
         authorUid: String(data.authorUid || ''),
@@ -6298,10 +6322,20 @@ async function handleCotisationChatMessages(request) {
         authorPhotoURL: cotisationAvatarURL(data.authorPhotoURL),
         text: String(data.text || '').slice(0, 1000),
         createdAt: serializeAdminValue(data.createdAt || null),
+        updatedAt: serializeAdminValue(data.updatedAt || null),
+        editedAt: serializeAdminValue(data.editedAt || null),
+        isDeleted: data.isDeleted === true,
+        replyTo: data.isDeleted === true ? null : reply,
       };
     }).filter(Boolean);
-    if (reset) messages = messages.reverse();
-    return NextResponse.json({ success: true, messages, quota, reset, retentionDays: 30, maxMessageLength: 1000 });
+    const lastMessageId = reset
+      ? (messages[messages.length - 1]?.id || '')
+      : ((snapshot?.docs || []).slice(-1)[0]?.id || afterId);
+    return NextResponse.json({
+      success: true, messages, quota, reset, lastMessageId,
+      serverTime: new Date().toISOString(),
+      retentionDays: 30, maxMessageLength: 1000,
+    });
   } catch (error) {
     return errorResponse(error.message || 'Impossible de charger le chat du groupe.', 400);
   }
@@ -6320,13 +6354,17 @@ async function handleCotisationChatSend(request) {
     const memberRef = groupRef.collection('members').doc(uid);
     const userRef = adminDb.collection('users').doc(uid);
     const messageRef = groupRef.collection('chatMessages').doc();
+    const replyToMessageId = String(body.replyToMessageId || '').trim().slice(0, 150);
+    if (replyToMessageId.includes('/')) return errorResponse('Message de réponse invalide.', 400);
+    const replyToMessageRef = replyToMessageId ? groupRef.collection('chatMessages').doc(replyToMessageId) : null;
     const membersQuery = groupRef.collection('members').where('active', '==', true).limit(50);
     const dateKey = getDoualaDateKey();
     const usageRef = memberRef.collection('chatUsage').doc(dateKey);
     const result = await adminDb.runTransaction(async (transaction) => {
-      const [groupSnap, memberSnap, userSnap, membersSnap, usageSnap] = await Promise.all([
+      const [groupSnap, memberSnap, userSnap, membersSnap, usageSnap, replyToMessageSnap] = await Promise.all([
         transaction.get(groupRef), transaction.get(memberRef), transaction.get(userRef),
         transaction.get(membersQuery), transaction.get(usageRef),
+        replyToMessageRef ? transaction.get(replyToMessageRef) : Promise.resolve(null),
       ]);
       if (!groupSnap.exists || groupSnap.data()?.status !== 'active' || !memberSnap.exists || memberSnap.data()?.active === false) {
         throw new Error('Seuls les membres d’un groupe actif peuvent envoyer un message.');
@@ -6343,6 +6381,23 @@ async function handleCotisationChatSend(request) {
       const lastAt = lastValue?.toDate ? lastValue.toDate().getTime() : Date.parse(lastValue || '');
       if (Number.isFinite(lastAt) && Date.now() - lastAt < 1200) throw new Error('Attends un instant avant d’envoyer un autre message.');
       const userData = userSnap.data() || {};
+      let replyTo = null;
+      if (replyToMessageRef) {
+        if (!replyToMessageSnap?.exists || replyToMessageSnap.data()?.isDeleted === true) {
+          throw new Error('Le message auquel tu souhaites répondre n’est plus disponible.');
+        }
+        const replyData = replyToMessageSnap.data() || {};
+        const replyExpiry = replyData.expiresAt?.toDate ? replyData.expiresAt.toDate().getTime() : Date.parse(replyData.expiresAt || '');
+        if (Number.isFinite(replyExpiry) && replyExpiry <= Date.now()) {
+          throw new Error('Le message auquel tu souhaites répondre a expiré.');
+        }
+        replyTo = {
+          messageId: replyToMessageSnap.id,
+          authorUid: String(replyData.authorUid || ''),
+          authorName: String(replyData.authorName || 'Membre').slice(0, 100),
+          text: String(replyData.text || '').slice(0, 240),
+        };
+      }
       const authorName = String(userData.displayName || memberData.displayName || 'Membre').trim().slice(0, 100);
       const authorRoleLabel = memberData.isOwner === true || groupData.ownerId === uid
         ? 'Chef de la cotisation'
@@ -6350,8 +6405,10 @@ async function handleCotisationChatSend(request) {
       const authorPosition = Number.isInteger(Number(memberData.turnOrder)) && Number(memberData.turnOrder) >= 1 ? Number(memberData.turnOrder) : null;
       const authorPhotoURL = cotisationAvatarURL(userData.photoURL);
       transaction.create(messageRef, {
-        authorUid: uid, authorName, authorRoleLabel, authorPosition, authorPhotoURL, text: messageText,
-        createdAt: FieldValue.serverTimestamp(), expiresAt: cotisationChatExpiry(),
+        authorUid: uid, authorName, authorRoleLabel, authorPosition, authorPhotoURL,
+        text: messageText, replyTo, isDeleted: false,
+        createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+        expiresAt: cotisationChatExpiry(),
       });
       transaction.set(usageRef, {
         ...quotaResult.usage, dateKey, updatedAt: FieldValue.serverTimestamp(),
@@ -6362,7 +6419,7 @@ async function handleCotisationChatSend(request) {
         ...(shouldNotifyMembers ? { lastChatNotificationAt: FieldValue.serverTimestamp() } : {}),
       }, { merge: true });
       return {
-        id: messageRef.id, authorName, authorRoleLabel, authorPosition, authorPhotoURL, text: messageText,
+        id: messageRef.id, authorName, authorRoleLabel, authorPosition, authorPhotoURL, text: messageText, replyTo,
         quota: quotaResult.quota,
         recipientIds: shouldNotifyMembers ? membersSnap.docs.filter((document) => document.id !== uid && document.data()?.active !== false).map((document) => document.id) : [],
         groupName: groupData.name ? String(groupData.name).slice(0, 80) : 'Chat du groupe',
@@ -6401,7 +6458,8 @@ async function handleCotisationChatSend(request) {
       message: {
         id: result.id, authorUid: uid, authorName: result.authorName,
         authorRoleLabel: result.authorRoleLabel, authorPosition: result.authorPosition, authorPhotoURL: result.authorPhotoURL,
-        text: result.text, createdAt: new Date().toISOString(),
+        text: result.text, replyTo: result.replyTo, isDeleted: false,
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
       },
     });
   } catch (error) {
@@ -6413,6 +6471,100 @@ async function handleCotisationChatSend(request) {
       }, { status: 402 });
     }
     return errorResponse(message, 400);
+  }
+}
+
+
+async function handleCotisationChatMessageEdit(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const groupId = String(body.groupId || '').trim().slice(0, 150);
+    const messageId = String(body.messageId || '').trim().slice(0, 150);
+    const text = sanitizeCotisationChatMessage(body.text);
+    if (!groupId || groupId.includes('/') || !messageId || messageId.includes('/')) {
+      return errorResponse('Groupe ou message invalide.', 400);
+    }
+    if (!text) return errorResponse('Un message ne peut pas être vide.', 400);
+
+    const groupRef = adminDb.collection('cotisationGroups').doc(groupId);
+    const memberRef = groupRef.collection('members').doc(uid);
+    const messageRef = groupRef.collection('chatMessages').doc(messageId);
+    const result = await adminDb.runTransaction(async (transaction) => {
+      const [groupSnap, memberSnap, messageSnap] = await Promise.all([
+        transaction.get(groupRef), transaction.get(memberRef), transaction.get(messageRef),
+      ]);
+      if (!groupSnap.exists || groupSnap.data()?.status !== 'active' || !memberSnap.exists || memberSnap.data()?.active === false) {
+        throw new Error('Seuls les membres actifs peuvent modifier la discussion.');
+      }
+      if (!messageSnap.exists) throw new Error('Ce message n’existe plus.');
+      const message = messageSnap.data() || {};
+      if (message.authorUid !== uid) throw new Error('Tu peux uniquement modifier tes propres messages.');
+      if (message.isDeleted === true) throw new Error('Ce message a déjà été supprimé.');
+      const createdAt = message.createdAt?.toDate
+        ? message.createdAt.toDate().getTime()
+        : new Date(message.createdAt || 0).getTime();
+      if (!Number.isFinite(createdAt) || Date.now() - createdAt > 15 * 60 * 1000) {
+        throw new Error('La modification est possible pendant les 15 minutes suivant l’envoi.');
+      }
+      transaction.update(messageRef, {
+        text,
+        editedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      return { id: messageId, text };
+    });
+    return NextResponse.json({
+      success: true,
+      message: { ...result, editedAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de modifier ce message.', 400);
+  }
+}
+
+async function handleCotisationChatMessageDelete(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const groupId = String(body.groupId || '').trim().slice(0, 150);
+    const messageId = String(body.messageId || '').trim().slice(0, 150);
+    if (!groupId || groupId.includes('/') || !messageId || messageId.includes('/')) {
+      return errorResponse('Groupe ou message invalide.', 400);
+    }
+
+    const groupRef = adminDb.collection('cotisationGroups').doc(groupId);
+    const memberRef = groupRef.collection('members').doc(uid);
+    const messageRef = groupRef.collection('chatMessages').doc(messageId);
+    const result = await adminDb.runTransaction(async (transaction) => {
+      const [groupSnap, memberSnap, messageSnap] = await Promise.all([
+        transaction.get(groupRef), transaction.get(memberRef), transaction.get(messageRef),
+      ]);
+      if (!groupSnap.exists || groupSnap.data()?.status !== 'active' || !memberSnap.exists || memberSnap.data()?.active === false) {
+        throw new Error('Seuls les membres actifs peuvent supprimer un message.');
+      }
+      if (!messageSnap.exists) throw new Error('Ce message n’existe plus.');
+      const message = messageSnap.data() || {};
+      const isGroupOwner = groupSnap.data()?.ownerId === uid;
+      if (message.authorUid !== uid && !isGroupOwner) {
+        throw new Error('Tu peux supprimer uniquement tes propres messages.');
+      }
+      if (message.isDeleted === true) return { id: messageId, isDeleted: true };
+      transaction.update(messageRef, {
+        text: '',
+        isDeleted: true,
+        deletedBy: uid,
+        deletedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      return { id: messageId, isDeleted: true };
+    });
+    return NextResponse.json({
+      success: true,
+      message: { ...result, text: '', deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de supprimer ce message.', 400);
   }
 }
 
@@ -7515,6 +7667,7 @@ const ROUTES = {
   'cotisations/chat/purchase': { POST: handleCotisationChatPurchase },
   'cotisations/chat/messages': { GET: handleCotisationChatMessages },
   'cotisations/chat/send': { POST: handleCotisationChatSend },
+  'cotisations/chat/message': { PATCH: handleCotisationChatMessageEdit, DELETE: handleCotisationChatMessageDelete },
   'cotisations/join': { POST: handleCotisationJoin },
   'cotisations/reorder': { POST: handleCotisationReorder },
   'cotisations/contact': { POST: handleCotisationContact },

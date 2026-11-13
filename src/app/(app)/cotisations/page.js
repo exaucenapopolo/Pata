@@ -46,9 +46,35 @@ export default function CotisationsPage() {
   const [chatError, setChatError] = useState('');
   const [chatQuota, setChatQuota] = useState({ freeLimit: 10, freeUsed: 0, freeRemaining: 10, bonusPurchased: 0, bonusUsed: 0, bonusRemaining: 0, remaining: 10 });
   const [chatQuotaBlocked, setChatQuotaBlocked] = useState(false);
+  const [chatReplyTo, setChatReplyTo] = useState(null);
+  const [chatEditingMessage, setChatEditingMessage] = useState(null);
+  const [chatMessageAction, setChatMessageAction] = useState(null);
+  const [chatDeleteTarget, setChatDeleteTarget] = useState(null);
+  const [chatMemberProfile, setChatMemberProfile] = useState(null);
   const [roleDrafts, setRoleDrafts] = useState({});
   const chatScrollRef = useRef(null);
   const chatLastMessageIdRef = useRef('');
+  const chatLastSyncAtRef = useRef(0);
+  const chatMessagePressTimerRef = useRef(null);
+  const clearChatMessagePressTimer = () => {
+    if (chatMessagePressTimerRef.current) window.clearTimeout(chatMessagePressTimerRef.current);
+    chatMessagePressTimerRef.current = null;
+  };
+  const startChatMessageLongPress = (event, message) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    if (event.target.closest('button,a,input,textarea')) return;
+    clearChatMessagePressTimer();
+    chatMessagePressTimerRef.current = window.setTimeout(() => setChatMessageAction(message), 600);
+  };
+  const openChatMemberProfile = (member, message) => {
+    setChatMemberProfile(member || {
+      uid: message?.authorUid || '',
+      displayName: message?.authorName || 'Membre',
+      photoURL: message?.authorPhotoURL || '',
+      roleLabel: message?.authorRoleLabel || 'Membre',
+      turnOrder: message?.authorPosition || null,
+    });
+  };
   const [whatsappForms, setWhatsappForms] = useState({});
   const [groupForm, setGroupForm] = useState({ name: '', description: '', contributionAmount: '', expectedMembers: '5', frequency: 'monthly', startDate: today(), dueDay: '30', graceDays: '1', lateFeeType: 'none', lateFeeValue: '' });
   const [orderDrafts, setOrderDrafts] = useState({});
@@ -197,6 +223,13 @@ export default function CotisationsPage() {
     setChatDraft('');
     setChatError('');
     setChatQuotaBlocked(false);
+    setChatReplyTo(null);
+    setChatEditingMessage(null);
+    setChatMessageAction(null);
+    setChatDeleteTarget(null);
+    setChatMemberProfile(null);
+    chatLastSyncAtRef.current = 0;
+    clearChatMessagePressTimer();
     setChatQuota({ freeLimit: 10, freeUsed: 0, freeRemaining: 10, bonusPurchased: 0, bonusUsed: 0, bonusRemaining: 0, remaining: 10 });
     setChatLoading(true);
   };
@@ -205,8 +238,6 @@ export default function CotisationsPage() {
     if (error?.status !== 402) return false;
     setChatQuota(error.data?.quota || { freeLimit: 10, freeRemaining: 0, remaining: 0 });
     setChatQuotaBlocked(true);
-    setChatMessages([]);
-    chatLastMessageIdRef.current = '';
     setChatError('');
     return true;
   };
@@ -217,9 +248,10 @@ export default function CotisationsPage() {
     try {
       const result = await api('cotisations/chat/messages?groupId=' + encodeURIComponent(groupId));
       setChatMessages(result.messages || []);
-      chatLastMessageIdRef.current = result.messages?.length ? result.messages[result.messages.length - 1].id : '';
+      chatLastMessageIdRef.current = result.lastMessageId || (result.messages?.length ? result.messages[result.messages.length - 1].id : '');
+      chatLastSyncAtRef.current = Date.parse(result.serverTime || '') || Date.now();
       setChatQuota(result.quota || chatQuota);
-      setChatQuotaBlocked(false);
+      setChatQuotaBlocked(Number(result.quota?.remaining) <= 0);
       setChatError('');
     } catch (error) {
       if (!applyChatQuotaError(error)) setChatError(error.message || 'Impossible d’actualiser la discussion.');
@@ -247,23 +279,58 @@ export default function CotisationsPage() {
 
   const sendGroupChatMessage = async (event) => {
     event.preventDefault();
-    if (!chatGroup || !chatDraft.trim() || chatQuotaBlocked) return;
+    if (!chatGroup || !chatDraft.trim() || (chatQuotaBlocked && !chatEditingMessage)) return;
     setChatBusy(true);
     setChatError('');
     try {
-      const result = await api('cotisations/chat/send', 'POST', { groupId: chatGroup.id, text: chatDraft });
-      setChatQuota(result.quota || chatQuota);
-      setChatDraft('');
-      if (Number(result.quota?.remaining) <= 0) {
-        setChatQuotaBlocked(true);
-        setChatMessages([]);
-        chatLastMessageIdRef.current = '';
-      } else if (result.message) {
-        setChatMessages((current) => [...current, result.message].slice(-50));
-        chatLastMessageIdRef.current = result.message.id;
+      if (chatEditingMessage) {
+        const result = await api('cotisations/chat/message', 'PATCH', {
+          groupId: chatGroup.id,
+          messageId: chatEditingMessage.id,
+          text: chatDraft,
+        });
+        setChatMessages((current) => current.map((message) =>
+          message.id === chatEditingMessage.id ? { ...message, ...result.message } : message
+        ));
+        setChatEditingMessage(null);
+      } else {
+        const result = await api('cotisations/chat/send', 'POST', {
+          groupId: chatGroup.id,
+          text: chatDraft,
+          ...(chatReplyTo?.id ? { replyToMessageId: chatReplyTo.id } : {}),
+        });
+        setChatQuota(result.quota || chatQuota);
+        if (result.message) {
+          setChatMessages((current) => [...current.filter((message) => message.id !== result.message.id), result.message].slice(-100));
+          chatLastMessageIdRef.current = result.message.id;
+        }
+        setChatQuotaBlocked(Number(result.quota?.remaining) <= 0);
       }
+      setChatDraft('');
+      setChatReplyTo(null);
     } catch (error) {
       if (!applyChatQuotaError(error)) setChatError(error.message || 'Impossible d’envoyer ce message.');
+    } finally {
+      setChatBusy(false);
+    }
+  };
+
+  const deleteGroupChatMessage = async () => {
+    if (!chatGroup || !chatDeleteTarget) return;
+    setChatBusy(true);
+    setChatError('');
+    try {
+      const result = await api('cotisations/chat/message', 'DELETE', {
+        groupId: chatGroup.id,
+        messageId: chatDeleteTarget.id,
+      });
+      setChatMessages((current) => current.map((message) =>
+        message.id === chatDeleteTarget.id ? { ...message, ...result.message } : message
+      ));
+      setChatDeleteTarget(null);
+      setChatNotice?.('');
+    } catch (error) {
+      setChatError(error.message || 'Impossible de supprimer ce message.');
     } finally {
       setChatBusy(false);
     }
@@ -276,13 +343,23 @@ export default function CotisationsPage() {
       try {
         const afterId = replace ? '' : chatLastMessageIdRef.current;
         const suffix = afterId ? '&afterId=' + encodeURIComponent(afterId) : '';
-        const result = await api('cotisations/chat/messages?groupId=' + encodeURIComponent(chatGroup.id) + suffix);
+        const updatedSuffix = !replace && chatLastSyncAtRef.current
+          ? '&updatedAfter=' + encodeURIComponent(chatLastSyncAtRef.current)
+          : '';
+        const result = await api('cotisations/chat/messages?groupId=' + encodeURIComponent(chatGroup.id) + suffix + updatedSuffix);
         if (!active) return;
         if (result.reset || !afterId) setChatMessages(result.messages || []);
-        else if (result.messages?.length) setChatMessages((current) => [...current, ...result.messages].slice(-50));
-        if (result.messages?.length) chatLastMessageIdRef.current = result.messages[result.messages.length - 1].id;
+        else if (result.messages?.length) setChatMessages((current) => {
+          const merged = new Map(current.map((message) => [message.id, message]));
+          result.messages.forEach((message) => merged.set(message.id, { ...merged.get(message.id), ...message }));
+          return [...merged.values()].sort((left, right) =>
+            (Date.parse(left.createdAt || '') || 0) - (Date.parse(right.createdAt || '') || 0)
+          ).slice(-100);
+        });
+        if (result.lastMessageId) chatLastMessageIdRef.current = result.lastMessageId;
+        chatLastSyncAtRef.current = Date.parse(result.serverTime || '') || Date.now();
         setChatQuota(result.quota || chatQuota);
-        setChatQuotaBlocked(false);
+        setChatQuotaBlocked(Number(result.quota?.remaining) <= 0);
         setChatError('');
       } catch (error) {
         if (active && error?.status === 402) {
@@ -297,7 +374,7 @@ export default function CotisationsPage() {
       }
     };
     refresh(true);
-    const interval = window.setInterval(() => refresh(false), chatQuotaBlocked ? 60000 : 15000);
+    const interval = window.setInterval(() => refresh(false), 15000);
     return () => { active = false; window.clearInterval(interval); };
   }, [chatGroup?.id, user, api, chatQuotaBlocked]);
 
@@ -305,6 +382,8 @@ export default function CotisationsPage() {
     if (!chatScrollRef.current) return;
     chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
   }, [chatMessages.length, chatGroup?.id]);
+
+  useEffect(() => () => clearChatMessagePressTimer(), []);
 
   const openGroupPhotoEditor = (group) => {
     setPhotoEditingGroup(group);
@@ -546,67 +625,161 @@ export default function CotisationsPage() {
         </form>
       </Modal>}
 
-      <Modal open={Boolean(chatGroup)} onClose={() => { if (!chatBusy) { setChatGroup(null); setChatMessages([]); setChatError(''); setChatQuotaBlocked(false); } }} title="Discussion du groupe" className="h-[92dvh] max-h-[92dvh] max-w-3xl">
+      <Modal
+        open={Boolean(chatGroup)}
+        onClose={() => {
+          if (chatBusy) return;
+          setChatGroup(null);
+          setChatMessages([]);
+          setChatError('');
+          setChatQuotaBlocked(false);
+          setChatReplyTo(null);
+          setChatEditingMessage(null);
+          setChatMessageAction(null);
+          setChatDeleteTarget(null);
+          setChatMemberProfile(null);
+          clearChatMessagePressTimer();
+        }}
+        title={chatGroup?.name || 'Discussion du groupe'}
+        className="h-[100dvh] max-h-[100dvh] max-w-none rounded-none sm:max-h-[100dvh] sm:rounded-none"
+      >
         {chatGroup && (
-          <div className="flex h-full min-h-[65dvh] flex-col">
-            <header className="flex items-center gap-3 border-b border-slate-100 pb-3">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-100 text-sm font-bold text-slate-600">{chatGroup.imageURL ? <img src={chatGroup.imageURL} alt="" className="h-full w-full object-cover"/> : (chatGroup.name || 'G').slice(0, 1).toUpperCase()}</div>
-              <div className="min-w-0 flex-1"><h3 className="truncate text-sm font-bold text-slate-900">{chatGroup.name}</h3><p className="text-[11px] text-slate-500">{chatGroup.memberCount} membre(s) · Discussion du groupe</p></div>
+          <div className="flex h-full min-h-0 flex-col">
+            <header className="flex shrink-0 items-center gap-3 border-b border-slate-100 pb-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-100 text-sm font-bold text-slate-600">
+                {chatGroup.imageURL ? <img src={chatGroup.imageURL} alt="" className="h-full w-full object-cover"/> : (chatGroup.name || 'G').slice(0, 1).toUpperCase()}
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="truncate text-sm font-bold text-slate-900">{chatGroup.name}</h3>
+                <p className="text-[11px] text-slate-500">{chatGroup.memberCount} membre(s) · Discussion de la cotisation</p>
+              </div>
               <button type="button" onClick={() => refreshChatMessages(chatGroup.id)} disabled={chatLoading} className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50" aria-label="Actualiser la discussion"><RefreshCw size={15}/></button>
             </header>
-            <div className="my-3 rounded-xl border border-emerald-100 bg-emerald-50/70 p-3">
-              <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-semibold text-emerald-950">Ton quota de messages</p><p className="mt-0.5 text-[11px] text-emerald-800">{chatQuota.freeRemaining ?? 10} message(s) gratuit(s) restant(s){chatQuota.bonusRemaining > 0 ? ' · ' + chatQuota.bonusRemaining + ' supplémentaire(s)' : ''}</p></div><span className="shrink-0 rounded-full bg-white px-3 py-1 text-xs font-bold text-emerald-800">{chatQuota.remaining ?? 10} restant(s)</span></div>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-emerald-100"><div className="h-full rounded-full bg-emerald-600 transition-all" style={{ width: Math.max(0, Math.min(100, ((chatQuota.remaining ?? 10) / Math.max(10, 10 + (chatQuota.bonusPurchased || 0))) * 100)) + '%' }}/></div>
-              <p className="mt-1.5 text-[10px] text-emerald-800">10 messages gratuits chaque jour. Après épuisement, 10 messages supplémentaires coûtent 100 FCFA depuis ton portefeuille.</p>
+
+            <div ref={chatScrollRef} className="my-3 min-h-0 flex-1 space-y-3 overflow-y-auto bg-[#efeae2] p-3 sm:p-4">
+              {chatLoading && !chatMessages.length
+                ? <p className="py-8 text-center text-xs text-slate-600">Chargement des messages…</p>
+                : !chatMessages.length
+                  ? <div className="mx-auto my-8 max-w-xs rounded-xl bg-white/85 px-4 py-3 text-center text-xs leading-5 text-slate-600 shadow-sm">Bienvenue dans la discussion de {chatGroup.name}. Présente-toi et échange avec les autres membres.</div>
+                  : chatMessages.map((message) => {
+                    const mine = message.authorUid === user?.uid;
+                    const author = chatGroup.members?.find((member) => member.uid === message.authorUid);
+                    const authorPhoto = message.authorPhotoURL || author?.photoURL || '';
+                    return (
+                      <div key={message.id} className={'flex items-end gap-2 ' + (mine ? 'justify-end' : 'justify-start')}>
+                        {!mine && <button type="button" onClick={() => openChatMemberProfile(author, message)} aria-label={'Voir le profil de ' + (message.authorName || 'ce membre')} className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/70 bg-white text-xs font-bold text-slate-600 shadow-sm">
+                          {authorPhoto ? <img src={authorPhoto} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer"/> : (message.authorName || 'M').slice(0, 1).toUpperCase()}
+                        </button>}
+                        <div
+                          className={'max-w-[88%] select-text rounded-2xl px-3 py-2 shadow-sm ' + (mine ? 'rounded-br-md bg-[#d9fdd3] text-slate-900' : 'rounded-bl-md bg-white text-slate-800')}
+                          onPointerDown={(event) => startChatMessageLongPress(event, message)}
+                          onPointerUp={clearChatMessagePressTimer}
+                          onPointerLeave={clearChatMessagePressTimer}
+                          onPointerCancel={clearChatMessagePressTimer}
+                          onContextMenu={(event) => { event.preventDefault(); clearChatMessagePressTimer(); setChatMessageAction(message); }}
+                        >
+                          <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                            <button type="button" onClick={() => openChatMemberProfile(author, message)} className="text-left text-[11px] font-bold hover:underline">{message.authorName || 'Membre'}{mine ? ' · Vous' : ''}</button>
+                            <span className={'inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold ' + (message.authorRoleLabel === 'Chef de la cotisation' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600')}>
+                              {message.authorRoleLabel === 'Chef de la cotisation' && <Crown size={9}/>}
+                              {message.authorRoleLabel || 'Membre'}
+                            </span>
+                            {(message.authorPosition || author?.turnOrder) && <span className="text-[9px] font-medium text-slate-500">Position {message.authorPosition || author.turnOrder}</span>}
+                          </div>
+                          {message.replyTo && !message.isDeleted && <div className="mb-2 rounded-lg border-l-2 border-brand-500 bg-black/5 px-2 py-1.5">
+                            <p className="text-[10px] font-bold">{message.replyTo.authorName}</p>
+                            <p className="line-clamp-2 whitespace-pre-wrap break-words text-[10px] text-slate-600">{message.replyTo.text}</p>
+                          </div>}
+                          <p className={'whitespace-pre-wrap break-words text-sm leading-5 ' + (message.isDeleted ? 'italic text-slate-400' : '')}>{message.isDeleted ? 'Ce message a été supprimé' : message.text}</p>
+                          <p className="mt-1 text-right text-[9px] text-slate-400">
+                            {message.createdAt ? new Date(message.createdAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : 'À l’instant'}
+                            {message.editedAt && !message.isDeleted ? ' · modifié' : ''}
+                          </p>
+                        </div>
+                        {mine && <button type="button" onClick={() => openChatMemberProfile(author, message)} aria-label="Voir mon profil dans ce groupe" className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/70 bg-white text-xs font-bold text-slate-600 shadow-sm">
+                          {authorPhoto ? <img src={authorPhoto} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer"/> : (message.authorName || user?.displayName || 'T').slice(0, 1).toUpperCase()}
+                        </button>}
+                      </div>
+                    );
+                  })}
             </div>
-            {chatQuotaBlocked ? (
-              <div className="flex flex-1 flex-col items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 px-5 py-8 text-center">
-                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-white text-slate-500 shadow-sm"><MessageCircle size={25}/></div>
-                <h3 className="mt-4 text-base font-bold text-slate-900">Tu as atteint ta limite de messages pour aujourd’hui</h3>
-                <p className="mt-2 max-w-sm text-sm leading-6 text-slate-600">La discussion est temporairement masquée pour toi. Achète un lot de 10 messages pour retrouver l’accès aux messages et continuer à répondre.</p>
-                <Button type="button" className="mt-5 w-full max-w-xs" onClick={purchaseExtraChatMessages} disabled={chatBusy}><Wallet size={15}/>{chatBusy ? 'Paiement en cours…' : 'Obtenir 10 messages · 100 FCFA'}</Button>
-                <a href="/wallet" className="mt-3 text-xs font-semibold text-brand-700 underline">Recharger mon portefeuille</a>
-                <p className="mt-3 text-[10px] text-slate-400">Le paiement est débité uniquement lorsque tu achètes ce lot. Le quota gratuit reste sans frais.</p>
+
+            {chatQuotaBlocked && !chatEditingMessage ? (
+              <div className="shrink-0 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                <p className="text-xs font-semibold text-amber-950">Tu as atteint la limite journalière de messages.</p>
+                <p className="mt-1 text-xs leading-5 text-amber-800">Tu peux toujours consulter l’historique. Ajoute un lot de messages pour continuer à écrire aujourd’hui.</p>
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <Button type="button" onClick={purchaseExtraChatMessages} disabled={chatBusy}><Wallet size={15}/>{chatBusy ? 'Paiement en cours…' : 'Ajouter 10 messages · 100 FCFA'}</Button>
+                  <a href="/wallet" className="text-xs font-semibold text-brand-700 underline">Recharger mon portefeuille</a>
+                </div>
               </div>
             ) : (
-              <>
-                <div ref={chatScrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto rounded-2xl bg-[#efeae2] p-3 sm:p-4">
-                  {chatLoading && !chatMessages.length ? <p className="py-8 text-center text-xs text-slate-600">Chargement des messages…</p>
-                    : !chatMessages.length ? <div className="mx-auto my-8 max-w-xs rounded-xl bg-white/85 px-4 py-3 text-center text-xs leading-5 text-slate-600 shadow-sm">Bienvenue dans la discussion de {chatGroup.name}. Présente-toi et échange avec les autres membres.</div>
-                    : chatMessages.map((message) => {
-                      const mine = message.authorUid === user?.uid;
-                      const author = chatGroup.members?.find((member) => member.uid === message.authorUid);
-                      const authorPhoto = message.authorPhotoURL || author?.photoURL || '';
-                      return (
-                        <div key={message.id} className={'flex items-end gap-2 ' + (mine ? 'justify-end' : 'justify-start')}>
-                          {!mine && <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/70 bg-white text-xs font-bold text-slate-600 shadow-sm">{authorPhoto ? <img src={authorPhoto} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer"/> : (message.authorName || 'M').slice(0, 1).toUpperCase()}</span>}
-                          <div className={'max-w-[86%] rounded-2xl px-3 py-2 shadow-sm ' + (mine ? 'rounded-br-md bg-[#d9fdd3] text-slate-900' : 'rounded-bl-md bg-white text-slate-800')}>
-                            <div className="mb-1 flex flex-wrap items-center gap-1.5">
-                              <span className="text-[11px] font-bold">{message.authorName || 'Membre'}{mine ? ' · Vous' : ''}</span>
-                              <span className={'inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold ' + (message.authorRoleLabel === 'Chef de la cotisation' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600')}>
-                                {message.authorRoleLabel === 'Chef de la cotisation' && <Crown size={9}/>}
-                                {message.authorRoleLabel || 'Membre'}
-                              </span>
-                              {(message.authorPosition || author?.turnOrder) && <span className="text-[9px] font-medium text-slate-500">Position {message.authorPosition || author.turnOrder}</span>}
-                            </div>
-                            <p className="whitespace-pre-wrap break-words text-sm leading-5">{message.text}</p>
-                            <p className="mt-1 text-right text-[9px] text-slate-400">{message.createdAt ? new Date(message.createdAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : 'À l’instant'}</p>
-                          </div>
-                          {mine && <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/70 bg-white text-xs font-bold text-slate-600 shadow-sm">{message.authorPhotoURL ? <img src={message.authorPhotoURL} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer"/> : (user?.displayName || 'T').slice(0, 1).toUpperCase()}</span>}
-                        </div>
-                      );
-                    })}
-                </div>
-                <form onSubmit={sendGroupChatMessage} className="mt-3 flex items-end gap-2 border-t border-slate-100 pt-3">
-                  <textarea value={chatDraft} onChange={(event) => setChatDraft(event.target.value.slice(0, 1000))} maxLength={1000} rows={2} placeholder="Écris un message…" className="min-h-11 max-h-28 min-w-0 flex-1 resize-y rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"/>
-                  <Button type="submit" className="h-11 shrink-0 rounded-full px-4" disabled={chatBusy || !chatDraft.trim()}>{chatBusy ? '…' : <Send size={16}/>}</Button>
+              <div className="shrink-0 border-t border-slate-100 pt-3">
+                {(chatReplyTo || chatEditingMessage) && <div className="mb-2 flex items-start gap-2 rounded-xl border-l-2 border-brand-500 bg-slate-50 px-3 py-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10px] font-bold text-slate-700">{chatEditingMessage ? 'Modifier ton message' : 'Réponse à ' + (chatReplyTo?.authorName || 'un membre')}</p>
+                    <p className="mt-0.5 line-clamp-2 whitespace-pre-wrap break-words text-xs text-slate-500">{chatEditingMessage?.text || chatReplyTo?.text}</p>
+                  </div>
+                  <button type="button" onClick={() => { setChatReplyTo(null); setChatEditingMessage(null); setChatDraft(''); }} className="rounded-lg p-1 text-slate-500 hover:bg-slate-200" aria-label="Annuler la réponse ou modification">×</button>
+                </div>}
+                <form onSubmit={sendGroupChatMessage} className="flex items-end gap-2">
+                  <textarea value={chatDraft} onChange={(event) => setChatDraft(event.target.value.slice(0, 1000))} maxLength={1000} rows={2} placeholder={chatEditingMessage ? 'Modifie ton message…' : 'Écris un message…'} className="min-h-11 max-h-28 min-w-0 flex-1 resize-y rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"/>
+                  <Button type="submit" className="h-11 shrink-0 rounded-full px-4" disabled={chatBusy || !chatDraft.trim()}>{chatBusy ? '…' : chatEditingMessage ? 'Enregistrer' : <Send size={16}/>}</Button>
                 </form>
-                <div className="flex items-center justify-between gap-2 text-[10px] text-slate-400"><span>{chatDraft.length}/1000 caractères</span><span>{chatQuota.remaining ?? 10} message(s) encore disponible(s)</span></div>
-              </>
+                <p className="mt-1 text-[10px] text-slate-400">Une limite quotidienne s’applique aux messages envoyés. Les réponses et modifications ne consomment pas de message supplémentaire.</p>
+              </div>
             )}
-            {chatError && <p role="alert" className="mt-2 rounded-lg bg-red-50 p-2 text-xs text-red-700">{chatError}</p>}
+            {chatError && <p role="alert" className="mt-2 shrink-0 rounded-lg bg-red-50 p-2 text-xs text-red-700">{chatError}</p>}
           </div>
         )}
+      </Modal>
+
+      <Modal open={Boolean(chatMessageAction)} onClose={() => setChatMessageAction(null)} title="Options du message">
+        {chatMessageAction && <div className="space-y-2">
+          <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">{chatMessageAction.isDeleted ? 'Message supprimé' : chatMessageAction.text}</p>
+          {!chatMessageAction.isDeleted && <Button type="button" variant="outline" className="w-full justify-start" onClick={() => { setChatReplyTo({ id: chatMessageAction.id, authorName: chatMessageAction.authorName, text: chatMessageAction.text }); setChatEditingMessage(null); setChatMessageAction(null); }}>Répondre à ce message</Button>}
+          {chatMessageAction.authorUid === user?.uid && !chatMessageAction.isDeleted && <Button type="button" variant="outline" className="w-full justify-start" onClick={() => { setChatEditingMessage(chatMessageAction); setChatReplyTo(null); setChatDraft(chatMessageAction.text || ''); setChatMessageAction(null); }}>Modifier mon message</Button>}
+          {(chatMessageAction.authorUid === user?.uid || chatGroup?.isOwner) && !chatMessageAction.isDeleted && <Button type="button" variant="outline" className="w-full justify-start border-red-200 text-red-700 hover:bg-red-50" onClick={() => { setChatDeleteTarget(chatMessageAction); setChatMessageAction(null); }}>Supprimer ce message</Button>}
+        </div>}
+      </Modal>
+
+      <Modal open={Boolean(chatDeleteTarget)} onClose={() => { if (!chatBusy) setChatDeleteTarget(null); }} title="Supprimer le message">
+        {chatDeleteTarget && <div className="space-y-4">
+          <p className="text-sm leading-6 text-slate-600">Ce message sera remplacé par une indication de suppression dans la discussion.</p>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setChatDeleteTarget(null)} disabled={chatBusy}>Annuler</Button>
+            <Button type="button" onClick={deleteGroupChatMessage} disabled={chatBusy} className="bg-red-600 hover:bg-red-700"> {chatBusy ? 'Suppression…' : 'Supprimer'}</Button>
+          </div>
+        </div>}
+      </Modal>
+
+      <Modal open={Boolean(chatMemberProfile)} onClose={() => setChatMemberProfile(null)} title="Profil du membre">
+        {chatMemberProfile && <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-100 text-xl font-bold text-slate-600">
+              {chatMemberProfile.photoURL ? <img src={chatMemberProfile.photoURL} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer"/> : (chatMemberProfile.displayName || 'M').slice(0, 1).toUpperCase()}
+            </div>
+            <div className="min-w-0">
+              <p className="break-words text-base font-bold text-slate-900">{chatMemberProfile.displayName || 'Membre'}</p>
+              <p className="mt-1 text-xs text-slate-500">{chatMemberProfile.isOwner ? 'Chef de la cotisation' : chatMemberProfile.roleLabel || 'Membre'}</p>
+            </div>
+          </div>
+          <div className="divide-y divide-slate-100 rounded-xl border border-slate-200 px-3">
+            <div className="flex justify-between gap-3 py-3 text-sm"><span className="text-slate-500">Position dans le groupe</span><strong className="text-right text-slate-800">{chatMemberProfile.turnOrder || 'Non attribuée'}</strong></div>
+            <div className="flex justify-between gap-3 py-3 text-sm"><span className="text-slate-500">A déjà reçu un tour</span><strong className="text-right text-slate-800">{chatMemberProfile.hasReceivedTurn ? 'Oui' : 'Pas encore'}</strong></div>
+            {chatMemberProfile.hasReceivedTurn && Number(chatMemberProfile.receivedTurnCount) > 1 && <div className="flex justify-between gap-3 py-3 text-sm"><span className="text-slate-500">Nombre de tours reçus</span><strong className="text-right text-slate-800">{chatMemberProfile.receivedTurnCount}</strong></div>}
+          </div>
+          {chatGroup?.isOwner && <div className="rounded-xl border border-brand-100 bg-brand-50/50 p-3">
+            <p className="text-xs font-bold text-slate-800">Suivi financier · réservé au chef</p>
+            <div className="mt-2 space-y-2 text-sm">
+              <div className="flex justify-between gap-3"><span className="text-slate-600">Cotisé ce tour</span><strong>{currency(chatMemberProfile.principalPaid ?? 0)}</strong></div>
+              {Number(chatMemberProfile.penaltyPaid) > 0 && <div className="flex justify-between gap-3"><span className="text-slate-600">Majoration payée</span><strong>{currency(chatMemberProfile.penaltyPaid)}</strong></div>}
+              <div className="flex justify-between gap-3"><span className="text-slate-600">Reste à verser</span><strong>{currency(chatMemberProfile.remaining ?? chatGroup.contributionAmount)}</strong></div>
+              <div className="flex justify-between gap-3"><span className="text-slate-600">Versements enregistrés</span><strong>{chatMemberProfile.installments ?? 0}</strong></div>
+              <div className="h-2 overflow-hidden rounded-full bg-white"><div className="h-full rounded-full bg-brand-600" style={{ width: Math.max(0, Math.min(100, ((Number(chatMemberProfile.principalPaid) || 0) / Math.max(1, Number(chatGroup.contributionAmount) || 1)) * 100)) + '%' }}/></div>
+            </div>
+          </div>}
+        </div>}
       </Modal>
 
       <Modal open={Boolean(photoEditingGroup)} onClose={() => { if (busy !== 'group-photo') setPhotoEditingGroup(null); }} title={photoEditingGroup?.name || 'Photo du groupe'} className="max-w-5xl">
