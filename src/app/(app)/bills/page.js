@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, Check, Clock3, FileText, Pencil, Plus, Receipt, Trash2 } from 'lucide-react';
+import { CalendarDays, Camera, Check, Clock3, FileText, ImagePlus, Pencil, Plus, Receipt, Trash2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/context/LanguageContext';
 import { translateText } from '@/lib/i18n/translations';
@@ -98,6 +98,9 @@ export default function BillsPage() {
   const [form, setForm] = useState(makeEmptyBill);
   const [payingBill, setPayingBill] = useState(null);
   const [paymentForm, setPaymentForm] = useState({ amount: '', paidDate: todayIso(), paymentSource: 'cash' });
+  const [scanningInvoice, setScanningInvoice] = useState(false);
+  const [scanFeedback, setScanFeedback] = useState('');
+  const [scanError, setScanError] = useState(false);
 
   useEffect(() => {
     if (!user?.uid) {
@@ -140,6 +143,77 @@ export default function BillsPage() {
     setShowEditor(true);
   };
 
+  const scanBillImage = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { setScanFeedback('Choisis une image de facture.'); setScanError(true); return; }
+    if (file.size > 12 * 1024 * 1024) { setScanFeedback('La photo est trop volumineuse. Choisis une image de moins de 12 Mo.'); setScanError(true); return; }
+    setScanningInvoice(true); setScanFeedback(''); setScanError(false);
+    try {
+      const imageData = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error('Impossible de lire cette photo.'));
+        reader.onload = () => {
+          const image = new Image();
+          image.onerror = () => reject(new Error('Le fichier image est illisible.'));
+          image.onload = () => {
+            const maxSide = 1600;
+            const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(image.width * scale));
+            canvas.height = Math.max(1, Math.round(image.height * scale));
+            const context = canvas.getContext('2d');
+            if (!context) return reject(new Error('La photo ne peut pas être préparée sur cet appareil.'));
+            context.fillStyle = '#ffffff'; context.fillRect(0, 0, canvas.width, canvas.height);
+            context.drawImage(image, 0, 0, canvas.width, canvas.height);
+            resolve(canvas.toDataURL('image/jpeg', 0.82));
+          };
+          image.src = String(reader.result || '');
+        };
+        reader.readAsDataURL(file);
+      });
+      const token = await user.getIdToken();
+      const response = await fetch('/api/bills/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ imageData, language }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) throw new Error(result.error || 'La lecture de la facture a échoué.');
+      const data = result.extracted || {};
+      const noteParts = [
+        data.description,
+        data.invoiceDate ? 'Date du document : ' + data.invoiceDate : '',
+        data.invoiceNumber ? 'Numéro de facture : ' + data.invoiceNumber : '',
+        data.customerName ? 'Client : ' + data.customerName : '',
+        data.subtotal != null ? 'Sous-total : ' + Number(data.subtotal).toLocaleString('fr-FR') + ' ' + (data.currency || 'FCFA') : '',
+        data.taxAmount != null ? 'Taxes : ' + Number(data.taxAmount).toLocaleString('fr-FR') + ' ' + (data.currency || 'FCFA') : '',
+      ].filter(Boolean);
+      setForm((current) => ({
+        ...current,
+        name: data.merchantName ? 'Facture ' + data.merchantName : current.name,
+        billType: data.suggestedBillType || current.billType,
+        amount: data.totalAmount != null ? String(data.totalAmount) : current.amount,
+        nextDueDate: data.dueDate || current.nextDueDate,
+        expenseCategoryId: data.suggestedCategory || current.expenseCategoryId,
+        providerName: data.merchantName || current.providerName,
+        accountReference: data.accountReference || data.invoiceNumber || current.accountReference,
+        note: [...new Set([current.note, ...noteParts].filter(Boolean))].join(' · ').slice(0, 250),
+      }));
+      const missing = [
+        data.totalAmount == null ? (isEnglish ? 'amount' : 'montant') : '',
+        !data.dueDate ? (isEnglish ? 'due date' : 'date d’échéance') : '',
+      ].filter(Boolean);
+      setScanFeedback(missing.length
+        ? (isEnglish ? 'Some fields could not be read (' + missing.join(', ') + '). Check and complete them before saving.' : 'Lecture terminée. Vérifie ou complète : ' + missing.join(', ') + ' avant l’enregistrement.')
+        : (isEnglish ? 'Invoice read. Review the extracted information before saving.' : 'Facture lue. Vérifie les informations détectées avant de les enregistrer.'));
+      setScanError(false);
+    } catch (error) {
+      setScanFeedback(error.message || (isEnglish ? 'Could not read this invoice.' : 'Impossible de lire cette facture.'));
+      setScanError(true);
+    } finally { setScanningInvoice(false); }
+  };
   const saveBill = async (event) => {
     event.preventDefault();
     setFeedback('');
@@ -306,6 +380,15 @@ export default function BillsPage() {
 
       <Modal open={showEditor} onClose={() => setShowEditor(false)} title={form.id ? 'Modifier la facture' : 'Ajouter une facture'}>
         <form onSubmit={saveBill} className="space-y-3">
+          <section className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="flex items-start gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-slate-700"><Camera size={18}/></span><div><h3 className="text-sm font-semibold text-slate-900">{isEnglish ? 'Read a bill from a photo' : 'Lire une facture depuis une photo'}</h3><p className="mt-1 text-xs leading-5 text-slate-600">{isEnglish ? 'Take a photo or select an image. Pata will suggest the fields; check them before saving.' : 'Prends une photo ou choisis une image. Pata proposera les champs à remplir ; vérifie-les avant l’enregistrement.'}</p></div></div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700">{scanningInvoice ? <Loader2 size={14} className="animate-spin"/> : <Camera size={14}/>} {isEnglish ? 'Take a photo' : 'Prendre une photo'}<input className="sr-only" type="file" accept="image/*" capture="environment" onChange={scanBillImage} disabled={scanningInvoice}/></label>
+              <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700"><ImagePlus size={14}/> {isEnglish ? 'Choose from gallery' : 'Choisir dans la galerie'}<input className="sr-only" type="file" accept="image/*" onChange={scanBillImage} disabled={scanningInvoice}/></label>
+            </div>
+            {scanningInvoice && <p className="mt-2 text-xs text-slate-600">{isEnglish ? 'Analyzing the photo…' : 'Analyse de la photo en cours…'}</p>}
+            {scanFeedback && <p role="status" className={'mt-2 rounded-lg p-2 text-xs leading-5 ' + (scanError ? 'bg-amber-100 text-amber-900' : 'bg-emerald-100 text-emerald-900')}>{scanFeedback}</p>}
+          </section>
           <label className="block text-sm font-medium text-slate-700">Nom de la facture
             <input required maxLength={100} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Ex. Facture ENEO, loyer, Canal…" className="mt-1 h-11 w-full rounded-xl border border-slate-300 px-3 text-sm"/>
           </label>
