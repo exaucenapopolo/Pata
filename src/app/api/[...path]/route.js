@@ -4593,7 +4593,7 @@ async function handleAdminOverview(request) {
     const users = adminDb.collection('users');
     const withdrawals = adminDb.collection('withdrawalRequests');
     const activeDebtQuery = adminDb.collectionGroup('debts').where('status', 'in', ['active', 'partial', 'late']);
-    const [userTotals, premiumCount, deposits, subscriptions, paidPayouts, pendingPayouts, latestUsers, latestDeposits, latestWithdrawals, topBalances, topExpenses, leastExpenses, topIncomes, lifetimeExpenses, lifetimeIncomes, activeDebts] = await Promise.all([
+    const [userTotals, premiumCount, deposits, subscriptions, paidPayouts, pendingPayouts, latestUsers, latestDeposits, latestWithdrawals, topBalances, topExpenses, leastExpenses, topIncomes, lifetimeExpenses, lifetimeIncomes, billsSummary, budgetsSummary, activeDebts] = await Promise.all([
       aggregateTotal(users, 'balance'),
       users.where('premiumUntil', '>', nowIso).count().get().then((snap) => snap.data().count).catch(() => 0),
       aggregateTotal(adminDb.collection('deposits').where('status', '==', 'CONFIRMED')),
@@ -4610,6 +4610,8 @@ async function handleAdminOverview(request) {
       users.orderBy('lifetimeIncomeAmount', 'desc').limit(5).get().catch(() => ({ docs: [] })),
       aggregateTotal(users, 'lifetimeExpenseAmount'),
       aggregateTotal(users, 'lifetimeIncomeAmount'),
+      aggregateTotal(adminDb.collectionGroup('bills'), 'amount'),
+      aggregateTotal(adminDb.collectionGroup('budgets'), 'amount'),
       activeDebtQuery.aggregate({ count: AggregateField.count(), total: AggregateField.sum('remaining') }).get()
         .then((snapshot) => ({ count: Number(snapshot.data().count) || 0, total: Number(snapshot.data().total) || 0, unavailable: false }))
         .catch((error) => {
@@ -4636,6 +4638,10 @@ async function handleAdminOverview(request) {
         pendingWithdrawalCount: pendingPayouts.count,
         lifetimeExpenseVolume: lifetimeExpenses.total,
         lifetimeIncomeVolume: lifetimeIncomes.total,
+        billsCount: billsSummary.count,
+        billsAmount: billsSummary.total,
+        budgetsCount: budgetsSummary.count,
+        budgetsAllocated: budgetsSummary.total,
         activeDebtTotal: activeDebts.total,
         activeDebtCount: activeDebts.count,
         activeDebtsUnavailable: activeDebts.unavailable,
