@@ -581,7 +581,14 @@ export default function CotisationsPage() {
                         <div key={message.id} className={'flex items-end gap-2 ' + (mine ? 'justify-end' : 'justify-start')}>
                           {!mine && <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/70 bg-white text-xs font-bold text-slate-600 shadow-sm">{authorPhoto ? <img src={authorPhoto} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer"/> : (message.authorName || 'M').slice(0, 1).toUpperCase()}</span>}
                           <div className={'max-w-[86%] rounded-2xl px-3 py-2 shadow-sm ' + (mine ? 'rounded-br-md bg-[#d9fdd3] text-slate-900' : 'rounded-bl-md bg-white text-slate-800')}>
-                            <div className="mb-1 flex flex-wrap items-center gap-1.5"><span className="text-[11px] font-bold">{mine ? 'Toi' : message.authorName}</span><span className={'inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold ' + (message.authorRoleLabel === 'Chef de la cotisation' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600')}>{message.authorRoleLabel === 'Chef de la cotisation' && <Crown size={9}/>}{message.authorRoleLabel || 'Membre'}</span></div>
+                            <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                              <span className="text-[11px] font-bold">{message.authorName || 'Membre'}{mine ? ' · Vous' : ''}</span>
+                              <span className={'inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold ' + (message.authorRoleLabel === 'Chef de la cotisation' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600')}>
+                                {message.authorRoleLabel === 'Chef de la cotisation' && <Crown size={9}/>}
+                                {message.authorRoleLabel || 'Membre'}
+                              </span>
+                              {(message.authorPosition || author?.turnOrder) && <span className="text-[9px] font-medium text-slate-500">Position {message.authorPosition || author.turnOrder}</span>}
+                            </div>
                             <p className="whitespace-pre-wrap break-words text-sm leading-5">{message.text}</p>
                             <p className="mt-1 text-right text-[9px] text-slate-400">{message.createdAt ? new Date(message.createdAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : 'À l’instant'}</p>
                           </div>

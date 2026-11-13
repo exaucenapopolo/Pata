@@ -6294,6 +6294,7 @@ async function handleCotisationChatMessages(request) {
         authorUid: String(data.authorUid || ''),
         authorName: String(data.authorName || 'Membre').slice(0, 100),
         authorRoleLabel: String(data.authorRoleLabel || 'Membre').slice(0, 36),
+        authorPosition: Number.isInteger(Number(data.authorPosition)) && Number(data.authorPosition) >= 1 ? Number(data.authorPosition) : null,
         authorPhotoURL: cotisationAvatarURL(data.authorPhotoURL),
         text: String(data.text || '').slice(0, 1000),
         createdAt: serializeAdminValue(data.createdAt || null),
@@ -6346,9 +6347,10 @@ async function handleCotisationChatSend(request) {
       const authorRoleLabel = memberData.isOwner === true || groupData.ownerId === uid
         ? 'Chef de la cotisation'
         : String(memberData.roleLabel || 'Membre').trim().slice(0, 36) || 'Membre';
+      const authorPosition = Number.isInteger(Number(memberData.turnOrder)) && Number(memberData.turnOrder) >= 1 ? Number(memberData.turnOrder) : null;
       const authorPhotoURL = cotisationAvatarURL(userData.photoURL);
       transaction.create(messageRef, {
-        authorUid: uid, authorName, authorRoleLabel, authorPhotoURL, text: messageText,
+        authorUid: uid, authorName, authorRoleLabel, authorPosition, authorPhotoURL, text: messageText,
         createdAt: FieldValue.serverTimestamp(), expiresAt: cotisationChatExpiry(),
       });
       transaction.set(usageRef, {
@@ -6360,7 +6362,7 @@ async function handleCotisationChatSend(request) {
         ...(shouldNotifyMembers ? { lastChatNotificationAt: FieldValue.serverTimestamp() } : {}),
       }, { merge: true });
       return {
-        id: messageRef.id, authorName, authorRoleLabel, authorPhotoURL, text: messageText,
+        id: messageRef.id, authorName, authorRoleLabel, authorPosition, authorPhotoURL, text: messageText,
         quota: quotaResult.quota,
         recipientIds: shouldNotifyMembers ? membersSnap.docs.filter((document) => document.id !== uid && document.data()?.active !== false).map((document) => document.id) : [],
         groupName: groupData.name ? String(groupData.name).slice(0, 80) : 'Chat du groupe',
@@ -6398,7 +6400,7 @@ async function handleCotisationChatSend(request) {
       success: true, quota: result.quota,
       message: {
         id: result.id, authorUid: uid, authorName: result.authorName,
-        authorRoleLabel: result.authorRoleLabel, authorPhotoURL: result.authorPhotoURL,
+        authorRoleLabel: result.authorRoleLabel, authorPosition: result.authorPosition, authorPhotoURL: result.authorPhotoURL,
         text: result.text, createdAt: new Date().toISOString(),
       },
     });
