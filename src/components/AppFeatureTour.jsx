@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { X, ChevronLeft, ChevronRight, Check, Sparkles } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
@@ -36,6 +36,8 @@ const TOUR_STEPS = {
   ],
 };
 
+const clamp = (value, min, max) => Math.min(Math.max(value, min), Math.max(min, max));
+
 export function AppFeatureTour() {
   const { user } = useAuth();
   const { profile, loading: profileLoading, save } = useProfile();
@@ -48,7 +50,9 @@ export function AppFeatureTour() {
   const [stepIndex, setStepIndex] = useState(0);
   const [targetRect, setTargetRect] = useState(null);
   const [viewport, setViewport] = useState({ width: 1, height: 1 });
+  const [calloutPosition, setCalloutPosition] = useState(null);
   const targetElementRef = useRef(null);
+  const calloutRef = useRef(null);
   const autoStartCheckedRef = useRef(false);
   const storageKey = user?.uid ? 'pata-feature-tour-completed:' + user.uid : '';
 
@@ -56,6 +60,7 @@ export function AppFeatureTour() {
     autoStartCheckedRef.current = true;
     setStepIndex(0);
     setTargetRect(null);
+    setCalloutPosition(null);
     setActive(true);
     if (pathname !== '/dashboard') router.push('/dashboard');
   }, [pathname, router]);
@@ -68,6 +73,7 @@ export function AppFeatureTour() {
     if (profile.appTourCompleted === false && !locallyCompleted) {
       setStepIndex(0);
       setTargetRect(null);
+      setCalloutPosition(null);
       setActive(true);
     }
   }, [profile, profileLoading, pathname, user, storageKey]);
@@ -86,12 +92,15 @@ export function AppFeatureTour() {
     let attempts = 0;
     targetElementRef.current = null;
     setTargetRect(null);
+    setCalloutPosition(null);
+
     const measure = (element) => {
       if (cancelled || !element) return;
       const rect = element.getBoundingClientRect();
       setViewport({ width: Math.max(1, window.innerWidth), height: Math.max(1, window.innerHeight) });
       setTargetRect({ top: rect.top, left: rect.left, width: rect.width, height: rect.height });
     };
+
     const locate = () => {
       if (cancelled) return;
       const selector = '[data-pata-tour="' + currentStep.target + '"]';
@@ -116,6 +125,7 @@ export function AppFeatureTour() {
         setViewport({ width: Math.max(1, window.innerWidth), height: Math.max(1, window.innerHeight) });
       }
     };
+
     timer = window.setTimeout(locate, 80);
     return () => {
       cancelled = true;
@@ -140,6 +150,60 @@ export function AppFeatureTour() {
     };
   }, [active, targetRect, stepIndex, pathname]);
 
+  // Place la bulle au plus près de l'élément, sans le recouvrir.
+  useLayoutEffect(() => {
+    if (!active || !targetRect || !calloutRef.current) return;
+    const panel = calloutRef.current.getBoundingClientRect();
+    const margin = 12;
+    const gap = 13;
+    const width = Math.min(360, Math.max(260, viewport.width - margin * 2));
+    const panelHeight = Math.min(panel.height, viewport.height - margin * 2);
+    const rightSpace = viewport.width - (targetRect.left + targetRect.width) - gap - margin;
+    const leftSpace = targetRect.left - gap - margin;
+    const sideSpace = Math.max(rightSpace, leftSpace);
+
+    // Sur grand écran, une bulle latérale libère complètement le dessus et le dessous.
+    if (viewport.width >= 900 && sideSpace >= width) {
+      const placement = rightSpace >= leftSpace ? 'right' : 'left';
+      const left = placement === 'right'
+        ? targetRect.left + targetRect.width + gap
+        : targetRect.left - width - gap;
+      const top = clamp(
+        targetRect.top + targetRect.height / 2 - panelHeight / 2,
+        margin,
+        viewport.height - panelHeight - margin
+      );
+      const arrowOffset = clamp(
+        targetRect.top + targetRect.height / 2 - top - 7,
+        24,
+        panelHeight - 24
+      );
+      setCalloutPosition({ left, top, width, maxHeight: Math.min(390, viewport.height * 0.58), placement, arrowOffset });
+      return;
+    }
+
+    const belowSpace = viewport.height - (targetRect.top + targetRect.height) - gap - margin;
+    const aboveSpace = targetRect.top - gap - margin;
+    const placement = belowSpace >= panelHeight || belowSpace >= aboveSpace ? 'bottom' : 'top';
+    const available = Math.max(140, placement === 'bottom' ? belowSpace : aboveSpace);
+    const maxHeight = Math.max(140, Math.min(390, viewport.height * 0.56, available));
+    const fittedHeight = Math.min(panelHeight, maxHeight);
+    const left = clamp(
+      targetRect.left + targetRect.width / 2 - width / 2,
+      margin,
+      viewport.width - width - margin
+    );
+    const top = placement === 'bottom'
+      ? clamp(targetRect.top + targetRect.height + gap, margin, viewport.height - fittedHeight - margin)
+      : clamp(targetRect.top - gap - fittedHeight, margin, viewport.height - fittedHeight - margin);
+    const arrowOffset = clamp(
+      targetRect.left + targetRect.width / 2 - left - 7,
+      24,
+      width - 24
+    );
+    setCalloutPosition({ left, top, width, maxHeight, placement, arrowOffset });
+  }, [active, targetRect, viewport, stepIndex, currentStep]);
+
   const finishTour = async (reason) => {
     if (storageKey) {
       try { localStorage.setItem(storageKey, '1'); } catch { /* Le profil conserve l’état entre appareils. */ }
@@ -151,6 +215,7 @@ export function AppFeatureTour() {
     } finally {
       setActive(false);
       setTargetRect(null);
+      setCalloutPosition(null);
       targetElementRef.current = null;
     }
   };
@@ -158,6 +223,7 @@ export function AppFeatureTour() {
   const goToStep = (nextIndex) => {
     const bounded = Math.max(0, Math.min(steps.length - 1, nextIndex));
     setTargetRect(null);
+    setCalloutPosition(null);
     setStepIndex(bounded);
     if (steps[bounded].href !== pathname) router.push(steps[bounded].href);
   };
@@ -168,17 +234,27 @@ export function AppFeatureTour() {
   const top = targetRect ? Math.max(0, targetRect.top - 8) : 0;
   const width = targetRect ? Math.min(viewport.width - left, targetRect.width + 16) : 0;
   const height = targetRect ? Math.min(viewport.height - top, targetRect.height + 16) : 0;
-  const panelAtTop = targetRect ? targetRect.top + targetRect.height > viewport.height * 0.68 : false;
   const panelStyle = {
-    position: 'fixed',
-    left: '50%',
-    transform: 'translateX(-50%)',
-    width: 'min(520px, calc(100vw - 24px))',
-    maxHeight: 'min(70dvh, 430px)',
-    overflowY: 'auto',
-    top: panelAtTop ? 'max(12px, env(safe-area-inset-top))' : 'auto',
-    bottom: panelAtTop ? 'auto' : 'max(12px, env(safe-area-inset-bottom))',
+    left: calloutPosition?.left ?? 12,
+    top: calloutPosition?.top ?? 12,
+    width: calloutPosition?.width ?? Math.min(360, viewport.width - 24),
+    maxHeight: calloutPosition?.maxHeight ?? Math.min(390, viewport.height * 0.56),
+    visibility: calloutPosition ? 'visible' : 'hidden',
   };
+  const arrowStyle = calloutPosition?.placement === 'bottom'
+    ? { left: calloutPosition.arrowOffset, top: -7 }
+    : calloutPosition?.placement === 'top'
+      ? { left: calloutPosition.arrowOffset, bottom: -7 }
+      : calloutPosition?.placement === 'right'
+        ? { left: -7, top: calloutPosition.arrowOffset }
+        : { right: -7, top: calloutPosition.arrowOffset };
+  const arrowClass = calloutPosition?.placement === 'bottom'
+    ? 'absolute h-3.5 w-3.5 rotate-45 rounded-[2px] border-l border-t border-slate-200 bg-white/95'
+    : calloutPosition?.placement === 'top'
+      ? 'absolute h-3.5 w-3.5 rotate-45 rounded-[2px] border-b border-r border-slate-200 bg-white/95'
+      : calloutPosition?.placement === 'right'
+        ? 'absolute h-3.5 w-3.5 rotate-45 rounded-[2px] border-b border-l border-slate-200 bg-white/95'
+        : 'absolute h-3.5 w-3.5 rotate-45 rounded-[2px] border-r border-t border-slate-200 bg-white/95';
 
   return (
     <>
@@ -189,35 +265,54 @@ export function AppFeatureTour() {
             {targetRect && <rect x={left} y={top} width={Math.max(0, width)} height={Math.max(0, height)} rx="18" fill="black"/>}
           </mask>
         </defs>
-        <rect x="0" y="0" width={viewport.width} height={viewport.height} fill="rgba(2, 8, 23, 0.76)" mask="url(#pata-feature-tour-mask)"/>
+        <rect x="0" y="0" width={viewport.width} height={viewport.height} fill="rgba(2, 8, 23, 0.30)" mask="url(#pata-feature-tour-mask)"/>
       </svg>
       <div className="fixed inset-0 z-[91]" aria-hidden="true"/>
-      {targetRect && <div className="pointer-events-none fixed z-[92] rounded-[18px] border-2 border-white bg-white/10 shadow-[0_0_0_5px_rgba(255,255,255,0.16)]" style={{ top, left, width, height, transition: 'top 260ms ease, left 260ms ease, width 260ms ease, height 260ms ease' }}/>}
-      <section role="dialog" aria-modal="true" aria-labelledby="pata-feature-tour-title" aria-describedby="pata-feature-tour-description" className="fixed z-[93] rounded-[24px] border border-slate-200 bg-white p-4 text-slate-900 shadow-[0_24px_90px_rgba(2,8,23,0.35)] sm:p-5 animate-in fade-in slide-in-from-bottom-3 duration-300" style={panelStyle}>
-        <div className="mb-3 flex items-center justify-between gap-3">
+      {targetRect && (
+        <div
+          className="pointer-events-none fixed z-[92] rounded-[18px] border-2 border-white bg-white/10 shadow-[0_0_0_4px_rgba(11,92,70,0.18)]"
+          style={{ top, left, width, height, transition: 'top 260ms ease, left 260ms ease, width 260ms ease, height 260ms ease' }}
+        />
+      )}
+      <section
+        ref={calloutRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="pata-feature-tour-title"
+        aria-describedby="pata-feature-tour-description"
+        className="fixed z-[93] overflow-y-auto rounded-2xl border border-slate-200/90 bg-white/95 p-3.5 text-slate-900 shadow-[0_12px_42px_rgba(2,8,23,0.20)] backdrop-blur-xl transition-[top,left,opacity] duration-250 sm:p-4"
+        style={panelStyle}
+      >
+        {calloutPosition && <span aria-hidden="true" className={arrowClass} style={arrowStyle}/>}
+        <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><Sparkles size={16}/></span>
-            <div className="min-w-0"><p className="text-[9px] font-bold uppercase tracking-[0.15em] text-emerald-700">{isEnglish ? 'PATA QUICK TOUR' : 'DÉCOUVERTE DE PATA'}</p><p className="mt-0.5 text-[10px] font-semibold text-slate-400">{isEnglish ? 'Step ' : 'Étape '}{stepIndex + 1} {isEnglish ? 'of' : 'sur'} {steps.length}</p></div>
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><Sparkles size={14}/></span>
+            <p className="truncate text-[9px] font-extrabold uppercase tracking-[0.13em] text-emerald-800">{currentStep.eyebrow}</p>
           </div>
-          <button type="button" onClick={() => finishTour('skipped')} aria-label={isEnglish ? 'Close the guide' : 'Fermer le guide'} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"><X size={18}/></button>
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="text-[10px] font-semibold tabular-nums text-slate-400">{stepIndex + 1}/{steps.length}</span>
+            <button type="button" onClick={() => finishTour('skipped')} aria-label={isEnglish ? 'Close the guide' : 'Fermer le guide'} className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"><X size={15}/></button>
+          </div>
         </div>
-        <div className="mb-3 flex gap-1.5" aria-hidden="true">{steps.map((step, index) => <span key={step.target} className={'h-1.5 flex-1 rounded-full transition-colors ' + (index <= stepIndex ? 'bg-emerald-600' : 'bg-slate-100')}/>)}</div>
-        <p className="text-[9px] font-extrabold uppercase tracking-[0.16em] text-slate-400">{currentStep.eyebrow}</p>
-        <h2 id="pata-feature-tour-title" className="mt-1.5 text-lg font-bold leading-6 tracking-tight text-slate-950 sm:text-xl">{currentStep.title}</h2>
-        <p id="pata-feature-tour-description" className="mt-2 text-[13px] leading-5 text-slate-600">{currentStep.description}</p>
-        <p className="mt-3 rounded-xl bg-emerald-50 px-3 py-2.5 text-[11px] leading-4 text-emerald-900">{currentStep.tip}</p>
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-          <button type="button" onClick={() => finishTour('skipped')} className="min-h-10 rounded-xl px-3 text-xs font-semibold text-slate-500 transition hover:bg-slate-100">{isEnglish ? 'Skip guide' : 'Passer le guide'}</button>
-          <div className="flex items-center gap-2">
-            {stepIndex > 0 && <button type="button" onClick={() => goToStep(stepIndex - 1)} className="inline-flex min-h-10 items-center gap-1 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"><ChevronLeft size={14}/>{isEnglish ? 'Back' : 'Précédent'}</button>}
+        <div className="mt-2 h-1 overflow-hidden rounded-full bg-slate-100" aria-hidden="true">
+          <div className="h-full rounded-full bg-emerald-600 transition-all duration-300" style={{ width: ((stepIndex + 1) / steps.length * 100) + '%' }}/>
+        </div>
+        <h2 id="pata-feature-tour-title" className="mt-2.5 text-[15px] font-bold leading-5 tracking-tight text-slate-950 sm:text-base">{currentStep.title}</h2>
+        <p id="pata-feature-tour-description" className="mt-1.5 text-[12px] leading-[1.55] text-slate-600">{currentStep.description}</p>
+        <p className="mt-2.5 border-l-2 border-emerald-400 bg-slate-50 px-2.5 py-2 text-[10px] leading-[1.45] text-slate-600">{currentStep.tip}</p>
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <button type="button" onClick={() => finishTour('skipped')} className="min-h-9 rounded-lg px-2 text-[11px] font-semibold text-slate-500 transition hover:bg-slate-100">{isEnglish ? 'Skip' : 'Passer'}</button>
+          <div className="flex items-center gap-1.5">
+            {stepIndex > 0 && (
+              <button type="button" onClick={() => goToStep(stepIndex - 1)} className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-slate-200 px-2.5 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-50"><ChevronLeft size={13}/>{isEnglish ? 'Previous' : 'Précédent'}</button>
+            )}
             {stepIndex < steps.length - 1 ? (
-              <button type="button" onClick={() => goToStep(stepIndex + 1)} className="inline-flex min-h-10 items-center gap-1.5 rounded-xl bg-[#075b43] px-4 text-xs font-bold text-white shadow-sm transition hover:bg-[#064b38]">{isEnglish ? 'Next' : 'Suivant'} <ChevronRight size={14}/></button>
+              <button type="button" onClick={() => goToStep(stepIndex + 1)} className="inline-flex min-h-9 items-center gap-1 rounded-lg bg-[#075b43] px-3 text-[11px] font-bold text-white shadow-sm transition hover:bg-[#064b38]">{isEnglish ? 'Next' : 'Suivant'} <ChevronRight size={13}/></button>
             ) : (
-              <button type="button" onClick={() => finishTour('completed')} className="inline-flex min-h-10 items-center gap-1.5 rounded-xl bg-[#075b43] px-4 text-xs font-bold text-white shadow-sm transition hover:bg-[#064b38]"><Check size={14}/>{isEnglish ? 'Finish' : 'Terminer'}</button>
+              <button type="button" onClick={() => finishTour('completed')} className="inline-flex min-h-9 items-center gap-1 rounded-lg bg-[#075b43] px-3 text-[11px] font-bold text-white shadow-sm transition hover:bg-[#064b38]"><Check size={13}/>{isEnglish ? 'Finish' : 'Terminer'}</button>
             )}
           </div>
         </div>
-        <p className="mt-3 text-center text-[10px] leading-4 text-slate-400">{isEnglish ? 'You can replay this tour anytime from Settings.' : 'Tu peux revoir ce guide à tout moment depuis les Paramètres.'}</p>
       </section>
     </>
   );
