@@ -2016,12 +2016,24 @@ async function handleNotificationScheduler(request) {
             title = 'Rappel de dette en retard';
             body = (debt.type === 'owed_to_me' ? 'Le remboursement attendu de ' : 'Le remboursement dû à ') + debt.person + ' est en retard de ' + Math.abs(daysUntil) + ' jour(s). Solde restant : ' + Number(debt.remaining).toLocaleString('fr-FR') + ' FCFA.';
           }
-          if (!reminderKey || debt.lastReminderKey === reminderKey) continue;
+          const retryEmailOnly = !reminderKey
+            && Boolean(debt.lastReminderKey)
+            && debt.lastReminderEmailSent === false
+            && Boolean(debt.lastReminderTitle)
+            && Boolean(debt.lastReminderBody);
+          if (retryEmailOnly) {
+            reminderKey = String(debt.lastReminderKey);
+            title = String(debt.lastReminderTitle);
+            body = String(debt.lastReminderBody);
+          }
+          if (!reminderKey || (debt.lastReminderKey === reminderKey && !retryEmailOnly)) continue;
           const notification = { title, body, url: '/debts', tag: 'pata-debt-' + debtDoc.id + '-' + reminderKey, source: 'debt_reminder' };
-          const pushResult = await sendPataPushToUser(userDoc.ref, notification, appUrl, userData).catch((pushError) => {
-            console.warn('[PATA DEBT PUSH]', userDoc.id, pushError.message || pushError);
-            return { fcmSent: 0, webPushSent: 0 };
-          });
+          const pushResult = retryEmailOnly
+            ? { fcmSent: 0, webPushSent: 0 }
+            : await sendPataPushToUser(userDoc.ref, notification, appUrl, userData).catch((pushError) => {
+              console.warn('[PATA DEBT PUSH]', userDoc.id, pushError.message || pushError);
+              return { fcmSent: 0, webPushSent: 0 };
+            });
           let emailSent = false;
           const recipientEmail = String(userData.email || '').trim();
           if (recipientEmail.includes('@')) {
@@ -2043,16 +2055,23 @@ async function handleNotificationScheduler(request) {
               console.warn('[PATA DEBT EMAIL]', userDoc.id, emailError.message || emailError);
             }
           }
-          await userDoc.ref.collection('notifications').doc('debt-' + debtDoc.id + '-' + reminderKey).set({
-            title, body, target: '/debts', date: today,
-            delivered: pushResult.fcmSent + pushResult.webPushSent,
-            emailSent,
-            source: 'debt_reminder', read: false, readAt: null, createdAt: FieldValue.serverTimestamp(),
-          });
+          const reminderNotificationRef = userDoc.ref.collection('notifications').doc('debt-' + debtDoc.id + '-' + reminderKey);
+          if (retryEmailOnly) {
+            await reminderNotificationRef.set({ emailSent }, { merge: true });
+          } else {
+            await reminderNotificationRef.set({
+              title, body, target: '/debts', date: today,
+              delivered: pushResult.fcmSent + pushResult.webPushSent,
+              emailSent,
+              source: 'debt_reminder', read: false, readAt: null, createdAt: FieldValue.serverTimestamp(),
+            });
+          }
           await debtDoc.ref.update({
             lastReminderKey: reminderKey,
             lastReminderAt: FieldValue.serverTimestamp(),
-            lastReminderEmailSent: emailSent,
+            lastReminderEmailSent: recipientEmail.includes('@') ? emailSent : null,
+            lastReminderTitle: title,
+            lastReminderBody: body,
           });
         }
       } catch (debtReminderError) {
@@ -2118,12 +2137,24 @@ async function handleNotificationScheduler(request) {
               (Number(bill.amount) > 0 ? ' Montant estimé : ' + Number(bill.amount).toLocaleString('fr-FR') + ' FCFA.' : '') +
               ' Mets son statut à jour dans Pata.';
           }
-          if (!reminderKey || bill.lastReminderKey === reminderKey) continue;
+          const retryEmailOnly = !reminderKey
+            && Boolean(bill.lastReminderKey)
+            && bill.lastReminderEmailSent === false
+            && Boolean(bill.lastReminderTitle)
+            && Boolean(bill.lastReminderBody);
+          if (retryEmailOnly) {
+            reminderKey = String(bill.lastReminderKey);
+            title = String(bill.lastReminderTitle);
+            body = String(bill.lastReminderBody);
+          }
+          if (!reminderKey || (bill.lastReminderKey === reminderKey && !retryEmailOnly)) continue;
           const notification = { title, body, url: '/bills', tag: 'pata-bill-' + billDoc.id + '-' + reminderKey, source: 'bill_reminder' };
-          const pushResult = await sendPataPushToUser(userDoc.ref, notification, appUrl, userData).catch((pushError) => {
-            console.warn('[PATA BILL PUSH]', userDoc.id, pushError.message || pushError);
-            return { fcmSent: 0, webPushSent: 0 };
-          });
+          const pushResult = retryEmailOnly
+            ? { fcmSent: 0, webPushSent: 0 }
+            : await sendPataPushToUser(userDoc.ref, notification, appUrl, userData).catch((pushError) => {
+              console.warn('[PATA BILL PUSH]', userDoc.id, pushError.message || pushError);
+              return { fcmSent: 0, webPushSent: 0 };
+            });
           let emailSent = false;
           const recipientEmail = String(userData.email || '').trim();
           if (recipientEmail.includes('@')) {
@@ -2145,16 +2176,23 @@ async function handleNotificationScheduler(request) {
               console.warn('[PATA BILL EMAIL]', userDoc.id, emailError.message || emailError);
             }
           }
-          await userDoc.ref.collection('notifications').doc('bill-' + billDoc.id + '-' + reminderKey).set({
-            title, body, target: '/bills', date: today,
-            delivered: pushResult.fcmSent + pushResult.webPushSent,
-            emailSent,
-            source: 'bill_reminder', read: false, readAt: null, createdAt: FieldValue.serverTimestamp(),
-          });
+          const reminderNotificationRef = userDoc.ref.collection('notifications').doc('bill-' + billDoc.id + '-' + reminderKey);
+          if (retryEmailOnly) {
+            await reminderNotificationRef.set({ emailSent }, { merge: true });
+          } else {
+            await reminderNotificationRef.set({
+              title, body, target: '/bills', date: today,
+              delivered: pushResult.fcmSent + pushResult.webPushSent,
+              emailSent,
+              source: 'bill_reminder', read: false, readAt: null, createdAt: FieldValue.serverTimestamp(),
+            });
+          }
           await billDoc.ref.update({
             lastReminderKey: reminderKey,
             lastReminderAt: FieldValue.serverTimestamp(),
-            lastReminderEmailSent: emailSent,
+            lastReminderEmailSent: recipientEmail.includes('@') ? emailSent : null,
+            lastReminderTitle: title,
+            lastReminderBody: body,
           });
         }
       } catch (billReminderError) {
