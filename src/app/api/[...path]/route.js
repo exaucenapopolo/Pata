@@ -2421,6 +2421,27 @@ function readOptionalIncomeMetadata(body = {}, previous = {}) {
   };
 }
 
+async function handleIncomeSpendTotals(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const incomeIds = [...new Set((Array.isArray(body.incomeIds) ? body.incomeIds : [])
+      .map((value) => String(value || '').trim()).filter((value) => value && !value.includes('/')))].slice(0, 120);
+    const userRef = adminDb.collection('users').doc(uid);
+    const totals = await Promise.all(incomeIds.map(async (incomeId) => {
+      const snapshot = await userRef.collection('expenses')
+        .where('incomeSourceId', '==', incomeId)
+        .aggregate({ total: AggregateField.sum('amount') })
+        .get();
+      return { incomeId, spent: Math.max(0, Number(snapshot.data()?.total) || 0) };
+    }));
+    return NextResponse.json({ success: true, totals });
+  } catch (error) {
+    console.error('[PATA INCOME BALANCE SUMMARY]', error.message || error);
+    return errorResponse(error.message || 'Impossible de calculer les soldes des revenus.', 502);
+  }
+}
+
 async function handleCreateIncome(request) {
   try {
     const { uid } = await authenticate(request);
@@ -7851,6 +7872,7 @@ const ROUTES = {
   'forecasts/vital/delete': { POST: handleDeleteVitalForecast },
   'forecasts/duration/save': { POST: handleSaveDurationForecast },
   'forecasts/duration/delete': { POST: handleDeleteDurationForecast },
+  'incomes/spent': { POST: handleIncomeSpendTotals },
   'incomes/add': { POST: handleCreateIncome },
   'incomes/update': { POST: handleUpdateIncome },
   'incomes/delete': { POST: handleDeleteIncome },
