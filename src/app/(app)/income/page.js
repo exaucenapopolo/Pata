@@ -117,6 +117,7 @@ export default function IncomePage() {
     setPinSavingId(item.id);
     try {
       await setIncomePinned(user.uid, item.id, !item.isPinned);
+      suppressPinClickRef.current = false;
       setPinMenuId(null);
     } catch (pinError) {
       setError(pinError.message || 'Impossible de modifier cet épinglage.');
@@ -693,7 +694,7 @@ export default function IncomePage() {
                 onPointerUp={clearPinPressTimer}
                 onPointerLeave={clearPinPressTimer}
                 onPointerCancel={clearPinPressTimer}
-                onContextMenu={(event) => { event.preventDefault(); suppressPinClickRef.current = true; setPinMenuId(inc.id); }}
+                onContextMenu={(event) => { event.preventDefault(); suppressPinClickRef.current = false; setPinMenuId(inc.id); }}
                 className={`rounded-2xl border p-3 transition ${inc.isExhausted ? 'border-slate-100 bg-slate-50/50' : 'border-slate-200 bg-white'}`}>
                 <button type="button" data-pin-long-press="true" onClick={() => openIncomeDetails(inc)} className="flex w-full items-center justify-between gap-3 rounded-xl text-left focus:outline-none focus:ring-2 focus:ring-brand-200">
                   <span className="flex min-w-0 items-center gap-3">
@@ -767,7 +768,7 @@ export default function IncomePage() {
         </Card>
       )}
 
-      <Modal open={Boolean(pinMenuId)} onClose={() => setPinMenuId(null)} title="Options du revenu">
+      <Modal open={Boolean(pinMenuId)} onClose={() => { suppressPinClickRef.current = false; setPinMenuId(null); }} title="Options du revenu">
         {(() => {
           const incomeToPin = incomesWithBalance.find((item) => item.id === pinMenuId);
           if (!incomeToPin) return <p className="text-sm text-slate-500">Ce revenu n’est plus disponible.</p>;
@@ -781,7 +782,7 @@ export default function IncomePage() {
                 <Pin size={14} className={incomeToPin.isPinned ? 'fill-current' : ''}/>
                 {pinSavingId === incomeToPin.id ? 'Enregistrement…' : incomeToPin.isPinned ? 'Désépingler ce revenu' : 'Épingler ce revenu'}
               </Button>
-              <Button type="button" variant="outline" className="w-full" onClick={() => setPinMenuId(null)}>Annuler</Button>
+              <Button type="button" variant="outline" className="w-full" onClick={() => { suppressPinClickRef.current = false; setPinMenuId(null); }}>Annuler</Button>
             </div>
           );
         })()}

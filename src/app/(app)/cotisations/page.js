@@ -743,7 +743,7 @@ export default function CotisationsPage() {
         {chatMessageAction && <div className="space-y-2">
           <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">{chatMessageAction.isDeleted ? 'Message supprimé' : chatMessageAction.text}</p>
           {!chatMessageAction.isDeleted && <Button type="button" variant="outline" className="w-full justify-start" onClick={() => { setChatReplyTo({ id: chatMessageAction.id, authorName: chatMessageAction.authorName, text: chatMessageAction.text }); setChatEditingMessage(null); setChatMessageAction(null); }}>Répondre à ce message</Button>}
-          {chatMessageAction.authorUid === user?.uid && !chatMessageAction.isDeleted && <Button type="button" variant="outline" className="w-full justify-start" onClick={() => { setChatEditingMessage(chatMessageAction); setChatReplyTo(null); setChatDraft(chatMessageAction.text || ''); setChatMessageAction(null); }}>Modifier mon message</Button>}
+          {chatMessageAction.authorUid === user?.uid && !chatMessageAction.isDeleted && Date.now() - (Date.parse(chatMessageAction.createdAt || '') || 0) <= 15 * 60 * 1000 && <Button type="button" variant="outline" className="w-full justify-start" onClick={() => { setChatEditingMessage(chatMessageAction); setChatReplyTo(null); setChatDraft(chatMessageAction.text || ''); setChatMessageAction(null); }}>Modifier mon message</Button>}
           {(chatMessageAction.authorUid === user?.uid || chatGroup?.isOwner) && !chatMessageAction.isDeleted && <Button type="button" variant="outline" className="w-full justify-start border-red-200 text-red-700 hover:bg-red-50" onClick={() => { setChatDeleteTarget(chatMessageAction); setChatMessageAction(null); }}>Supprimer ce message</Button>}
         </div>}
       </Modal>
@@ -781,6 +781,7 @@ export default function CotisationsPage() {
               {Number(chatMemberProfile.penaltyPaid) > 0 && <div className="flex justify-between gap-3"><span className="text-slate-600">Majoration payée</span><strong>{currency(chatMemberProfile.penaltyPaid)}</strong></div>}
               <div className="flex justify-between gap-3"><span className="text-slate-600">Reste à verser</span><strong>{currency(chatMemberProfile.remaining ?? chatGroup.contributionAmount)}</strong></div>
               <div className="flex justify-between gap-3"><span className="text-slate-600">Versements enregistrés</span><strong>{chatMemberProfile.installments ?? 0}</strong></div>
+              <div className="flex justify-between gap-3 text-xs"><span className="text-slate-600">Progression</span><strong>{Math.round(Math.max(0, Math.min(100, ((Number(chatMemberProfile.principalPaid) || 0) / Math.max(1, Number(chatGroup.contributionAmount) || 1)) * 100)))} %</strong></div>
               <div className="h-2 overflow-hidden rounded-full bg-white"><div className="h-full rounded-full bg-brand-600" style={{ width: Math.max(0, Math.min(100, ((Number(chatMemberProfile.principalPaid) || 0) / Math.max(1, Number(chatGroup.contributionAmount) || 1)) * 100)) + '%' }}/></div>
             </div>
           </div>}
