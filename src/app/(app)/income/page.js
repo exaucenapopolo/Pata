@@ -166,23 +166,19 @@ export default function IncomePage() {
     window.history.replaceState(null, '', window.location.pathname + (query ? '?' + query : ''));
   }, [incomes]);
 
-  const incomesWithBalance = useMemo(() => {
-    return incomes.map((inc) => {
-      const linkedExpenses = expenses.filter((e) => e.incomeSourceId === inc.id).sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
-      const spent = linkedExpenses.reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0);
-      const remaining = Math.max(0, (Number(inc.amount) || 0) - spent);
-      let cumulative = 0;
-      let exhaustedDate = null;
-      for (const expense of linkedExpenses) {
-        cumulative += Number(expense.amount) || 0;
-        if (cumulative >= Number(inc.amount) && Number(inc.amount) > 0) { exhaustedDate = expense.date || null; break; }
-      }
-      const createdDate = inc.date || (inc.createdAt?.toDate ? inc.createdAt.toDate().toISOString().slice(0, 10) : null);
-      const endDate = exhaustedDate || todayIso();
-      const durationDays = createdDate ? Math.max(0, Math.floor((new Date(`${endDate}T00:00:00`).getTime() - new Date(`${createdDate}T00:00:00`).getTime()) / 86400000)) : null;
-      return { ...inc, spent, remaining, createdDate, exhaustedDate, durationDays, isExhausted: remaining === 0 && spent > 0 };
-    });
-  }, [incomes, expenses]);
+  const incomesWithBalance = useMemo(() => incomes.map((income) => {
+    const spent = Math.max(0, Number(income.spent) || 0);
+    const remaining = Math.max(0, Number(income.remaining) || 0);
+    const createdDate = income.date || (income.createdAt?.toDate ? income.createdAt.toDate().toISOString().slice(0, 10) : null);
+    return {
+      ...income,
+      spent,
+      remaining,
+      createdDate,
+      exhaustedDate: null,
+      isExhausted: remaining === 0 && spent > 0,
+    };
+  }), [incomes]);
 
   const activeIncomes = useMemo(() => incomesWithBalance.filter(i => !i.neutralFlow && !i.isExhausted), [incomesWithBalance]);
   const totalAvailable = activeIncomes.reduce((s, i) => s + i.remaining, 0);
@@ -775,7 +771,7 @@ export default function IncomePage() {
                   <span className="shrink-0 text-right"><strong className="block text-sm font-bold text-slate-900">{formatCurrency(inc.amount)}</strong><span className="text-[10px] font-medium text-brand-700">Voir le détail</span></span>
                 </button>
                 <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2">
-                  <span className="text-[11px] text-slate-500">{inc.isExhausted && inc.exhaustedDate ? `Épuisé le ${formatDate(inc.exhaustedDate)}` : `Disponible : ${formatCurrency(inc.remaining)}`}</span>
+                  <span className="text-[11px] text-slate-500">{inc.isExhausted ? (inc.exhaustedDate ? `Épuisé le ${formatDate(inc.exhaustedDate)}` : 'Source épuisée') : `Disponible : ${formatCurrency(inc.remaining)}`}</span>
                   <span className="flex items-center gap-1">
                     {!inc.neutralFlow && <button type="button" onClick={() => setDeleteId(inc.id)} className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600" aria-label="Supprimer ce revenu"><Trash2 size={14}/></button>}
                   </span>
