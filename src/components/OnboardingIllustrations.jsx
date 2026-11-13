@@ -41,9 +41,9 @@ function OnboardingCopy({ content, className = '' }) {
       <p className="mb-3 text-[10px] font-extrabold uppercase leading-[1.35] tracking-[.16em] text-[#a8e8c1] sm:mb-4 sm:text-xs">
         {content.eyebrow}
       </p>
-      <h1 className="max-w-[14ch] text-[clamp(1.3rem,4.1vw,2.65rem)] font-extrabold leading-[1.08] tracking-[-.035em] sm:leading-[1.06]">
+      <h2 className="max-w-[14ch] text-[clamp(1.3rem,4.1vw,2.65rem)] font-extrabold leading-[1.08] tracking-[-.035em] sm:leading-[1.06]">
         {content.title}
-      </h1>
+      </h2>
       <p className="mt-3 max-w-[34rem] text-[clamp(.85rem,1.35vw,1.05rem)] font-medium leading-[1.48] text-white/92 sm:mt-4">
         {content.description}
       </p>
