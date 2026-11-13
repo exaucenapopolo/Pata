@@ -92,6 +92,7 @@ export default function DashboardPage() {
   const [targetError, setTargetError] = useState('');
   const [targetSaved, setTargetSaved] = useState(false);
   const [targetCollapsed, setTargetCollapsed] = useState(false);
+  const [globalFinanceSummary, setGlobalFinanceSummary] = useState(null);
   const { user } = useAuth();
   const { language } = useLanguage();
   const isEnglish = language === 'en';
@@ -142,11 +143,53 @@ export default function DashboardPage() {
     return () => { active = false; };
   }, [user, targetPeriodType, targetPeriodKey]);
 
+  useEffect(() => {
+    if (!user) {
+      setGlobalFinanceSummary(null);
+      return undefined;
+    }
+    let active = true;
+    const loadSummary = async () => {
+      try {
+        const token = await user.getIdToken();
+        const response = await fetch('/api/finance/global-summary', {
+          headers: { Authorization: 'Bearer ' + token },
+          cache: 'no-store',
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de charger le solde global.');
+        if (active) setGlobalFinanceSummary(result);
+      } catch (error) {
+        console.warn('[PATA DASHBOARD SUMMARY]', error.message || error);
+      }
+    };
+    loadSummary();
+    const refresh = () => { loadSummary(); };
+    window.addEventListener('pata:income-balances-refresh', refresh);
+    return () => {
+      active = false;
+      window.removeEventListener('pata:income-balances-refresh', refresh);
+    };
+  }, [user]);
+
   const startDate = showCustomPeriod ? customStart : getFirstOfMonth();
   const endDate = showCustomPeriod ? customEnd : getLastOfMonth();
 
+  const dashboardDateWindow = (() => {
+    const start = new Date(startDate + 'T12:00:00');
+    const end = new Date(endDate + 'T12:00:00');
+    const previousEnd = new Date(start.getTime() - 86400000);
+    const previousStart = new Date(previousEnd.getTime() - Math.max(0, end.getTime() - start.getTime()));
+    const targetStart = new Date(String(targetPeriodBounds.start || startDate) + 'T12:00:00');
+    const targetEnd = new Date(String(targetPeriodBounds.end || endDate) + 'T12:00:00');
+    const earliest = new Date(Math.min(previousStart.getTime(), targetStart.getTime()));
+    const latest = new Date(Math.max(end.getTime(), targetEnd.getTime()));
+    const key = (date) => date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
+    return { start: key(earliest), end: key(latest) };
+  })();
+
   const { incomes } = useIncomes();
-  const { expenses } = useExpenses();
+  const { expenses } = useExpenses({ startDate: dashboardDateWindow.start, endDate: dashboardDateWindow.end, limit: 1000 });
   const { debts } = useDebts();
   const { goals } = useGoals();
   const { profile } = useProfile();
@@ -219,9 +262,9 @@ export default function DashboardPage() {
     [prevIncomes]
   );
 
-  const totalIncome = incomes.filter((income) => !income.neutralFlow).reduce((s, i) => s + (i.amount || 0), 0);
-  const totalExpense = expenses.filter((expense) => !expense.neutralFlow).reduce((s, e) => s + (e.amount || 0), 0);
-  const globalBalance = incomes.reduce((s, i) => s + (i.amount || 0), 0) - expenses.reduce((s, e) => s + (e.amount || 0), 0);
+  const totalIncome = Number(globalFinanceSummary?.totalIncome ?? profile?.lifetimeIncomeAmount ?? 0);
+  const totalExpense = Number(globalFinanceSummary?.totalExpense ?? profile?.lifetimeExpenseAmount ?? 0);
+  const globalBalance = Number(globalFinanceSummary?.globalBalance ?? (totalIncome - totalExpense));
 
   const periodIncomeTotal = periodIncomes.filter((income) => !income.neutralFlow).reduce((s, i) => s + (i.amount || 0), 0);
   const periodExpenseTotal = periodExpenses.filter((expense) => !expense.neutralFlow).reduce((s, e) => s + (e.amount || 0), 0);
