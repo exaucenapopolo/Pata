@@ -1,5 +1,20 @@
 const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || 'https://www.pata-yam.site').replace(/\/$/, '');
-const FROM = process.env.RESEND_FROM_EMAIL || 'Pata <notifications@socialboosthorizon.com>';
+function getConfiguredFromAddress() {
+  // L’expéditeur doit appartenir au domaine exact vérifié dans Resend.
+  // Accepte une adresse simple ou le format « Pata <adresse@domaine> ».
+  const configured = String(process.env.RESEND_FROM_EMAIL || '').trim().replace(/,\s*$/, '');
+  if (!configured || /[\r\n]/.test(configured)) {
+    throw new Error('RESEND_FROM_EMAIL est absente ou invalide. Configure une adresse appartenant au domaine vérifié dans Resend.');
+  }
+
+  const addressPattern = /^[A-Z0-9.!#$%&'*+/=?^_\`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+$/i;
+  if (addressPattern.test(configured)) return \`Pata <\${configured}>\`;
+
+  const formattedMatch = configured.match(/^([^<>\r\n]{1,80})<\s*([^<>\s]+)\s*>$/);
+  if (formattedMatch && addressPattern.test(formattedMatch[2])) return \`\${formattedMatch[1].trim()} <\${formattedMatch[2]}>\`;
+
+  throw new Error('RESEND_FROM_EMAIL doit être une adresse valide ou au format « Pata <adresse@domaine> ». Vérifie aussi que le domaine correspond exactement à celui vérifié dans Resend.');
+}
 const SUPPORT_PHONE = '237681144638';
 
 export function escapeEmailHtml(value = '') {
@@ -54,7 +69,7 @@ export async function sendPataEmail({ to, subject, html, idempotencyKey }) {
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers,
-    body: JSON.stringify({ from: FROM, to: [to], subject, html }),
+    body: JSON.stringify({ from: getConfiguredFromAddress(), to: [to], subject, html }),
     cache: 'no-store',
     signal: AbortSignal.timeout(12000),
   });
