@@ -85,7 +85,7 @@ export default function DebtsPage() {
           <p className="mt-1 text-sm text-slate-500">Suis ce que tu as prêté, ce que tu dois et chaque remboursement.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {freeDebtLimitReached ? <Link href="/premium" className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#075b43] px-3 text-sm font-semibold text-white hover:bg-[#064b38]">Débloquer les dettes illimitées</Link> : <>
+          {freeDebtLimitReached ? <Link href="/premium" data-pata-tour="debt-create" className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#075b43] px-3 text-sm font-semibold text-white hover:bg-[#064b38]">Débloquer les dettes illimitées</Link> : <>
             <Link href="/income?new=1&flowType=debt_borrowed" data-pata-tour="debt-create" className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"><Plus size={15}/> Nouvelle dette</Link>
             <Link href="/expenses?new=1&flowType=loan_given" className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#075b43] px-3 text-sm font-semibold text-white hover:bg-[#064b38]"><Plus size={15}/> Nouveau prêt</Link>
           </>}
