@@ -14,7 +14,7 @@ import { chatWithGroqVision } from '@/lib/ai/groqVision';
 import { generateImageWithPollinations } from '@/lib/ai/pollinationsImage';
 import { classifyAIRequest, selectAIToolsForIntent, buildCompactAIContext } from '@/lib/ai/compactContext';
 import { computeGoalPlan, GOAL_LATE_PENALTY_RATE, GOAL_PENALTY_EFFECTIVE_DATE } from '@/lib/goalCalc';
-import { COTISATION_CHAT_PRICE, sanitizeCotisationChatMessage, cotisationChatExpiry } from '@/lib/cotisations/chatPolicy.mjs';
+import { COTISATION_CHAT_PACK_PRICE, COTISATION_CHAT_PACK_SIZE, summarizeCotisationChatQuota, consumeCotisationChatQuota, sanitizeCotisationChatMessage, cotisationChatExpiry } from '@/lib/cotisations/chatPolicy.mjs';
 import {
   sendPataEmail, welcomeEmail, savingsCreatedEmail, customAdminEmail, pinResetEmail, referralJoinedEmail, referralRewardActivatedEmail,
   cotisationCreatedEmail, cotisationJoinedEmail, cotisationOwnerJoinedEmail, cotisationStartedEmail, cotisationTurnEmail, cotisationDueEmail, cotisationContributionPaidEmail, financialReminderEmail,
@@ -3890,6 +3890,7 @@ async function handleAIChat(request) {
           && myPaid < cotisationMoney(group.contributionAmount) && !myPenaltyPaid
           ? cotisationLateFee(group) : 0;
         const turnMember = group.startedAt && members.length ? members[meta.cycleIndex % members.length] : null;
+      const nextTurnMember = group.startedAt && members.length > 1 ? members[(meta.cycleIndex + 1) % members.length] : null;
         const memberContributions = members.map((member) => {
           const value = contributionMap.get(member.uid) || {};
           const principal = cotisationMoney(value.amount);
@@ -5844,6 +5845,7 @@ async function handleCotisationsList(request) {
         paymentCounts.set(item.userId, (paymentCounts.get(item.userId) || 0) + 1);
       });
       const turnMember = group.startedAt && members.length ? members[meta.cycleIndex % members.length] : null;
+      const nextTurnMember = group.startedAt && members.length > 1 ? members[(meta.cycleIndex + 1) % members.length] : null;
       const contributionAmount = cotisationMoney(group.contributionAmount);
       const expectedMembers = cotisationExpectedMembers(group, members.length);
       const baseTarget = cotisationMoney(cycleSnap.data()?.baseTargetAmount) || contributionAmount * expectedMembers;
@@ -5859,6 +5861,9 @@ async function handleCotisationsList(request) {
           displayName: member.displayName || 'Membre',
           photoURL: typeof member.photoURL === 'string' && member.photoURL.startsWith('https://res.cloudinary.com/') ? member.photoURL.slice(0, 2048) : '',
           isOwner: member.isOwner === true,
+          roleLabel: member.isOwner === true ? 'Chef de la cotisation' : String(member.roleLabel || 'Membre').trim().slice(0, 36) || 'Membre',
+          hasReceivedTurn: Boolean(group.startedAt) && members.indexOf(member) < meta.cycleIndex,
+          receivedTurnCount: Boolean(group.startedAt) && members.indexOf(member) < meta.cycleIndex ? 1 + Math.floor((meta.cycleIndex - 1 - members.indexOf(member)) / Math.max(1, members.length)) : 0,
           turnOrder: group.orderConfirmedAt && member.turnOrder != null ? cotisationMoney(member.turnOrder) : null,
           whatsappPhone: member.uid === uid || group.ownerId === uid ? String(member.whatsappPhone || '') : undefined,
           paid: principalPaid + penaltyPaid,
@@ -5888,7 +5893,7 @@ async function handleCotisationsList(request) {
         }
       }
       return {
-        id: groupRef.id, name: group.name, imageURL: typeof group.imageURL === 'string' ? group.imageURL : '', ownerId: group.ownerId, isOwner: group.ownerId === uid, createdAt: serializeAdminValue(group.createdAt || null), isPinned: membership.pinned === true, chatUnlocked: myMember?.chatAccess === true || membership.chatAccess === true,
+        id: groupRef.id, name: group.name, description: String(group.description || ''), imageURL: typeof group.imageURL === 'string' ? group.imageURL : '', ownerId: group.ownerId, isOwner: group.ownerId === uid, createdAt: serializeAdminValue(group.createdAt || null), isPinned: membership.pinned === true,
         contributionAmount, frequency: group.frequency, startDate: group.startDate, status: group.status || 'active',
         dueDay: group.dueDay || null, expectedMembers, graceDays: cotisationMoney(group.graceDays),
         lateFeeType: group.lateFeeType || 'none', lateFeeValue: cotisationMoney(group.lateFeeValue),
@@ -5903,7 +5908,9 @@ async function handleCotisationsList(request) {
         currentCycle: {
           ...meta, targetAmount, baseTarget, totalCollected, remainingTotal: Math.max(0, targetAmount - totalCollected),
           status: cycleStatus, pendingPayment: myMemberPendingPayment, beneficiaryUid: turnMember?.uid || null,
-          beneficiaryName: turnMember?.displayName || 'Membre', beneficiaryPosition: turnMember?.turnOrder || null,
+          beneficiaryName: turnMember?.displayName || 'Membre', beneficiaryPhotoURL: turnMember?.photoURL || '', beneficiaryPosition: turnMember?.turnOrder || null,
+          nextBeneficiaryUid: nextTurnMember?.uid || null, nextBeneficiaryName: nextTurnMember?.displayName || 'Membre',
+          nextBeneficiaryPhotoURL: nextTurnMember?.photoURL || '', nextBeneficiaryPosition: nextTurnMember?.turnOrder || null,
           isMyTurn: turnMember?.uid === uid,
           myPaid: myPaid + myPenaltyPaid,
           myPrincipalPaid: myPaid, myPenaltyPaid,
@@ -5958,10 +5965,10 @@ async function handleCotisationCreate(request) {
         displayName: String(userData.displayName || 'Organisateur').slice(0, 100),
         photoURL: typeof userData.photoURL === 'string' && userData.photoURL.startsWith('https://res.cloudinary.com/') ? userData.photoURL.slice(0, 2048) : '',
         email: String(userData.email || '').slice(0, 180),
-        isOwner: true, turnOrder: null, joinedAt: FieldValue.serverTimestamp(), active: true,
+        isOwner: true, roleLabel: 'Chef de la cotisation', turnOrder: null, joinedAt: FieldValue.serverTimestamp(), active: true,
       };
       transaction.create(groupRef, {
-        name, contributionAmount: amount, frequency, startDate, dueDay,
+        name, description: String(body.description || '').trim().slice(0, 500), contributionAmount: amount, frequency, startDate, dueDay,
         expectedMembers, maxMembers: expectedMembers, memberCount: 1,
         graceDays, lateFeeType, lateFeeValue,
         ownerId: uid, inviteToken, status: 'active', startedAt: null,
@@ -6010,6 +6017,7 @@ async function handleCotisationUpdate(request) {
     const body = await request.json();
     const groupId = String(body.groupId || '').trim().slice(0, 150);
     const name = String(body.name || '').trim().slice(0, 90);
+    const description = String(body.description || '').trim().slice(0, 500);
     const amount = Math.round(Number(body.contributionAmount));
     const expectedMembers = Math.floor(Number(body.expectedMembers));
     const frequency = ['daily', 'weekly', 'monthly'].includes(body.frequency) ? body.frequency : '';
@@ -6039,7 +6047,7 @@ async function handleCotisationUpdate(request) {
       const resetOrder = expectedMembers !== cotisationExpectedMembers(group, group.memberCount);
       if (resetOrder) membersSnap.docs.forEach((doc) => transaction.update(doc.ref, { turnOrder: null, orderUpdatedAt: null }));
       transaction.update(groupRef, {
-        name, contributionAmount: amount, expectedMembers, maxMembers: expectedMembers,
+        name, description, contributionAmount: amount, expectedMembers, maxMembers: expectedMembers,
         frequency, startDate, dueDay, graceDays, lateFeeType, lateFeeValue,
         ...(resetOrder ? { orderConfirmedAt: null, orderConfirmedBy: null } : {}),
         ...(body.responsibilityAccepted === true ? { responsibilityAcceptedAt: FieldValue.serverTimestamp(), responsibilityAcceptedBy: uid } : {}),
@@ -6071,76 +6079,78 @@ async function handleWalletTransactions(request) {
 }
 
 async function handleCotisationChatUnlock(request) {
+  // Rétrocompatibilité : ouvrir la conversation ne débite plus le portefeuille.
   try {
     const { uid } = await authenticate(request);
     const body = await request.json();
     const groupId = String(body.groupId || '').trim().slice(0, 150);
     if (!groupId || groupId.includes('/')) return errorResponse('Groupe invalide.', 400);
+    const groupRef = adminDb.collection('cotisationGroups').doc(groupId);
+    const memberRef = groupRef.collection('members').doc(uid);
+    const [groupSnap, memberSnap] = await Promise.all([groupRef.get(), memberRef.get()]);
+    if (!groupSnap.exists || !memberSnap.exists || memberSnap.data()?.active === false) return errorResponse('Tu ne fais pas partie de ce groupe.', 403);
+    const dateKey = getDoualaDateKey();
+    const usageSnap = await memberRef.collection('chatUsage').doc(dateKey).get();
+    const quota = summarizeCotisationChatQuota(usageSnap.data() || {});
+    return NextResponse.json({ success: true, freeAccess: true, quota, message: 'La discussion est gratuite : tu disposes de 10 messages par jour.' });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible d’ouvrir le chat du groupe.', 400);
+  }
+}
 
+async function handleCotisationChatPurchase(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const groupId = String(body.groupId || '').trim().slice(0, 150);
+    if (!groupId || groupId.includes('/')) return errorResponse('Groupe invalide.', 400);
     const groupRef = adminDb.collection('cotisationGroups').doc(groupId);
     const memberRef = groupRef.collection('members').doc(uid);
     const userRef = adminDb.collection('users').doc(uid);
-    const membershipRef = userRef.collection('cotisationMemberships').doc(groupId);
-    const paymentRef = userRef.collection('walletTransactions').doc('cotisation-chat-' + groupId);
-
+    const dateKey = getDoualaDateKey();
+    const usageRef = memberRef.collection('chatUsage').doc(dateKey);
+    const walletTransactionRef = userRef.collection('walletTransactions').doc('cotisation-chat-pack-' + groupId + '-' + dateKey + '-' + randomBytes(8).toString('hex'));
     const result = await adminDb.runTransaction(async (transaction) => {
-      const [groupSnap, memberSnap, membershipSnap, userSnap, paymentSnap] = await Promise.all([
-        transaction.get(groupRef), transaction.get(memberRef), transaction.get(membershipRef),
-        transaction.get(userRef), transaction.get(paymentRef),
+      const [groupSnap, memberSnap, userSnap, usageSnap] = await Promise.all([
+        transaction.get(groupRef), transaction.get(memberRef), transaction.get(userRef), transaction.get(usageRef),
       ]);
-      if (!groupSnap.exists || !memberSnap.exists || memberSnap.data()?.active === false || !membershipSnap.exists) {
-        throw new Error('Seuls les membres actifs de ce groupe peuvent débloquer le chat.');
+      if (!groupSnap.exists || groupSnap.data()?.status !== 'active' || !memberSnap.exists || memberSnap.data()?.active === false) {
+        throw new Error('Seuls les membres actifs d’un groupe peuvent acheter des messages.');
       }
       if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
-      const member = memberSnap.data() || {};
-      const membership = membershipSnap.data() || {};
-      if (member.chatAccess === true || membership.chatAccess === true || paymentSnap.exists) {
-        if (member.chatAccess !== true) transaction.set(memberRef, { chatAccess: true, chatPaidAt: member.chatPaidAt || FieldValue.serverTimestamp() }, { merge: true });
-        if (membership.chatAccess !== true) transaction.set(membershipRef, { chatAccess: true, chatPaidAt: member.chatPaidAt || FieldValue.serverTimestamp() }, { merge: true });
-        return { alreadyUnlocked: true, balance: Number(userSnap.data()?.balance) || 0 };
-      }
-      if (groupSnap.data()?.status !== 'active') throw new Error('Ce groupe n’est plus actif.');
+      const quota = summarizeCotisationChatQuota(usageSnap.data() || {});
+      if (quota.remaining > 0) throw new Error('Tu disposes encore de ' + quota.remaining + ' message(s). Utilise d’abord ton quota avant d’acheter un nouveau lot.');
       const userData = userSnap.data() || {};
-      const balance = Math.max(0, Number(userData.balance) || 0);
-      if (balance < COTISATION_CHAT_PRICE) {
-        throw new Error('Ton solde est insuffisant. Il faut 500 FCFA disponibles pour débloquer le chat. Recharge ton portefeuille puis réessaie.');
+      const balance = Math.max(0, Math.floor(Number(userData.balance) || 0));
+      if (balance < COTISATION_CHAT_PACK_PRICE) {
+        throw new Error('Ton solde est insuffisant. Il faut 100 FCFA pour obtenir 10 messages supplémentaires. Recharge ton portefeuille puis réessaie.');
       }
-      const nextBalance = balance - COTISATION_CHAT_PRICE;
+      const nextBalance = balance - COTISATION_CHAT_PACK_PRICE;
+      const nextUsage = {
+        ...(usageSnap.data() || {}),
+        bonusPurchased: quota.bonusPurchased + COTISATION_CHAT_PACK_SIZE,
+        dateKey,
+        updatedAt: FieldValue.serverTimestamp(),
+      };
       transaction.update(userRef, { balance: nextBalance, updatedAt: FieldValue.serverTimestamp() });
-      transaction.update(memberRef, {
-        chatAccess: true, chatFeeAmount: COTISATION_CHAT_PRICE,
-        chatPaidAt: FieldValue.serverTimestamp(), chatPaymentId: paymentRef.id,
-      });
-      transaction.set(membershipRef, {
-        groupId, chatAccess: true, chatFeeAmount: COTISATION_CHAT_PRICE,
-        chatPaidAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
-      }, { merge: true });
-      transaction.create(paymentRef, {
-        type: 'COTISATION_CHAT_ACCESS', direction: 'debit', amount: COTISATION_CHAT_PRICE,
-        balanceBefore: balance, balanceAfter: nextBalance, groupId,
+      transaction.set(usageRef, nextUsage, { merge: true });
+      transaction.create(walletTransactionRef, {
+        type: 'COTISATION_CHAT_MESSAGE_PACK', direction: 'debit', amount: COTISATION_CHAT_PACK_PRICE,
+        balanceBefore: balance, balanceAfter: nextBalance, groupId, dateKey,
         groupName: String(groupSnap.data()?.name || 'Cotisation').slice(0, 90),
-        description: 'Déblocage du chat du groupe de cotisation',
+        messagesGranted: COTISATION_CHAT_PACK_SIZE,
+        description: 'Achat de 10 messages supplémentaires pour la discussion d’une cotisation',
         status: 'CONFIRMED', createdAt: FieldValue.serverTimestamp(),
       });
-      return { alreadyUnlocked: false, balance: nextBalance };
+      return { balance: nextBalance, quota: summarizeCotisationChatQuota(nextUsage) };
     });
-
-    if (!result.alreadyUnlocked) {
-      await userRef.collection('notifications').doc('cotisation-chat-access-' + groupId).set({
-        title: 'Chat du groupe débloqué',
-        body: 'Tu as payé 500 FCFA une seule fois pour accéder au chat du groupe.',
-        target: '/cotisations?group=' + encodeURIComponent(groupId) + '&chat=1',
-        source: 'cotisation', groupId, read: false, readAt: null,
-        createdAt: FieldValue.serverTimestamp(),
-      }, { merge: true }).catch((error) => console.warn('[COTISATION CHAT ACCESS NOTICE]', error.message || error));
-    }
     return NextResponse.json({
-      success: true, alreadyUnlocked: result.alreadyUnlocked,
-      price: COTISATION_CHAT_PRICE, balance: result.balance,
-      message: result.alreadyUnlocked ? 'Le chat est déjà débloqué pour ce groupe.' : 'Le chat est débloqué. Les 500 FCFA ne seront pas débités une deuxième fois pour ce groupe.',
+      success: true, price: COTISATION_CHAT_PACK_PRICE, messagesGranted: COTISATION_CHAT_PACK_SIZE,
+      balance: result.balance, quota: result.quota,
+      message: '10 messages supplémentaires ont été ajoutés pour aujourd’hui.',
     });
   } catch (error) {
-    return errorResponse(error.message || 'Impossible de débloquer le chat du groupe.', 400);
+    return errorResponse(error.message || 'Impossible d’acheter des messages supplémentaires.', 400);
   }
 }
 
@@ -6152,9 +6162,19 @@ async function handleCotisationChatMessages(request) {
     if (!groupId || groupId.includes('/')) return errorResponse('Groupe invalide.', 400);
     const groupRef = adminDb.collection('cotisationGroups').doc(groupId);
     const memberRef = groupRef.collection('members').doc(uid);
-    const [groupSnap, memberSnap] = await Promise.all([groupRef.get(), memberRef.get()]);
+    const dateKey = getDoualaDateKey();
+    const usageRef = memberRef.collection('chatUsage').doc(dateKey);
+    const [groupSnap, memberSnap, usageSnap] = await Promise.all([
+      groupRef.get(), memberRef.get(), usageRef.get(),
+    ]);
     if (!groupSnap.exists || !memberSnap.exists || memberSnap.data()?.active === false) return errorResponse('Tu ne fais pas partie de ce groupe.', 403);
-    if (memberSnap.data()?.chatAccess !== true) return errorResponse('Débloque d’abord le chat de ce groupe.', 402);
+    const quota = summarizeCotisationChatQuota(usageSnap.data() || {});
+    if (quota.remaining <= 0) {
+      return NextResponse.json({
+        success: false, error: 'Tu as épuisé tes 10 messages gratuits et tes messages supplémentaires pour aujourd’hui.',
+        quota, messages: [],
+      }, { status: 402 });
+    }
     const messagesRef = groupRef.collection('chatMessages');
     const afterId = String(url.searchParams.get('afterId') || '').trim().slice(0, 150);
     let snapshot = null;
@@ -6177,13 +6197,14 @@ async function handleCotisationChatMessages(request) {
         id: document.id,
         authorUid: String(data.authorUid || ''),
         authorName: String(data.authorName || 'Membre').slice(0, 100),
+        authorRoleLabel: String(data.authorRoleLabel || 'Membre').slice(0, 36),
         authorPhotoURL: typeof data.authorPhotoURL === 'string' && data.authorPhotoURL.startsWith('https://res.cloudinary.com/') ? data.authorPhotoURL.slice(0, 2048) : '',
         text: String(data.text || '').slice(0, 1000),
         createdAt: serializeAdminValue(data.createdAt || null),
       };
     }).filter(Boolean);
     if (reset) messages = messages.reverse();
-    return NextResponse.json({ success: true, messages, reset, retentionDays: 30, maxMessageLength: 1000 });
+    return NextResponse.json({ success: true, messages, quota, reset, retentionDays: 30, maxMessageLength: 1000 });
   } catch (error) {
     return errorResponse(error.message || 'Impossible de charger le chat du groupe.', 400);
   }
@@ -6202,19 +6223,22 @@ async function handleCotisationChatSend(request) {
     const memberRef = groupRef.collection('members').doc(uid);
     const userRef = adminDb.collection('users').doc(uid);
     const messageRef = groupRef.collection('chatMessages').doc();
-    const membersQuery = groupRef.collection('members').limit(50);
+    const membersQuery = groupRef.collection('members').where('active', '==', true).limit(50);
+    const dateKey = getDoualaDateKey();
+    const usageRef = memberRef.collection('chatUsage').doc(dateKey);
     const result = await adminDb.runTransaction(async (transaction) => {
-      const [groupSnap, memberSnap, userSnap, membersSnap] = await Promise.all([
-        transaction.get(groupRef), transaction.get(memberRef),
-        transaction.get(userRef), transaction.get(membersQuery),
+      const [groupSnap, memberSnap, userSnap, membersSnap, usageSnap] = await Promise.all([
+        transaction.get(groupRef), transaction.get(memberRef), transaction.get(userRef),
+        transaction.get(membersQuery), transaction.get(usageRef),
       ]);
       if (!groupSnap.exists || groupSnap.data()?.status !== 'active' || !memberSnap.exists || memberSnap.data()?.active === false) {
         throw new Error('Seuls les membres d’un groupe actif peuvent envoyer un message.');
       }
-      if (memberSnap.data()?.chatAccess !== true) throw new Error('Débloque d’abord le chat de ce groupe.');
       if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
       const groupData = groupSnap.data() || {};
       const memberData = memberSnap.data() || {};
+      const quotaResult = consumeCotisationChatQuota(usageSnap.data() || {});
+      if (!quotaResult.success) throw new Error('CHAT_QUOTA_EXHAUSTED: Tu as épuisé tes messages pour aujourd’hui. Achète 10 messages supplémentaires à 100 FCFA.');
       const notificationValue = groupData.lastChatNotificationAt;
       const lastNotificationAt = notificationValue?.toDate ? notificationValue.toDate().getTime() : Date.parse(notificationValue || '');
       const shouldNotifyMembers = !Number.isFinite(lastNotificationAt) || Date.now() - lastNotificationAt >= 30000;
@@ -6223,29 +6247,38 @@ async function handleCotisationChatSend(request) {
       if (Number.isFinite(lastAt) && Date.now() - lastAt < 1200) throw new Error('Attends un instant avant d’envoyer un autre message.');
       const userData = userSnap.data() || {};
       const authorName = String(userData.displayName || memberData.displayName || 'Membre').trim().slice(0, 100);
+      const authorRoleLabel = memberData.isOwner === true || groupData.ownerId === uid
+        ? 'Chef de la cotisation'
+        : String(memberData.roleLabel || 'Membre').trim().slice(0, 36) || 'Membre';
       const authorPhotoURL = typeof userData.photoURL === 'string' && userData.photoURL.startsWith('https://res.cloudinary.com/') ? userData.photoURL.slice(0, 2048) : '';
       transaction.create(messageRef, {
-        authorUid: uid, authorName, authorPhotoURL, text: messageText,
+        authorUid: uid, authorName, authorRoleLabel, authorPhotoURL, text: messageText,
         createdAt: FieldValue.serverTimestamp(), expiresAt: cotisationChatExpiry(),
       });
-      transaction.update(memberRef, {
-        lastChatMessageAt: FieldValue.serverTimestamp(),
-        chatMessageCount: FieldValue.increment(1),
-      });
+      transaction.set(usageRef, {
+        ...quotaResult.usage, dateKey, updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      transaction.update(memberRef, { lastChatMessageAt: FieldValue.serverTimestamp() });
       transaction.set(groupRef, {
         lastChatMessageAt: FieldValue.serverTimestamp(),
         ...(shouldNotifyMembers ? { lastChatNotificationAt: FieldValue.serverTimestamp() } : {}),
       }, { merge: true });
       return {
-        id: messageRef.id, authorName, authorPhotoURL, text: messageText,
-        recipientIds: shouldNotifyMembers ? membersSnap.docs.filter((document) => document.id !== uid && document.data()?.active !== false && document.data()?.chatAccess === true).map((document) => document.id) : [],
+        id: messageRef.id, authorName, authorRoleLabel, authorPhotoURL, text: messageText,
+        quota: quotaResult.quota,
+        recipientIds: shouldNotifyMembers ? membersSnap.docs.filter((document) => document.id !== uid && document.data()?.active !== false).map((document) => document.id) : [],
         groupName: groupData.name ? String(groupData.name).slice(0, 80) : 'Chat du groupe',
       };
     });
 
+    const dateKeyNow = getDoualaDateKey();
+    const eligibleRecipients = await Promise.all(result.recipientIds.map(async (recipientUid) => {
+      const usage = await groupRef.collection('members').doc(recipientUid).collection('chatUsage').doc(dateKeyNow).get();
+      return summarizeCotisationChatQuota(usage.data() || {}).remaining > 0 ? recipientUid : null;
+    }));
     const notificationBody = (result.authorName + ' : ' + result.text).slice(0, 220);
     const appUrl = getPataAppUrl(request);
-    await Promise.all(result.recipientIds.map(async (recipientUid) => {
+    await Promise.all(eligibleRecipients.filter(Boolean).map(async (recipientUid) => {
       const recipientRef = adminDb.collection('users').doc(recipientUid);
       const notificationId = 'cotisation-chat-' + groupId;
       await recipientRef.collection('notifications').doc(notificationId).set({
@@ -6266,11 +6299,22 @@ async function handleCotisationChatSend(request) {
     }));
 
     return NextResponse.json({
-      success: true,
-      message: { id: result.id, authorUid: uid, authorName: result.authorName, authorPhotoURL: result.authorPhotoURL, text: result.text, createdAt: new Date().toISOString() },
+      success: true, quota: result.quota,
+      message: {
+        id: result.id, authorUid: uid, authorName: result.authorName,
+        authorRoleLabel: result.authorRoleLabel, authorPhotoURL: result.authorPhotoURL,
+        text: result.text, createdAt: new Date().toISOString(),
+      },
     });
   } catch (error) {
-    return errorResponse(error.message || 'Impossible d’envoyer ce message.', 400);
+    const message = error.message || 'Impossible d’envoyer ce message.';
+    if (message.startsWith('CHAT_QUOTA_EXHAUSTED:')) {
+      return NextResponse.json({
+        success: false, error: message.replace('CHAT_QUOTA_EXHAUSTED: ', ''),
+        quota: { freeLimit: 10, remaining: 0, dateKey: getDoualaDateKey() },
+      }, { status: 402 });
+    }
+    return errorResponse(message, 400);
   }
 }
 
@@ -6341,7 +6385,7 @@ async function handleCotisationJoin(request) {
         displayName: String(user.displayName || 'Membre').slice(0, 100),
         photoURL: typeof user.photoURL === 'string' && user.photoURL.startsWith('https://res.cloudinary.com/') ? user.photoURL.slice(0, 2048) : '',
         email: String(user.email || '').slice(0, 180),
-        isOwner: false, turnOrder: null,
+        isOwner: false, roleLabel: 'Membre', turnOrder: null,
         joinedAt: FieldValue.serverTimestamp(), active: true,
       });
       transaction.create(membershipRef, { groupId: groupRef.id, name: data.name, joinedAt: FieldValue.serverTimestamp() });
@@ -6411,16 +6455,36 @@ async function handleCotisationInvitePreview(request) {
     if (result.empty) return errorResponse('Cette invitation n’existe plus ou son lien est incorrect.', 404);
     const snapshot = result.docs[0];
     const group = snapshot.data();
-    const ownerSnap = await adminDb.collection('users').doc(String(group.ownerId || '')).get();
+    const [ownerSnap, membersSnap] = await Promise.all([
+      adminDb.collection('users').doc(String(group.ownerId || '')).get(),
+      snapshot.ref.collection('members').orderBy('joinedAt', 'asc').limit(50).get(),
+    ]);
     const owner = ownerSnap.exists ? ownerSnap.data() : {};
     const expectedMembers = cotisationExpectedMembers(group, group.memberCount);
-    const memberCount = cotisationMoney(group.memberCount);
+    const members = membersSnap.docs
+      .map((document) => ({ uid: document.id, ...document.data() }))
+      .filter((member) => member.active !== false)
+      .sort((a, b) => group.orderConfirmedAt || group.startedAt
+        ? Number(a.turnOrder || 999) - Number(b.turnOrder || 999)
+        : String(a.displayName || '').localeCompare(String(b.displayName || ''), 'fr'))
+      .map((member) => ({
+        uid: member.uid,
+        displayName: String(member.displayName || 'Membre').slice(0, 100),
+        photoURL: typeof member.photoURL === 'string' && member.photoURL.startsWith('https://res.cloudinary.com/') ? member.photoURL.slice(0, 2048) : '',
+        isOwner: member.isOwner === true,
+        roleLabel: member.isOwner === true ? 'Chef de la cotisation' : String(member.roleLabel || 'Membre').slice(0, 36),
+        turnOrder: group.orderConfirmedAt && Number.isInteger(Number(member.turnOrder)) ? Number(member.turnOrder) : null,
+      }));
+    const memberCount = members.length;
     return NextResponse.json({
       success: true,
       group: {
         id: snapshot.id,
         name: String(group.name || 'Cotisation Pata'),
+        description: String(group.description || ''),
+        imageURL: typeof group.imageURL === 'string' && group.imageURL.startsWith('https://res.cloudinary.com/') ? group.imageURL.slice(0, 2048) : '',
         ownerName: String(owner.displayName || 'Organisateur'),
+        ownerPhotoURL: typeof owner.photoURL === 'string' && owner.photoURL.startsWith('https://res.cloudinary.com/') ? owner.photoURL.slice(0, 2048) : '',
         contributionAmount: cotisationMoney(group.contributionAmount),
         frequency: group.frequency,
         dueDay: group.dueDay || null,
@@ -6429,6 +6493,7 @@ async function handleCotisationInvitePreview(request) {
         lateFeeLabel: cotisationPenaltyLabel(group),
         expectedMembers,
         memberCount,
+        members,
         status: group.startedAt ? 'started' : group.status || 'forming',
         startedAt: Boolean(group.startedAt),
         canJoin: !group.startedAt && group.status === 'active' && memberCount < expectedMembers,
@@ -6439,26 +6504,44 @@ async function handleCotisationInvitePreview(request) {
   }
 }
 
-
 async function handleCotisationContact(request) {
   try {
     const { uid } = await authenticate(request);
     const body = await request.json();
     const groupId = String(body.groupId || '').trim().slice(0, 150);
     const whatsappPhone = String(body.whatsappPhone || '').replace(/[^0-9]/g, '');
-    if (!groupId || groupId.includes('/') || !/^[0-9]{8,15}$/.test(whatsappPhone)) {
-      return errorResponse('Entre un numéro WhatsApp valide avec son indicatif pays.', 400);
+    if (!groupId || groupId.includes('/') || (whatsappPhone && !/^[0-9]{8,15}$/.test(whatsappPhone))) {
+      return errorResponse('Entre un numéro WhatsApp valide avec son indicatif pays, ou laisse le champ vide.', 400);
     }
     const memberRef = adminDb.collection('cotisationGroups').doc(groupId).collection('members').doc(uid);
     const memberSnap = await memberRef.get();
     if (!memberSnap.exists || memberSnap.data()?.active === false) return errorResponse('Tu ne fais pas partie de ce groupe.', 403);
-    await memberRef.update({ whatsappPhone, whatsappUpdatedAt: FieldValue.serverTimestamp() });
+    await memberRef.update({ whatsappPhone: whatsappPhone || FieldValue.delete(), whatsappUpdatedAt: FieldValue.serverTimestamp() });
     return NextResponse.json({ success: true, message: 'Ton numéro WhatsApp a été enregistré.' });
   } catch (error) {
     return errorResponse(error.message || 'Impossible d’enregistrer ton numéro WhatsApp.', 400);
   }
 }
 
+
+async function handleCotisationRole(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const groupId = String(body.groupId || '').trim().slice(0, 150);
+    const roleLabel = String(body.roleLabel || '').trim().replace(/\s+/g, ' ').slice(0, 36);
+    if (!groupId || groupId.includes('/')) return errorResponse('Groupe invalide.', 400);
+    if (!roleLabel) return errorResponse('Indique une étiquette de membre.', 400);
+    const memberRef = adminDb.collection('cotisationGroups').doc(groupId).collection('members').doc(uid);
+    const memberSnap = await memberRef.get();
+    if (!memberSnap.exists || memberSnap.data()?.active === false) return errorResponse('Tu ne fais pas partie de ce groupe.', 403);
+    if (memberSnap.data()?.isOwner === true) return NextResponse.json({ success: true, roleLabel: 'Chef de la cotisation', message: 'Le rôle de chef est attribué automatiquement.' });
+    await memberRef.update({ roleLabel, roleUpdatedAt: FieldValue.serverTimestamp() });
+    return NextResponse.json({ success: true, roleLabel, message: 'Ton étiquette de membre a été mise à jour.' });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de modifier ton étiquette.', 400);
+  }
+}
 
 async function handleCotisationPin(request) {
   try {
@@ -6493,9 +6576,6 @@ async function handleCotisationReorder(request) {
       const group = groupSnap.data();
       if (group.ownerId !== uid) throw new Error('Seul le chef du groupe peut modifier l’ordre de passage.');
       if (group.startedAt || group.membershipLockedCycle) throw new Error('L’ordre de passage est verrouillé depuis le démarrage de la cotisation.');
-      if (membersSnap.docs.some((doc) => !/^[0-9]{8,15}$/.test(String(doc.data()?.whatsappPhone || '').replace(/[^0-9]/g, '')))) {
-        throw new Error('Chaque membre doit enregistrer son numéro WhatsApp avant que le chef attribue les positions.');
-      }
       const currentIds = membersSnap.docs.map((doc) => doc.id);
       if (orderedIds.length !== currentIds.length || currentIds.some((id) => !orderedIds.includes(id))) {
         throw new Error('La liste des positions doit contenir tous les membres actifs, une seule fois chacun.');
@@ -6536,7 +6616,6 @@ async function handleCotisationStart(request) {
       const membersSnap = await transaction.get(membersQuery);
       if (membersSnap.size < 2) throw new Error('Au moins deux personnes doivent avoir rejoint le groupe.');
       if (membersSnap.size !== expectedMembers) throw new Error('Il faut exactement ' + expectedMembers + ' participants avant de lancer ce groupe. Il en manque ' + Math.max(0, expectedMembers - membersSnap.size) + '.');
-      if (membersSnap.docs.some((doc) => !/^[0-9]{8,15}$/.test(String(doc.data()?.whatsappPhone || '').replace(/[^0-9]/g, '')))) throw new Error('Chaque participant doit enregistrer son numéro WhatsApp avant le lancement.');
       const members = membersSnap.docs.map((doc) => ({ uid: doc.id, ...doc.data() })).sort((a, b) => Number(a.turnOrder) - Number(b.turnOrder));
       if (new Set(members.map((member) => Number(member.turnOrder))).size !== members.length || members.some((member, index) => Number(member.turnOrder) !== index + 1)) {
         throw new Error('Le chef doit enregistrer une position unique pour chaque participant avant le lancement.');
@@ -7000,7 +7079,6 @@ async function handleCotisationWithdrawalRequest(request) {
       if (!['READY', 'OPEN'].includes(cycle.status || 'OPEN')) throw new Error('Une demande de retrait est déjà en cours ou ce cycle est terminé.');
       const user = userSnap.data();
       if (collected < 100 || collected > 500000) throw new Error('Le montant du retrait doit être compris entre 100 et 500 000 FCFA.');
-      if (!/^[0-9]{8,15}$/.test(String(memberSnap.data()?.whatsappPhone || '').replace(/[^0-9]/g, ''))) throw new Error('Enregistre ton numéro WhatsApp dans les informations du groupe avant de demander le retrait.');
       transaction.create(requestRef, {
         withdrawalType: 'cotisation', userId: uid, email: user.email || '',
         displayName: user.displayName || beneficiary.displayName || 'Membre', phone, medium,
@@ -7336,11 +7414,13 @@ const ROUTES = {
   'cotisations/photo': { POST: handleCotisationPhoto },
   'wallet/transactions': { GET: handleWalletTransactions },
   'cotisations/chat/unlock': { POST: handleCotisationChatUnlock },
+  'cotisations/chat/purchase': { POST: handleCotisationChatPurchase },
   'cotisations/chat/messages': { GET: handleCotisationChatMessages },
   'cotisations/chat/send': { POST: handleCotisationChatSend },
   'cotisations/join': { POST: handleCotisationJoin },
   'cotisations/reorder': { POST: handleCotisationReorder },
   'cotisations/contact': { POST: handleCotisationContact },
+  'cotisations/role': { POST: handleCotisationRole },
   'cotisations/pin': { POST: handleCotisationPin },
   'cotisations/start': { POST: handleCotisationStart },
   'cotisations/pay': { POST: handleCotisationPay },
