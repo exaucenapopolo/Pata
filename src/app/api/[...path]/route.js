@@ -4672,7 +4672,7 @@ async function handleAdminSavings(request) {
       if (!cursorDoc.exists) return errorResponse('La liste a changé. Actualise les objectifs.', 409);
       query = query.startAfter(cursorDoc);
     }
-    const [snapshot, summary] = await Promise.all([query.limit(limit + 1).get(), calculateAdminSavingsOverview()]);
+    const [snapshot, summary] = await Promise.all([query.limit(limit + 1).get(), cursor ? Promise.resolve(null) : calculateAdminSavingsOverview()]);
     const hasMore = snapshot.docs.length > limit;
     const docs = snapshot.docs.slice(0, limit);
     const userIds = [...new Set(docs.map((document) => document.ref.parent.parent?.id).filter(Boolean))];
