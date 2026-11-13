@@ -7,7 +7,8 @@ import { getPreferredLocale } from '@/lib/utils';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
-import { Users, Plus, Copy, RefreshCw, Wallet, CalendarDays, ArrowDownToLine, Clock3, CheckCircle2, AlertCircle, ArrowUp, ArrowDown, PlayCircle, Save, Pin, ChevronDown, ChevronUp } from 'lucide-react';
+import { CloudinaryImageField } from '@/components/ui/CloudinaryImageField';
+import { Users, Plus, Copy, RefreshCw, Wallet, CalendarDays, ArrowDownToLine, Clock3, CheckCircle2, AlertCircle, ArrowUp, ArrowDown, PlayCircle, Save, Pin, ChevronDown, ChevronUp, Camera } from 'lucide-react';
 
 const currency = (value) => new Intl.NumberFormat(getPreferredLocale(), { maximumFractionDigits: 0 }).format(Number(value) || 0) + ' FCFA';
 const today = () => {
@@ -35,6 +36,8 @@ export default function CotisationsPage() {
   const [editingGroupId, setEditingGroupId] = useState('');
   const [pinnedGroups, setPinnedGroups] = useState([]);
   const [expandedGroups, setExpandedGroups] = useState({});
+  const [photoEditingGroup, setPhotoEditingGroup] = useState(null);
+  const [groupPhotoDraft, setGroupPhotoDraft] = useState('');
   const [whatsappForms, setWhatsappForms] = useState({});
   const [groupForm, setGroupForm] = useState({ name: '', contributionAmount: '', expectedMembers: '5', frequency: 'monthly', startDate: today(), dueDay: '30', graceDays: '1', lateFeeType: 'none', lateFeeValue: '' });
   const [orderDrafts, setOrderDrafts] = useState({});
@@ -155,6 +158,31 @@ export default function CotisationsPage() {
     setPayForms((current) => ({ ...current, [groupId]: { ...(current[groupId] || {}), [field]: value } }));
   };
   const saveWhatsApp=async(group)=>{const whatsappPhone=String(whatsappForms[group.id]??group.members.find((m)=>m.uid===user?.uid)?.whatsappPhone??'').trim();setBusy('whatsapp-'+group.id);setError('');try{const result=await api('cotisations/contact','POST',{groupId:group.id,whatsappPhone});setNotice(result.message||'Numéro WhatsApp enregistré.');await load();}catch(err){setError(err.message||'Impossible d’enregistrer ce numéro.');}finally{setBusy('');}};
+  const openGroupPhotoEditor = (group) => {
+    setPhotoEditingGroup(group);
+    setGroupPhotoDraft(group.imageURL || '');
+    setError('');
+  };
+
+  const saveGroupPhoto = async () => {
+    if (!photoEditingGroup) return;
+    setBusy('group-photo');
+    setError('');
+    try {
+      const result = await api('cotisations/photo', 'POST', {
+        groupId: photoEditingGroup.id,
+        imageURL: groupPhotoDraft || '',
+      });
+      setNotice(result.message || 'Photo du groupe mise à jour.');
+      setPhotoEditingGroup(null);
+      await load();
+    } catch (photoError) {
+      setError(photoError.message || 'Impossible de modifier la photo du groupe.');
+    } finally {
+      setBusy('');
+    }
+  };
+
   const setWithdrawField = (groupId, field, value) => {
     setWithdrawForms((current) => ({ ...current, [groupId]: { ...(current[groupId] || {}), [field]: value } }));
   };
@@ -348,6 +376,23 @@ export default function CotisationsPage() {
         </form>
       </Card>}
 
+      <Modal open={Boolean(photoEditingGroup)} onClose={() => { if (busy !== 'group-photo') setPhotoEditingGroup(null); }} title="Photo du groupe">
+        <div className="space-y-4">
+          <p className="text-xs leading-5 text-slate-500">Le chef du groupe peut modifier cette photo à tout moment. Elle sera visible par tous les membres.</p>
+          <CloudinaryImageField
+            value={groupPhotoDraft}
+            onChange={setGroupPhotoDraft}
+            folder={`pata/cotisations/${photoEditingGroup?.id || 'groups'}`}
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" onClick={saveGroupPhoto} disabled={busy === 'group-photo'}>
+              {busy === 'group-photo' ? 'Enregistrement…' : 'Enregistrer la photo'}
+            </Button>
+            <Button type="button" variant="outline" onClick={() => setPhotoEditingGroup(null)} disabled={busy === 'group-photo'}>Annuler</Button>
+          </div>
+        </div>
+      </Modal>
+
       <section className="space-y-4">
         <div className="flex items-center justify-between gap-3"><h2 className="text-lg font-bold text-slate-900">Mes groupes</h2><button type="button" onClick={load} className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-700"><RefreshCw size={13}/> Actualiser</button></div>
         {loading ? <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500">Chargement des groupes…</div>
@@ -360,8 +405,14 @@ export default function CotisationsPage() {
             return <article id={'cotisation-' + group.id} key={group.id} className="min-w-0 scroll-mt-20 overflow-hidden rounded-2xl border border-slate-200 bg-white">
               <div className="border-b border-slate-100 p-4 sm:p-5">
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div><div className="flex items-center gap-2"><h3 className="text-base font-bold text-slate-950">{group.name}</h3>{group.isOwner && <span className="rounded-full bg-brand-50 px-2 py-1 text-[10px] font-semibold text-brand-700">Chef de groupe</span>}</div><p className="mt-1 text-xs text-slate-500">{currency(group.contributionAmount)} par membre · {frequencyLabels[group.frequency] || group.frequency} · Échéance {group.frequency === 'monthly' ? 'le ' + group.dueDay + ' du mois' : 'à chaque période'} · Début {group.startDate}</p><p className="mt-1 text-[11px] text-slate-500">Majoration : {group.lateFeeLabel} · Délai de grâce : {group.graceDays} jour(s)</p></div>
-                  <div className="flex items-center gap-2"><button type="button" onClick={() => togglePinned(group)} aria-label={pinnedGroups.includes(group.id)?'Désépingler ce groupe':'Épingler ce groupe'} className={'inline-flex h-9 w-9 items-center justify-center rounded-xl border '+(pinnedGroups.includes(group.id)?'border-brand-200 bg-brand-50 text-brand-700':'border-slate-200 text-slate-500')}><Pin size={15}/></button>{group.isOwner && !group.startedAt && <Button size="sm" variant="outline" onClick={() => { setEditingGroupId(group.id); setResponsibilityAccepted(Boolean(group.responsibilityAccepted)); setGroupForm({ name: group.name || '', contributionAmount: String(group.contributionAmount || ''), expectedMembers: String(group.expectedMembers || 2), frequency: group.frequency || 'monthly', startDate: group.startDate || today(), dueDay: String(group.dueDay || 30), graceDays: String(group.graceDays ?? 1), lateFeeType: group.lateFeeType || 'none', lateFeeValue: String(group.lateFeeValue || '') }); setShowCreate(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><Save size={13}/> Paramètres</Button>}{group.isOwner && <Button variant="outline" onClick={() => shareInvite(group)}><Users size={14}/> Inviter</Button>}<button type="button" onClick={() => setExpandedGroups((old)=>({...old,[group.id]:!old[group.id]}))} className="inline-flex h-9 items-center gap-1 rounded-xl border border-slate-200 px-2.5 text-xs font-semibold text-slate-600">{expandedGroups[group.id]?'Masquer':'Détails'}{expandedGroups[group.id]?<ChevronUp size={14}/>:<ChevronDown size={14}/>}</button><span className="rounded-full bg-slate-100 px-2.5 py-1.5 text-[10px] font-semibold text-slate-600">{group.memberCount}/{group.expectedMembers} membres</span></div>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-100 text-sm font-bold text-slate-600">
+                      {group.imageURL ? <img src={group.imageURL} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer"/> : (group.name || 'G').slice(0,1).toUpperCase()}
+                    </span>
+                    <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="text-base font-bold text-slate-950">{group.name}</h3>{group.isOwner && <span className="rounded-full bg-brand-50 px-2 py-1 text-[10px] font-semibold text-brand-700">Chef de groupe</span>}</div><p className="mt-1 text-xs text-slate-500">{currency(group.contributionAmount)} par membre · {frequencyLabels[group.frequency] || group.frequency} · Échéance {group.frequency === 'monthly' ? 'le ' + group.dueDay + ' du mois' : 'à chaque période'} · Début {group.startDate}</p><p className="mt-1 text-[11px] text-slate-500">Majoration : {group.lateFeeLabel} · Délai de grâce : {group.graceDays} jour(s)</p></div></div>
+                  <div className="flex items-center gap-2">
+                    {group.isOwner && <button type="button" onClick={() => openGroupPhotoEditor(group)} aria-label="Modifier la photo du groupe" title="Modifier la photo du groupe" className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50"><Camera size={15}/></button>}
+                    <button type="button" onClick={() => togglePinned(group)} aria-label={pinnedGroups.includes(group.id)?'Désépingler ce groupe':'Épingler ce groupe'} className={'inline-flex h-9 w-9 items-center justify-center rounded-xl border '+(pinnedGroups.includes(group.id)?'border-brand-200 bg-brand-50 text-brand-700':'border-slate-200 text-slate-500')}><Pin size={15}/></button>{group.isOwner && !group.startedAt && <Button size="sm" variant="outline" onClick={() => { setEditingGroupId(group.id); setResponsibilityAccepted(Boolean(group.responsibilityAccepted)); setGroupForm({ name: group.name || '', contributionAmount: String(group.contributionAmount || ''), expectedMembers: String(group.expectedMembers || 2), frequency: group.frequency || 'monthly', startDate: group.startDate || today(), dueDay: String(group.dueDay || 30), graceDays: String(group.graceDays ?? 1), lateFeeType: group.lateFeeType || 'none', lateFeeValue: String(group.lateFeeValue || '') }); setShowCreate(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><Save size={13}/> Paramètres</Button>}{group.isOwner && <Button variant="outline" onClick={() => shareInvite(group)}><Users size={14}/> Inviter</Button>}<button type="button" onClick={() => setExpandedGroups((old)=>({...old,[group.id]:!old[group.id]}))} className="inline-flex h-9 items-center gap-1 rounded-xl border border-slate-200 px-2.5 text-xs font-semibold text-slate-600">{expandedGroups[group.id]?'Masquer':'Détails'}{expandedGroups[group.id]?<ChevronUp size={14}/>:<ChevronDown size={14}/>}</button><span className="rounded-full bg-slate-100 px-2.5 py-1.5 text-[10px] font-semibold text-slate-600">{group.memberCount}/{group.expectedMembers} membres</span></div>
                 </div>
                 {!group.startedAt && <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-900">{group.isOwner ? <><strong>Avant de lancer :</strong> invite {Math.max(0, group.expectedMembers - group.memberCount)} participant(s) supplémentaire(s), puis attribue personnellement une position à chaque membre. Aucun ordre n’est imposé par la date d’arrivée ni par le rôle de chef. Enregistre l’ordre choisi avant de lancer la collecte.</> : <>Le groupe attend encore {Math.max(0, group.expectedMembers - group.memberCount)} participant(s). Le chef attribuera lui-même les positions avant le lancement ; ni la date d’arrivée ni son rôle ne lui donnent automatiquement le premier tour.</>}</div>}
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">

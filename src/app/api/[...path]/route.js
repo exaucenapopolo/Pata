@@ -5886,7 +5886,7 @@ async function handleCotisationsList(request) {
         }
       }
       return {
-        id: groupRef.id, name: group.name, ownerId: group.ownerId, isOwner: group.ownerId === uid, createdAt: serializeAdminValue(group.createdAt || null), isPinned: membership.pinned === true,
+        id: groupRef.id, name: group.name, imageURL: typeof group.imageURL === 'string' ? group.imageURL : '', ownerId: group.ownerId, isOwner: group.ownerId === uid, createdAt: serializeAdminValue(group.createdAt || null), isPinned: membership.pinned === true,
         contributionAmount, frequency: group.frequency, startDate: group.startDate, status: group.status || 'active',
         dueDay: group.dueDay || null, expectedMembers, graceDays: cotisationMoney(group.graceDays),
         lateFeeType: group.lateFeeType || 'none', lateFeeValue: cotisationMoney(group.lateFeeValue),
@@ -6046,6 +6046,30 @@ async function handleCotisationUpdate(request) {
     return NextResponse.json({ success: true, message: 'Les paramètres de ton groupe ont été mis à jour.' });
   } catch (error) {
     return errorResponse(error.message || 'Impossible de modifier les paramètres du groupe.', 400);
+  }
+}
+
+async function handleCotisationPhoto(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const groupId = String(body.groupId || '').trim().slice(0, 150);
+    const imageURL = String(body.imageURL || '').trim().slice(0, 2048);
+    if (!groupId || groupId.includes('/')) return errorResponse('Groupe invalide.', 400);
+    if (imageURL && (!imageURL.startsWith('https://res.cloudinary.com/') || !/^https:\/\/res\.cloudinary\.com\/[a-zA-Z0-9_-]+\/image\/upload\//.test(imageURL))) {
+      return errorResponse('Choisis une image hébergée sur le service photo de Pata.', 400);
+    }
+    const groupRef = adminDb.collection('cotisationGroups').doc(groupId);
+    const groupSnap = await groupRef.get();
+    if (!groupSnap.exists) return errorResponse('Groupe introuvable.', 404);
+    if (groupSnap.data()?.ownerId !== uid) return errorResponse('Seul le chef du groupe peut modifier sa photo.', 403);
+    await groupRef.set({
+      imageURL: imageURL || FieldValue.delete(),
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    return NextResponse.json({ success: true, imageURL, message: 'La photo du groupe a été mise à jour pour tous les membres.' });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de modifier la photo du groupe.', 400);
   }
 }
 
@@ -7065,6 +7089,7 @@ const ROUTES = {
   'cotisations/scheduler': { GET: handleCotisationsScheduler, POST: handleCotisationsScheduler },
   'cotisations/create': { POST: handleCotisationCreate },
   'cotisations/update': { POST: handleCotisationUpdate },
+  'cotisations/photo': { POST: handleCotisationPhoto },
   'cotisations/join': { POST: handleCotisationJoin },
   'cotisations/reorder': { POST: handleCotisationReorder },
   'cotisations/contact': { POST: handleCotisationContact },
