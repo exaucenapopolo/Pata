@@ -77,6 +77,13 @@ export default function IncomePage() {
   const { customCategories: customIncomeCategories } = useCustomCategories('income');
   const { rules, updatePercent, saveRules, resetRules, total, isValid, loading: rulesLoading } = useBudgetRules();
 
+  const [month, setMonth] = useState(todayMonth());
+  const [incomeSection, setIncomeSection] = useState('all');
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState(emptyIncomeForm());
+  const [selectedIncome, setSelectedIncome] = useState(null);
+  const [incomeExpenseDetails, setIncomeExpenseDetails] = useState({ incomeId: null, loading: false, loadingMore: false, totalSpent: 0, expenseCount: 0, expenses: [], nextCursor: null, error: '' });
+
   useEffect(() => {
     if (!selectedIncome?.id || selectedIncome.neutralFlow || selectedIncome.cashPocket) {
       setIncomeExpenseDetails({ incomeId: selectedIncome?.id || null, loading: false, loadingMore: false, totalSpent: 0, expenseCount: 0, expenses: [], nextCursor: null, error: '' });
@@ -105,13 +112,6 @@ export default function IncomePage() {
     })();
     return () => { active = false; };
   }, [selectedIncome?.id, selectedIncome?.neutralFlow, selectedIncome?.cashPocket, user]);
-
-  const [month, setMonth] = useState(todayMonth());
-  const [incomeSection, setIncomeSection] = useState('all');
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState(emptyIncomeForm());
-  const [selectedIncome, setSelectedIncome] = useState(null);
-  const [incomeExpenseDetails, setIncomeExpenseDetails] = useState({ incomeId: null, loading: false, loadingMore: false, totalSpent: 0, expenseCount: 0, expenses: [], nextCursor: null, error: '' });
   const [saving, setSaving] = useState(false);
   const [savingRules, setSavingRules] = useState(false);
   const [savingApplied, setSavingApplied] = useState(false);
