@@ -43,3 +43,23 @@ test('les statistiques de téléchargement Android sont bien récupérées par l
   assert.match(overview, /androidDownloadMetrics\?\.exists/);
   assert.match(overview, /unclassifiedPlatformUsers/);
 });
+
+test('la fiche de revenu présente une bannière, les dépenses datées et le suivi du budget', () => {
+  assert.match(incomePage, /size="banner"/);
+  assert.match(incomePage, /formatIncomeDate\(expense\.date\)/);
+  assert.match(incomePage, /Nature des sorties/);
+  assert.match(incomePage, /Journée la plus coûteuse/);
+  assert.match(incomePage, /Ouvrir la page Dépenses/);
+  assert.match(incomePage, /Ouvrir les budgets de ce revenu/);
+});
+
+test('les explications visibles ne révèlent plus les limites techniques de chargement', () => {
+  assert.doesNotMatch(incomePage, /pour limiter les lectures/i);
+  assert.doesNotMatch(incomePage, /groupes? de 50/i);
+  assert.doesNotMatch(incomePage, /Charger 50 autres/i);
+});
+
+test('les budgets savent ouvrir le mois et le revenu transmis par la fiche de revenu', () => {
+  assert.match(budgets, /params\.get\('month'\)/);
+  assert.match(budgets, /params\.get\('incomeId'\)/);
+});

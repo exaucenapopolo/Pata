@@ -30,7 +30,7 @@ import { createIncome, updateIncome, deleteIncome, setIncomePinned } from '@/lib
 import { upsertBudget } from '@/lib/firestore/budgets';
 import { computeBudgetBreakdown } from '@/lib/budgetRules';
 import { INCOME_CATEGORIES, EXPENSE_CATEGORIES, CAMEROON_BANKS } from '@/lib/constants';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatCurrency, formatDate, normalizeExpenseCategoryId } from '@/lib/utils';
 import { translateText } from '@/lib/i18n/translations';
 import { saveVitalForecast, deleteVitalForecast, saveDurationForecast as saveDurationForecastRecord, deleteDurationForecast } from '@/lib/firestore/forecasts';
 import { useBudgets } from '@/hooks/useBudgets';
@@ -60,6 +60,23 @@ const FREQUENCIES = [
   { id: 'weekly', label: 'Par semaine', multiplier: 4 },
   { id: 'monthly', label: 'Par mois', multiplier: 1 },
 ];
+
+const formatIncomeDate = (value) => {
+  const dateValue = String(value || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateValue)) return 'Date non renseignée';
+  const date = new Date(dateValue + 'T12:00:00');
+  return formatDate(date, { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
+};
+
+const getIncomeExpenseFlowLabel = (expense, isEnglish = false) => {
+  if (expense?.cashWithdrawal || expense?.flowType === 'cash_withdrawal') return isEnglish ? 'Cash transfer' : 'Retrait vers espèces';
+  if (expense?.flowType === 'loan_given' || expense?.categoryId === 'loan_given') return isEnglish ? 'Loan given' : 'Prêt accordé';
+  if (expense?.flowType === 'repayment' || expense?.repaymentDebtId || expense?.categoryId === 'debt_repayment') return isEnglish ? 'Debt repayment' : 'Remboursement de dette';
+  const labels = isEnglish
+    ? { consumption: 'Everyday expense', project: 'Project', savings: 'Savings', investment: 'Investment' }
+    : { consumption: 'Dépense courante', project: 'Projet', savings: 'Épargne', investment: 'Investissement' };
+  return labels[expense?.expenseType] || (isEnglish ? 'Other outflow' : 'Autre sortie');
+};
 
 export default function IncomePage() {
   const { user } = useAuth();
@@ -120,6 +137,11 @@ export default function IncomePage() {
   const [rulesSavedAt, setRulesSavedAt] = useState(null);
   const [selectedIncomeToApply, setSelectedIncomeToApply] = useState('all');
   const { budgets: appliedBudgets } = useBudgets(month, selectedIncomeToApply);
+  const selectedIncomeBudgetMonth = selectedIncome?.month || selectedIncome?.date?.slice(0, 7) || month;
+  const { budgets: selectedIncomeBudgets, loading: selectedIncomeBudgetsLoading } = useBudgets(
+    selectedIncomeBudgetMonth,
+    selectedIncome?.id || '__income_detail_inactive__',
+  );
   const [deleteId, setDeleteId] = useState(null);
   const [showCotisationReminder, setShowCotisationReminder] = useState(false);
 
@@ -213,6 +235,12 @@ export default function IncomePage() {
       isExhausted: balanceAvailable && remaining === 0 && spent > 0,
     };
   }), [incomes]);
+
+  useEffect(() => {
+    if (!selectedIncome?.id) return;
+    const latestIncome = incomesWithBalance.find((income) => income.id === selectedIncome.id);
+    if (latestIncome && latestIncome !== selectedIncome) setSelectedIncome(latestIncome);
+  }, [incomesWithBalance, selectedIncome?.id]);
 
   const incomeBalancesAvailable = balancesReady && incomesWithBalance.every((item) => item.balanceAvailable);
   const activeIncomes = useMemo(() => incomesWithBalance.filter(i => i.balanceAvailable && !i.neutralFlow && !i.isExhausted), [incomesWithBalance]);
@@ -314,6 +342,9 @@ export default function IncomePage() {
   };
 
   const monthIncomes = useMemo(() => incomesWithBalance.filter((i) => i.month === month).sort((a, b) => (a.date < b.date ? 1 : -1)), [incomesWithBalance, month]);
+  const highestIncomeInMonth = useMemo(() => monthIncomes
+    .filter((income) => !income.neutralFlow && !income.cashPocket && income.flowType !== 'debt_borrowed')
+    .reduce((highest, income) => Number(income.amount) > Number(highest?.amount || 0) ? income : highest, null), [monthIncomes]);
   const totalIncome = monthIncomes.filter((income) => !income.neutralFlow).reduce((s, i) => s + (Number(i.remaining) || 0), 0);
   const breakdown = useMemo(() => computeBudgetBreakdown(totalIncome, rules), [totalIncome, rules]);
 
@@ -642,6 +673,30 @@ export default function IncomePage() {
         </div>
       )}
 
+      {(incomeSection === 'all' || incomeSection === 'revenues') && (
+        <Card className="border-slate-200">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <CardTitle>Ton plus gros revenu du mois</CardTitle>
+              <p className="mt-1 text-xs text-slate-500">La somme la plus élevée reçue pendant le mois sélectionné.</p>
+            </div>
+            <span className="rounded-lg bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-600">{month}</span>
+          </div>
+          {highestIncomeInMonth ? (
+            <div className="mt-3 flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/60 p-3">
+              <CategoryImage categoryId={highestIncomeInMonth.categoryId} image={highestIncomeInMonth.image || [...INCOME_CATEGORIES, ...customIncomeCategories].find((item) => item.id === highestIncomeInMonth.categoryId)?.image} size="lg" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-slate-900">{highestIncomeInMonth.source || 'Revenu'}</p>
+                <p className="mt-1 text-xs text-slate-500">{formatIncomeDate(highestIncomeInMonth.date)}</p>
+              </div>
+              <strong className="shrink-0 text-right text-base font-bold text-slate-900">{formatCurrency(highestIncomeInMonth.amount)}</strong>
+            </div>
+          ) : (
+            <p className="mt-3 rounded-xl border border-dashed border-slate-200 p-3 text-sm text-slate-500">Aucun revenu enregistré pour ce mois.</p>
+          )}
+        </Card>
+      )}
+
       {(incomeSection === 'all' || incomeSection === 'cashflow') && (
       <Card>
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -939,61 +994,203 @@ export default function IncomePage() {
       <Modal open={!!selectedIncome} onClose={() => setSelectedIncome(null)} title={selectedIncome?.cashPocket ? 'Détail des espèces' : 'Détail du revenu'}>
         {selectedIncome && (() => {
           const methodLabels = { cash: 'Espèces', mtn_momo: 'MTN Mobile Money', orange_money: 'Orange Money', bank_transfer: 'Virement bancaire', card: 'Carte bancaire', other: 'Autre moyen' };
-          return (
+          return ( 
             <div className="space-y-4">
-              <div className="rounded-2xl bg-brand-50 p-4 text-center">
-                <CategoryImage categoryId={selectedIncome.categoryId} image={selectedIncome.image || [...INCOME_CATEGORIES, ...customIncomeCategories].find((category) => category.id === selectedIncome.categoryId)?.image} size="lg"/>
-                <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-brand-800">{selectedIncome.cashPocket ? 'Poche espèces · mouvement neutre' : [...INCOME_CATEGORIES, ...customIncomeCategories].find((category) => category.id === selectedIncome.categoryId)?.label || [...INCOME_CATEGORIES, ...customIncomeCategories].find((category) => category.id === selectedIncome.categoryId)?.name || 'Revenu'}</p>
-                <p className="mt-1 text-2xl font-bold tracking-tight text-slate-900">{formatCurrency(selectedIncome.amount)}</p>
-                <p className="mt-1 text-xs text-slate-600">{selectedIncome.source}</p>
-              </div>
-              <div className="divide-y divide-slate-100 rounded-xl border border-slate-200 px-3">
-                <div className="flex justify-between gap-4 py-3 text-sm"><span className="text-slate-500">Date</span><strong className="text-right text-slate-800">{formatDate(selectedIncome.date)}</strong></div>
-                <div className="flex justify-between gap-4 py-3 text-sm"><span className="text-slate-500">Heure</span><strong className="text-right text-slate-800">{selectedIncome.time || 'Non renseignée'}</strong></div>
-                <div className="flex justify-between gap-4 py-3 text-sm"><span className="text-slate-500">Lieu</span><strong className="max-w-[60%] text-right text-slate-800">{selectedIncome.locationLabel || 'Non renseigné'}</strong></div>
-                <div className="flex justify-between gap-4 py-3 text-sm"><span className="text-slate-500">Moyen de réception</span><strong className="text-right text-slate-800">{methodLabels[selectedIncome.paymentMethod] || 'Non précisé'}</strong></div>
-                <div className="flex justify-between gap-4 py-3 text-sm"><span className="text-slate-500">Client / mission</span><strong className="max-w-[60%] text-right text-slate-800">{selectedIncome.details || 'Non renseigné'}</strong></div>
-                <div className="py-3 text-sm"><p className="text-slate-500">Note</p><p className="mt-1 whitespace-pre-wrap text-slate-800">{selectedIncome.note || 'Aucune note'}</p></div>
-              </div>
-              {selectedIncome.latitude != null && selectedIncome.longitude != null && <a href={'https://www.google.com/maps?q=' + selectedIncome.latitude + ',' + selectedIncome.longitude} target="_blank" rel="noreferrer" className="block rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-brand-800 hover:bg-brand-50">Voir la position sur la carte</a>}
-              {!selectedIncome.cashPocket && !selectedIncome.neutralFlow && (
-                <section className="rounded-xl border border-slate-200 bg-white p-3 text-left">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div><h3 className="text-sm font-bold text-slate-900">Utilisation de ce revenu</h3><p className="mt-1 text-xs text-slate-500">Le total couvre toutes les dépenses rattachées. Les opérations détaillées se chargent par groupes de 50 pour limiter les lectures.</p></div>
-                    {incomeExpenseDetails.loading && <span className="text-xs text-slate-400">Calcul…</span>}
-                  </div>
-                  {incomeExpenseDetails.error && <p className="mt-3 text-xs text-red-600">{incomeExpenseDetails.error}</p>}
-                  {!incomeExpenseDetails.loading && !incomeExpenseDetails.error && incomeExpenseDetails.incomeId === selectedIncome.id && (
-                    <>
-                      <div className="mt-3 grid grid-cols-2 gap-2">
-                        <div className="rounded-lg bg-slate-50 p-3"><p className="text-[10px] text-slate-500">Total dépensé</p><p className="mt-1 text-sm font-bold text-slate-900">{formatCurrency(incomeExpenseDetails.totalSpent)}</p></div>
-                        <div className="rounded-lg bg-slate-50 p-3"><p className="text-[10px] text-slate-500">Montant restant estimé</p><p className="mt-1 text-sm font-bold text-brand-700">{formatCurrency(Math.max(0, Number(selectedIncome.amount || 0) - incomeExpenseDetails.totalSpent))}</p></div>
+              {(() => {
+                const incomeCategory = [...INCOME_CATEGORIES, ...customIncomeCategories].find((category) => category.id === selectedIncome.categoryId);
+                const isStandardIncome = !selectedIncome.cashPocket && !selectedIncome.neutralFlow && selectedIncome.flowType !== 'debt_borrowed';
+                const detailsReady = !incomeExpenseDetails.loading && !incomeExpenseDetails.error && incomeExpenseDetails.incomeId === selectedIncome.id;
+                const visibleExpenses = detailsReady ? incomeExpenseDetails.expenses : [];
+                const categoryTotals = new Map();
+                const typeTotals = new Map();
+                const dayTotals = new Map();
+                visibleExpenses.forEach((expense) => {
+                  const categoryId = normalizeExpenseCategoryId(expense.categoryId || 'other');
+                  const categoryTotal = categoryTotals.get(categoryId) || { amount: 0, count: 0 };
+                  categoryTotals.set(categoryId, { amount: categoryTotal.amount + (Number(expense.amount) || 0), count: categoryTotal.count + 1 });
+                  const typeLabel = getIncomeExpenseFlowLabel(expense, isEnglish);
+                  const typeTotal = typeTotals.get(typeLabel) || { amount: 0, count: 0 };
+                  typeTotals.set(typeLabel, { amount: typeTotal.amount + (Number(expense.amount) || 0), count: typeTotal.count + 1 });
+                  const day = String(expense.date || '').slice(0, 10);
+                  if (day) dayTotals.set(day, (dayTotals.get(day) || 0) + (Number(expense.amount) || 0));
+                });
+                const categoryRows = [...categoryTotals.entries()].sort((a, b) => b[1].amount - a[1].amount).slice(0, 5);
+                const typeRows = [...typeTotals.entries()].sort((a, b) => b[1].amount - a[1].amount);
+                const topDay = [...dayTotals.entries()].sort((a, b) => b[1] - a[1])[0] || null;
+                const remainingAmount = Number(selectedIncome.amount || 0) - Number(incomeExpenseDetails.totalSpent || 0);
+                const budgetAllocated = selectedIncomeBudgets.reduce((sum, budget) => sum + (Number(budget.amount) || 0), 0);
+                const budgetCategoryIds = new Set(selectedIncomeBudgets.map((budget) => normalizeExpenseCategoryId(budget.categoryId)));
+                const monthBudgetExpenses = visibleExpenses.filter((expense) =>
+                  String(expense.date || '').startsWith(selectedIncomeBudgetMonth)
+                  && !expense.neutralFlow
+                  && !expense.cashWithdrawal
+                  && expense.flowType !== 'loan_given'
+                );
+                const budgetSpent = monthBudgetExpenses.filter((expense) => budgetCategoryIds.has(normalizeExpenseCategoryId(expense.categoryId)))
+                  .reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0);
+                const unbudgetedSpent = monthBudgetExpenses.filter((expense) => !budgetCategoryIds.has(normalizeExpenseCategoryId(expense.categoryId)))
+                  .reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0);
+                const budgetCheckComplete = detailsReady && !incomeExpenseDetails.nextCursor;
+                const budgetOverrun = budgetSpent > budgetAllocated;
+                const budgetLink = '/budgets?month=' + encodeURIComponent(selectedIncomeBudgetMonth) + '&incomeId=' + encodeURIComponent(selectedIncome.id);
+                const expenseCategoryFor = (id) => [...EXPENSE_CATEGORIES, ...customCategories].find((category) => category.id === normalizeExpenseCategoryId(id)) || null;
+                return (
+                  <>
+                    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                      <CategoryImage
+                        categoryId={selectedIncome.categoryId}
+                        image={selectedIncome.image || incomeCategory?.image}
+                        size="banner"
+                      />
+                      <div className="bg-brand-50 p-4 text-center">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-brand-800">{selectedIncome.cashPocket ? 'Poche espèces · mouvement neutre' : incomeCategory?.label || incomeCategory?.name || 'Revenu'}</p>
+                        <p className="mt-1 text-2xl font-bold tracking-tight text-slate-900">{formatCurrency(selectedIncome.amount)}</p>
+                        <p className="mt-1 text-sm font-semibold text-slate-700">{selectedIncome.source}</p>
+                        {isStandardIncome && (
+                          <Button type="button" size="sm" variant="outline" className="mt-3" onClick={() => openEditIncome(selectedIncome)}>
+                            <Pencil size={13}/> Modifier la photo ou les informations
+                          </Button>
+                        )}
                       </div>
-                      <p className="mt-2 text-[11px] text-slate-500">{incomeExpenseDetails.expenseCount} dépense(s) associée(s) au total.</p>
-                      {incomeExpenseDetails.expenses.length > 0 && (() => {
-                        const totalsByCategory = new Map();
-                        incomeExpenseDetails.expenses.forEach((expense) => {
-                          const id = expense.categoryId || 'other';
-                          totalsByCategory.set(id, (totalsByCategory.get(id) || 0) + (Number(expense.amount) || 0));
-                        });
-                        const category = (id) => [...EXPENSE_CATEGORIES, ...customCategories].find((item) => item.id === id);
-                        const rows = [...totalsByCategory.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
-                        return <div className="mt-3"><p className="text-xs font-semibold text-slate-700">Catégories les plus présentes dans les opérations affichées</p><div className="mt-2 space-y-2">{rows.map(([id, amount]) => <div key={id} className="flex items-center justify-between gap-3 text-xs"><span className="truncate text-slate-600">{category(id)?.label || category(id)?.name || id}</span><strong className="shrink-0 text-slate-800">{formatCurrency(amount)}</strong></div>)}</div></div>;
-                      })()}
-                      <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
-                        <div className="flex items-center justify-between gap-3"><p className="text-xs font-semibold text-slate-700">Dépenses associées</p><span className="text-[10px] text-slate-400">{incomeExpenseDetails.expenses.length} chargée(s)</span></div>
-                        {incomeExpenseDetails.expenses.map((expense) => {
-                          const expenseCategory = [...EXPENSE_CATEGORIES, ...customCategories].find((item) => item.id === expense.categoryId);
-                          const title = expense.title || expense.name || expense.description || expense.note || expenseCategory?.label || expenseCategory?.name || 'Dépense';
-                          return <div key={expense.id} className="flex items-start justify-between gap-3 rounded-lg border border-slate-100 p-2.5"><div className="min-w-0"><p className="truncate text-xs font-semibold text-slate-800">{title}</p><p className="mt-1 text-[10px] text-slate-500">{expense.date || 'Date inconnue'} · {expenseCategory?.label || expenseCategory?.name || expense.categoryId || 'Autre'}{expense.expenseType ? ' · ' + expense.expenseType : ''}</p></div><strong className="shrink-0 text-xs text-slate-900">{formatCurrency(expense.amount)}</strong></div>;
-                        })}
-                        {incomeExpenseDetails.nextCursor && <button type="button" onClick={loadMoreIncomeExpenses} disabled={incomeExpenseDetails.loadingMore} className="inline-flex min-h-10 w-full items-center justify-center rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">{incomeExpenseDetails.loadingMore ? 'Chargement…' : 'Charger 50 autres dépenses'}</button>}
-                      </div>
-                    </>
-                  )}
-                </section>
-              )}
-              <AssistantShortcut label="Analyser ce revenu avec Mč" prompt={`Analyse ce revenu enregistré dans Pata : source ${selectedIncome.source || 'non précisée'}, montant ${selectedIncome.amount} FCFA, date ${selectedIncome.date || 'non précisée'}, catégorie ${selectedIncome.categoryId || 'non précisée'}. Explique son importance dans mon équilibre financier et propose des conseils concrets. Ne modifie aucune donnée.`} promptEn={`Analyze this income entry in Pata: source ${selectedIncome.source || 'not specified'}, amount ${selectedIncome.amount} XAF, date ${selectedIncome.date || 'not specified'}, category ${translateText([...INCOME_CATEGORIES, ...customIncomeCategories].find((item) => item.id === selectedIncome.categoryId)?.label || selectedIncome.categoryId || 'not specified', 'en')}. Explain its importance to my financial balance and suggest practical advice. Do not change any data.`}/>
+                    </div>
+                    <div className="divide-y divide-slate-100 rounded-xl border border-slate-200 px-3">
+                      <div className="flex justify-between gap-4 py-3 text-sm"><span className="text-slate-500">Date</span><strong className="text-right capitalize text-slate-800">{formatIncomeDate(selectedIncome.date)}</strong></div>
+                      <div className="flex justify-between gap-4 py-3 text-sm"><span className="text-slate-500">Heure</span><strong className="text-right text-slate-800">{selectedIncome.time || 'Non renseignée'}</strong></div>
+                      <div className="flex justify-between gap-4 py-3 text-sm"><span className="text-slate-500">Lieu</span><strong className="max-w-[60%] text-right text-slate-800">{selectedIncome.locationLabel || 'Non renseigné'}</strong></div>
+                      <div className="flex justify-between gap-4 py-3 text-sm"><span className="text-slate-500">Moyen de réception</span><strong className="text-right text-slate-800">{methodLabels[selectedIncome.paymentMethod] || 'Non précisé'}</strong></div>
+                      <div className="flex justify-between gap-4 py-3 text-sm"><span className="text-slate-500">Client / mission</span><strong className="max-w-[60%] text-right text-slate-800">{selectedIncome.details || 'Non renseigné'}</strong></div>
+                      <div className="py-3 text-sm"><p className="text-slate-500">Note</p><p className="mt-1 whitespace-pre-wrap text-slate-800">{selectedIncome.note || 'Aucune note'}</p></div>
+                    </div>
+                    {selectedIncome.latitude != null && selectedIncome.longitude != null && <a href={'https://www.google.com/maps?q=' + selectedIncome.latitude + ',' + selectedIncome.longitude} target="_blank" rel="noreferrer" className="block rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-brand-800 hover:bg-brand-50">Voir la position sur la carte</a>}
+
+                    {isStandardIncome && (
+                      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                        <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <h3 className="text-sm font-bold text-slate-900">Budget associé à ce revenu</h3>
+                              <p className="mt-1 text-xs text-slate-500">Vérifie ce qui était prévu pour cet argent et ce qui a réellement été dépensé.</p>
+                            </div>
+                            <Link href={budgetLink} className="text-xs font-semibold text-brand-700 underline underline-offset-2">Voir ce budget</Link>
+                          </div>
+                        </div>
+                        <div className="space-y-3 p-3">
+                          {selectedIncomeBudgetsLoading ? (
+                            <p className="text-xs text-slate-500">Chargement du budget associé…</p>
+                          ) : selectedIncomeBudgets.length === 0 ? (
+                            <div className="rounded-xl border border-dashed border-slate-200 p-3">
+                              <p className="text-sm font-semibold text-slate-700">Aucun budget n’a encore été configuré pour ce revenu.</p>
+                              <p className="mt-1 text-xs leading-5 text-slate-500">Tu peux créer des enveloppes par catégorie et revenir ici pour suivre leur respect.</p>
+                              <Link href={budgetLink} className="mt-3 inline-flex min-h-9 items-center rounded-lg border border-slate-200 px-3 text-xs font-semibold text-brand-700 hover:bg-brand-50">Configurer un budget pour ce revenu</Link>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                                <div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] text-slate-500">Montant prévu</p><p className="mt-1 text-sm font-bold text-slate-900">{formatCurrency(budgetAllocated)}</p><p className="mt-1 text-[10px] text-slate-500">{selectedIncomeBudgets.length} enveloppe(s)</p></div>
+                                <div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] text-slate-500">{budgetCheckComplete ? 'Dépensé dans ces enveloppes' : 'Dépenses consultées'}</p><p className="mt-1 text-sm font-bold text-slate-900">{formatCurrency(budgetSpent)}</p></div>
+                                <div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] text-slate-500">Sans enveloppe</p><p className="mt-1 text-sm font-bold text-slate-900">{budgetCheckComplete ? formatCurrency(unbudgetedSpent) : 'À vérifier'}</p></div>
+                              </div>
+                              {!budgetCheckComplete ? (
+                                <p className="rounded-lg bg-amber-50 p-3 text-xs leading-5 text-amber-800">La comparaison n’est pas encore complète. Consulte toutes les dépenses associées pour vérifier correctement le budget.</p>
+                              ) : budgetOverrun ? (
+                                <p className="rounded-lg bg-red-50 p-3 text-xs leading-5 text-red-700">Le montant dépensé dépasse les enveloppes prévues de {formatCurrency(budgetSpent - budgetAllocated)}.</p>
+                              ) : unbudgetedSpent > 0 ? (
+                                <p className="rounded-lg bg-amber-50 p-3 text-xs leading-5 text-amber-800">Le budget n’est pas complet : certaines dépenses n’ont pas encore d’enveloppe associée.</p>
+                              ) : (
+                                <p className="rounded-lg bg-emerald-50 p-3 text-xs leading-5 text-emerald-800">Les dépenses consultées respectent les enveloppes configurées.</p>
+                              )}
+                            </>
+                          )}
+                          <Link href={budgetLink} className="inline-flex min-h-10 w-full items-center justify-center rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">Ouvrir les budgets de ce revenu</Link>
+                        </div>
+                      </section>
+                    )}
+
+                    {isStandardIncome && (
+                      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white text-left">
+                        <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
+                          <h3 className="text-sm font-bold text-slate-900">Ce que tu as fait avec cet argent</h3>
+                          <p className="mt-1 text-xs leading-5 text-slate-500">Retrouve les sorties, les catégories utilisées et ce qu’il te reste de ce revenu.</p>
+                        </div>
+                        <div className="space-y-3 p-3">
+                          {incomeExpenseDetails.loading || incomeExpenseDetails.incomeId !== selectedIncome.id ? (
+                            <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">Chargement de tes opérations…</p>
+                          ) : incomeExpenseDetails.error ? (
+                            <p role="alert" className="rounded-lg bg-red-50 p-3 text-xs text-red-700">{incomeExpenseDetails.error}</p>
+                          ) : (
+                            <>
+                              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                                <div className="rounded-xl border border-slate-100 bg-slate-50 p-3"><p className="text-[10px] text-slate-500">Total des sorties</p><p className="mt-1 text-sm font-bold text-slate-900">{formatCurrency(incomeExpenseDetails.totalSpent)}</p></div>
+                                <div className="rounded-xl border border-slate-100 bg-slate-50 p-3"><p className="text-[10px] text-slate-500">Reste estimé</p><p className={'mt-1 text-sm font-bold ' + (remainingAmount < 0 ? 'text-red-600' : 'text-emerald-700')}>{formatCurrency(Math.max(0, remainingAmount))}</p>{remainingAmount < 0 && <p className="mt-1 text-[10px] text-red-600">Dépassement : {formatCurrency(Math.abs(remainingAmount))}</p>}</div>
+                                <div className="col-span-2 rounded-xl border border-slate-100 bg-slate-50 p-3 sm:col-span-1"><p className="text-[10px] text-slate-500">Opérations associées</p><p className="mt-1 text-sm font-bold text-slate-900">{incomeExpenseDetails.expenseCount}</p></div>
+                              </div>
+                              {typeRows.length > 0 && (
+                                <div className="rounded-xl border border-slate-100 p-3">
+                                  <h4 className="text-xs font-semibold text-slate-800">Nature des sorties</h4>
+                                  <div className="mt-2 space-y-2">
+                                    {typeRows.map(([label, total]) => <div key={label} className="flex items-center justify-between gap-3 text-xs"><span className="min-w-0 flex-1 text-slate-600">{label} <span className="text-slate-400">({total.count})</span></span><strong className="shrink-0 text-slate-800">{formatCurrency(total.amount)}</strong></div>)}
+                                  </div>
+                                </div>
+                              )}
+                              <div className="grid gap-3 sm:grid-cols-2">
+                                <div className="rounded-xl border border-slate-100 p-3">
+                                  <h4 className="text-xs font-semibold text-slate-800">Répartition par catégorie</h4>
+                                  {categoryRows.length === 0 ? <p className="mt-2 text-xs text-slate-500">Aucune dépense enregistrée.</p> : (
+                                    <div className="mt-2 space-y-2">
+                                      {categoryRows.map(([categoryId, total]) => {
+                                        const category = expenseCategoryFor(categoryId);
+                                        return <div key={categoryId} className="flex items-center gap-2"><CategoryImage categoryId={categoryId} image={category?.image} size="sm"/><span className="min-w-0 flex-1"><strong className="block truncate text-xs text-slate-700">{category?.label || category?.name || 'Autre'}</strong><span className="text-[10px] text-slate-400">{total.count} opération(s)</span></span><strong className="shrink-0 text-xs text-slate-800">{formatCurrency(total.amount)}</strong></div>;
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="rounded-xl border border-slate-100 p-3">
+                                  <h4 className="text-xs font-semibold text-slate-800">Journée la plus coûteuse</h4>
+                                  {topDay ? <><p className="mt-2 text-xs capitalize text-slate-600">{formatIncomeDate(topDay[0])}</p><p className="mt-1 text-sm font-bold text-slate-900">{formatCurrency(topDay[1])}</p></> : <p className="mt-2 text-xs text-slate-500">Aucune date de dépense renseignée.</p>}
+                                  {incomeExpenseDetails.nextCursor && <p className="mt-2 text-[10px] leading-4 text-slate-400">Ce classement évolue au fur et à mesure que tu consultes les autres opérations.</p>}
+                                </div>
+                              </div>
+                              <div className="border-t border-slate-100 pt-3">
+                                <div className="mb-2 flex items-center justify-between gap-3">
+                                  <h4 className="text-xs font-semibold text-slate-800">Dépenses associées</h4>
+                                  <span className="text-[10px] text-slate-500">{incomeExpenseDetails.expenseCount} au total</span>
+                                </div>
+                                {visibleExpenses.length === 0 ? (
+                                  <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">Aucune dépense n’est encore associée à ce revenu.</p>
+                                ) : (
+                                  <ul className="space-y-2">
+                                    {visibleExpenses.map((expense) => {
+                                      const expenseCategory = expenseCategoryFor(expense.categoryId);
+                                      const title = expense.title || expense.name || expense.description || expense.details || expense.note || expenseCategory?.label || expenseCategory?.name || 'Dépense';
+                                      return (
+                                        <li key={expense.id} className="flex items-start gap-3 rounded-xl border border-slate-100 p-2.5">
+                                          <CategoryImage categoryId={expense.categoryId} image={expense.image || expenseCategory?.image} size="md"/>
+                                          <div className="min-w-0 flex-1">
+                                            <p className="break-words text-xs font-semibold text-slate-800">{title}</p>
+                                            <p className="mt-1 text-[10px] capitalize leading-4 text-slate-500">{formatIncomeDate(expense.date)} · {expenseCategory?.label || expenseCategory?.name || 'Autre'}</p>
+                                            <p className="mt-1 text-[10px] font-medium text-brand-700">{getIncomeExpenseFlowLabel(expense, isEnglish)}</p>
+                                            {expense.note && expense.note !== title && <p className="mt-1 whitespace-pre-wrap text-[10px] leading-4 text-slate-500">{expense.note}</p>}
+                                          </div>
+                                          <strong className="shrink-0 text-right text-xs text-slate-900">{formatCurrency(expense.amount)}</strong>
+                                        </li>
+                                      );
+                                    })}
+                                  </ul>
+                                )}
+                              </div>
+                              <div className="flex flex-col gap-2 sm:flex-row">
+                                <Link href="/expenses" className="inline-flex min-h-10 flex-1 items-center justify-center rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">Ouvrir la page Dépenses</Link>
+                                {incomeExpenseDetails.nextCursor && <button type="button" onClick={loadMoreIncomeExpenses} disabled={incomeExpenseDetails.loadingMore} className="inline-flex min-h-10 flex-1 items-center justify-center rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">{incomeExpenseDetails.loadingMore ? 'Chargement…' : 'Voir plus de dépenses'}</button>}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </section>
+                    )}
+                  </>
+                );
+              })()}
+                            <AssistantShortcut label="Analyser ce revenu avec Mč" prompt={`Analyse ce revenu enregistré dans Pata : source ${selectedIncome.source || 'non précisée'}, montant ${selectedIncome.amount} FCFA, date ${selectedIncome.date || 'non précisée'}, catégorie ${selectedIncome.categoryId || 'non précisée'}. Explique son importance dans mon équilibre financier et propose des conseils concrets. Ne modifie aucune donnée.`} promptEn={`Analyze this income entry in Pata: source ${selectedIncome.source || 'not specified'}, amount ${selectedIncome.amount} XAF, date ${selectedIncome.date || 'not specified'}, category ${translateText([...INCOME_CATEGORIES, ...customIncomeCategories].find((item) => item.id === selectedIncome.categoryId)?.label || selectedIncome.categoryId || 'not specified', 'en')}. Explain its importance to my financial balance and suggest practical advice. Do not change any data.`}/>
               {selectedIncome.cashPocket ? <p className="rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900">Cet argent provient d’un retrait Mobile Money déjà enregistré. Il ne constitue pas un revenu : il représente ton argent disponible en espèces. Relie les prochaines dépenses payées en espèces à cette source pour suivre son solde sans compter le retrait comme une dépense.</p> : selectedIncome.flowType === 'debt_borrowed' && selectedIncome.debtId ? <div className="space-y-2"><p className="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">Cet emprunt reste un mouvement neutre. Tu peux uniquement modifier son affectation à un projet ; le montant, le créancier, l’échéance et le suivi de remboursement restent protégés.</p><Button type="button" variant="outline" className="w-full" onClick={() => openEditIncome(selectedIncome)}><Pencil size={14}/> Modifier l’affectation au projet</Button></div> : selectedIncome.neutralFlow || selectedIncome.debtId || selectedIncome.repaymentDebtId ? <p className="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">Ce mouvement est lié au suivi des Dettes & prêts. Pour préserver le solde restant et l’historique, sa modification ou sa suppression se gère dans cette rubrique.</p> : <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="outline" className="flex-1" onClick={() => openEditIncome(selectedIncome)}><Pencil size={14}/> Modifier</Button>
                 <Button type="button" variant="outline" className="flex-1 border-red-200 text-red-700 hover:bg-red-50" onClick={() => { setDeleteId(selectedIncome.id); setSelectedIncome(null); }}><Trash2 size={14}/> Supprimer</Button>

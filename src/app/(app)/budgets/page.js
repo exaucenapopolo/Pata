@@ -31,7 +31,15 @@ export default function BudgetsPage() {
   const { profile } = useProfile();
   const [month, setMonth] = useState(todayMonth());
   const [selectedIncome, setSelectedIncome] = useState('all');
-  
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const requestedMonth = params.get('month') || '';
+    const requestedIncomeId = params.get('incomeId') || '';
+    if (/^\d{4}-\d{2}$/.test(requestedMonth)) setMonth(requestedMonth);
+    if (requestedIncomeId && !requestedIncomeId.includes('/')) setSelectedIncome(requestedIncomeId);
+  }, []);
+
   const { incomes } = useIncomes();
   const { budgets } = useBudgets(month, selectedIncome);
   const { expenses } = useExpenses({ startDate: month + '-01', endDate: month + '-31', limit: 500 });
