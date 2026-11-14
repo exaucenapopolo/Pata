@@ -41,3 +41,23 @@ test('les montants de la bannière portent des libellés de période et affichen
   assert.match(dashboard, /Période comptée : \{formatDate\(startDate\)\}/);
   assert.match(dashboard, /globalFinanceSummary \? formatCurrency\(totalIncome\) : '…'/);
 });
+
+test('le résumé de période somme les documents filtrés sans index composite SUM(amount)', () => {
+  const start = api.indexOf('async function handleGlobalFinanceSummary(request) {');
+  const end = api.indexOf('\nasync function handleIncomeSpendTotals(request) {', start);
+  const handler = api.slice(start, end);
+  assert.match(handler, /incomePeriod\.get\(\)/);
+  assert.match(handler, /expensePeriod\.get\(\)/);
+  assert.match(handler, /snapshot\.docs\.reduce/);
+  assert.doesNotMatch(handler, /aggregate\(\{ total: AggregateField\.sum/);
+});
+
+test('Mč récupère toutes les opérations de la période et calcule ses totaux sans requête SUM indexée', () => {
+  const api = fs.readFileSync(new URL('../src/app/api/[...path]/route.js', import.meta.url), 'utf8');
+  assert.match(api, /incomePeriodQuery\.orderBy\('date', 'desc'\)\.get\(\)/);
+  assert.match(api, /expensePeriodQuery\.orderBy\('date', 'desc'\)\.get\(\)/);
+  assert.match(api, /periodIncomeTotal = periodIncomeRows\.reduce/);
+  assert.match(api, /periodExpenseTotal = periodExpenseRows\.reduce/);
+  assert.doesNotMatch(api, /incomePeriodQuery\.aggregate/);
+  assert.doesNotMatch(api, /expensePeriodQuery\.aggregate/);
+});

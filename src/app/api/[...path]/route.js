@@ -2485,25 +2485,32 @@ async function handleGlobalFinanceSummary(request) {
     if (!isValidDate(startDate) || !isValidDate(endDate) || startDate > endDate) {
       return errorResponse('Période invalide. Indique une date de début et une date de fin correctes.', 400);
     }
+
     const userRef = adminDb.collection('users').doc(uid);
     const incomePeriod = userRef.collection('incomes')
       .where('date', '>=', startDate).where('date', '<=', endDate);
     const expensePeriod = userRef.collection('expenses')
       .where('date', '>=', startDate).where('date', '<=', endDate);
+
+    // Read only the selected date window, then sum in memory. This uses the
+    // normal date index and does not require a composite SUM(amount) index.
     const [incomesSnapshot, expensesSnapshot] = await Promise.all([
-      incomePeriod.aggregate({ total: AggregateField.sum('amount'), count: AggregateField.count() }).get(),
-      expensePeriod.aggregate({ total: AggregateField.sum('amount'), count: AggregateField.count() }).get(),
+      incomePeriod.get(),
+      expensePeriod.get(),
     ]);
-    const totalIncome = Number(incomesSnapshot.data()?.total) || 0;
-    const totalExpense = Number(expensesSnapshot.data()?.total) || 0;
+    const sumAmount = (snapshot) => snapshot.docs.reduce((sum, document) =>
+      sum + (Number(document.data()?.amount) || 0), 0);
+    const totalIncome = sumAmount(incomesSnapshot);
+    const totalExpense = sumAmount(expensesSnapshot);
+
     return NextResponse.json({
       success: true,
       startDate,
       endDate,
       totalIncome,
       totalExpense,
-      incomeCount: Number(incomesSnapshot.data()?.count) || 0,
-      expenseCount: Number(expensesSnapshot.data()?.count) || 0,
+      incomeCount: incomesSnapshot.size,
+      expenseCount: expensesSnapshot.size,
       globalBalance: totalIncome - totalExpense,
     });
   } catch (error) {
@@ -4150,11 +4157,10 @@ async function handleAIChat(request) {
     const [
       userDoc, incomesSnap, expensesSnap, debtsSnap, financialTargetSnap, goalsSnap, budgetsSnap, automationsSnap,
       memorySnap, categoriesSnap, projectsSnap, cotisationMembershipsSnap, activityLogSnap, weeklyReportsSnap,
-      incomeSummarySnap, expenseSummarySnap,
     ] = await Promise.all([
       userRef.get(),
-      includeIncomeContext ? incomePeriodQuery.orderBy('date', 'desc').limit(35).get() : Promise.resolve(emptySnapshot),
-      includeExpenseContext ? expensePeriodQuery.orderBy('date', 'desc').limit(50).get() : Promise.resolve(emptySnapshot),
+      includeIncomeContext ? incomePeriodQuery.orderBy('date', 'desc').get() : Promise.resolve(emptySnapshot),
+      includeExpenseContext ? expensePeriodQuery.orderBy('date', 'desc').get() : Promise.resolve(emptySnapshot),
       intent.needsDebts ? userRef.collection('debts').orderBy('createdAt', 'desc').limit(25).get() : Promise.resolve(emptySnapshot),
       intent.needsFinancialTargets ? userRef.collection('financialTargets').doc(getDoualaMonthKey()).get() : Promise.resolve(null),
       intent.needsGoals ? userRef.collection('goals').limit(15).get() : Promise.resolve(emptySnapshot),
@@ -4166,8 +4172,6 @@ async function handleAIChat(request) {
       intent.cotisations ? userRef.collection('cotisationMemberships').limit(12).get() : Promise.resolve(emptySnapshot),
       intent.needsActivityLog ? userRef.collection('activity_log').orderBy('deletedAt', 'desc').limit(15).get() : Promise.resolve(emptySnapshot),
       intent.needsReports ? userRef.collection('weekly_reports').orderBy('weekStart', 'desc').limit(4).get() : Promise.resolve(emptySnapshot),
-      includeIncomeContext ? incomePeriodQuery.aggregate({ total: AggregateField.sum('amount'), count: AggregateField.count() }).get() : Promise.resolve(null),
-      includeExpenseContext ? expensePeriodQuery.aggregate({ total: AggregateField.sum('amount'), count: AggregateField.count() }).get() : Promise.resolve(null),
     ]);
 
     const goalsWithDeposits = intent.needsGoals
@@ -4256,18 +4260,22 @@ async function handleAIChat(request) {
       }))).filter(Boolean);
     }
 
+    const periodIncomeRows = incomesSnap.docs;
+    const periodExpenseRows = expensesSnap.docs;
+    const periodIncomeTotal = periodIncomeRows.reduce((sum, document) => sum + (Number(document.data()?.amount) || 0), 0);
+    const periodExpenseTotal = periodExpenseRows.reduce((sum, document) => sum + (Number(document.data()?.amount) || 0), 0);
     const userData = {
       profile: userDoc.exists ? userDoc.data() : {},
       reportPeriod,
       financeSummary: {
         startDate: reportPeriod.startDate,
         endDate: reportPeriod.endDate,
-        incomeIncluded: Boolean(incomeSummarySnap),
-        expenseIncluded: Boolean(expenseSummarySnap),
-        totalIncome: incomeSummarySnap ? Number(incomeSummarySnap.data()?.total) || 0 : null,
-        totalExpense: expenseSummarySnap ? Number(expenseSummarySnap.data()?.total) || 0 : null,
-        incomeCount: incomeSummarySnap ? Number(incomeSummarySnap.data()?.count) || 0 : null,
-        expenseCount: expenseSummarySnap ? Number(expenseSummarySnap.data()?.count) || 0 : null,
+        incomeIncluded: includeIncomeContext,
+        expenseIncluded: includeExpenseContext,
+        totalIncome: includeIncomeContext ? periodIncomeTotal : null,
+        totalExpense: includeExpenseContext ? periodExpenseTotal : null,
+        incomeCount: includeIncomeContext ? periodIncomeRows.length : null,
+        expenseCount: includeExpenseContext ? periodExpenseRows.length : null,
       },
       incomes: incomesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
       expenses: expensesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),

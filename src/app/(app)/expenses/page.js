@@ -27,6 +27,7 @@ import { DebtCounterpartyField } from '@/components/debts/DebtCounterpartyField'
 import { AssistantShortcut } from '@/components/ai/AssistantShortcut';
 import { checkFinancialOperation } from '@/lib/firestore/financialTargets';
 import { translateText } from '@/lib/i18n/translations';
+import { EXPENSE_CATEGORIES } from '@/lib/constants';
 
 const todayIso = () => {
   const d = new Date();
@@ -79,6 +80,12 @@ export default function ExpensesPage() {
   
   const [filterCategory, setFilterCategory] = useState('all');
   const [filterType, setFilterType] = useState('all');
+  const [filterSort, setFilterSort] = useState('date_desc');
+  const [filterSearch, setFilterSearch] = useState('');
+  const [filterPaymentMethod, setFilterPaymentMethod] = useState('all');
+  const [filterIncomeSource, setFilterIncomeSource] = useState('all');
+  const [filterMinAmount, setFilterMinAmount] = useState('');
+  const [filterMaxAmount, setFilterMaxAmount] = useState('');
   const [form, setForm] = useState(emptyForm());
   const [showTypeHelp, setShowTypeHelp] = useState(false);
   const [projectModalOpen, setProjectModalOpen] = useState(false);
@@ -186,12 +193,33 @@ export default function ExpensesPage() {
   }, [incomesWithBalance]);
 
   const filtered = useMemo(() => {
-    return expenses
-      .filter((e) => e.date >= startDate && e.date <= endDate)
-      .filter((e) => filterCategory === 'all' || normalizeExpenseCategoryId(e.categoryId) === filterCategory)
-      .filter((e) => filterType === 'all' || (filterType === 'neutral' ? e.neutralFlow === true : !e.neutralFlow && (e.expenseType || 'consumption') === filterType))
-      .sort((a, b) => (a.date < b.date ? 1 : -1));
-  }, [expenses, startDate, endDate, filterCategory, filterType]);
+    const search = filterSearch.trim().toLocaleLowerCase();
+    const minimum = filterMinAmount === '' ? null : Number(filterMinAmount);
+    const maximum = filterMaxAmount === '' ? null : Number(filterMaxAmount);
+    const rows = expenses
+      .filter((item) => item.date >= startDate && item.date <= endDate)
+      .filter((item) => filterCategory === 'all' || normalizeExpenseCategoryId(item.categoryId) === filterCategory)
+      .filter((item) => filterType === 'all' || (filterType === 'neutral' ? item.neutralFlow === true : !item.neutralFlow && (item.expenseType || 'consumption') === filterType))
+      .filter((item) => filterPaymentMethod === 'all' || item.paymentMethod === filterPaymentMethod)
+      .filter((item) => filterIncomeSource === 'all' || item.incomeSourceId === filterIncomeSource)
+      .filter((item) => {
+        const amount = Number(item.amount) || 0;
+        if (minimum !== null && (!Number.isFinite(minimum) || amount < minimum)) return false;
+        if (maximum !== null && (!Number.isFinite(maximum) || amount > maximum)) return false;
+        if (!search) return true;
+        const category = resolveCategory(item.categoryId, 'expense', customCategories);
+        const searchableText = [item.note, item.details, item.locationLabel, item.incomeSourceName, item.person, category?.label, category?.name]
+          .filter(Boolean).join(' ').toLocaleLowerCase();
+        return searchableText.includes(search);
+      });
+    rows.sort((a, b) => {
+      if (filterSort === 'date_asc') return String(a.date || '').localeCompare(String(b.date || ''));
+      if (filterSort === 'amount_desc') return (Number(b.amount) || 0) - (Number(a.amount) || 0);
+      if (filterSort === 'amount_asc') return (Number(a.amount) || 0) - (Number(b.amount) || 0);
+      return String(b.date || '').localeCompare(String(a.date || ''));
+    });
+    return rows;
+  }, [expenses, startDate, endDate, filterCategory, filterType, filterSort, filterSearch, filterPaymentMethod, filterIncomeSource, filterMinAmount, filterMaxAmount, customCategories]);
 
   const grouped = useMemo(() => {
     const map = {};
@@ -482,47 +510,43 @@ export default function ExpensesPage() {
         ].map(([label, amount]) => <div key={label} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[11px] text-slate-500">{label}</p><p className="mt-1 text-sm font-bold text-slate-900">{formatCurrency(amount)}</p></div>)}
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 bg-white p-3 rounded-xl border border-slate-200">
-        <button
-          onClick={() => setShowCustomPeriod(false)}
-          className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${!showCustomPeriod ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
-        >
-          Ce mois
-        </button>
-        <button
-          onClick={() => setShowCustomPeriod(true)}
-          className={`flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-medium transition ${showCustomPeriod ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
-        >
-          <Calendar size={14} /> Personnalisée
-        </button>
-        
-        {showCustomPeriod && (
-          <div className="flex flex-wrap gap-2 items-center">
-            <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm" />
-            <span className="text-slate-400">→</span>
-            <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm" />
-          </div>
-        )}
-
-        <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm">
-          <option value="all">Toutes les natures</option>
-          <option value="consumption">Dépenses courantes</option>
-          <option value="project">Projets</option>
-          <option value="savings">Épargne</option>
-          <option value="investment">Investissements</option>
-          <option value="neutral">Prêts accordés (mouvements neutres)</option>
-        </select>
-        <select
-          value={filterCategory}
-          onChange={(e) => setFilterCategory(e.target.value)}
-          className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm ml-auto"
-        >
-          <option value="all">Toutes catégories</option>
-          {customCategories.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </select>
-      </div>
+      <section className="rounded-xl border border-slate-200 bg-white p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" onClick={() => setShowCustomPeriod(false)} className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${!showCustomPeriod ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>Ce mois</button>
+          <button type="button" onClick={() => setShowCustomPeriod(true)} className={`flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${showCustomPeriod ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}><Calendar size={14}/> Personnalisée</button>
+          <span className="ml-auto text-[10px] font-medium text-slate-500">{filtered.length} résultat(s)</span>
+        </div>
+        {showCustomPeriod && <div className="mt-2 flex flex-wrap items-center gap-2">
+          <label className="text-[11px] text-slate-500">Du <input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} className="ml-1 h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs"/></label>
+          <label className="text-[11px] text-slate-500">Au <input type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} className="ml-1 h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs"/></label>
+        </div>}
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <input type="search" value={filterSearch} onChange={(event) => setFilterSearch(event.target.value)} placeholder="Rechercher un motif, un lieu, une source…" aria-label="Rechercher une dépense" className="h-9 min-w-0 rounded-lg border border-slate-200 bg-white px-3 text-xs outline-none focus:border-brand-400"/>
+          <select value={filterCategory} onChange={(event) => setFilterCategory(event.target.value)} aria-label="Filtrer par catégorie" className="h-9 min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 text-xs">
+            <option value="all">Toutes les catégories</option>
+            {EXPENSE_CATEGORIES.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}
+            {customCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+          </select>
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <select value={filterType} onChange={(event) => setFilterType(event.target.value)} aria-label="Filtrer par nature" className="h-9 min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 text-xs">
+            <option value="all">Toutes les natures</option><option value="consumption">Dépenses courantes</option><option value="project">Projets</option><option value="savings">Épargne</option><option value="investment">Investissements</option><option value="neutral">Prêts accordés / transferts neutres</option>
+          </select>
+          <select value={filterSort} onChange={(event) => setFilterSort(event.target.value)} aria-label="Trier les dépenses" className="h-9 min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 text-xs">
+            <option value="date_desc">Plus récentes</option><option value="date_asc">Plus anciennes</option><option value="amount_desc">Montant : plus élevé</option><option value="amount_asc">Montant : moins élevé</option>
+          </select>
+          <select value={filterPaymentMethod} onChange={(event) => setFilterPaymentMethod(event.target.value)} aria-label="Filtrer par moyen de paiement" className="h-9 min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 text-xs">
+            <option value="all">Tous les paiements</option><option value="cash">Espèces</option><option value="mtn_momo">MTN Mobile Money</option><option value="orange_money">Orange Money</option><option value="bank_transfer">Virement bancaire</option><option value="card">Carte bancaire</option><option value="other">Autre moyen</option>
+          </select>
+          <select value={filterIncomeSource} onChange={(event) => setFilterIncomeSource(event.target.value)} aria-label="Filtrer par source de financement" className="h-9 min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 text-xs">
+            <option value="all">Toutes les sources</option>
+            {incomes.map((income) => <option key={income.id} value={income.id}>{income.source || 'Revenu'} </option>)}
+          </select>
+          <input type="number" min="0" step="1" value={filterMinAmount} onChange={(event) => setFilterMinAmount(event.target.value)} placeholder="Montant min." aria-label="Montant minimum" className="h-9 min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 text-xs"/>
+          <input type="number" min="0" step="1" value={filterMaxAmount} onChange={(event) => setFilterMaxAmount(event.target.value)} placeholder="Montant max." aria-label="Montant maximum" className="h-9 min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 text-xs"/>
+          <button type="button" onClick={() => { setFilterCategory('all'); setFilterType('all'); setFilterSort('date_desc'); setFilterSearch(''); setFilterPaymentMethod('all'); setFilterIncomeSource('all'); setFilterMinAmount(''); setFilterMaxAmount(''); }} className="h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-brand-700 hover:bg-brand-50">Réinitialiser les filtres</button>
+        </div>
+      </section>
 
       {loading ? (
         <div className="flex justify-center py-12">

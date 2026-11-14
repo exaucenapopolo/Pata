@@ -94,3 +94,25 @@ test('les trois indicateurs du tableau de bord sont compacts et affichent leurs 
   assert.match(dashboardPage, /formatCurrency\(totalExpense\)/);
   assert.match(dashboardPage, /formatCurrency\(globalBalance\)/);
 });
+
+test('la liste des revenus possède des filtres de catégorie, de disponibilité, de montant et de tri', () => {
+  assert.match(incomePage, /incomeFilterCategory/);
+  assert.match(incomePage, /incomeAvailability/);
+  assert.match(incomePage, /incomeMinAmount/);
+  assert.match(incomePage, /incomeMaxAmount/);
+  assert.match(incomePage, /amount_high/);
+  assert.match(incomePage, /date_oldest/);
+  assert.match(incomePage, /filteredIncomes\.map/);
+});
+
+test('la liste des dépenses possède des filtres de catégorie, de date, de montant, de paiement et de source', () => {
+  const expensePage = fs.readFileSync(new URL('../src/app/(app)/expenses/page.js', import.meta.url), 'utf8');
+  assert.match(expensePage, /filterCategory/);
+  assert.match(expensePage, /filterSort/);
+  assert.match(expensePage, /filterPaymentMethod/);
+  assert.match(expensePage, /filterIncomeSource/);
+  assert.match(expensePage, /filterMinAmount/);
+  assert.match(expensePage, /filterMaxAmount/);
+  assert.match(expensePage, /filterSearch/);
+  assert.match(expensePage, /EXPENSE_CATEGORIES\.map/);
+});

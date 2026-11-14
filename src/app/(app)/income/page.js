@@ -82,7 +82,7 @@ export default function IncomePage() {
   const { user } = useAuth();
   const { language } = useLanguage();
   const isEnglish = language === 'en';
-  const { incomes, balancesReady } = useIncomes();
+  const { incomes, loading: incomesLoading, balancesReady } = useIncomes();
   const { debts } = useDebts();
   const activeReceivableDebts = debts.filter((debt) => debt.type === 'owed_to_me' && ['active', 'partial', 'late'].includes(debt.status) && Number(debt.remaining) > 0);
   const { expenses } = useExpenses({ days: 30, limit: 500 });
@@ -96,6 +96,12 @@ export default function IncomePage() {
 
   const [month, setMonth] = useState(todayMonth());
   const [incomeSection, setIncomeSection] = useState('all');
+  const [incomeSearch, setIncomeSearch] = useState('');
+  const [incomeFilterCategory, setIncomeFilterCategory] = useState('all');
+  const [incomeAvailability, setIncomeAvailability] = useState('all');
+  const [incomeSort, setIncomeSort] = useState('pinned_newest');
+  const [incomeMinAmount, setIncomeMinAmount] = useState('');
+  const [incomeMaxAmount, setIncomeMaxAmount] = useState('');
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyIncomeForm());
   const [selectedIncome, setSelectedIncome] = useState(null);
@@ -342,7 +348,44 @@ export default function IncomePage() {
     window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt: isEnglish ? promptEn : prompt } }));
   };
 
-  const monthIncomes = useMemo(() => incomesWithBalance.filter((i) => i.month === month).sort((a, b) => (a.date < b.date ? 1 : -1)), [incomesWithBalance, month]);
+  const monthIncomes = useMemo(() => incomesWithBalance
+    .filter((item) => String(item.month || item.date || '').slice(0, 7) === month)
+    .sort((a, b) => String(b.date || b.createdDate || '').localeCompare(String(a.date || a.createdDate || ''))),
+  [incomesWithBalance, month]);
+
+  const filteredIncomes = useMemo(() => {
+    const query = incomeSearch.trim().toLocaleLowerCase();
+    const minimum = incomeMinAmount === '' ? null : Number(incomeMinAmount);
+    const maximum = incomeMaxAmount === '' ? null : Number(incomeMaxAmount);
+    const categories = [...INCOME_CATEGORIES, ...customIncomeCategories];
+    const matches = incomesWithBalance.filter((item) => {
+      const category = categories.find((candidate) => candidate.id === item.categoryId);
+      const searchText = [item.source, item.note, item.details, item.locationLabel, category?.label, category?.name]
+        .filter(Boolean).join(' ').toLocaleLowerCase();
+      const amount = Number(item.amount) || 0;
+      if (query && !searchText.includes(query)) return false;
+      if (incomeFilterCategory !== 'all' && item.categoryId !== incomeFilterCategory) return false;
+      if (minimum !== null && (!Number.isFinite(minimum) || amount < minimum)) return false;
+      if (maximum !== null && (!Number.isFinite(maximum) || amount > maximum)) return false;
+      if (incomeAvailability === 'available' && (!item.balanceAvailable || item.isExhausted || Number(item.remaining) <= 0)) return false;
+      if (incomeAvailability === 'exhausted' && (!item.balanceAvailable || !item.isExhausted)) return false;
+      if (incomeAvailability === 'unverified' && item.balanceAvailable) return false;
+      return true;
+    });
+
+    const dateValue = (item) => String(item.date || item.createdDate || '');
+    matches.sort((a, b) => {
+      if (incomeSort === 'pinned_newest') return Number(Boolean(b.isPinned)) - Number(Boolean(a.isPinned))
+        || dateValue(b).localeCompare(dateValue(a));
+      if (incomeSort === 'date_oldest') return dateValue(a).localeCompare(dateValue(b));
+      if (incomeSort === 'amount_high') return (Number(b.amount) || 0) - (Number(a.amount) || 0);
+      if (incomeSort === 'amount_low') return (Number(a.amount) || 0) - (Number(b.amount) || 0);
+      if (incomeSort === 'available_high') return (Number(b.remaining) || 0) - (Number(a.remaining) || 0);
+      if (incomeSort === 'available_low') return (Number(a.remaining) || 0) - (Number(b.remaining) || 0);
+      return dateValue(b).localeCompare(dateValue(a));
+    });
+    return matches;
+  }, [incomesWithBalance, incomeSearch, incomeFilterCategory, incomeAvailability, incomeSort, incomeMinAmount, incomeMaxAmount, customIncomeCategories]);
   const highestIncomeInMonth = useMemo(() => monthIncomes
     .filter((income) => !income.neutralFlow
       && !income.cashPocket
@@ -885,15 +928,46 @@ export default function IncomePage() {
 
       {(incomeSection === 'all' || incomeSection === 'revenues') && (
       <Card>
-        <div className="mb-3 flex items-center justify-between">
-          <CardTitle>Toutes mes sources de revenus</CardTitle>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <CardTitle>Toutes mes sources de revenus</CardTitle>
+            <p className="mt-1 text-[11px] text-slate-500">{filteredIncomes.length} affichée(s) sur {incomesWithBalance.length}</p>
+          </div>
           <Button size="sm" onClick={openNewIncome} data-pata-tour="income-create" disabled={incomeQuotaReached} className={incomeQuotaReached ? "opacity-50 grayscale" : ""}><Plus size={14} /> {incomeQuotaReached ? "Limite atteinte" : "Ajouter"}</Button>
         </div>
-        {incomesWithBalance.length === 0 ? (
+        <div className="mb-4 rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <input type="search" value={incomeSearch} onChange={(event) => setIncomeSearch(event.target.value)} placeholder="Rechercher une source, une note…" aria-label="Rechercher un revenu" className="h-9 min-w-0 rounded-lg border border-slate-200 bg-white px-3 text-xs outline-none focus:border-brand-400"/>
+            <select value={incomeFilterCategory} onChange={(event) => setIncomeFilterCategory(event.target.value)} aria-label="Filtrer par catégorie de revenu" className="h-9 min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 text-xs">
+              <option value="all">Toutes les catégories</option>
+              {INCOME_CATEGORIES.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}
+              {customIncomeCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+            </select>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <select value={incomeAvailability} onChange={(event) => setIncomeAvailability(event.target.value)} aria-label="Filtrer par disponibilité" className="h-9 min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 text-xs">
+              <option value="all">Tous les soldes</option><option value="available">Encore disponibles</option><option value="exhausted">Déjà épuisés</option><option value="unverified">Solde à vérifier</option>
+            </select>
+            <select value={incomeSort} onChange={(event) => setIncomeSort(event.target.value)} aria-label="Trier les revenus" className="h-9 min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 text-xs">
+              <option value="pinned_newest">Épinglés et récents</option><option value="date_newest">Plus récents</option><option value="date_oldest">Plus anciens</option><option value="amount_high">Montant : plus élevé</option><option value="amount_low">Montant : moins élevé</option><option value="available_high">Disponible : plus élevé</option><option value="available_low">Disponible : moins élevé</option>
+            </select>
+            <input type="number" min="0" step="1" value={incomeMinAmount} onChange={(event) => setIncomeMinAmount(event.target.value)} placeholder="Montant min." aria-label="Montant minimum du revenu" className="h-9 min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 text-xs"/>
+            <input type="number" min="0" step="1" value={incomeMaxAmount} onChange={(event) => setIncomeMaxAmount(event.target.value)} placeholder="Montant max." aria-label="Montant maximum du revenu" className="h-9 min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 text-xs"/>
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <p className="text-[10px] text-slate-500">Tu peux combiner plusieurs filtres.</p>
+            <button type="button" onClick={() => { setIncomeSearch(''); setIncomeFilterCategory('all'); setIncomeAvailability('all'); setIncomeSort('pinned_newest'); setIncomeMinAmount(''); setIncomeMaxAmount(''); }} className="text-[11px] font-semibold text-brand-700 hover:underline">Réinitialiser</button>
+          </div>
+        </div>
+        {incomesLoading ? (
+          <div className="flex justify-center py-8"><div className="h-6 w-6 animate-spin rounded-full border-2 border-brand-600 border-t-transparent"/></div>
+        ) : incomesWithBalance.length === 0 ? (
           <EmptyState icon={TrendingUp} title="Aucun revenu enregistré" description="Ajoute ton salaire ou une source de revenu." />
+        ) : filteredIncomes.length === 0 ? (
+          <EmptyState icon={TrendingUp} title="Aucun résultat" description="Aucun revenu ne correspond à tes filtres. Modifie ou réinitialise les critères."/>
         ) : (
           <ul className="space-y-3">
-            {[...incomesWithBalance].sort((a, b) => Number(Boolean(b.isPinned)) - Number(Boolean(a.isPinned))).map((inc) => (
+            {filteredIncomes.map((inc) => (
               <li key={inc.id}
                 onPointerDown={(event) => startIncomeLongPress(event, inc)}
                 onPointerUp={clearPinPressTimer}
