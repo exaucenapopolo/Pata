@@ -395,7 +395,23 @@ export default function DashboardPage() {
             <Link href="/reports" className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-white/20 bg-white/10 px-3 text-xs font-semibold text-white transition hover:bg-white/15">Voir mon bilan <ChevronRight size={14}/></Link>
           </div>
         </div>
-        <div className="relative mt-6 border-t border-white/15 pt-4"><p className="text-[11px] font-medium text-emerald-100">Solde global enregistré</p><p className="mt-1 break-words text-3xl font-bold tracking-tight sm:text-4xl">{formatCurrency(globalBalance)}</p><p className="mt-2 text-[10px] text-emerald-100">Variation réelle du solde : revenus et dépenses, prêts et dettes compris.</p></div>
+        <div className="relative mt-6 grid gap-2 border-t border-white/15 pt-4 sm:grid-cols-3">
+          <div className="rounded-2xl border border-white/15 bg-white/10 p-3.5">
+            <p className="text-[11px] font-medium text-emerald-100">Revenus accumulés</p>
+            <p className="mt-1 break-words text-xl font-bold tracking-tight sm:text-2xl">{globalFinanceSummary ? formatCurrency(globalFinanceSummary.accumulatedIncome) : '…'}</p>
+            <p className="mt-1 text-[10px] leading-4 text-emerald-100">Argent reçu, hors emprunts et transferts vers les espèces</p>
+          </div>
+          <div className="rounded-2xl border border-white/15 bg-white/10 p-3.5">
+            <p className="text-[11px] font-medium text-emerald-100">Sorties totales</p>
+            <p className="mt-1 break-words text-xl font-bold tracking-tight sm:text-2xl">{globalFinanceSummary ? formatCurrency(globalFinanceSummary.totalOutflow) : '…'}</p>
+            <p className="mt-1 text-[10px] leading-4 text-emerald-100">Dépenses, prêts accordés, épargne et investissements</p>
+          </div>
+          <div className="rounded-2xl border border-white/20 bg-white/15 p-3.5">
+            <p className="text-[11px] font-semibold text-white">Ce qu’il te reste</p>
+            <p className="mt-1 break-words text-xl font-bold tracking-tight sm:text-2xl">{globalFinanceSummary ? formatCurrency(globalFinanceSummary.remainingBalance) : '…'}</p>
+            <p className="mt-1 text-[10px] leading-4 text-emerald-100">Revenus accumulés moins les sorties totales</p>
+          </div>
+        </div>
       </section>
       <section data-pata-tour="dashboard-overview">
         <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-bold text-slate-900">Actions rapides</h2><span className="text-[10px] font-medium text-slate-400">Gérer mon argent</span></div>

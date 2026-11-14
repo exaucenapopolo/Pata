@@ -11,6 +11,7 @@ import { AI_TOOLS, createExpenseForUser, updateExpenseForUser, deleteExpenseForU
 import { generateAudioWithGemini } from '@/lib/ai/geminiTTS';
 import { buildIncomePriorityReminder } from '@/lib/finance/incomePriorities.mjs';
 import { sumIncomeSpendTotals } from '@/lib/finance/incomeBalances.mjs';
+import { buildDashboardMoneySummary } from '@/lib/finance/dashboardSummary.mjs';
 import { chatWithGroqVision, extractBillDataWithGroqVision } from '@/lib/ai/groqVision';
 import { generateImageWithPollinations } from '@/lib/ai/pollinationsImage';
 import { classifyAIRequest, selectAIToolsForIntent, buildCompactAIContext } from '@/lib/ai/compactContext';
@@ -2473,21 +2474,43 @@ async function handleGlobalFinanceSummary(request) {
   try {
     const { uid } = await authenticate(request);
     const userRef = adminDb.collection('users').doc(uid);
-    const [incomesSnapshot, expensesSnapshot] = await Promise.all([
-      userRef.collection('incomes').aggregate({ total: AggregateField.sum('amount') }).get(),
-      userRef.collection('expenses').aggregate({ total: AggregateField.sum('amount') }).get(),
+    const incomesRef = userRef.collection('incomes');
+    const expensesRef = userRef.collection('expenses');
+    const [
+      incomesSnapshot,
+      expensesSnapshot,
+      borrowedIncomeSnapshot,
+      cashPocketIncomeSnapshot,
+      cashWithdrawalSnapshot,
+      pendingOutflowSnapshot,
+    ] = await Promise.all([
+      incomesRef.aggregate({ total: AggregateField.sum('amount') }).get(),
+      expensesRef.aggregate({ total: AggregateField.sum('amount') }).get(),
+      incomesRef.where('categoryId', '==', 'debt_borrowed').aggregate({ total: AggregateField.sum('amount') }).get(),
+      incomesRef.where('cashPocket', '==', true).aggregate({ total: AggregateField.sum('amount') }).get(),
+      expensesRef.where('cashWithdrawal', '==', true).aggregate({ total: AggregateField.sum('amount') }).get(),
+      expensesRef.where('pendingConfirmation', '==', true).aggregate({ total: AggregateField.sum('amount') }).get(),
     ]);
     const totalIncome = Number(incomesSnapshot.data()?.total) || 0;
     const totalExpense = Number(expensesSnapshot.data()?.total) || 0;
+    const moneySummary = buildDashboardMoneySummary({
+      totalIncome,
+      totalExpense,
+      borrowedIncome: borrowedIncomeSnapshot.data()?.total,
+      cashPocketIncome: cashPocketIncomeSnapshot.data()?.total,
+      cashWithdrawals: cashWithdrawalSnapshot.data()?.total,
+      pendingOutflows: pendingOutflowSnapshot.data()?.total,
+    });
     return NextResponse.json({
       success: true,
       totalIncome,
       totalExpense,
       globalBalance: totalIncome - totalExpense,
+      ...moneySummary,
     });
   } catch (error) {
     console.error('[PATA GLOBAL FINANCE SUMMARY]', error.message || error);
-    return errorResponse(error.message || 'Impossible de calculer le solde global.', 502);
+    return errorResponse(error.message || 'Impossible de charger le résumé financier.', 502);
   }
 }
 
