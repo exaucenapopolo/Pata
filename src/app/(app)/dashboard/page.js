@@ -93,7 +93,6 @@ export default function DashboardPage() {
   const [targetError, setTargetError] = useState('');
   const [targetSaved, setTargetSaved] = useState(false);
   const [targetCollapsed, setTargetCollapsed] = useState(false);
-  const [globalFinanceSummary, setGlobalFinanceSummary] = useState(null);
   const { user } = useAuth();
   const { language } = useLanguage();
   const isEnglish = language === 'en';
@@ -146,43 +145,6 @@ export default function DashboardPage() {
 
   const startDate = showCustomPeriod ? customStart : getFirstOfMonth();
   const endDate = showCustomPeriod ? customEnd : todayIso();
-
-  useEffect(() => {
-    if (!user) {
-      setGlobalFinanceSummary(null);
-      return undefined;
-    }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)
-      || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)
-      || startDate > endDate) {
-      setGlobalFinanceSummary(null);
-      return undefined;
-    }
-    let active = true;
-    setGlobalFinanceSummary(null);
-    const loadSummary = async () => {
-      try {
-        const token = await user.getIdToken();
-        const query = '?startDate=' + encodeURIComponent(startDate) + '&endDate=' + encodeURIComponent(endDate);
-        const response = await fetch('/api/finance/global-summary' + query, {
-          headers: { Authorization: 'Bearer ' + token },
-          cache: 'no-store',
-        });
-        const result = await response.json().catch(() => ({}));
-        if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de charger le bilan de la période.');
-        if (active) setGlobalFinanceSummary(result);
-      } catch (error) {
-        console.warn('[PATA DASHBOARD SUMMARY]', error.message || error);
-      }
-    };
-    loadSummary();
-    const refresh = () => { loadSummary(); };
-    window.addEventListener('pata:income-balances-refresh', refresh);
-    return () => {
-      active = false;
-      window.removeEventListener('pata:income-balances-refresh', refresh);
-    };
-  }, [user, startDate, endDate]);
 
   const dashboardDateWindow = (() => {
     const start = new Date(startDate + 'T12:00:00');
@@ -271,12 +233,13 @@ export default function DashboardPage() {
     [prevIncomes]
   );
 
-  const totalIncome = Number(globalFinanceSummary?.totalIncome) || 0;
-  const totalExpense = Number(globalFinanceSummary?.totalExpense) || 0;
-  const globalBalance = Number(globalFinanceSummary?.globalBalance ?? (totalIncome - totalExpense));
-
-  const periodIncomeTotal = periodIncomes.filter((income) => !income.neutralFlow).reduce((s, i) => s + (i.amount || 0), 0);
-  const periodExpenseTotal = periodExpenses.filter((expense) => !expense.neutralFlow).reduce((s, e) => s + (e.amount || 0), 0);
+  // Use the exact same period totals already displayed in the dashboard cards below.
+  // The available balance is only their difference; there is no second calculation.
+  const periodIncomeTotal = periodIncomes.filter((income) => !income.neutralFlow).reduce((s, i) => s + (Number(i.amount) || 0), 0);
+  const periodExpenseTotal = periodExpenses.filter((expense) => !expense.neutralFlow).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  const totalIncome = periodIncomeTotal;
+  const totalExpense = periodExpenseTotal;
+  const globalBalance = totalIncome - totalExpense;
   const periodTypeTotals = periodExpenses.filter((expense) => !expense.neutralFlow).reduce((totals, expense) => {
     totals[getDashboardExpenseType(expense)] += Number(expense.amount) || 0;
     return totals;
@@ -406,15 +369,15 @@ export default function DashboardPage() {
         <div className="relative mt-4 grid grid-cols-3 gap-2 border-t border-white/15 pt-3">
           <div className="min-w-0 rounded-xl border border-white/15 bg-white/10 px-2.5 py-2.5 sm:px-3">
             <p className="truncate text-[10px] font-medium text-emerald-100 sm:text-[11px]">Entrées de la période</p>
-            <p className="mt-1 break-words text-sm font-bold leading-tight tracking-tight sm:text-xl">{globalFinanceSummary ? formatCurrency(totalIncome) : '…'}</p>
+            <p className="mt-1 break-words text-sm font-bold leading-tight tracking-tight sm:text-xl">{formatCurrency(periodIncomeTotal)}</p>
           </div>
           <div className="min-w-0 rounded-xl border border-white/15 bg-white/10 px-2.5 py-2.5 sm:px-3">
             <p className="truncate text-[10px] font-medium text-emerald-100 sm:text-[11px]">Sorties de la période</p>
-            <p className="mt-1 break-words text-sm font-bold leading-tight tracking-tight sm:text-xl">{globalFinanceSummary ? formatCurrency(totalExpense) : '…'}</p>
+            <p className="mt-1 break-words text-sm font-bold leading-tight tracking-tight sm:text-xl">{formatCurrency(periodExpenseTotal)}</p>
           </div>
           <div className="min-w-0 rounded-xl border border-white/20 bg-white/15 px-2.5 py-2.5 sm:px-3">
             <p className="truncate text-[10px] font-semibold text-white sm:text-[11px]">Solde de la période</p>
-            <p className="mt-1 break-words text-sm font-bold leading-tight tracking-tight sm:text-xl">{globalFinanceSummary ? formatCurrency(globalBalance) : '…'}</p>
+            <p className="mt-1 break-words text-sm font-bold leading-tight tracking-tight sm:text-xl">{formatCurrency(periodIncomeTotal - periodExpenseTotal)}</p>
           </div>
         </div>
       </section>

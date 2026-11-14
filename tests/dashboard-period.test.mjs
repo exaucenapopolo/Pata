@@ -10,13 +10,17 @@ test('le tableau de bord limite la période par défaut au premier jour du mois 
   assert.match(dashboard, /const endDate = showCustomPeriod \? customEnd : todayIso\(\);/);
 });
 
-test('le bilan du tableau de bord est rechargé quand les dates sélectionnées changent', () => {
-  assert.match(dashboard, /startDate=.+endDate=/);
-  assert.match(dashboard, /\}, \[user, startDate, endDate\]\);/);
-  assert.match(dashboard, /globalFinanceSummary\?\.totalIncome/);
-  assert.match(dashboard, /globalFinanceSummary\?\.totalExpense/);
-  assert.doesNotMatch(dashboard, /lifetimeIncomeAmount \?\?/);
-  assert.doesNotMatch(dashboard, /lifetimeExpenseAmount \?\?/);
+test('les trois montants du haut réutilisent les mêmes totaux de période que les cartes du bas', () => {
+  assert.match(dashboard, /const periodIncomeTotal = periodIncomes\.filter\(\(income\) => !income\.neutralFlow\)/);
+  assert.match(dashboard, /const periodExpenseTotal = periodExpenses\.filter\(\(expense\) => !expense\.neutralFlow\)/);
+  assert.match(dashboard, /const totalIncome = periodIncomeTotal;/);
+  assert.match(dashboard, /const totalExpense = periodExpenseTotal;/);
+  assert.match(dashboard, /const globalBalance = totalIncome - totalExpense;/);
+  assert.match(dashboard, /\{formatCurrency\(periodIncomeTotal\)\}/);
+  assert.match(dashboard, /\{formatCurrency\(periodExpenseTotal\)\}/);
+  assert.match(dashboard, /\{formatCurrency\(periodIncomeTotal - periodExpenseTotal\)\}/);
+  assert.doesNotMatch(dashboard, /globalFinanceSummary/);
+  assert.doesNotMatch(dashboard, /\/api\/finance\/global-summary/);
 });
 
 test('les agrégations serveur filtrent revenus et dépenses avec les deux dates inclusives', () => {
@@ -34,12 +38,14 @@ test('Mč reçoit explicitement la période sélectionnée depuis le tableau de 
   assert.match(dashboard, /Count no income or expense dated before/);
 });
 
-test('les montants de la bannière portent des libellés de période et affichent le chargement', () => {
+test('les montants de la bannière affichent directement les totaux de la période', () => {
   assert.match(dashboard, /Entrées de la période/);
   assert.match(dashboard, /Sorties de la période/);
   assert.match(dashboard, /Solde de la période/);
   assert.match(dashboard, /Période comptée : \{formatDate\(startDate\)\}/);
-  assert.match(dashboard, /globalFinanceSummary \? formatCurrency\(totalIncome\) : '…'/);
+  assert.match(dashboard, /\{formatCurrency\(periodIncomeTotal\)\}/);
+  assert.match(dashboard, /\{formatCurrency\(periodExpenseTotal\)\}/);
+  assert.doesNotMatch(dashboard, /globalFinanceSummary/);
 });
 
 test('le résumé de période somme les documents filtrés sans index composite SUM(amount)', () => {
