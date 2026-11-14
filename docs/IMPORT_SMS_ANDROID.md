@@ -28,11 +28,17 @@ Un retrait est distingué d'un paiement ou d'un envoi. Il est proposé à l'util
 
 L'application déclare ACTION_SEND avec text/plain. L'utilisateur peut partager un SMS depuis son application Messages vers Pata. Le texte est analysé par le parseur JavaScript local puis effacé de la mémoire de partage après traitement. La route serveur reçoit les champs parsés nécessaires et la même empreinte. La contrepartie et le solde restent dans le stockage local, comme pour la détection automatique. Le partage manuel fonctionne pour un compte Premium même si le récepteur automatique est désactivé ou indisponible.
 
+## Permissions au premier accès
+
+À la première ouverture de l'espace connecté sur un navigateur ou sur un appareil Android, Pata présente un écran d'explication si les autorisations utiles ne sont pas encore accordées. L'utilisateur doit appuyer lui-même sur **Activer les notifications** ou **Autoriser et activer la détection SMS**. Le choix est mémorisé séparément par compte et par appareil ; les réglages restent disponibles dans Paramètres pour activer ou désactiver ces fonctions plus tard.
+
+Les notifications sont proposées sur le Web et dans l'application Android. L'import automatique SMS est proposé uniquement dans l'application Android et aux comptes Pata Premium. Pata utilise la permission de réception `RECEIVE_SMS` pour traiter les SMS entrants compatibles Mobile Money ; il ne demande pas l'accès général `READ_SMS`. Le texte original est analysé localement et ne quitte pas l'appareil.
+
 ## Permission RECEIVE_SMS et installation depuis le site
 
 Android classe RECEIVE_SMS comme une permission dangereuse fortement restreinte (hard restricted). La documentation Android précise qu'elle ne peut être détenue que si l'installateur du paquet l'autorise. En plus, Google Play Protect indique que les applications installées depuis une source Internet et déclarant RECEIVE_SMS ou READ_SMS peuvent être bloquées à l'installation.
 
-Il faut donc tester le comportement sur les versions Android et les installateurs réellement ciblés. La demande runtime est intégrée, mais elle ne peut pas lever à elle seule une restriction de l'installateur. Le partage manuel reste le mode de repli.
+Il faut donc tester le comportement sur les versions Android et les installateurs réellement ciblés. La demande runtime est intégrée, mais elle ne peut pas lever à elle seule une restriction de l'installateur. Si Android refuse cette autorisation, le partage manuel d'un SMS depuis l'application Messages vers Pata reste le mode de repli.
 
 Références officielles :
 - https://developer.android.com/reference/android/Manifest.permission#RECEIVE_SMS

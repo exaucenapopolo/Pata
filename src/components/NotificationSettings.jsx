@@ -103,6 +103,55 @@ async function removeLegacyFcmRegistration(user) {
   }
 }
 
+/**
+ * Demande l'autorisation Push uniquement après un clic explicite.
+ * Sur Android natif, NativePushManager réalise ensuite l'inscription FCM
+ * après l'installation de ses écouteurs de jeton.
+ */
+export async function requestPataNotifications(user) {
+  if (!user?.uid) throw new Error('Reconnecte-toi pour activer les notifications.');
+
+  if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android') {
+    let permission = await PushNotifications.checkPermissions();
+    if (permission.receive !== 'granted') {
+      permission = await PushNotifications.requestPermissions();
+    }
+    if (permission.receive !== 'granted') {
+      throw new Error('Autorisation refusée. Tu peux l’activer dans les paramètres Android de Pata.');
+    }
+    localStorage.removeItem(NATIVE_PUSH_DISABLED_KEY(user.uid));
+    await new Promise((resolve, reject) => {
+      window.dispatchEvent(new CustomEvent('pata:request-native-push-register', {
+        detail: { resolve, reject },
+      }));
+    });
+    return { enabled: true, platform: 'android' };
+  }
+
+  const supportMessage = getPushSupportMessage();
+  if (supportMessage) throw new Error(supportMessage);
+  let permission = Notification.permission;
+  if (permission !== 'granted') permission = await Notification.requestPermission();
+  if (permission !== 'granted') {
+    throw new Error(permission === 'denied'
+      ? 'Les notifications sont bloquées par le navigateur. Autorise-les dans les réglages du site puis réessaie.'
+      : 'Autorisation non accordée. Tu pourras réessayer depuis les paramètres de Pata.');
+  }
+
+  const registration = await ensurePataServiceWorker();
+  let subscription = await registration.pushManager.getSubscription();
+  if (!subscription) {
+    subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_WEB_PUSH_VAPID_KEY),
+    });
+  }
+  await postSubscription('/api/notifications/subscribe', user, subscription);
+  await removeLegacyFcmRegistration(user);
+  localStorage.removeItem('pata-webpush-disabled:' + user.uid);
+  return { enabled: true, platform: 'web' };
+}
+
 function WebPushNotificationSettings() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
@@ -363,6 +412,50 @@ export function NativePushManager() {
     if (!user || !Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'android') return undefined;
     let active = true;
     const listenerHandles = [];
+    let nativePushReady = false;
+    let queuedRegistrationRequest = null;
+    let registrationTask = null;
+
+    const registerNativePush = async (detail = null) => {
+      if (!active) return;
+      if (!nativePushReady) {
+        queuedRegistrationRequest = detail;
+        return;
+      }
+      if (registrationTask) {
+        try {
+          await registrationTask;
+          detail?.resolve?.(true);
+        } catch (error) {
+          detail?.reject?.(error);
+        }
+        return;
+      }
+      registrationTask = (async () => {
+        const permission = await PushNotifications.checkPermissions();
+        if (permission.receive !== 'granted') {
+          throw new Error('Autorisation de notifications Android non accordée.');
+        }
+        await preparePataNativePushChannel();
+        await PushNotifications.register();
+      })();
+      try {
+        await registrationTask;
+        detail?.resolve?.(true);
+      } catch (error) {
+        detail?.reject?.(error);
+        window.dispatchEvent(new CustomEvent('pata:native-push-error', {
+          detail: error?.message || 'Les notifications n’ont pas pu être activées sur cet appareil.',
+        }));
+      } finally {
+        registrationTask = null;
+      }
+    };
+
+    const handleNativePushRequest = (event) => {
+      void registerNativePush(event.detail || null);
+    };
+    window.addEventListener('pata:request-native-push-register', handleNativePushRequest);
 
     const addListener = async (eventName, callback) => {
       const handle = await PushNotifications.addListener(eventName, callback);
@@ -400,9 +493,13 @@ export function NativePushManager() {
 
       const disabled = localStorage.getItem(NATIVE_PUSH_DISABLED_KEY(user.uid)) === '1';
       const permission = await PushNotifications.checkPermissions();
-      if (active && permission.receive === 'granted' && !disabled) {
-        await preparePataNativePushChannel();
-        await PushNotifications.register();
+      nativePushReady = true;
+      if (queuedRegistrationRequest) {
+        const request = queuedRegistrationRequest;
+        queuedRegistrationRequest = null;
+        await registerNativePush(request);
+      } else if (active && permission.receive === 'granted' && !disabled) {
+        await registerNativePush();
       }
     };
 
@@ -413,6 +510,7 @@ export function NativePushManager() {
 
     return () => {
       active = false;
+      window.removeEventListener('pata:request-native-push-register', handleNativePushRequest);
       listenerHandles.forEach((handle) => { void handle.remove().catch(() => {}); });
     };
   }, [user]);

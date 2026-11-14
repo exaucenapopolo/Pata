@@ -39,6 +39,77 @@ function readDiagnostic(raw) {
   }
 }
 
+/**
+ * Active la détection Mobile Money sur un Android Premium après le clic explicite
+ * de l'utilisateur. Pata demande RECEIVE_SMS, et non l'accès général READ_SMS.
+ */
+export async function enablePataSmsImport(user) {
+  if (!user?.uid) throw new Error('Reconnecte-toi pour activer la détection SMS.');
+  if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'android') {
+    throw new Error('La détection automatique des SMS nécessite l’application Android Pata.');
+  }
+
+  const idToken = await user.getIdToken();
+  const statusResponse = await fetch('/api/sms-import', {
+    headers: { Authorization: 'Bearer ' + idToken },
+    cache: 'no-store',
+  });
+  const statusData = await statusResponse.json().catch(() => ({}));
+  if (!statusResponse.ok || !statusData.success) {
+    throw new Error(statusData.error || 'Impossible de vérifier ton abonnement Pata.');
+  }
+  if (statusData.isPremium !== true) {
+    throw new Error('La détection automatique Mobile Money par SMS est réservée à Pata Premium.');
+  }
+
+  const permissionResult = await PataSms.requestSmsPermission();
+  if (permissionResult?.granted !== true) {
+    throw new Error(permissionResult?.reason
+      || 'Android n’a pas accordé l’autorisation de réception des SMS. Selon la source d’installation de l’APK, cette permission peut être restreinte. Le partage manuel reste disponible.');
+  }
+
+  // La notification locale du récepteur SMS est facultative ; son refus ne bloque pas la détection.
+  try {
+    await PataSms.requestNotificationPermission();
+  } catch {
+    // L'autorisation pourra être réglée plus tard dans les paramètres Android.
+  }
+
+  const configureResponse = await fetch('/api/sms-import', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer ' + idToken,
+    },
+    body: JSON.stringify({ action: 'configure', enabled: true }),
+  });
+  const configureData = await configureResponse.json().catch(() => ({}));
+  if (!configureResponse.ok || !configureData.success || !configureData.deviceToken) {
+    throw new Error(configureData.error || 'Impossible d’activer la détection SMS pour ce compte.');
+  }
+
+  const nativeConfig = await PataSms.setConfiguration({
+    enabled: true,
+    uid: user.uid,
+    deviceToken: configureData.deviceToken,
+    premiumUntilMillis: configureData.premiumUntil ? new Date(configureData.premiumUntil).getTime() : 0,
+  });
+  const nativeStatus = await PataSms.getStatus();
+  if (nativeConfig.enabled !== true || nativeStatus.receiveSmsGranted !== true) {
+    throw new Error('Android ne permet pas encore la réception automatique des SMS sur cette installation. Le partage manuel depuis Messages reste disponible.');
+  }
+  if (nativeStatus.userUid !== user.uid || nativeStatus.hasDeviceToken !== true) {
+    throw new Error('La permission est accordée, mais cet appareil n’a pas encore été relié au compte Pata. Réessaie depuis Paramètres.');
+  }
+
+  await PataSms.retryPendingSync().catch(() => {});
+  return {
+    enabled: true,
+    premiumUntil: configureData.premiumUntil || null,
+    status: await PataSms.getStatus(),
+  };
+}
+
 export function SmsImportSettings() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);

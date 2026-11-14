@@ -17,7 +17,9 @@ function getConfiguredFromAddress() {
 
   throw new Error('RESEND_FROM_EMAIL doit être une adresse valide ou au format « Pata <adresse@domaine> ». Vérifie aussi que le domaine correspond exactement à celui vérifié dans Resend.');
 }
-const SUPPORT_PHONE = '237681144638';
+const SUPPORT_PHONE = '14236752034';
+const FACEBOOK_PAGE_URL = 'https://www.facebook.com/share/1Rd13NJTpL/';
+const WHATSAPP_CHANNEL_URL = 'https://whatsapp.com/channel/0029VbEP2fSAInPrijieOK3k';
 
 export function escapeEmailHtml(value = '') {
   return String(value).replace(/[&<>"']/g, (char) => ({
@@ -49,10 +51,27 @@ export function renderPataEmail({ preheader = '', eyebrow = 'PATA', headline, in
       </td></tr>
       <tr><td style="padding:20px 22px;background:#f8faf9;border-top:1px solid #edf1ee;">
         <div style="color:#64748b;font-size:11px;line-height:1.7;">
-          Besoin d’aide ? <a href="https://wa.me/${SUPPORT_PHONE}?text=Bonjour%20Pata%2C%20j%E2%80%99ai%20besoin%20d%E2%80%99aide." style="color:#0b5c46;text-decoration:none;font-weight:700;">Contacter l’assistance Pata sur WhatsApp</a><br>
+          Besoin d’aide ? <a href="https://wa.me/${SUPPORT_PHONE}?text=Bonjour%20Pata%2C%20j%E2%80%99ai%20besoin%20d%E2%80%99aide." style="color:#0b5c46;text-decoration:none;font-weight:700;">WhatsApp assistance · +1 (423) 675-2034</a><br>
           <a href="${APP_URL}/support" style="color:#0b5c46;text-decoration:none;font-weight:700;">Centre d’assistance</a> ·
-          <a href="${APP_URL}/confidentialite" style="color:#0b5c46;text-decoration:none;">Confidentialité</a><br>
-          © ${new Date().getFullYear()} Pata · Gestion financière personnelle
+          <a href="${APP_URL}/confidentialite" style="color:#0b5c46;text-decoration:none;">Confidentialité</a>
+          <p style="margin:16px 0 8px;color:#475569;font-size:12px;font-weight:700;">Suis Pata pour recevoir nos actualités et conseils.</p>
+          <table role="presentation" cellspacing="0" cellpadding="0" style="margin:0;">
+            <tr>
+              <td valign="middle" style="padding:0 18px 0 0;">
+                <a href="${FACEBOOK_PAGE_URL}" style="display:inline-block;color:#334155;text-decoration:none;font-size:11px;font-weight:700;">
+                  <img src="${APP_URL}/facebook-mark.svg" width="24" height="24" alt="Facebook" style="display:inline-block;vertical-align:middle;border:0;margin-right:6px;">
+                  Suivre Pata sur Facebook
+                </a>
+              </td>
+              <td valign="middle" style="padding:0;">
+                <a href="${WHATSAPP_CHANNEL_URL}" style="display:inline-block;color:#334155;text-decoration:none;font-size:11px;font-weight:700;">
+                  <img src="${APP_URL}/whatsapp-mark.svg" width="24" height="24" alt="WhatsApp" style="display:inline-block;vertical-align:middle;border:0;margin-right:6px;">
+                  Rejoindre notre chaîne WhatsApp
+                </a>
+              </td>
+            </tr>
+          </table>
+          <p style="margin:14px 0 0;">© ${new Date().getFullYear()} Pata · Gestion financière personnelle</p>
         </div>
       </td></tr>
     </table>

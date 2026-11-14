@@ -96,6 +96,17 @@ export default function HelpPage() {
             </a>
           </div>
           <Link href="/support" className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-lg px-2 text-xs font-semibold text-[#0b5c46] hover:bg-emerald-50"><Sparkles size={15}/>{isEnglish ? 'Describe a specific problem to support' : 'Décrire un problème précis à l’assistance'} →</Link>
+          <div className="mt-4 border-t border-slate-100 pt-4">
+            <p className="text-xs font-semibold text-slate-700">{isEnglish ? 'Follow Pata' : 'Suis aussi Pata'}</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <a href="https://www.facebook.com/share/1Rd13NJTpL/" target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                <img src="/facebook-mark.svg" alt="" width="22" height="22"/> Facebook
+              </a>
+              <a href="https://whatsapp.com/channel/0029VbEP2fSAInPrijieOK3k" target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                <img src="/whatsapp-mark.svg" alt="" width="22" height="22"/> {isEnglish ? 'WhatsApp channel' : 'Chaîne WhatsApp'}
+              </a>
+            </div>
+          </div>
         </section>
       </div>
       <AssistantButton showLauncher={false}/>

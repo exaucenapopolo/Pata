@@ -9,6 +9,7 @@ import { AssistantButton } from '@/components/ai/AssistantButton';
 import { SmartBackButton } from '@/components/layout/SmartBackButton';
 import { NotificationNudge } from '@/components/NotificationNudge';
 import { NativePushManager } from '@/components/NotificationSettings';
+import { FirstAccessPermissions } from '@/components/FirstAccessPermissions';
 import { PushMessageListener } from '@/components/PushMessageListener';
 import { NotificationOpportunityTrigger } from '@/components/NotificationOpportunityTrigger';
 import { PinGate } from '@/components/security/PinGate';
@@ -35,6 +36,7 @@ export default function AppLayout({ children }) {
         <SmsImportCoordinator />
         <PremiumReminder />  {/* 🟢 Bandeau d'alerte */}
         <NativePushManager />
+        <FirstAccessPermissions />
         <NotificationNudge />
         <PushMessageListener />
         <NotificationOpportunityTrigger user={user} />

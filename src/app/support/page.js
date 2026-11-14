@@ -57,6 +57,17 @@ export default function SupportPage() {
             <a href="mailto:support@pata-yam.site" className="rounded-xl border border-slate-200 bg-white p-3 text-center text-xs font-semibold text-slate-700">E-mail<br/>support@pata-yam.site</a>
           </div>
           <p className="mt-3 text-center text-[11px] text-slate-500">Consulte d’abord le <a href="/help" className="font-semibold text-[#075b43] underline">Centre d’aide</a> pour les questions d’utilisation courantes.</p>
+          <div className="mt-4 border-t border-slate-100 pt-4">
+            <p className="text-center text-xs font-semibold text-slate-700">Suis Pata sur nos réseaux</p>
+            <div className="mt-2 flex flex-wrap justify-center gap-2">
+              <a href="https://www.facebook.com/share/1Rd13NJTpL/" target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                <img src="/facebook-mark.svg" alt="" width="22" height="22"/> Facebook
+              </a>
+              <a href="https://whatsapp.com/channel/0029VbEP2fSAInPrijieOK3k" target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                <img src="/whatsapp-mark.svg" alt="" width="22" height="22"/> Chaîne WhatsApp
+              </a>
+            </div>
+          </div>
         </div>
       </section>
     </div>
