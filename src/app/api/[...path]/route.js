@@ -2473,22 +2473,41 @@ function readOptionalIncomeMetadata(body = {}, previous = {}) {
 async function handleGlobalFinanceSummary(request) {
   try {
     const { uid } = await authenticate(request);
+    const url = new URL(request.url);
+    const startDate = String(url.searchParams.get('startDate') || '').trim();
+    const endDate = String(url.searchParams.get('endDate') || '').trim();
+    const isValidDate = (value) => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+      const parsed = new Date(value + 'T00:00:00.000Z');
+      return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+    };
+    if (!isValidDate(startDate) || !isValidDate(endDate) || startDate > endDate) {
+      return errorResponse('Période invalide. Indique une date de début et une date de fin correctes.', 400);
+    }
     const userRef = adminDb.collection('users').doc(uid);
+    const incomePeriod = userRef.collection('incomes')
+      .where('date', '>=', startDate).where('date', '<=', endDate);
+    const expensePeriod = userRef.collection('expenses')
+      .where('date', '>=', startDate).where('date', '<=', endDate);
     const [incomesSnapshot, expensesSnapshot] = await Promise.all([
-      userRef.collection('incomes').aggregate({ total: AggregateField.sum('amount') }).get(),
-      userRef.collection('expenses').aggregate({ total: AggregateField.sum('amount') }).get(),
+      incomePeriod.aggregate({ total: AggregateField.sum('amount'), count: AggregateField.count() }).get(),
+      expensePeriod.aggregate({ total: AggregateField.sum('amount'), count: AggregateField.count() }).get(),
     ]);
     const totalIncome = Number(incomesSnapshot.data()?.total) || 0;
     const totalExpense = Number(expensesSnapshot.data()?.total) || 0;
     return NextResponse.json({
       success: true,
+      startDate,
+      endDate,
       totalIncome,
       totalExpense,
+      incomeCount: Number(incomesSnapshot.data()?.count) || 0,
+      expenseCount: Number(expensesSnapshot.data()?.count) || 0,
       globalBalance: totalIncome - totalExpense,
     });
   } catch (error) {
-    console.error('[PATA GLOBAL FINANCE SUMMARY]', error.message || error);
-    return errorResponse(error.message || 'Impossible de calculer le solde global.', 502);
+    console.error('[PATA PERIOD FINANCE SUMMARY]', error.message || error);
+    return errorResponse(error.message || 'Impossible de calculer le bilan de la période.', 502);
   }
 }
 async function handleIncomeSpendTotals(request) {

@@ -22,7 +22,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/context/LanguageContext';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { generateAdvice, adviceIconColor } from '@/lib/advisor';
-import { formatCurrency, formatDate, resolveCategory, getFirstOfMonth, getLastOfMonth, normalizeExpenseCategoryId } from '@/lib/utils';
+import { formatCurrency, formatDate, resolveCategory, getFirstOfMonth, normalizeExpenseCategoryId } from '@/lib/utils';
 import { buildFinancialSuggestions, FINANCIAL_RESOLUTIONS, getPeriodBounds, getPeriodKey } from '@/lib/financialPlanning';
 import { translateText } from '@/lib/i18n/translations';
 
@@ -144,21 +144,32 @@ export default function DashboardPage() {
     return () => { active = false; };
   }, [user, targetPeriodType, targetPeriodKey]);
 
+  const startDate = showCustomPeriod ? customStart : getFirstOfMonth();
+  const endDate = showCustomPeriod ? customEnd : todayIso();
+
   useEffect(() => {
     if (!user) {
       setGlobalFinanceSummary(null);
       return undefined;
     }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)
+      || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)
+      || startDate > endDate) {
+      setGlobalFinanceSummary(null);
+      return undefined;
+    }
     let active = true;
+    setGlobalFinanceSummary(null);
     const loadSummary = async () => {
       try {
         const token = await user.getIdToken();
-        const response = await fetch('/api/finance/global-summary', {
+        const query = '?startDate=' + encodeURIComponent(startDate) + '&endDate=' + encodeURIComponent(endDate);
+        const response = await fetch('/api/finance/global-summary' + query, {
           headers: { Authorization: 'Bearer ' + token },
           cache: 'no-store',
         });
         const result = await response.json().catch(() => ({}));
-        if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de charger le solde global.');
+        if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de charger le bilan de la période.');
         if (active) setGlobalFinanceSummary(result);
       } catch (error) {
         console.warn('[PATA DASHBOARD SUMMARY]', error.message || error);
@@ -171,10 +182,7 @@ export default function DashboardPage() {
       active = false;
       window.removeEventListener('pata:income-balances-refresh', refresh);
     };
-  }, [user]);
-
-  const startDate = showCustomPeriod ? customStart : getFirstOfMonth();
-  const endDate = showCustomPeriod ? customEnd : getLastOfMonth();
+  }, [user, startDate, endDate]);
 
   const dashboardDateWindow = (() => {
     const start = new Date(startDate + 'T12:00:00');
@@ -263,9 +271,9 @@ export default function DashboardPage() {
     [prevIncomes]
   );
 
-  const totalIncome = Number(globalFinanceSummary?.totalIncome ?? profile?.lifetimeIncomeAmount ?? 0);
-  const totalExpense = Number(globalFinanceSummary?.totalExpense ?? profile?.lifetimeExpenseAmount ?? 0);
-  const globalBalance = totalIncome - totalExpense;
+  const totalIncome = Number(globalFinanceSummary?.totalIncome) || 0;
+  const totalExpense = Number(globalFinanceSummary?.totalExpense) || 0;
+  const globalBalance = Number(globalFinanceSummary?.globalBalance ?? (totalIncome - totalExpense));
 
   const periodIncomeTotal = periodIncomes.filter((income) => !income.neutralFlow).reduce((s, i) => s + (i.amount || 0), 0);
   const periodExpenseTotal = periodExpenses.filter((expense) => !expense.neutralFlow).reduce((s, e) => s + (e.amount || 0), 0);
@@ -391,7 +399,7 @@ export default function DashboardPage() {
         <div className="relative flex flex-wrap items-start justify-between gap-4">
           <div><p className="text-xs font-semibold tracking-wide text-emerald-100">TON ESPACE FINANCIER</p><h1 className="mt-2 text-xl font-bold tracking-tight sm:text-2xl">Bonjour {userName}</h1><p className="mt-1 max-w-sm text-xs leading-5 text-emerald-100 sm:text-sm">Voici ce qui se passe dans tes finances. Garde une vue claire sur ton argent.</p></div>
           <div className="flex flex-wrap items-center gap-2">
-            <AssistantShortcut label="Conseil personnalisé" prompt="Fais un bilan de ma situation financière à partir des informations de mon tableau de bord Pata. Explique les points forts, les risques et trois actions prioritaires adaptées à mes revenus, dépenses, budgets et objectifs. Ne modifie aucune donnée." promptEn="Review my financial situation using the information on my Pata dashboard. Explain my strengths, risks and three priority actions based on my income, expenses, budgets and goals. Do not change any data." />
+            <AssistantShortcut label="Conseil personnalisé" prompt={`Fais un bilan de ma situation financière Pata uniquement pour la période du ${startDate} au ${endDate} inclus. Calcule les revenus et dépenses en ne prenant aucune opération antérieure au ${startDate} ni postérieure au ${endDate}. Explique les points forts, les risques et trois actions prioritaires adaptées à cette période. Ne mélange jamais ce bilan avec les mois précédents et ne modifie aucune donnée.`} promptEn={`Review my Pata financial situation only for the period from ${startDate} through ${endDate}, inclusive. Count no income or expense dated before ${startDate} or after ${endDate}. Explain strengths, risks and three practical priorities for this period. Never mix this with previous months and do not change any data.`} />
             <Link href="/reports" className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-white/20 bg-white/10 px-3 text-xs font-semibold text-white transition hover:bg-white/15">Voir mon bilan <ChevronRight size={14}/></Link>
           </div>
         </div>
@@ -618,12 +626,12 @@ export default function DashboardPage() {
         <Card>
           <div className="flex items-center gap-2 text-slate-500">
             <Wallet size={16} />
-            <CardTitle>Solde Global</CardTitle>
+            <CardTitle>Solde de la période</CardTitle>
           </div>
           <CardValue className={globalBalance < 0 ? 'text-red-600' : 'text-slate-900'}>
             {formatCurrency(globalBalance)}
           </CardValue>
-          <p className="mt-1 text-xs text-slate-500">Revenus moins toutes les sorties : dépenses, épargne et investissements.</p>
+          <p className="mt-1 text-xs text-slate-500">Entrées moins sorties sur la période affichée.</p>
         </Card>
         <Card>
           <div className="flex items-center gap-2 text-slate-500">
