@@ -5745,6 +5745,271 @@ async function handleAdminOverview(request) {
 }
 
 
+
+
+function getAdminMonthBounds(monthValue) {
+  const candidate = String(monthValue || getDoualaMonthKey()).trim();
+  const match = candidate.match(/^(\d{4})-(0[1-9]|1[0-2])$/);
+  const month = match ? candidate : getDoualaMonthKey();
+  const [year, monthNumber] = month.split('-').map(Number);
+  const start = new Date(Date.UTC(year, monthNumber - 1, 1) - 60 * 60 * 1000);
+  const end = new Date(Date.UTC(year, monthNumber, 1) - 60 * 60 * 1000);
+  return { month, start, end };
+}
+
+async function getAdminMonthlyMetrics(monthValue) {
+  const { month, start, end } = getAdminMonthBounds(monthValue);
+  const users = adminDb.collection('users');
+  const subscriptions = adminDb.collection('subscriptionPayments').where('status', '==', 'CONFIRMED');
+  const cotPayments = adminDb.collection('cotisationPayments').where('status', '==', 'CONFIRMED');
+  const walletDeposits = adminDb.collection('deposits').where('status', '==', 'CONFIRMED');
+  const range = (query) => query.where('createdAt', '>=', start).where('createdAt', '<', end);
+  const nowIso = new Date().toISOString();
+  const [
+    signups, activeUsers, currentPremium, groupCreations, activeGroups,
+    subscriptionSummary, walletSubscriptionSummary, cotisationSummary, walletSummary,
+  ] = await Promise.all([
+    range(users).count().get().then((snap) => Number(snap.data().count) || 0).catch(() => null),
+    users.where('lastSeenAt', '>=', start).where('lastSeenAt', '<', end).count().get()
+      .then((snap) => Number(snap.data().count) || 0).catch(() => null),
+    users.where('premiumUntil', '>', nowIso).count().get()
+      .then((snap) => Number(snap.data().count) || 0).catch(() => null),
+    range(adminDb.collection('cotisationGroups')).count().get()
+      .then((snap) => Number(snap.data().count) || 0).catch(() => null),
+    adminDb.collection('cotisationGroups').where('status', '==', 'active').count().get()
+      .then((snap) => Number(snap.data().count) || 0).catch(() => null),
+    range(subscriptions).aggregate({ count: AggregateField.count(), total: AggregateField.sum('amount') }).get()
+      .then((snap) => ({ count: Number(snap.data().count) || 0, total: Number(snap.data().total) || 0 }))
+      .catch(() => ({ count: null, total: null, unavailable: true })),
+    range(subscriptions).where('method', '==', 'balance')
+      .aggregate({ total: AggregateField.sum('amount') }).get()
+      .then((snap) => Number(snap.data().total) || 0).catch(() => 0),
+    range(cotPayments).aggregate({
+      count: AggregateField.count(),
+      base: AggregateField.sum('amount'),
+      penalties: AggregateField.sum('penaltyAmount'),
+      fees: AggregateField.sum('fee'),
+    }).get().then((snap) => ({
+      count: Number(snap.data().count) || 0,
+      base: Number(snap.data().base) || 0,
+      penalties: Number(snap.data().penalties) || 0,
+      fees: Number(snap.data().fees) || 0,
+    })).catch(() => ({ count: null, base: null, penalties: null, fees: null, unavailable: true })),
+    range(walletDeposits).aggregate({
+      count: AggregateField.count(),
+      credited: AggregateField.sum('amount'),
+      fees: AggregateField.sum('fee'),
+      providerFees: AggregateField.sum('paymentProviderFee'),
+      pataRevenue: AggregateField.sum('pataRevenue'),
+    }).get().then((snap) => ({
+      count: Number(snap.data().count) || 0,
+      credited: Number(snap.data().credited) || 0,
+      fees: Number(snap.data().fees) || 0,
+      providerFees: Number(snap.data().providerFees) || 0,
+      pataRevenue: Number(snap.data().pataRevenue) || 0,
+    })).catch(() => ({ count: null, credited: null, fees: null, providerFees: null, pataRevenue: null, unavailable: true })),
+  ]);
+
+  const cotBase = Number(cotisationSummary.base || 0) + Number(cotisationSummary.penalties || 0);
+  const cotProviderCost = cotisationSummary.unavailable ? null : Math.round(cotBase * 0.03);
+  const cotPataRevenue = cotisationSummary.unavailable ? null : Number(cotisationSummary.fees || 0) - cotProviderCost;
+  const walletFees = Number(walletSummary.fees || 0);
+  const walletProviderCost = walletSummary.unavailable ? null
+    : (Number(walletSummary.providerFees || 0) || Math.round(Number(walletSummary.credited || 0) * 0.03));
+  const walletPataRevenue = walletSummary.unavailable ? null : Number(walletSummary.pataRevenue || 0);
+  const subscriptionRevenue = Number(subscriptionSummary.total || 0);
+  const externalSubscriptionBase = Math.max(0, subscriptionRevenue - Number(walletSubscriptionSummary || 0));
+  const subscriptionProviderCost = subscriptionSummary.unavailable ? null : Math.round(externalSubscriptionBase * 0.03);
+  const revenueTotal = subscriptionSummary.unavailable || cotisationSummary.unavailable || walletSummary.unavailable
+    ? null : subscriptionRevenue + Number(cotisationSummary.fees || 0) + walletFees;
+  const paymentCosts = subscriptionProviderCost == null || cotProviderCost == null || walletProviderCost == null
+    ? null : subscriptionProviderCost + cotProviderCost + walletProviderCost;
+  const netAfterPaymentCosts = revenueTotal == null || paymentCosts == null ? null : revenueTotal - paymentCosts;
+
+  return {
+    month,
+    newUsers: signups,
+    activeUsers,
+    premiumUsers: currentPremium,
+    cotisationGroupsCreated: groupCreations,
+    activeCotisationGroups: activeGroups,
+    subscriptionRevenue,
+    subscriptionPayments: subscriptionSummary.count,
+    subscriptionProviderCost,
+    cotisationTransactions: cotisationSummary.count,
+    cotisationBase: cotBase,
+    cotisationFees: cotisationSummary.fees,
+    cotisationProviderCost: cotProviderCost,
+    cotisationPataRevenue: cotPataRevenue,
+    walletDeposits: walletSummary.count,
+    walletCredited: walletSummary.credited,
+    walletFees,
+    walletProviderCost,
+    walletPataRevenue,
+    revenueTotal,
+    paymentCosts,
+    netAfterPaymentCosts,
+    unavailable: subscriptionSummary.unavailable === true
+      || cotisationSummary.unavailable === true || walletSummary.unavailable === true,
+  };
+}
+
+async function handleAdminMonthlyMetrics(request) {
+  try {
+    await requireAdmin(request);
+    const url = new URL(request.url);
+    const { month } = getAdminMonthBounds(url.searchParams.get('month'));
+    const [metrics, targetsSnap] = await Promise.all([
+      getAdminMonthlyMetrics(month),
+      adminDb.collection('adminMonthlyTargets').doc(month).get(),
+    ]);
+    return NextResponse.json({ success: true, metrics, targets: targetsSnap.exists ? targetsSnap.data() || {} : null });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de charger les indicateurs mensuels.', 401);
+  }
+}
+
+async function handleAdminSaveMonthlyTargets(request) {
+  try {
+    await requireAdmin(request);
+    const body = await request.json();
+    const { month } = getAdminMonthBounds(body.month);
+    const keys = ['revenue', 'newUsers', 'activeUsers', 'premiumUsers', 'cotisationGroups', 'cotisationTransactions', 'walletDeposits'];
+    const targets = {};
+    for (const key of keys) {
+      const value = Number(body.targets?.[key] ?? 0);
+      if (!Number.isSafeInteger(value) || value < 0 || value > 1000000000000) {
+        return errorResponse('Un des objectifs mensuels contient une valeur invalide.', 400);
+      }
+      targets[key] = value;
+    }
+    await adminDb.collection('adminMonthlyTargets').doc(month).set({
+      month, targets, updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    return NextResponse.json({ success: true, month, targets });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible d’enregistrer les objectifs mensuels.', 400);
+  }
+}
+
+async function handleAdminCotisations(request) {
+  try {
+    await requireAdmin(request);
+    const url = new URL(request.url);
+    const limit = Math.max(5, Math.min(50, Number(url.searchParams.get('limit')) || 25));
+    const cursor = String(url.searchParams.get('cursor') || '').trim().slice(0, 150);
+    const status = String(url.searchParams.get('status') || 'all');
+    const groupsRef = adminDb.collection('cotisationGroups');
+    let query = groupsRef.orderBy('createdAt', 'desc');
+    if (status === 'active' || status === 'closed') query = query.where('status', '==', status);
+    if (cursor) {
+      if (cursor.includes('/')) return errorResponse('Repère de pagination invalide.', 400);
+      const cursorDoc = await groupsRef.doc(cursor).get();
+      if (!cursorDoc.exists) return errorResponse('La liste des cotisations a changé. Actualise la page.', 409);
+      query = query.startAfter(cursorDoc);
+    }
+    const snapshot = await query.limit(limit + 1).get();
+    const hasMore = snapshot.docs.length > limit;
+    const docs = snapshot.docs.slice(0, limit);
+    const ownerIds = [...new Set(docs.map((doc) => String(doc.data()?.ownerId || '')).filter(Boolean))];
+    const owners = await Promise.all(ownerIds.map(async (uid) => {
+      const snap = await adminDb.collection('users').doc(uid).get();
+      return [uid, snap.exists ? snap.data() || {} : {}];
+    }));
+    const ownerMap = new Map(owners);
+    const groups = await Promise.all(docs.map(async (document) => {
+      const data = document.data() || {};
+      let cycle = null;
+      try {
+        const meta = await resolveCurrentCotisationCycleMeta(document.ref, data);
+        if (meta?.cycleKey) {
+          const cycleSnap = await document.ref.collection('cycles').doc(meta.cycleKey).get();
+          if (cycleSnap.exists) cycle = { ...cycleSnap.data(), cycleKey: meta.cycleKey };
+        }
+      } catch (error) {
+        console.warn('[ADMIN COTISATION CYCLE]', document.id, error.message || error);
+      }
+      const owner = ownerMap.get(String(data.ownerId || '')) || {};
+      return {
+        id: document.id,
+        name: String(data.name || 'Cotisation sans nom'),
+        description: String(data.description || ''),
+        ownerId: String(data.ownerId || ''),
+        ownerName: String(owner.displayName || 'Responsable du groupe'),
+        ownerEmail: String(owner.email || ''),
+        ownerPhone: String(owner.phone || ''),
+        status: String(data.status || 'active'),
+        memberCount: Math.max(0, Number(data.memberCount) || 0),
+        expectedMembers: Math.max(0, Number(data.expectedMembers || data.maxMembers) || 0),
+        contributionAmount: cotisationMoney(data.contributionAmount),
+        frequency: String(data.frequency || '—'),
+        dueDay: data.dueDay == null ? null : Number(data.dueDay),
+        startDate: String(data.startDate || ''),
+        startedAt: serializeAdminValue(data.startedAt || null),
+        createdAt: serializeAdminValue(data.createdAt || null),
+        cycle: cycle ? {
+          cycleKey: cycle.cycleKey,
+          startDate: String(cycle.startDate || ''),
+          dueAt: String(cycle.dueAt || ''),
+          status: String(cycle.status || ''),
+          totalCollected: cotisationMoney(cycle.totalCollected),
+          targetAmount: cotisationMoney(cycle.targetAmount || cycle.baseTargetAmount),
+        } : null,
+      };
+    }));
+    return NextResponse.json({ success: true, groups, hasMore, nextCursor: hasMore && docs.length ? docs[docs.length - 1].id : null });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de charger les cotisations.', 401);
+  }
+}
+
+async function handleAdminCotisationContact(request) {
+  try {
+    await requireAdmin(request);
+    const body = await request.json();
+    const groupId = String(body.groupId || '').trim().slice(0, 150);
+    const channel = body.channel === 'notification' ? 'notification' : 'email';
+    const title = String(body.title || 'Un message de Pata').trim().slice(0, 100);
+    const message = String(body.message || '').trim().slice(0, 1600);
+    if (!groupId || groupId.includes('/') || !message) return errorResponse('Groupe ou message invalide.', 400);
+    const groupSnap = await adminDb.collection('cotisationGroups').doc(groupId).get();
+    if (!groupSnap.exists) return errorResponse('Groupe de cotisation introuvable.', 404);
+    const ownerUid = String(groupSnap.data()?.ownerId || '');
+    if (!ownerUid) return errorResponse('Le responsable de ce groupe est introuvable.', 404);
+    const ownerRef = adminDb.collection('users').doc(ownerUid);
+    const ownerSnap = await ownerRef.get();
+    if (!ownerSnap.exists) return errorResponse('Le compte du responsable est introuvable.', 404);
+    const owner = ownerSnap.data() || {};
+    if (channel === 'email') {
+      if (!owner.email || !String(owner.email).includes('@')) return errorResponse('Aucune adresse e-mail valide n’est enregistrée pour ce responsable.', 400);
+      await sendPataEmail({
+        to: owner.email,
+        subject: title,
+        html: customAdminEmail({
+          name: owner.displayName || 'Responsable du groupe',
+          headline: title,
+          body: message,
+          ctaUrl: '/cotisations',
+          ctaLabel: 'Ouvrir mes cotisations',
+        }),
+        idempotencyKey: 'pata-admin-cotisation-' + groupId + '-' + Date.now(),
+      });
+      return NextResponse.json({ success: true, channel, recipient: owner.email });
+    }
+    const notificationId = 'admin-cotisation-' + groupId + '-' + Date.now();
+    await ownerRef.collection('notifications').doc(notificationId).set({
+      title, body: message, target: '/cotisations', source: 'admin_cotisation',
+      groupId, read: false, readAt: null, createdAt: FieldValue.serverTimestamp(),
+    });
+    await sendPataPushToUser(ownerRef, {
+      title, body: message, url: '/cotisations', tag: notificationId, source: 'admin_cotisation',
+    }, getPataAppUrl(request), owner);
+    return NextResponse.json({ success: true, channel, recipient: owner.email || owner.displayName || ownerUid });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de contacter le responsable du groupe.', 400);
+  }
+}
+
 async function handleAdminSavings(request) {
   try {
     await requireAdmin(request);
@@ -9091,6 +9356,10 @@ const ROUTES = {
   'admin/unlock': { POST: handleAdminUnlock },
   'admin/logout': { POST: handleAdminLogout },
   'admin/overview': { GET: handleAdminOverview },
+  'admin/monthly-metrics': { GET: handleAdminMonthlyMetrics },
+  'admin/monthly-targets': { POST: handleAdminSaveMonthlyTargets },
+  'admin/cotisations': { GET: handleAdminCotisations },
+  'admin/cotisations/contact': { POST: handleAdminCotisationContact },
   'admin/savings': { GET: handleAdminSavings },
   'admin/notification-recipients': { GET: handleAdminNotificationRecipients },
   'admin/notification-history': { GET: handleAdminNotificationHistory },
