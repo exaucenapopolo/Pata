@@ -207,11 +207,63 @@ async function persistAutomaticNotificationDelivery(userRef, userData, notificat
   return logId;
 }
 
+async function sendScheduledNotificationEmail({ to, subject, html, idempotencyKey }) {
+  const recipient = String(to || '').trim();
+  const key = String(idempotencyKey || '').trim().slice(0, 180);
+  if (!recipient.includes('@') || !key || !String(subject || '').trim() || !html) return false;
+
+  // Pata réserve au maximum 100 e-mails de notification planifiée par jour local.
+  // Les e-mails transactionnels de sécurité et de paiement continuent d'utiliser
+  // sendPataEmail directement et ne sont pas bloqués par ce quota de rétention.
+  const dateKey = getRetentionDoualaDateKey();
+  const quotaRef = adminDb.collection('notificationEmailDailyQuotas').doc(dateKey);
+  const reservation = await adminDb.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(quotaRef);
+    const data = snapshot.exists ? snapshot.data() || {} : {};
+    const keys = Array.isArray(data.idempotencyKeys) ? data.idempotencyKeys.map(String) : [];
+    const count = Math.max(0, Number(data.count) || 0);
+    if (keys.includes(key)) return { allowed: false, reason: 'duplicate' };
+    if (count >= 100) return { allowed: false, reason: 'daily_email_limit' };
+    transaction.set(quotaRef, {
+      date: dateKey,
+      count: count + 1,
+      idempotencyKeys: [...keys, key].slice(-100),
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    return { allowed: true };
+  });
+  if (!reservation.allowed) {
+    if (reservation.reason === 'daily_email_limit') console.warn('[PATA NOTIFICATION EMAIL] Daily limit of 100 reached for', dateKey);
+    return false;
+  }
+
+  try {
+    await sendPataEmail({ to: recipient, subject, html, idempotencyKey: key });
+    return true;
+  } catch (error) {
+    // Libère la réservation lorsqu'un envoi échoue pour qu'un autre e-mail utile
+    // puisse utiliser cette place au cours de la même journée.
+    await adminDb.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(quotaRef);
+      if (!snapshot.exists) return;
+      const data = snapshot.data() || {};
+      const keys = Array.isArray(data.idempotencyKeys) ? data.idempotencyKeys.map(String) : [];
+      if (!keys.includes(key)) return;
+      transaction.set(quotaRef, {
+        count: Math.max(0, (Number(data.count) || 0) - 1),
+        idempotencyKeys: keys.filter((entry) => entry !== key),
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+    }).catch((releaseError) => console.warn('[PATA NOTIFICATION EMAIL QUOTA RELEASE]', releaseError.message || releaseError));
+    throw error;
+  }
+}
+
 async function sendRetentionEmailFallback({ userData, title, body, target, category = '', amount = null, budgetAmount = null, idempotencyKey }) {
   const email = String(userData?.email || '').trim();
   if (userData?.emailRemindersEnabled === false || !email.includes('@')) return false;
   try {
-    await sendPataEmail({
+    const sent = await sendScheduledNotificationEmail({
       to: email,
       subject: String(title || 'Un point sur tes finances').slice(0, 140),
       html: financialReminderEmail({
@@ -225,7 +277,7 @@ async function sendRetentionEmailFallback({ userData, title, body, target, categ
       }),
       idempotencyKey,
     });
-    return true;
+    return sent;
   } catch (error) {
     console.warn('[PATA RETENTION EMAIL]', error.message || error);
     return false;
@@ -2513,7 +2565,7 @@ async function handleNotificationScheduler(request) {
           const recipientEmail = String(userData.email || '').trim();
           if (pushResult.fcmSent + pushResult.webPushSent === 0 && userData.emailRemindersEnabled !== false && recipientEmail.includes('@')) {
             try {
-              await sendPataEmail({
+              await sendScheduledNotificationEmail({
                 to: recipientEmail,
                 subject: title,
                 html: financialReminderEmail({
@@ -2708,7 +2760,7 @@ async function handleNotificationScheduler(request) {
           if (pushResult.fcmSent + pushResult.webPushSent === 0
             && userData.emailRemindersEnabled !== false && recipientEmail.includes('@')) {
             try {
-              await sendPataEmail({
+              await sendScheduledNotificationEmail({
                 to: recipientEmail,
                 subject: title,
                 html: financialReminderEmail({
@@ -8270,7 +8322,7 @@ async function handleCotisationsScheduler(request) {
         pushSent = pushResult.fcmSent + pushResult.webPushSent;
         if (pushSent === 0 && userData.emailRemindersEnabled !== false && recipientEmail.includes('@')) {
           try {
-            await sendPataEmail({
+            await sendScheduledNotificationEmail({
               to: recipientEmail,
               subject: title,
               html: cotisationDueEmail({
