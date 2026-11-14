@@ -22,3 +22,13 @@ test('une erreur de rendu affiche une interface de récupération au lieu d’un
   assert.match(errorPage, /onClick=\{\(\) => reset\(\)\}/);
   assert.match(errorPage, /href="\/support"/);
 });
+
+
+test('une erreur provenant du layout racine est récupérée par le boundary global', () => {
+  const globalError = fs.readFileSync(new URL('../src/app/global-error.js', import.meta.url), 'utf8');
+  assert.match(globalError, /<html lang="fr">/);
+  assert.match(globalError, /<body/);
+  assert.match(globalError, /role="alert"/);
+  assert.match(globalError, /onClick=\{\(\) => reset\(\)\}/);
+  assert.match(globalError, /href="\/support"/);
+});
