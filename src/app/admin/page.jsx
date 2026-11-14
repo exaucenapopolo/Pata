@@ -252,6 +252,7 @@ export default function AdminPage() {
   const [emailStatus, setEmailStatus] = useState(null); const [emailStatusLoading, setEmailStatusLoading] = useState(false); const [emailTestLoading, setEmailTestLoading] = useState(false); const [emailTestResult, setEmailTestResult] = useState('');
   const [emailSubject, setEmailSubject] = useState(getTemplateField(templates[0], 'subject', language)); const [emailMessage, setEmailMessage] = useState(getTemplateField(templates[0], 'body', language)); const [emailCustomized, setEmailCustomized] = useState(false); const [emailResult, setEmailResult] = useState(''); const [emailCtaPath, setEmailCtaPath] = useState('/dashboard'); const [emailTemplateKey, setEmailTemplateKey] = useState('welcome');
   const [broadcastTitle, setBroadcastTitle] = useState('Information Pata'); const [broadcastMessage, setBroadcastMessage] = useState(''); const [broadcastPath, setBroadcastPath] = useState('/dashboard'); const [broadcastImageUrl, setBroadcastImageUrl] = useState(''); const [broadcastResult, setBroadcastResult] = useState('');
+  const [notificationLogs, setNotificationLogs] = useState([]); const [nextNotificationLogCursor, setNextNotificationLogCursor] = useState(null); const [notificationHistoryFilter, setNotificationHistoryFilter] = useState('all'); const [notificationHistorySearch, setNotificationHistorySearch] = useState('');
 
   useEffect(() => {
     if (emailCustomized) return;
@@ -346,6 +347,17 @@ export default function AdminPage() {
       setNextRecipientCursor(result.nextCursor || null);
     } catch (err) { setError(err.message); } finally { setBusy(false); }
   };
+  const loadNotificationHistory = async (append = false) => {
+    setBusy(true); setError('');
+    try {
+      const cursor = append && nextNotificationLogCursor ? `&cursor=${encodeURIComponent(nextNotificationLogCursor)}` : '';
+      const result = await api(`admin/notification-history?limit=50${cursor}`);
+      setNotificationLogs((current) => append ? [...current, ...(result.notifications || [])] : (result.notifications || []));
+      setNextNotificationLogCursor(result.nextCursor || null);
+    } catch (err) { setError(err.message || 'Impossible de charger l’historique des notifications.'); }
+    finally { setBusy(false); }
+  };
+
   const openUser = async (entry) => { setSelectedUser(entry); setUserDetail(null); setTemplateChoice(templates[0].label); setEmailSubject(getTemplateField(templates[0], 'subject', language)); setEmailMessage(getTemplateField(templates[0], 'body', language)); setEmailCustomized(false); setEmailTemplateKey('welcome'); setEmailResult(''); try { setUserDetail(await api(`admin/user-detail?uid=${encodeURIComponent(entry.id)}`)); } catch (err) { setError(err.message); } };
   const sendUserEmail = async () => {
     if (!userDetail?.user?.id || !emailSubject.trim() || !emailMessage.trim()) return;
@@ -387,11 +399,11 @@ export default function AdminPage() {
   if (!unlocked) return <main className="grid min-h-screen place-items-center bg-slate-50 px-4 py-10"><form onSubmit={unlock} className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-7 shadow-xl"><div className="mb-6 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-950 text-white"><ShieldCheck size={23}/></div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Pata · Espace privé</p><h1 className="mt-2 text-2xl font-bold text-slate-950">Administration</h1><p className="mt-2 text-sm leading-6 text-slate-500">Saisis le code administrateur pour accéder à la gestion de Pata.</p><label className="mt-6 block text-sm font-medium text-slate-700">Code administrateur</label><input autoComplete="current-password" type="password" value={code} onChange={(event) => setCode(event.target.value)} className="mt-2 h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-base tracking-widest outline-none focus:border-slate-800" placeholder="Saisir le code" required/>{error && <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}<button disabled={busy || !code} className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white disabled:opacity-50">{busy ? <Loader2 className="animate-spin" size={17}/> : <KeyRound size={17}/>} Accéder à l’administration</button><p className="mt-4 text-center text-xs text-slate-400">NAPOPOLO EXAUCE · Pata</p></form></main>;
 
   const stats = overview?.stats || {};
-  const nav = [['overview', 'Vue générale', Activity], ['savings', 'Épargnes & objectifs', PiggyBank], ['users', 'Utilisateurs', Users], ['questions', 'Discussions IA', MessageCircle], ['withdrawals', 'Retraits', ArrowDownToLine], ['broadcast', 'Notifications', Bell]];
+  const nav = [['overview', 'Vue générale', Activity], ['savings', 'Épargnes & objectifs', PiggyBank], ['users', 'Utilisateurs', Users], ['questions', 'Discussions IA', MessageCircle], ['withdrawals', 'Retraits', ArrowDownToLine], ['broadcast', 'Notifications', Bell], ['notification-history', 'Historique automatique', Clock3]];
   return <main className="min-h-screen bg-slate-50 p-3 text-slate-900 sm:p-6"><div className="mx-auto max-w-7xl space-y-6">
     <header className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5"><div><p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Pata · Administration</p><h1 className="mt-1 text-xl font-bold sm:text-2xl">Bonjour, NAPOPOLO EXAUCE</h1><p className="mt-1 text-xs text-slate-500">Gestion des comptes, de l’activité et des paiements</p></div><div className="flex gap-2"><button onClick={loadDashboard} disabled={busy} className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 px-3 text-sm font-medium hover:bg-slate-50"><RefreshCw size={15}/> Actualiser</button><button onClick={checkEmailConfiguration} disabled={emailStatusLoading} className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 px-3 text-sm font-medium hover:bg-slate-50 disabled:opacity-50">{emailStatusLoading?<Loader2 className="animate-spin" size={15}/>:<Mail size={15}/>} Vérifier e-mail</button><button onClick={logout} className="inline-flex h-10 items-center gap-2 rounded-lg bg-slate-950 px-3 text-sm font-medium text-white"><LogOut size={15}/> Quitter</button></div></header>
     {error && <div className="flex items-start justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"><span>{error}</span><button onClick={() => setError('')}><XCircle size={16}/></button></div>}
-    <nav className="flex gap-2 overflow-x-auto rounded-xl border border-slate-200 bg-white p-2">{nav.map(([id, label, Icon]) => <button key={id} onClick={() => { setTab(id); if (id === 'questions') loadQuestions(false); if (id === 'savings') loadSavings(false); if (id === 'broadcast') loadRecipients(false); }} className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium ${tab === id ? 'bg-slate-950 text-white' : 'text-slate-600 hover:bg-slate-100'}`}><Icon size={16}/>{label}</button>)}</nav>
+    <nav className="flex gap-2 overflow-x-auto rounded-xl border border-slate-200 bg-white p-2">{nav.map(([id, label, Icon]) => <button key={id} onClick={() => { setTab(id); if (id === 'questions') loadQuestions(false); if (id === 'savings') loadSavings(false); if (id === 'broadcast') loadRecipients(false); if (id === 'notification-history') loadNotificationHistory(false); }} className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium ${tab === id ? 'bg-slate-950 text-white' : 'text-slate-600 hover:bg-slate-100'}`}><Icon size={16}/>{label}</button>)}</nav>
     {emailStatus && tab === 'overview' && <section className={`rounded-2xl border p-4 ${emailStatus.domainsCheckAvailable && emailStatus.senderDomainVerified ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -512,6 +524,56 @@ export default function AdminPage() {
       <aside className="space-y-4"><div className="rounded-2xl border border-slate-200 bg-white p-4"><SectionTitle title="Notifications activées" detail="Compteur global des comptes inscrits."/><p className="text-3xl font-bold">{recipientSummary?recipientSummary.optedInUsers:'—'}</p><p className="mt-1 text-xs text-slate-500">sur {recipientSummary?recipientSummary.totalUsers:'—'} comptes Pata.</p><button type="button" onClick={()=>loadRecipients(false)} disabled={busy} className="mt-3 text-xs font-semibold underline">Actualiser les appareils inscrits</button></div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4"><SectionTitle title="Conseils d’envoi"/><div className="space-y-3 text-xs leading-5 text-slate-600"><p>Choisis un titre court et un message précis.</p><p>Un utilisateur peut désactiver les notifications depuis ses paramètres.</p></div></div>
       </aside>
+    </section>}
+    {tab === 'notification-history' && <section className="rounded-2xl border border-slate-200 bg-white p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <SectionTitle title="Historique des notifications automatiques" detail="Destinataires, heure d’envoi, canaux utilisés et état de lecture dans la boîte Pata."/>
+          <p className="mt-1 text-xs text-slate-500">{notificationLogs.length} notification(s) chargée(s) sur les pages consultées.</p>
+        </div>
+        <button type="button" onClick={() => loadNotificationHistory(false)} disabled={busy} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 px-3 text-xs font-semibold disabled:opacity-50"><RefreshCw size={14}/> Actualiser</button>
+      </div>
+      <div className="mt-4 grid gap-2 sm:grid-cols-[minmax(0,1fr)_180px]">
+        <input value={notificationHistorySearch} onChange={(event) => setNotificationHistorySearch(event.target.value)} placeholder="Rechercher un utilisateur, un e-mail ou un message" className="h-10 rounded-lg border border-slate-200 px-3 text-sm"/>
+        <select value={notificationHistoryFilter} onChange={(event) => setNotificationHistoryFilter(event.target.value)} className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm">
+          <option value="all">Toutes les notifications</option>
+          <option value="unread">Non lues</option>
+          <option value="read">Lues</option>
+        </select>
+      </div>
+      <div className="mt-4 space-y-3">
+        {notificationLogs.filter((item) => {
+          const query = notificationHistorySearch.trim().toLowerCase();
+          const matchesSearch = !query || `${item.displayName || ''} ${item.email || ''} ${item.title || ''} ${item.body || ''} ${item.source || ''}`.toLowerCase().includes(query);
+          const matchesRead = notificationHistoryFilter === 'all' || (notificationHistoryFilter === 'read' ? item.read === true : item.read !== true);
+          return matchesSearch && matchesRead;
+        }).map((item) => (
+          <article key={item.id} className="rounded-xl border border-slate-200 p-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-slate-900">{item.title || 'Notification sans titre'}</p>
+                <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-slate-600">{item.body || 'Aucun contenu enregistré.'}</p>
+                <p className="mt-2 text-[11px] text-slate-500">{item.displayName || 'Utilisateur'} · {item.email || item.uid || 'E-mail non renseigné'}</p>
+                <p className="mt-1 text-[10px] text-slate-400">{String(item.source || 'automatique').replaceAll('_', ' ')} · {dateLabel(item.createdAt)} · {item.target || '/dashboard'}</p>
+              </div>
+              <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold ${item.read ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800'}`}>{item.read ? 'Lue' : 'Non lue'}</span>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3 text-[10px]">
+              <span className={`rounded-md px-2 py-1 ${item.channels?.inApp ? 'bg-slate-100 text-slate-700' : 'bg-slate-50 text-slate-400'}`}>Boîte Pata : {item.channels?.inApp ? 'enregistrée' : 'non'}</span>
+              <span className={`rounded-md px-2 py-1 ${item.channels?.push ? 'bg-blue-50 text-blue-700' : 'bg-slate-50 text-slate-500'}`}>Push : {item.channels?.push ? `accepté · ${item.pushSent || 0} appareil(s)` : 'non accepté'}</span>
+              <span className={`rounded-md px-2 py-1 ${item.channels?.email ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-50 text-slate-500'}`}>E-mail : {item.channels?.email ? 'envoyé' : 'non envoyé'}</span>
+              {item.read && item.readAt && <span className="rounded-md bg-emerald-50 px-2 py-1 text-emerald-700">Lue le {dateLabel(item.readAt)}</span>}
+            </div>
+          </article>
+        ))}
+        {!notificationLogs.length && <p className="py-10 text-center text-sm text-slate-500">{busy ? 'Chargement de l’historique…' : 'Aucune notification automatique enregistrée pour le moment.'}</p>}
+        {notificationLogs.length > 0 && notificationLogs.filter((item) => {
+          const query = notificationHistorySearch.trim().toLowerCase();
+          const matchesSearch = !query || `${item.displayName || ''} ${item.email || ''} ${item.title || ''} ${item.body || ''} ${item.source || ''}`.toLowerCase().includes(query);
+          return matchesSearch && (notificationHistoryFilter === 'all' || (notificationHistoryFilter === 'read' ? item.read === true : item.read !== true));
+        }).length === 0 && <p className="py-8 text-center text-sm text-slate-500">Aucune notification ne correspond à ce filtre.</p>}
+      </div>
+      {nextNotificationLogCursor && <button type="button" onClick={() => loadNotificationHistory(true)} disabled={busy} className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-slate-200 text-xs font-semibold disabled:opacity-50">{busy ? 'Chargement…' : 'Charger les notifications précédentes'}</button>}
     </section>}
     <footer className="pb-4 text-center text-[11px] text-slate-400">Pata Administration · NAPOPOLO EXAUCE</footer>
   </div></main>;

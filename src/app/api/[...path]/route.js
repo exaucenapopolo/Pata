@@ -1317,17 +1317,28 @@ async function handleNotificationRead(request) {
         const snapshot = await pageQuery.get();
         if (!snapshot.docs.length) break;
 
-        const batch = adminDb.batch();
+        const notificationBatch = adminDb.batch();
+        const deliveryLogBatch = adminDb.batch();
+        const readAt = new Date();
         let pageUpdated = 0;
+        let deliveryLogsUpdated = 0;
         snapshot.docs.forEach((document) => {
-          if (!isNotificationUnread(document.data() || {})) return;
-          batch.update(document.ref, {
-            read: true,
-            readAt: FieldValue.serverTimestamp(),
-          });
+          const data = document.data() || {};
+          if (!isNotificationUnread(data)) return;
+          notificationBatch.update(document.ref, { read: true, readAt });
+          const trackingLogId = String(data.trackingLogId || '');
+          if (/^[a-f0-9]{64}$/.test(trackingLogId)) {
+            deliveryLogBatch.set(
+              adminDb.collection('notificationDeliveryLogs').doc(trackingLogId),
+              { read: true, readAt, updatedAt: readAt },
+              { merge: true }
+            );
+            deliveryLogsUpdated += 1;
+          }
           pageUpdated += 1;
         });
-        if (pageUpdated) await batch.commit();
+        if (pageUpdated) await notificationBatch.commit();
+        if (deliveryLogsUpdated) await deliveryLogBatch.commit();
         updatedCount += pageUpdated;
         cursor = snapshot.docs[snapshot.docs.length - 1];
         hasMore = snapshot.docs.length === 450;
@@ -1340,8 +1351,20 @@ async function handleNotificationRead(request) {
     const notificationRef = notificationsRef.doc(notificationId);
     const notificationSnap = await notificationRef.get();
     if (!notificationSnap.exists) return errorResponse('Cette notification n’existe plus.', 404);
-    await notificationRef.set({ read: true, readAt: FieldValue.serverTimestamp() }, { merge: true });
-    return NextResponse.json({ success: true });
+    const readAt = new Date();
+    const notificationData = notificationSnap.data() || {};
+    const batch = adminDb.batch();
+    batch.set(notificationRef, { read: true, readAt }, { merge: true });
+    const trackingLogId = String(notificationData.trackingLogId || '');
+    if (/^[a-f0-9]{64}$/.test(trackingLogId)) {
+      batch.set(
+        adminDb.collection('notificationDeliveryLogs').doc(trackingLogId),
+        { read: true, readAt, updatedAt: readAt },
+        { merge: true }
+      );
+    }
+    await batch.commit();
+    return NextResponse.json({ success: true, tracked: /^[a-f0-9]{64}$/.test(trackingLogId) });
   } catch (error) {
     return errorResponse(error.message || 'Impossible de marquer les notifications comme lues.', 400);
   }
@@ -6119,6 +6142,39 @@ async function handleAdminNotificationRecipients(request) {
   }
 }
 
+
+async function handleAdminNotificationHistory(request) {
+  try {
+    await requireAdmin(request);
+    const url = new URL(request.url);
+    const limit = Math.max(10, Math.min(100, Number(url.searchParams.get('limit')) || 50));
+    const cursor = String(url.searchParams.get('cursor') || '').slice(0, 150);
+    const logs = adminDb.collection('notificationDeliveryLogs');
+    let query = logs.orderBy('createdAt', 'desc');
+    if (cursor) {
+      if (cursor.includes('/')) return errorResponse('Repère de pagination invalide.', 400);
+      const cursorDoc = await logs.doc(cursor).get();
+      if (!cursorDoc.exists) return errorResponse('L’historique a changé. Actualise la liste.', 409);
+      query = query.startAfter(cursorDoc);
+    }
+    const snapshot = await query.limit(limit + 1).get();
+    const hasMore = snapshot.docs.length > limit;
+    const docs = snapshot.docs.slice(0, limit);
+    const notifications = docs.map((document) => ({
+      id: document.id,
+      ...serializeAdminValue(document.data() || {}),
+    }));
+    return NextResponse.json({
+      success: true,
+      notifications,
+      hasMore,
+      nextCursor: hasMore && docs.length ? docs[docs.length - 1].id : null,
+    });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de charger l’historique des notifications.', 401);
+  }
+}
+
 async function buildAdminEmailHighlights(uid) {
   const userRef = adminDb.collection('users').doc(uid);
   const [projectsSnap, goalsSnap, membershipsSnap] = await Promise.all([
@@ -8877,6 +8933,7 @@ const ROUTES = {
   'admin/overview': { GET: handleAdminOverview },
   'admin/savings': { GET: handleAdminSavings },
   'admin/notification-recipients': { GET: handleAdminNotificationRecipients },
+  'admin/notification-history': { GET: handleAdminNotificationHistory },
   'admin/users': { GET: handleAdminUsers },
   'admin/user-detail': { GET: handleAdminUserDetail },
   'admin/questions': { GET: handleAdminPopularQuestions },
