@@ -10,13 +10,13 @@ Depuis la racine du dépôt, avec Node.js 18 ou plus récent :
 npm run test:e2e:production
 ```
 
-Les trois routes sensibles doivent refuser les requêtes sans jeton Firebase.
+Les trois routes sensibles doivent refuser les requêtes sans jeton Firebase. Le test vérifie aussi le format JSON propre à l’API Pata pour ne pas confondre ce refus avec une page d’authentification Vercel.
 
 ## Activer les vérifications sur un compte réel
 
 Utilise un **compte de test** qui possède au moins un revenu. L'identifiant du revenu doit appartenir à ce compte. Pour tester la console administrateur, utilise un compte administrateur de test et une session administrateur encore valide.
 
-Définis les variables uniquement dans ton terminal ou dans les secrets du système CI. Ne les ajoute jamais à un fichier du dépôt et ne les envoie pas dans une conversation.
+Définis les variables uniquement dans ton terminal ou dans les secrets du système CI. Ne les ajoute jamais à un fichier du dépôt et ne les envoie pas dans une conversation. Si la protection Vercel empêche un accès automatisé au domaine public, lance le serveur local avec `npm run dev` (après configuration de l’environnement Firebase dans `.env.local`) et utilise `PATA_E2E_BASE_URL="http://localhost:3000"`. La route locale se connectera au projet Firebase configuré ; réserve cette opération à un compte de test.
 
 ```bash
 export PATA_E2E_BASE_URL="https://www.pata-yam.site"

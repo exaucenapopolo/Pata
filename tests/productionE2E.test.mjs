@@ -34,8 +34,10 @@ test('les routes sensibles refusent une requête sans jeton Firebase', async () 
     '/api/admin/users?limit=5',
   ];
   for (const path of checks) {
-    const { response } = await getJson(path);
+    const { response, body } = await getJson(path);
     assert.equal(response.status, 401, 'La route ' + path + ' doit refuser une requête sans authentification.');
+    assert.equal(body?.success, false, 'La réponse doit provenir de l’API Pata, pas d’une page HTML de protection externe.');
+    assert.ok(typeof body?.error === 'string' && body.error.length > 0, 'L’API doit expliquer le refus d’authentification.');
   }
 });
 
