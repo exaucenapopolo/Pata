@@ -4467,6 +4467,8 @@ async function handleProfileActivity(request) {
     const usedWebApp = profile.usedWebApp === true || platform === 'web';
     const profilePatch = {
       lastSeenAt: FieldValue.serverTimestamp(),
+      platformTracked: true,
+      ...(profile.platformTrackedAt ? {} : { platformTrackedAt: FieldValue.serverTimestamp() }),
       lastSeenPlatform: platform,
       usedAndroidApp,
       usedWebApp,
@@ -4791,7 +4793,7 @@ async function handleAdminOverview(request) {
     const users = adminDb.collection('users');
     const withdrawals = adminDb.collection('withdrawalRequests');
     const activeDebtQuery = adminDb.collectionGroup('debts').where('status', 'in', ['active', 'partial', 'late']);
-    const [userTotals, premiumCount, androidUsers, webUsers, webOnlyUsers, deposits, subscriptions, paidPayouts, pendingPayouts, latestUsers, latestDeposits, latestWithdrawals, topBalances, topExpenses, leastExpenses, topIncomes, lifetimeExpenses, lifetimeIncomes, billsSummary, budgetsSummary, activeDebts, androidDownloadMetrics] = await Promise.all([
+    const [userTotals, premiumCount, androidUsers, webUsers, webOnlyUsers, deposits, subscriptions, paidPayouts, pendingPayouts, latestUsers, latestDeposits, latestWithdrawals, topBalances, topExpenses, leastExpenses, topIncomes, lifetimeExpenses, lifetimeIncomes, billsSummary, budgetsSummary, activeDebts, androidDownloadMetrics, trackedUsers] = await Promise.all([
       aggregateTotal(users, 'balance'),
       users.where('premiumUntil', '>', nowIso).count().get().then((snap) => snap.data().count).catch(() => 0),
       users.where('usedAndroidApp', '==', true).count().get().then((snap) => snap.data().count).catch(() => null),
@@ -4823,6 +4825,12 @@ async function handleAdminOverview(request) {
         console.warn('[ADMIN ANDROID DOWNLOAD METRICS]', error.message);
         return null;
       }),
+      users.where('platformTracked', '==', true).count().get()
+        .then((snapshot) => Number(snapshot.data().count) || 0)
+        .catch((error) => {
+          console.warn('[ADMIN TRACKED PLATFORM COUNT]', error.message);
+          return null;
+        }),
     ]);
     const recentUsers = latestUsers.docs.map(safeAdminUser)
       .sort((a, b) => (Date.parse(b.createdAt || b.lastSeenAt || 0) || 0) - (Date.parse(a.createdAt || a.lastSeenAt || 0) || 0))
@@ -4834,6 +4842,11 @@ async function handleAdminOverview(request) {
         androidUsers: androidUsers == null ? null : Number(androidUsers) || 0,
         webUsers: webUsers == null ? null : Number(webUsers) || 0,
         webOnlyUsers: webOnlyUsers == null ? null : Number(webOnlyUsers) || 0,
+        trackedPlatformUsers: trackedUsers == null ? null : Number(trackedUsers) || 0,
+        unclassifiedPlatformUsers: trackedUsers == null || userTotals.unavailable
+          ? null
+          : Math.max(0, Number(userTotals.count) - Number(trackedUsers)),
+
         androidDownloadClicks: androidDownloadMetrics?.exists ? Number(androidDownloadMetrics.data()?.clickCount) || 0 : 0,
         androidDownloadClients: androidDownloadMetrics?.exists ? Number(androidDownloadMetrics.data()?.uniqueClientCount) || 0 : 0,
         androidDownloadMetricsUnavailable: androidDownloadMetrics === null,
@@ -4869,7 +4882,7 @@ async function handleAdminOverview(request) {
         leastExpenses: leastExpenses.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })),
         incomes: topIncomes.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })),
       },
-      note: 'Les compteurs de plateforme utilisent des agrégations Firestore. Les détails de profil et les historiques restent chargés uniquement à la demande.',
+      note: 'Les compteurs de plateforme et les comptes à classer utilisent des agrégations Firestore. Les anciens profils sont classés à leur prochaine authentification ; aucun balayage global de tous les comptes n’est effectué. Les historiques détaillés restent chargés uniquement à la demande.',
     });
   } catch (error) {
     return errorResponse(error.message || 'Accès administrateur refusé.', 401);
