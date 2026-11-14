@@ -809,11 +809,17 @@ async function handleFapshiCheckout(request) {
     const SECRET_KEY = process.env.FAPSHI_SECRET_KEY;
     if (!API_USER || !SECRET_KEY) return errorResponse('Configuration incomplète.', 500);
 
+    // Le montant saisi est celui qui sera crédité. Les frais s'ajoutent au paiement.
+    const fee = Math.round(amount * 0.05);
+    const paymentProviderFee = Math.round(amount * 0.03);
+    const pataRevenue = fee - paymentProviderFee;
+    const grossAmount = amount + fee;
+
     const userDoc = await adminDb.collection('users').doc(uid).get();
     const userData = userDoc.exists ? userDoc.data() : {};
     const baseUrl = getBaseUrl(request);
     const payload = {
-      amount, currency: 'XAF', description: 'Recharge Pata',
+      amount: grossAmount, currency: 'XAF', description: 'Recharge portefeuille Pata',
       redirect_url: `${request.headers.get('origin') || baseUrl}/wallet`,
       webhook_url: `${baseUrl}/api/fapshi/webhook`,
       email: userData.email || decoded.email || '', name: userData.displayName || 'Client',
@@ -835,12 +841,31 @@ async function handleFapshiCheckout(request) {
     if (!checkoutUrl || !transId) return errorResponse('Lien indisponible.', 502);
 
     await adminDb.collection('deposits').doc(transId).set({
-      transId, userId: uid, amount, currency: 'XAF', description: payload.description,
+      transId, userId: uid, amount, fee, grossAmount, paymentProviderFee, pataRevenue,
+      currency: 'XAF', description: payload.description,
       status: 'PENDING', checkoutUrl, createdAt: FieldValue.serverTimestamp(), confirmedAt: null, failedAt: null,
     });
 
-    return NextResponse.json({ success: true, checkoutUrl, transId });
+    return NextResponse.json({ success: true, checkoutUrl, transId, amount, fee, grossAmount });
   } catch (error) { return errorResponse(error.message, 500); }
+}
+
+
+function validateWalletProviderPayment(providerResponse, deposit, transId) {
+  const data = providerResponse?.data && typeof providerResponse.data === 'object'
+    ? providerResponse.data : providerResponse;
+  const providerTransId = data?.transId || data?.trans_id;
+  if (providerTransId && String(providerTransId) !== String(transId)) {
+    throw new Error('L’identifiant de transaction ne correspond pas à cette recharge.');
+  }
+  const expectedAmount = Number(deposit.grossAmount || deposit.amount || 0);
+  if (data?.amount !== undefined && data?.amount !== null && data?.amount !== '') {
+    const receivedAmount = Number(data.amount);
+    if (!Number.isSafeInteger(receivedAmount) || receivedAmount !== expectedAmount) {
+      throw new Error('Le montant confirmé ne correspond pas au montant demandé. La recharge reste bloquée pour vérification.');
+    }
+  }
+  return data;
 }
 
 async function handleFapshiWebhook(request) {
@@ -864,6 +889,7 @@ async function handleFapshiWebhook(request) {
     const providerStatus = String(verifyData.status || '').toUpperCase();
     if (providerStatus === 'SUCCESSFUL') {
       if (depDoc.exists) {
+        validateWalletProviderPayment(verifyData, depDoc.data() || {}, transId);
         await adminDb.runTransaction(async (transaction) => {
           const fresh = await transaction.get(depositRef);
           if (!fresh.exists || fresh.data().status === 'CONFIRMED') return;
@@ -909,6 +935,7 @@ async function handleFapshiStatus(request) {
     const data = await res.json();
     if ((data.status || '').toUpperCase() === 'SUCCESSFUL') {
       if (depDoc.exists) {
+        validateWalletProviderPayment(data, depDoc.data() || {}, transId);
         await adminDb.runTransaction(async (transaction) => {
           const fresh = await transaction.get(depositRef);
           if (!fresh.exists || fresh.data().status === 'CONFIRMED') return;
@@ -1047,6 +1074,8 @@ async function handleSubscriptionCheckout(request) {
       userId: uid,
       amount,
       months,
+      method: 'fapshi',
+      paymentProviderFee: Math.round(amount * 0.03),
       status: 'PENDING',
       checkoutUrl,
       referralDiscountApplied: referralReservation.eligible === true,
@@ -1261,6 +1290,8 @@ async function handleSubscriptionWebhook(request) {
       });
       transaction.update(paymentRef, {
         status: 'CONFIRMED',
+        method: 'fapshi',
+        paymentProviderFee: Math.round(Number(payment.amount || 0) * 0.03),
         confirmedAt: FieldValue.serverTimestamp(),
       });
 
@@ -7047,6 +7078,8 @@ async function confirmCotisationPayment(transId) {
       displayName: payment.displayName || 'Membre',
       amount, penaltyAmount, totalContribution: amount + penaltyAmount,
       fee: cotisationMoney(payment.fee), grossAmount: cotisationMoney(payment.grossAmount),
+      paymentProviderFee: cotisationMoney(payment.paymentProviderFee),
+      pataRevenue: cotisationMoney(payment.pataRevenue),
       status: 'CONFIRMED', createdAt: FieldValue.serverTimestamp(), confirmedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
     transaction.update(memberRef, { pendingPaymentId: null, pendingPaymentAmount: 0, pendingPaymentAt: null, pendingPaymentTransId: null });
@@ -8581,8 +8614,11 @@ async function handleCotisationPay(request) {
       if (amount > due) throw new Error('Il reste ' + due.toLocaleString('fr-FR') + ' FCFA à verser pour ta part de ce cycle.');
       const penaltyAmount = due > 0 && !cotisationMoney(contribution.penaltyPaid) && cotisationIsLate(fresh, freshMeta)
         ? cotisationLateFee(fresh) : 0;
-      const fee = Math.round((amount + penaltyAmount) * 0.05);
-      const grossAmount = amount + penaltyAmount + fee;
+      const feeBaseAmount = amount + penaltyAmount;
+      const fee = Math.round(feeBaseAmount * 0.05);
+      const paymentProviderFee = Math.round(feeBaseAmount * 0.03);
+      const pataRevenue = fee - paymentProviderFee;
+      const grossAmount = feeBaseAmount + fee;
       if (cotisationMoney(cycleSnap.data()?.targetAmount || cycleSnap.data()?.baseTargetAmount) + penaltyAmount > 500000) {
         throw new Error('Cette majoration ferait dépasser la limite autorisée de retrait de 500 000 FCFA.');
       }
@@ -8590,7 +8626,7 @@ async function handleCotisationPay(request) {
         pendingPaymentId: reservationId, pendingPaymentAmount: amount + penaltyAmount,
         pendingPaymentAt: FieldValue.serverTimestamp(), pendingPaymentTransId: null,
       });
-      return { group: fresh, user: freshUser.data(), due, penaltyAmount, fee, grossAmount, meta: freshMeta };
+      return { group: fresh, user: freshUser.data(), due, penaltyAmount, fee, paymentProviderFee, pataRevenue, grossAmount, meta: freshMeta };
     });
 
     const baseUrl = getBaseUrl(request);
@@ -8625,6 +8661,7 @@ async function handleCotisationPay(request) {
         cycleKey: reservation.meta.cycleKey, cycleIndex: reservation.meta.cycleIndex, cycleStartDate: reservation.meta.startDate, dueAt: reservation.meta.dueAt,
         displayName: userData.displayName || 'Membre', amount, penaltyAmount: reservation.penaltyAmount,
         fee: reservation.fee, grossAmount: reservation.grossAmount,
+        paymentProviderFee: reservation.paymentProviderFee, pataRevenue: reservation.pataRevenue,
         status: 'PENDING', checkoutUrl, createdAt: FieldValue.serverTimestamp(),
       });
       // Ne rattache le lien que si la réservation existe toujours : le webhook peut avoir confirmé très vite.
