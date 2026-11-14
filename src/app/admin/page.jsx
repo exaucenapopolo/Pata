@@ -252,7 +252,7 @@ export default function AdminPage() {
   const [emailStatus, setEmailStatus] = useState(null); const [emailStatusLoading, setEmailStatusLoading] = useState(false); const [emailTestLoading, setEmailTestLoading] = useState(false); const [emailTestResult, setEmailTestResult] = useState('');
   const [emailSubject, setEmailSubject] = useState(getTemplateField(templates[0], 'subject', language)); const [emailMessage, setEmailMessage] = useState(getTemplateField(templates[0], 'body', language)); const [emailCustomized, setEmailCustomized] = useState(false); const [emailResult, setEmailResult] = useState(''); const [emailCtaPath, setEmailCtaPath] = useState('/dashboard'); const [emailTemplateKey, setEmailTemplateKey] = useState('welcome');
   const [broadcastTitle, setBroadcastTitle] = useState('Information Pata'); const [broadcastMessage, setBroadcastMessage] = useState(''); const [broadcastPath, setBroadcastPath] = useState('/dashboard'); const [broadcastImageUrl, setBroadcastImageUrl] = useState(''); const [broadcastResult, setBroadcastResult] = useState('');
-  const [notificationLogs, setNotificationLogs] = useState([]); const [nextNotificationLogCursor, setNextNotificationLogCursor] = useState(null); const [notificationHistoryFilter, setNotificationHistoryFilter] = useState('all'); const [notificationHistorySearch, setNotificationHistorySearch] = useState('');
+  const [notificationLogs, setNotificationLogs] = useState([]); const [notificationQuotaSummary, setNotificationQuotaSummary] = useState(null); const [nextNotificationLogCursor, setNextNotificationLogCursor] = useState(null); const [notificationHistoryFilter, setNotificationHistoryFilter] = useState('all'); const [notificationHistorySearch, setNotificationHistorySearch] = useState('');
 
   useEffect(() => {
     if (emailCustomized) return;
@@ -353,6 +353,7 @@ export default function AdminPage() {
       const cursor = append && nextNotificationLogCursor ? `&cursor=${encodeURIComponent(nextNotificationLogCursor)}` : '';
       const result = await api(`admin/notification-history?limit=50${cursor}`);
       setNotificationLogs((current) => append ? [...current, ...(result.notifications || [])] : (result.notifications || []));
+      setNotificationQuotaSummary(result.quotaSummary || null);
       setNextNotificationLogCursor(result.nextCursor || null);
     } catch (err) { setError(err.message || 'Impossible de charger l’historique des notifications.'); }
     finally { setBusy(false); }
@@ -533,6 +534,21 @@ export default function AdminPage() {
         </div>
         <button type="button" onClick={() => loadNotificationHistory(false)} disabled={busy} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 px-3 text-xs font-semibold disabled:opacity-50"><RefreshCw size={14}/> Actualiser</button>
       </div>
+      {notificationQuotaSummary && <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <p className="text-[11px] font-semibold text-slate-500">E-mails automatiques et e-mails de secours</p>
+          <p className="mt-1 text-2xl font-bold tabular-nums">{notificationQuotaSummary.scheduledEmailsReserved === null ? '—' : notificationQuotaSummary.scheduledEmailsReserved} <span className="text-sm font-medium text-slate-500">/ {notificationQuotaSummary.scheduledEmailLimit}</span></p>
+          <p className="mt-1 text-[10px] text-slate-500">Plafond journalier UTC · {notificationQuotaSummary.utcDate} · les rappels de cotisation relayés par e-mail sont inclus.</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <p className="text-[11px] font-semibold text-slate-500">Notifications enregistrées aujourd’hui</p>
+          <p className="mt-1 text-2xl font-bold tabular-nums">{notificationQuotaSummary.notificationsRecordedToday === null ? '—' : notificationQuotaSummary.notificationsRecordedToday}</p>
+          <p className="mt-1 text-[10px] text-slate-500">Historique du {notificationQuotaSummary.doualaDate} · heure du Cameroun.</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs leading-5 text-slate-600 sm:col-span-2">
+          <strong>Règles par utilisateur :</strong> 2 rappels de rétention maximum par jour ; 3 notifications non essentielles au total par jour, espacées d’au moins 90 minutes. Les alertes de cotisation et les notifications opérationnelles ne consomment pas ces deux quotas.
+        </div>
+      </div>}
       <div className="mt-4 grid gap-2 sm:grid-cols-[minmax(0,1fr)_180px]">
         <input value={notificationHistorySearch} onChange={(event) => setNotificationHistorySearch(event.target.value)} placeholder="Rechercher un utilisateur, un e-mail ou un message" className="h-10 rounded-lg border border-slate-200 px-3 text-sm"/>
         <select value={notificationHistoryFilter} onChange={(event) => setNotificationHistoryFilter(event.target.value)} className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm">

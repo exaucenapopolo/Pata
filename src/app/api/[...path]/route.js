@@ -7,7 +7,7 @@ import { isNotificationUnread } from '@/lib/notifications/notificationState.mjs'
 import { completeWithGroq } from '@/lib/ai/groqClient';
 import { normalizeWebPushSubscription, webPushSubscriptionId, sendPataWebPush, isExpiredWebPushError } from '@/lib/notifications/webPush.mjs';
 import { dispatchPushNotification } from '@/lib/notifications/dispatcher.mjs';
-import { claimDailyRetentionSlot, claimDailyNonEssentialSlot, buildCategoryAdviceNotification, selectRetentionCandidates, getDoualaDateKey as getRetentionDoualaDateKey, isWithinDoualaEveningWindow, isWithinDoualaWeekendMorningWindow } from '@/lib/notifications/retentionEngine.mjs';
+import { claimDailyRetentionSlot, claimDailyNonEssentialSlot, buildCategoryAdviceNotification, selectRetentionCandidates, getDoualaDateKey as getRetentionDoualaDateKey, isWithinDoualaEveningWindow } from '@/lib/notifications/retentionEngine.mjs';
 import { AI_TOOLS, createExpenseForUser, updateExpenseForUser, deleteExpenseForUser, deleteIncomeForUser, executeAITool, runAutomationForUser, generateWeeklyReportForUser } from '@/lib/ai/financialTools';
 import { generateAudioWithGemini } from '@/lib/ai/geminiTTS';
 import { buildIncomePriorityReminder } from '@/lib/finance/incomePriorities.mjs';
@@ -2376,15 +2376,12 @@ async function handleWeekendNotificationScheduler(request) {
     const now = new Date();
     const today = getRetentionDoualaDateKey(now);
     const weekday = new Date(today + 'T12:00:00.000Z').getUTCDay();
-    const isFridayOrSunday = weekday === 5 || weekday === 0;
-    const isSaturdayMorning = weekday === 6;
-    if (!isFridayOrSunday && !isSaturdayMorning) {
+    const isWeekend = weekday === 0 || weekday === 5 || weekday === 6;
+    if (!isWeekend) {
       return NextResponse.json({ success: true, skipped: 'not_weekend' });
     }
-    const withinWindow = isSaturdayMorning
-      ? isWithinDoualaWeekendMorningWindow(now)
-      : isWithinDoualaEveningWindow(now);
-    if (!withinWindow) {
+    // Les trois rappels du week-end respectent la même plage locale que les rappels quotidiens.
+    if (!isWithinDoualaEveningWindow(now)) {
       return NextResponse.json({ success: true, skippedOutsideWindow: true, localTimeZone: 'Africa/Douala' });
     }
 
@@ -6254,6 +6251,24 @@ async function handleAdminNotificationHistory(request) {
     const limit = Math.max(10, Math.min(100, Number(url.searchParams.get('limit')) || 50));
     const cursor = String(url.searchParams.get('cursor') || '').slice(0, 150);
     const logs = adminDb.collection('notificationDeliveryLogs');
+    const doualaDate = getRetentionDoualaDateKey();
+    const utcDate = new Date().toISOString().slice(0, 10);
+    const [dailyLogCountSnapshot, emailQuotaSnapshot] = await Promise.all([
+      logs.where('date', '==', doualaDate).count().get().catch(() => null),
+      adminDb.collection('notificationEmailDailyQuotas').doc(utcDate).get().catch(() => null),
+    ]);
+    const emailQuotaData = emailQuotaSnapshot?.exists ? emailQuotaSnapshot.data() || {} : null;
+    const quotaSummary = {
+      doualaDate,
+      notificationsRecordedToday: dailyLogCountSnapshot
+        ? Math.max(0, Number(dailyLogCountSnapshot.data()?.count) || 0)
+        : null,
+      utcDate,
+      scheduledEmailsReserved: emailQuotaData
+        ? Math.max(0, Number(emailQuotaData.count) || 0)
+        : emailQuotaSnapshot ? 0 : null,
+      scheduledEmailLimit: 100,
+    };
     let query = logs.orderBy('createdAt', 'desc');
     if (cursor) {
       if (cursor.includes('/')) return errorResponse('Repère de pagination invalide.', 400);
@@ -6271,6 +6286,7 @@ async function handleAdminNotificationHistory(request) {
     return NextResponse.json({
       success: true,
       notifications,
+      quotaSummary,
       hasMore,
       nextCursor: hasMore && docs.length ? docs[docs.length - 1].id : null,
     });
@@ -8320,6 +8336,9 @@ async function handleCotisationsScheduler(request) {
         const userData = userSnap.exists ? userSnap.data() : {};
         const personalized = personalizeNotification({ title, body, url: '/cotisations', tag: reminderId, source: 'cotisation' }, { displayName: userData.displayName || member.displayName || '' });
 
+        // Les alertes de cotisation sont opérationnelles : elles ne réservent jamais
+        // les quotas de rétention (2/jour) ni le quota non essentiel (3/jour).
+        // Leur éventuel e-mail de secours reste soumis au plafond e-mail séparé (100/jour UTC).
         const recipientEmail = String(userData.email || member.email || '').trim();
         const pushResult = await sendPataPushToUser(userRef, personalized, appUrl, userData);
         pushSent = pushResult.fcmSent + pushResult.webPushSent;

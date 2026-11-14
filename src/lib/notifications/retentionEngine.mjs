@@ -134,19 +134,6 @@ export function isWithinDoualaEveningWindow(date = new Date()) {
   return Number.isFinite(minutes) && minutes >= (17 * 60 + 30) && minutes <= (22 * 60 + 30);
 }
 
-export function isWithinDoualaWeekendMorningWindow(date = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Africa/Douala',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23'
-  }).formatToParts(date);
-  const hour = Number(parts.find((part) => part.type === 'hour')?.value);
-  const minute = Number(parts.find((part) => part.type === 'minute')?.value);
-  const minutes = hour * 60 + minute;
-  return Number.isFinite(minutes) && minutes >= 7 * 60 && minutes <= (11 * 60 + 30);
-}
-
 function dayNumber(dateKey) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return 0;
   const [year, month, day] = dateKey.split('-').map(Number);

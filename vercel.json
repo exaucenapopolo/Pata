@@ -14,7 +14,7 @@
     },
     {
       "path": "/api/notifications/weekend-scheduler",
-      "schedule": "0 8 * * 6"
+      "schedule": "30 16 * * 6"
     }
   ]
 }

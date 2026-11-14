@@ -30,6 +30,14 @@ Dans Firebase Console → Paramètres du projet → Cloud Messaging, générer u
 
 Les notifications nécessitent HTTPS, une autorisation explicite de l’utilisateur et un navigateur/appareil compatible. Le bouton de test confirme que Firebase a accepté le message ; seule la réception sur un appareil réel confirme l’affichage. Tester application ouverte, en arrière-plan et fermée.
 
-## 5. Validation des quotas
+## 5. Quotas et fenêtres d’envoi des notifications
+
+Les rappels automatiques planifiés sont autorisés de **17 h 30 à 22 h 30, heure du Cameroun** (`Africa/Douala`). Les contrôles d'heure sont exécutés côté serveur ; les tâches Vercel sont planifiées en UTC : rappel quotidien à 19:30 UTC (20:30 au Cameroun), rappels du week-end vendredi/dimanche à 17:00 UTC (18:00) et samedi à 16:30 UTC (17:30).
+
+Le compteur de rétention autorise deux rappels maximum par utilisateur et par jour. Un plafond non essentiel distinct limite à trois le total quotidien des rappels de rétention, messages de découverte et rappels du week-end, avec un intervalle minimal de 90 minutes. Les deux plafonds ne s’additionnent pas. Les alertes de cotisation et les autres notifications opérationnelles ne réservent aucun de ces deux quotas.
+
+Le relais e-mail des notifications automatiques est limité à 100 e-mails par jour UTC et utilise une clé d’idempotence pour éviter les doublons lors des nouvelles tentatives. Les e-mails transactionnels envoyés directement par `sendPataEmail` restent séparés de ce plafond. Les e-mails de secours pour les rappels de cotisation utilisent le plafond e-mail de 100/jour, mais pas le quota de deux notifications.
+
+## 6. Validation des quotas
 
 Les limites sont appliquées côté serveur dans des transactions Firestore. La suppression d’un élément ne décrémente pas le compteur mensuel. Les règles Firestore empêchent le navigateur de modifier directement les compteurs ou de créer directement les revenus, budgets, dépenses et objectifs.

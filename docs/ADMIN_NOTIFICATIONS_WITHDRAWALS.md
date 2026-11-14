@@ -34,9 +34,23 @@ Le test d'envoi réel est disponible dans Paramètres. Les nouveaux appareils so
 
 Les notifications générales sont envoyées au groupe FCM, sans parcourir les profils un par un au moment de chaque diffusion. Les rappels quotidiens restent personnalisés et lisent les informations de comptes abonnés aux notifications ainsi que leurs opérations récentes. À titre d'ordre de grandeur, cette tâche effectue quelques lectures par compte activé; surveiller les métriques Firestore lorsque le nombre d'utilisateurs augmente et adapter le lotissement si nécessaire.
 
-### Heure des rappels
+### Plages horaires et quotas
 
-`vercel.json` programme le rappel quotidien à 19:30 UTC, soit 20:30 au Cameroun en UTC+1. L'exécution réelle dépend de la disponibilité du planificateur et du plan Vercel. Les tâches doivent être déployées en production et la variable `CRON_SECRET` doit être présente.
+Tous les rappels automatiques planifiés (dettes, factures, bilan quotidien et bilan du week-end) respectent la plage **17 h 30–22 h 30, heure du Cameroun** (fuseau `Africa/Douala`). Le serveur vérifie cette plage à chaque exécution, même si le planificateur démarre avec quelques minutes de décalage.
+
+Les déclencheurs Vercel sont exprimés en UTC :
+- Rappel quotidien : 19:30 UTC, soit 20:30 au Cameroun.
+- Bilan du week-end vendredi et dimanche : 17:00 UTC, soit 18:00 au Cameroun.
+- Bilan du samedi : 16:30 UTC, soit 17:30 au Cameroun.
+
+Les compteurs sont distincts et appliqués côté serveur, dans des transactions Firestore :
+- **Rétention quotidienne : 2 notifications maximum par utilisateur et par jour** pour les rappels de dettes, factures et le rappel financier quotidien.
+- **Notifications non essentielles : 3 maximum par utilisateur et par jour**, avec au moins 90 minutes entre deux envois. Ce plafond global inclut les rappels de rétention ainsi que les messages de découverte et les rappels du week-end : il ne s'ajoute donc pas aux deux rappels précédents.
+- **Cotisations et alertes opérationnelles : hors de ces deux compteurs.** Elles suivent leur propre événement et ne sont pas refusées parce que le quota de rétention est atteint.
+
+Le relais e-mail automatique est limité séparément à **100 e-mails par jour UTC**. Une nouvelle tentative avec la même clé d'idempotence ne doit pas créer un deuxième e-mail. Les e-mails transactionnels de sécurité et de paiement qui utilisent directement `sendPataEmail` ne sont pas soumis à ce plafond. En revanche, lorsqu'un rappel de cotisation doit être relayé par e-mail, il reste soumis au plafond e-mail distinct de 100/jour ; il n'est pas soumis au quota de deux notifications.
+
+L'exécution réelle dépend de la disponibilité du planificateur et du plan Vercel. Les tâches doivent être déployées en production et la variable `CRON_SECRET` doit être présente.
 
 ## 3. Retraits Fapshi
 

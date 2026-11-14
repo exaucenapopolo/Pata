@@ -10,7 +10,6 @@ import {
   getCategoryAdvice,
   getDoualaDateKey,
   isWithinDoualaEveningWindow,
-  isWithinDoualaWeekendMorningWindow,
   selectRetentionCandidates
 } from '../src/lib/notifications/retentionEngine.mjs';
 
@@ -19,12 +18,6 @@ test('uses the Cameroon evening window from 17:30 through 22:30 inclusive', () =
   assert.equal(isWithinDoualaEveningWindow(new Date('2026-11-14T16:30:00.000Z')), true);
   assert.equal(isWithinDoualaEveningWindow(new Date('2026-11-14T21:30:00.000Z')), true);
   assert.equal(isWithinDoualaEveningWindow(new Date('2026-11-14T21:31:00.000Z')), false);
-});
-
-test('allows weekend morning messages before evening activities', () => {
-  assert.equal(isWithinDoualaWeekendMorningWindow(new Date('2026-11-14T07:00:00.000Z')), true);
-  assert.equal(isWithinDoualaWeekendMorningWindow(new Date('2026-11-14T10:30:00.000Z')), true);
-  assert.equal(isWithinDoualaWeekendMorningWindow(new Date('2026-11-14T11:31:00.000Z')), false);
 });
 
 test('computes the calendar day in Africa/Douala rather than UTC', () => {
@@ -45,6 +38,21 @@ test('reserves at most two daily retention slots and blocks duplicate keys', () 
   assert.equal(third.allowed, false);
   assert.equal(third.reason, 'daily_limit');
   assert.equal(second.state.count, 2);
+});
+
+
+test('keeps special non-essential slots separate from the two retention slots', () => {
+  const date = '2026-11-14';
+  const special = claimDailyNonEssentialSlot({}, date, 'feature-discovery', 3, 1000000);
+  const firstRetention = claimDailyRetentionSlot({}, date, 'debt-reminder');
+  const secondRetention = claimDailyRetentionSlot(firstRetention.state, date, 'bill-reminder');
+  const thirdRetention = claimDailyRetentionSlot(secondRetention.state, date, 'daily-summary');
+
+  assert.equal(special.allowed, true);
+  assert.equal(firstRetention.allowed, true);
+  assert.equal(secondRetention.allowed, true);
+  assert.equal(thirdRetention.allowed, false);
+  assert.equal(thirdRetention.reason, 'daily_limit');
 });
 
 test('resets the retention counter on the next Cameroon calendar date', () => {
