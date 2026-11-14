@@ -4,6 +4,7 @@ import fs from 'node:fs';
 
 const incomePage = fs.readFileSync(new URL('../src/app/(app)/income/page.js', import.meta.url), 'utf8');
 const errorPage = fs.readFileSync(new URL('../src/app/error.js', import.meta.url), 'utf8');
+const budgetsPage = fs.readFileSync(new URL('../src/app/(app)/budgets/page.js', import.meta.url), 'utf8');
 
 test('les états lus par le suivi du revenu sont initialisés avant son useEffect', () => {
   const selectedIncomeState = incomePage.indexOf('const [selectedIncome, setSelectedIncome] = useState(null);');
@@ -60,6 +61,6 @@ test('les explications visibles ne révèlent plus les limites techniques de cha
 });
 
 test('les budgets savent ouvrir le mois et le revenu transmis par la fiche de revenu', () => {
-  assert.match(budgets, /params\.get\('month'\)/);
-  assert.match(budgets, /params\.get\('incomeId'\)/);
+  assert.match(budgetsPage, /params\.get\('month'\)/);
+  assert.match(budgetsPage, /params\.get\('incomeId'\)/);
 });

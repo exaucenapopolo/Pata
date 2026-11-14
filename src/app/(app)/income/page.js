@@ -1031,7 +1031,13 @@ export default function IncomePage() {
                 const unbudgetedSpent = monthBudgetExpenses.filter((expense) => !budgetCategoryIds.has(normalizeExpenseCategoryId(expense.categoryId)))
                   .reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0);
                 const budgetCheckComplete = detailsReady && !incomeExpenseDetails.nextCursor;
-                const budgetOverrun = budgetSpent > budgetAllocated;
+                const budgetOverrun = selectedIncomeBudgets.reduce((total, budget) => {
+                  const categoryId = normalizeExpenseCategoryId(budget.categoryId);
+                  const categorySpent = monthBudgetExpenses
+                    .filter((expense) => normalizeExpenseCategoryId(expense.categoryId) === categoryId)
+                    .reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0);
+                  return total + Math.max(0, categorySpent - (Number(budget.amount) || 0));
+                }, 0);
                 const budgetLink = '/budgets?month=' + encodeURIComponent(selectedIncomeBudgetMonth) + '&incomeId=' + encodeURIComponent(selectedIncome.id);
                 const expenseCategoryFor = (id) => [...EXPENSE_CATEGORIES, ...customCategories].find((category) => category.id === normalizeExpenseCategoryId(id)) || null;
                 return (
@@ -1093,7 +1099,7 @@ export default function IncomePage() {
                               {!budgetCheckComplete ? (
                                 <p className="rounded-lg bg-amber-50 p-3 text-xs leading-5 text-amber-800">La comparaison n’est pas encore complète. Consulte toutes les dépenses associées pour vérifier correctement le budget.</p>
                               ) : budgetOverrun ? (
-                                <p className="rounded-lg bg-red-50 p-3 text-xs leading-5 text-red-700">Le montant dépensé dépasse les enveloppes prévues de {formatCurrency(budgetSpent - budgetAllocated)}.</p>
+                                <p className="rounded-lg bg-red-50 p-3 text-xs leading-5 text-red-700">Le montant dépensé dépasse les enveloppes prévues de {formatCurrency(budgetOverrun)}.</p>
                               ) : unbudgetedSpent > 0 ? (
                                 <p className="rounded-lg bg-amber-50 p-3 text-xs leading-5 text-amber-800">Le budget n’est pas complet : certaines dépenses n’ont pas encore d’enveloppe associée.</p>
                               ) : (
