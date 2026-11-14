@@ -2972,6 +2972,46 @@ async function handleNotificationScheduler(request) {
             target: '/expenses', source: 'daily_expense_summary',
           });
         }
+        if (!candidates.length) {
+          const dayNumber = new Date(today + 'T12:00:00.000Z').getUTCDay();
+          const dailyCheckins = [
+            {
+              title: 'Prends une minute pour ton suivi',
+              body: 'As-tu bien enregistré les opérations importantes de ta journée ? Vérifie tes dernières entrées dans Pata pour garder des rapports fiables.',
+            },
+            {
+              title: 'Ton suivi financier mérite un petit point',
+              body: 'Même lorsque la journée est calme, vérifie les paiements et mouvements déjà réalisés. Une information saisie au bon moment rend ton bilan plus utile.',
+            },
+            {
+              title: 'Garde une vision claire de ton argent',
+              body: 'Consulte rapidement tes dernières opérations et tes priorités. Tu peux corriger une catégorie ou compléter une information pour garder ton suivi à jour.',
+            },
+            {
+              title: 'Un petit point aujourd’hui peut aider demain',
+              body: 'Vérifie les dépenses prévues, les prochaines échéances et les revenus attendus. Pata rassemble ces informations pour t’aider à mieux organiser la suite.',
+            },
+            {
+              title: 'Tes finances évoluent, garde le fil',
+              body: 'Prends un instant pour vérifier que tes dernières opérations sont bien enregistrées. Tes rapports seront plus précis lorsque ton suivi reste à jour.',
+            },
+            {
+              title: 'Prépare sereinement les prochains jours',
+              body: 'Regarde ce qui arrive dans tes budgets, tes factures et tes objectifs. Anticiper une petite échéance peut éviter une mauvaise surprise.',
+            },
+            {
+              title: 'Termine la journée avec un suivi clair',
+              body: 'Vérifie tes opérations récentes et ce que tu souhaites mettre de côté. Un suivi régulier t’aide à décider avec plus de visibilité.',
+            },
+          ];
+          const checkin = dailyCheckins[dayNumber];
+          candidates.push({
+            key: 'daily-checkin:' + today, topic: 'daily_checkin', priority: 5,
+            title: checkin.title,
+            body: checkin.body,
+            target: '/dashboard', source: 'daily_checkin',
+          });
+        }
         const selectedCandidate = selectRetentionCandidates(candidates, 1)[0];
         if (!selectedCandidate) { skipped += 1; continue; }
         let { title, body, target, source: dailySource, categoryId } = selectedCandidate;
