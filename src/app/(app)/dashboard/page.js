@@ -265,7 +265,7 @@ export default function DashboardPage() {
 
   const totalIncome = Number(globalFinanceSummary?.totalIncome ?? profile?.lifetimeIncomeAmount ?? 0);
   const totalExpense = Number(globalFinanceSummary?.totalExpense ?? profile?.lifetimeExpenseAmount ?? 0);
-  const globalBalance = Number(globalFinanceSummary?.globalBalance ?? (totalIncome - totalExpense));
+  const globalBalance = totalIncome - totalExpense;
 
   const periodIncomeTotal = periodIncomes.filter((income) => !income.neutralFlow).reduce((s, i) => s + (i.amount || 0), 0);
   const periodExpenseTotal = periodExpenses.filter((expense) => !expense.neutralFlow).reduce((s, e) => s + (e.amount || 0), 0);
@@ -395,21 +395,18 @@ export default function DashboardPage() {
             <Link href="/reports" className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-white/20 bg-white/10 px-3 text-xs font-semibold text-white transition hover:bg-white/15">Voir mon bilan <ChevronRight size={14}/></Link>
           </div>
         </div>
-        <div className="relative mt-6 grid gap-2 border-t border-white/15 pt-4 sm:grid-cols-3">
-          <div className="rounded-2xl border border-white/15 bg-white/10 p-3.5">
-            <p className="text-[11px] font-medium text-emerald-100">Revenus accumulés</p>
-            <p className="mt-1 break-words text-xl font-bold tracking-tight sm:text-2xl">{globalFinanceSummary ? formatCurrency(globalFinanceSummary.accumulatedIncome) : '…'}</p>
-            <p className="mt-1 text-[10px] leading-4 text-emerald-100">Revenus gagnés, hors emprunts, remboursements reçus et transferts d’espèces</p>
+        <div className="relative mt-4 grid grid-cols-3 gap-2 border-t border-white/15 pt-3">
+          <div className="min-w-0 rounded-xl border border-white/15 bg-white/10 px-2.5 py-2.5 sm:px-3">
+            <p className="truncate text-[10px] font-medium text-emerald-100 sm:text-[11px]">Entrées cumulées</p>
+            <p className="mt-1 break-words text-sm font-bold leading-tight tracking-tight sm:text-xl">{formatCurrency(totalIncome)}</p>
           </div>
-          <div className="rounded-2xl border border-white/15 bg-white/10 p-3.5">
-            <p className="text-[11px] font-medium text-emerald-100">Sorties totales</p>
-            <p className="mt-1 break-words text-xl font-bold tracking-tight sm:text-2xl">{globalFinanceSummary ? formatCurrency(globalFinanceSummary.totalOutflow) : '…'}</p>
-            <p className="mt-1 text-[10px] leading-4 text-emerald-100">Dépenses, prêts accordés, épargne et investissements</p>
+          <div className="min-w-0 rounded-xl border border-white/15 bg-white/10 px-2.5 py-2.5 sm:px-3">
+            <p className="truncate text-[10px] font-medium text-emerald-100 sm:text-[11px]">Sorties totales</p>
+            <p className="mt-1 break-words text-sm font-bold leading-tight tracking-tight sm:text-xl">{formatCurrency(totalExpense)}</p>
           </div>
-          <div className="rounded-2xl border border-white/20 bg-white/15 p-3.5">
-            <p className="text-[11px] font-semibold text-white">Ce qu’il te reste</p>
-            <p className="mt-1 break-words text-xl font-bold tracking-tight sm:text-2xl">{globalFinanceSummary ? formatCurrency(globalFinanceSummary.remainingBalance) : '…'}</p>
-            <p className="mt-1 text-[10px] leading-4 text-emerald-100">Revenus accumulés moins les sorties totales</p>
+          <div className="min-w-0 rounded-xl border border-white/20 bg-white/15 px-2.5 py-2.5 sm:px-3">
+            <p className="truncate text-[10px] font-semibold text-white sm:text-[11px]">Solde restant</p>
+            <p className="mt-1 break-words text-sm font-bold leading-tight tracking-tight sm:text-xl">{formatCurrency(globalBalance)}</p>
           </div>
         </div>
       </section>

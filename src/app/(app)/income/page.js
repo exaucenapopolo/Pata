@@ -102,7 +102,8 @@ export default function IncomePage() {
   const [incomeExpenseDetails, setIncomeExpenseDetails] = useState({ incomeId: null, loading: false, loadingMore: false, totalSpent: 0, expenseCount: 0, expenses: [], nextCursor: null, error: '' });
 
   useEffect(() => {
-    if (!selectedIncome?.id || selectedIncome.neutralFlow || selectedIncome.cashPocket) {
+    const isBorrowedIncome = selectedIncome?.flowType === 'debt_borrowed' || selectedIncome?.categoryId === 'debt_borrowed';
+    if (!selectedIncome?.id || selectedIncome.cashPocket || (selectedIncome.neutralFlow && !isBorrowedIncome)) {
       setIncomeExpenseDetails({ incomeId: selectedIncome?.id || null, loading: false, loadingMore: false, totalSpent: 0, expenseCount: 0, expenses: [], nextCursor: null, error: '' });
       return undefined;
     }
@@ -128,7 +129,7 @@ export default function IncomePage() {
       }
     })();
     return () => { active = false; };
-  }, [selectedIncome?.id, selectedIncome?.neutralFlow, selectedIncome?.cashPocket, user]);
+  }, [selectedIncome?.id, selectedIncome?.neutralFlow, selectedIncome?.cashPocket, selectedIncome?.flowType, selectedIncome?.categoryId, user]);
   const [saving, setSaving] = useState(false);
   const [savingRules, setSavingRules] = useState(false);
   const [savingApplied, setSavingApplied] = useState(false);
@@ -1002,7 +1003,9 @@ export default function IncomePage() {
             <div className="space-y-4">
               {(() => {
                 const incomeCategory = [...INCOME_CATEGORIES, ...customIncomeCategories].find((category) => category.id === selectedIncome.categoryId);
-                const isStandardIncome = !selectedIncome.cashPocket && !selectedIncome.neutralFlow && selectedIncome.flowType !== 'debt_borrowed';
+                const isBorrowedIncome = selectedIncome.flowType === 'debt_borrowed' || selectedIncome.categoryId === 'debt_borrowed';
+                const isTrackedIncome = !selectedIncome.cashPocket && (!selectedIncome.neutralFlow || isBorrowedIncome);
+                const isEditableStandardIncome = !selectedIncome.cashPocket && !selectedIncome.neutralFlow && !isBorrowedIncome;
                 const detailsReady = !incomeExpenseDetails.loading && !incomeExpenseDetails.error && incomeExpenseDetails.incomeId === selectedIncome.id;
                 const visibleExpenses = detailsReady ? incomeExpenseDetails.expenses : [];
                 const categoryTotals = new Map();
@@ -1022,6 +1025,8 @@ export default function IncomePage() {
                 const typeRows = [...typeTotals.entries()].sort((a, b) => b[1].amount - a[1].amount);
                 const topDay = [...dayTotals.entries()].sort((a, b) => b[1] - a[1])[0] || null;
                 const remainingAmount = Number(selectedIncome.amount || 0) - Number(incomeExpenseDetails.totalSpent || 0);
+                const loanGivenRows = visibleExpenses.filter((expense) => expense.flowType === 'loan_given' || expense.categoryId === 'loan_given');
+                const loanGivenTotal = loanGivenRows.reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0);
                 const budgetAllocated = selectedIncomeBudgets.reduce((sum, budget) => sum + (Number(budget.amount) || 0), 0);
                 const budgetCategoryIds = new Set(selectedIncomeBudgets.map((budget) => normalizeExpenseCategoryId(budget.categoryId)));
                 const monthBudgetExpenses = visibleExpenses.filter((expense) =>
@@ -1056,7 +1061,7 @@ export default function IncomePage() {
                         <p className="text-xs font-semibold uppercase tracking-wide text-brand-800">{selectedIncome.cashPocket ? 'Poche espèces · mouvement neutre' : incomeCategory?.label || incomeCategory?.name || 'Revenu'}</p>
                         <p className="mt-1 text-2xl font-bold tracking-tight text-slate-900">{formatCurrency(selectedIncome.amount)}</p>
                         <p className="mt-1 text-sm font-semibold text-slate-700">{selectedIncome.source}</p>
-                        {isStandardIncome && (
+                        {isEditableStandardIncome && (
                           <Button type="button" size="sm" variant="outline" className="mt-3" onClick={() => openEditIncome(selectedIncome)}>
                             <Pencil size={13}/> Modifier la photo ou les informations
                           </Button>
@@ -1073,7 +1078,7 @@ export default function IncomePage() {
                     </div>
                     {selectedIncome.latitude != null && selectedIncome.longitude != null && <a href={'https://www.google.com/maps?q=' + selectedIncome.latitude + ',' + selectedIncome.longitude} target="_blank" rel="noreferrer" className="block rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-brand-800 hover:bg-brand-50">Voir la position sur la carte</a>}
 
-                    {isStandardIncome && (
+                    {isTrackedIncome && (
                       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
                         <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
                           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1116,7 +1121,7 @@ export default function IncomePage() {
                       </section>
                     )}
 
-                    {isStandardIncome && (
+                    {isTrackedIncome && (
                       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white text-left">
                         <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
                           <h3 className="text-sm font-bold text-slate-900">Ce que tu as fait avec cet argent</h3>
@@ -1129,19 +1134,34 @@ export default function IncomePage() {
                             <p role="alert" className="rounded-lg bg-red-50 p-3 text-xs text-red-700">{incomeExpenseDetails.error}</p>
                           ) : (
                             <>
-                              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                                <div className="rounded-xl border border-slate-100 bg-slate-50 p-3"><p className="text-[10px] text-slate-500">Total des sorties</p><p className="mt-1 text-sm font-bold text-slate-900">{formatCurrency(incomeExpenseDetails.totalSpent)}</p></div>
-                                <div className="rounded-xl border border-slate-100 bg-slate-50 p-3"><p className="text-[10px] text-slate-500">Reste estimé</p><p className={'mt-1 text-sm font-bold ' + (remainingAmount < 0 ? 'text-red-600' : 'text-emerald-700')}>{formatCurrency(Math.max(0, remainingAmount))}</p>{remainingAmount < 0 && <p className="mt-1 text-[10px] text-red-600">Dépassement : {formatCurrency(Math.abs(remainingAmount))}</p>}</div>
-                                <div className="col-span-2 rounded-xl border border-slate-100 bg-slate-50 p-3 sm:col-span-1"><p className="text-[10px] text-slate-500">Opérations associées</p><p className="mt-1 text-sm font-bold text-slate-900">{incomeExpenseDetails.expenseCount}</p></div>
+                              <div className="grid grid-cols-3 gap-2">
+                                <div className="min-w-0 rounded-lg border border-slate-100 bg-slate-50 px-2.5 py-2"><p className="truncate text-[9px] leading-4 text-slate-500 sm:text-[10px]">Total des sorties</p><p className="mt-1 break-words text-xs font-bold leading-tight text-slate-900 sm:text-sm">{formatCurrency(incomeExpenseDetails.totalSpent)}</p></div>
+                                <div className="min-w-0 rounded-lg border border-slate-100 bg-slate-50 px-2.5 py-2"><p className="truncate text-[9px] leading-4 text-slate-500 sm:text-[10px]">Reste estimé</p><p className={'mt-1 break-words text-xs font-bold leading-tight sm:text-sm ' + (remainingAmount < 0 ? 'text-red-600' : 'text-emerald-700')}>{formatCurrency(Math.max(0, remainingAmount))}</p>{remainingAmount < 0 && <p className="mt-1 text-[9px] text-red-600">Dépassement : {formatCurrency(Math.abs(remainingAmount))}</p>}</div>
+                                <div className="min-w-0 rounded-lg border border-slate-100 bg-slate-50 px-2.5 py-2"><p className="truncate text-[9px] leading-4 text-slate-500 sm:text-[10px]">Opérations</p><p className="mt-1 text-xs font-bold leading-tight text-slate-900 sm:text-sm">{incomeExpenseDetails.expenseCount}</p></div>
                               </div>
-                              {typeRows.length > 0 && (
+                              <div className="grid gap-2 sm:grid-cols-2">
                                 <div className="rounded-xl border border-slate-100 p-3">
                                   <h4 className="text-xs font-semibold text-slate-800">Nature des sorties</h4>
-                                  <div className="mt-2 space-y-2">
-                                    {typeRows.map(([label, total]) => <div key={label} className="flex items-center justify-between gap-3 text-xs"><span className="min-w-0 flex-1 text-slate-600">{label} <span className="text-slate-400">({total.count})</span></span><strong className="shrink-0 text-slate-800">{formatCurrency(total.amount)}</strong></div>)}
-                                  </div>
+                                  {typeRows.length ? <div className="mt-2 space-y-1.5">{typeRows.map(([label, total]) => <div key={label} className="flex items-center justify-between gap-3 text-xs"><span className="min-w-0 flex-1 text-slate-600">{label} <span className="text-slate-400">({total.count})</span></span><strong className="shrink-0 text-slate-800">{formatCurrency(total.amount)}</strong></div>)}</div> : <p className="mt-2 text-xs text-slate-500">Aucune sortie enregistrée.</p>}
                                 </div>
-                              )}
+                                <div className="rounded-xl border border-slate-100 p-3">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <h4 className="text-xs font-semibold text-slate-800">Prêts accordés avec cet argent</h4>
+                                    <strong className="text-xs text-slate-900">{formatCurrency(loanGivenTotal)}</strong>
+                                  </div>
+                                  <p className="mt-1 text-[10px] text-slate-500">{loanGivenRows.length} prêt(s) retrouvé(s) dans les opérations affichées</p>
+                                  {loanGivenRows.length ? <div className="mt-2 space-y-2">{loanGivenRows.map((loan) => <div key={loan.id} className="rounded-lg bg-slate-50 px-2.5 py-2">
+                                    <div className="flex items-start justify-between gap-2">
+                                      <div className="min-w-0">
+                                        <p className="truncate text-xs font-semibold text-slate-800">{loan.person || loan.counterpartyName || 'Bénéficiaire non renseigné'}</p>
+                                        <p className="mt-0.5 text-[10px] capitalize text-slate-500">{formatIncomeDate(loan.date)}</p>
+                                        {loan.dueDate && <p className="mt-0.5 text-[10px] text-slate-500">Échéance : {formatIncomeDate(loan.dueDate)}</p>}
+                                      </div>
+                                      <strong className="shrink-0 text-xs text-slate-900">{formatCurrency(loan.amount)}</strong>
+                                    </div>
+                                  </div>)}</div> : <p className="mt-2 text-xs text-slate-500">Aucun prêt accordé n’est associé à ce revenu dans les opérations consultées.</p>}
+                                </div>
+                              </div>
                               <div className="grid gap-3 sm:grid-cols-2">
                                 <div className="rounded-xl border border-slate-100 p-3">
                                   <h4 className="text-xs font-semibold text-slate-800">Répartition par catégorie</h4>
@@ -1171,7 +1191,9 @@ export default function IncomePage() {
                                   <ul className="space-y-2">
                                     {visibleExpenses.map((expense) => {
                                       const expenseCategory = expenseCategoryFor(expense.categoryId);
-                                      const title = expense.title || expense.name || expense.description || expense.details || expense.note || expenseCategory?.label || expenseCategory?.name || 'Dépense';
+                                      const isLoanGiven = expense.flowType === 'loan_given' || expense.categoryId === 'loan_given';
+                                      const title = isLoanGiven ? 'Prêt accordé' : expense.title || expense.name || expense.description || expense.details || expense.note || expenseCategory?.label || expenseCategory?.name || 'Dépense';
+                                      const loanPerson = expense.person || expense.counterpartyName || 'Bénéficiaire non renseigné';
                                       return (
                                         <li key={expense.id} className="flex items-start gap-3 rounded-xl border border-slate-100 p-2.5">
                                           <CategoryImage categoryId={expense.categoryId} image={expense.image || expenseCategory?.image} size="md"/>
@@ -1179,6 +1201,7 @@ export default function IncomePage() {
                                             <p className="break-words text-xs font-semibold text-slate-800">{title}</p>
                                             <p className="mt-1 text-[10px] capitalize leading-4 text-slate-500">{formatIncomeDate(expense.date)} · {expenseCategory?.label || expenseCategory?.name || 'Autre'}</p>
                                             <p className="mt-1 text-[10px] font-medium text-brand-700">{getIncomeExpenseFlowLabel(expense, isEnglish)}</p>
+                                            {isLoanGiven && <p className="mt-1 text-[10px] text-slate-600">À : <strong className="font-semibold text-slate-800">{loanPerson}</strong>{expense.dueDate ? ' · Échéance : ' + formatIncomeDate(expense.dueDate) : ''}</p>}
                                             {expense.note && expense.note !== title && <p className="mt-1 whitespace-pre-wrap text-[10px] leading-4 text-slate-500">{expense.note}</p>}
                                           </div>
                                           <strong className="shrink-0 text-right text-xs text-slate-900">{formatCurrency(expense.amount)}</strong>

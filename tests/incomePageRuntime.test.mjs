@@ -64,3 +64,33 @@ test('les budgets savent ouvrir le mois et le revenu transmis par la fiche de re
   assert.match(budgetsPage, /params\.get\('month'\)/);
   assert.match(budgetsPage, /params\.get\('incomeId'\)/);
 });
+
+test('les opérations associées restent visibles pour un emprunt malgré son statut neutre', () => {
+  assert.match(incomePage, /isBorrowedIncome = selectedIncome\.flowType === 'debt_borrowed'/);
+  assert.match(incomePage, /selectedIncome\.neutralFlow && !isBorrowedIncome/);
+  assert.match(incomePage, /isTrackedIncome &&/);
+});
+
+test('les prêts accordés depuis un revenu affichent le bénéficiaire, la date et le montant', () => {
+  assert.match(incomePage, /loanGivenRows = visibleExpenses\.filter/);
+  assert.match(incomePage, /loan\.person \|\| loan\.counterpartyName/);
+  assert.match(incomePage, /formatIncomeDate\(loan\.date\)/);
+  assert.match(incomePage, /formatCurrency\(loan\.amount\)/);
+  assert.match(incomePage, /loan\.dueDate/);
+});
+
+test('le solde affiche la formule historique entrées cumulées moins sorties cumulées', () => {
+  const dashboardPage = fs.readFileSync(new URL('../src/app/(app)/dashboard/page.js', import.meta.url), 'utf8');
+  const apiRoute = fs.readFileSync(new URL('../src/app/api/[...path]/route.js', import.meta.url), 'utf8');
+  assert.match(dashboardPage, /const globalBalance = totalIncome - totalExpense;/);
+  assert.match(apiRoute, /globalBalance: totalIncome - totalExpense/);
+  assert.doesNotMatch(apiRoute, /buildDashboardMoneySummary/);
+});
+
+test('les trois indicateurs du tableau de bord sont compacts et affichent leurs montants', () => {
+  const dashboardPage = fs.readFileSync(new URL('../src/app/(app)/dashboard/page.js', import.meta.url), 'utf8');
+  assert.match(dashboardPage, /grid grid-cols-3 gap-2 border-t/);
+  assert.match(dashboardPage, /formatCurrency\(totalIncome\)/);
+  assert.match(dashboardPage, /formatCurrency\(totalExpense\)/);
+  assert.match(dashboardPage, /formatCurrency\(globalBalance\)/);
+});
