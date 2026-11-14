@@ -37,7 +37,14 @@ export function AuthProvider({ children }) {
       if (u) {
         try {
           const token = await u.getIdToken();
-          await fetch('/api/profile/activity', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+          const platform = Capacitor.isNativePlatform() ? Capacitor.getPlatform() : 'web';
+          const passwordLoginEnabled = Array.isArray(u.providerData)
+            && u.providerData.some((provider) => provider.providerId === 'password');
+          await fetch('/api/profile/activity', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ platform, passwordLoginEnabled }),
+          });
         } catch (error) { console.warn('Activité du compte non synchronisée :', error?.message); }
       }
     });

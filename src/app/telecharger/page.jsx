@@ -110,7 +110,12 @@ export default function TelechargerPage() {
 
           <div className="border-t border-slate-100 bg-slate-50 px-4 py-4 text-center sm:px-6">
             <p className="text-xs leading-5 text-slate-600">Tu rencontres encore un blocage pendant l’installation ou l’activation ?</p>
-            <a href="https://wa.me/237681144638" className="mt-2 inline-flex min-h-10 items-center justify-center rounded-xl bg-[#075b43] px-4 text-xs font-bold text-white">Contacter l’assistance WhatsApp</a>
+            <div className="mt-3 flex flex-wrap justify-center gap-2">
+              <a href="https://wa.me/14236752034" className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[#075b43] px-4 text-xs font-bold text-white">WhatsApp · +1 (423) 675-2034</a>
+              <a href="tel:+237681144638" className="inline-flex min-h-10 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-xs font-bold text-slate-700">Appeler · +237 681 14 46 38</a>
+              <a href="mailto:support@pata-yam.site" className="inline-flex min-h-10 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-xs font-bold text-slate-700">E-mail support</a>
+            </div>
+            <p className="mt-2 text-[11px] text-slate-500">Le numéro WhatsApp et le numéro d’appel sont deux contacts différents.</p>
             <p className="mt-3 text-[11px] text-slate-500">La version web reste accessible sur <a className="font-semibold text-[#075b43] underline" href="https://pata-yam.site/">pata-yam.site</a>, sans installation.</p>
           </div>
         </section>

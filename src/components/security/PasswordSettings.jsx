@@ -6,6 +6,7 @@ import { KeyRound, Mail, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/hooks/useAuth';
 import { auth } from '@/lib/firebase/client';
+import { updateUserProfile } from '@/lib/firestore/profile';
 
 export function PasswordSettings() {
   const { user } = useAuth();
@@ -47,6 +48,7 @@ export function PasswordSettings() {
         setHasPassword(linked.user.providerData.some((provider) => provider.providerId === 'password'));
         setMessage('Un mot de passe a été ajouté à ton compte. Tu peux maintenant te connecter avec ton e-mail et ce mot de passe.');
       }
+      await updateUserProfile(user.uid, { passwordLoginEnabled: true, passwordChangedAt: new Date().toISOString() });
       setCurrentPassword(''); setNewPassword(''); setConfirmPassword('');
     } catch (err) {
       const code = String(err?.code || '');

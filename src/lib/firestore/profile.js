@@ -1,7 +1,21 @@
-import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp, increment } from 'firebase/firestore';
+import { Capacitor } from '@capacitor/core';
 import { db, auth } from '@/lib/firebase/client';
 
 const ref = (uid) => doc(db, 'users', uid);
+
+async function syncProfileActivity(user) {
+  if (!user) return;
+  const token = await user.getIdToken();
+  const platform = Capacitor.isNativePlatform() ? Capacitor.getPlatform() : 'web';
+  const passwordLoginEnabled = Array.isArray(user.providerData)
+    && user.providerData.some((provider) => provider.providerId === 'password');
+  await fetch('/api/profile/activity', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ platform, passwordLoginEnabled }),
+  });
+}
 
 export async function ensureUserProfile(user) {
   if (!user) return null;
@@ -52,8 +66,7 @@ export async function ensureUserProfile(user) {
   // l’autocomplétion des dettes, sans lecture globale des profils.
   if (created) {
     try {
-      const token = await user.getIdToken();
-      await fetch('/api/profile/activity', { method: 'POST', headers: { Authorization: 'Bearer ' + token } });
+      await syncProfileActivity(user);
     } catch (error) {
       console.warn('Index du nom de profil non synchronisé :', error?.message || error);
     }
@@ -67,13 +80,18 @@ export async function getUserProfile(uid) {
 }
 
 export async function updateUserProfile(uid, patch) {
-  await updateDoc(ref(uid), { ...patch, updatedAt: serverTimestamp() });
-  if (patch.displayName !== undefined && auth.currentUser?.uid === uid) {
+  const update = { ...patch, updatedAt: serverTimestamp() };
+  if (Object.prototype.hasOwnProperty.call(patch, 'photoURL')) {
+    update.photoChangeCount = increment(1);
+    update.photoUpdatedAt = serverTimestamp();
+    update.hasProfilePhoto = Boolean(patch.photoURL);
+  }
+  await updateDoc(ref(uid), update);
+  if ((patch.displayName !== undefined || patch.photoURL !== undefined) && auth.currentUser?.uid === uid) {
     try {
-      const token = await auth.currentUser.getIdToken();
-      await fetch('/api/profile/activity', { method: 'POST', headers: { Authorization: 'Bearer ' + token } });
+      await syncProfileActivity(auth.currentUser);
     } catch (error) {
-      console.warn('Index du nom de profil non actualisé :', error?.message || error);
+      console.warn('Index du profil non actualisé :', error?.message || error);
     }
   }
 }

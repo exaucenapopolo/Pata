@@ -2434,6 +2434,15 @@ function monthKeysBetween(startDate, endDate) {
   return keys;
 }
 
+function normalizeIncomeImageUrl(value) {
+  const raw = String(value || '').trim().slice(0, 2048);
+  if (!raw) return '';
+  try {
+    const url = new URL(raw);
+    return url.protocol === 'https:' && url.hostname === 'res.cloudinary.com' ? url.toString() : '';
+  } catch { return ''; }
+}
+
 function readOptionalIncomeMetadata(body = {}, previous = {}) {
   const rawTime = body.time === undefined ? previous.time : body.time;
   const time = /^([01]\d|2[0-3]):[0-5]\d$/.test(String(rawTime || '')) ? String(rawTime) : '';
@@ -2447,7 +2456,9 @@ function readOptionalIncomeMetadata(body = {}, previous = {}) {
   const accuracy = rawAccuracy === null || rawAccuracy === '' ? null : Number(rawAccuracy);
   const paymentMethods = ['cash', 'mtn_momo', 'orange_money', 'bank_transfer', 'card', 'other'];
   const rawMethod = body.paymentMethod === undefined ? previous.paymentMethod : body.paymentMethod;
+  const rawImage = body.image === undefined ? previous.image : body.image;
   return {
+    image: normalizeIncomeImageUrl(rawImage),
     time,
     locationLabel: String(body.locationLabel === undefined ? previous.locationLabel || '' : body.locationLabel || '').trim().slice(0, 160),
     paymentMethod: paymentMethods.includes(String(rawMethod || '')) ? String(rawMethod) : '',
@@ -2523,6 +2534,40 @@ async function handleIncomeSpendTotals(request) {
   } catch (error) {
     console.error('[PATA INCOME BALANCE SUMMARY]', error.message || error);
     return errorResponse(error.message || 'Impossible de calculer les soldes des revenus.', 502);
+  }
+}
+
+async function handleIncomeExpenseSummary(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const url = new URL(request.url);
+    const incomeId = String(url.searchParams.get('incomeId') || '').trim().slice(0, 150);
+    const cursor = String(url.searchParams.get('cursor') || '').trim().slice(0, 150);
+    if (!incomeId || incomeId.includes('/') || cursor.includes('/')) return errorResponse('Revenu invalide.', 400);
+    const expensesRef = adminDb.collection('users').doc(uid).collection('expenses');
+    const linkedQuery = expensesRef.where('incomeSourceId', '==', incomeId);
+    let pageQuery = linkedQuery.orderBy(FieldPath.documentId());
+    if (cursor) pageQuery = pageQuery.startAfter(cursor);
+    const [summarySnapshot, pageSnapshot] = await Promise.all([
+      cursor ? Promise.resolve(null) : linkedQuery.aggregate({ total: AggregateField.sum('amount'), count: AggregateField.count() }).get(),
+      pageQuery.limit(51).get(),
+    ]);
+    const pageDocs = pageSnapshot.docs.slice(0, 50);
+    const hasMore = pageSnapshot.docs.length > 50;
+    const summary = summarySnapshot?.data() || {};
+    return NextResponse.json({
+      success: true,
+      ...(summarySnapshot ? {
+        totalSpent: Math.max(0, Number(summary.total) || 0),
+        expenseCount: Math.max(0, Number(summary.count) || 0),
+      } : {}),
+      expenses: pageDocs.map((document) => ({ id: document.id, ...serializeAdminValue(document.data()) })),
+      hasMore,
+      nextCursor: hasMore ? pageDocs[pageDocs.length - 1]?.id || null : null,
+    });
+  } catch (error) {
+    console.error('[PATA INCOME EXPENSE SUMMARY]', error.message || error);
+    return errorResponse(error.message || 'Impossible de charger les dépenses associées à ce revenu.', 502);
   }
 }
 
@@ -2777,12 +2822,22 @@ async function handleUpdateIncome(request) {
       return NextResponse.json({ success: true, id: incomeId, ...result });
     }
 
-    const amount = Math.round(Number(body.amount));
-    const source = String(body.source || '').trim().slice(0, 100);
-    const categoryId = String(body.categoryId || 'other_income').trim().slice(0, 80);
-    const date = String(body.date || '');
-    const month = String(body.month || date.slice(0, 7));
-    const note = String(body.note || '').trim().slice(0, 250);
+    const currentAmount = Math.round(Number(initialIncome.amount) || 0);
+    const expensesForIncome = userRef.collection('expenses').where('incomeSourceId', '==', incomeId);
+    const spentSnapshot = await expensesForIncome.aggregate({
+      total: AggregateField.sum('amount'),
+      count: AggregateField.count(),
+    }).get();
+    const alreadySpent = Number(spentSnapshot.data()?.count) > 0;
+    const amount = body.amount === undefined ? currentAmount : Math.round(Number(body.amount));
+    if (alreadySpent && amount !== currentAmount) {
+      return errorResponse('Ce revenu a déjà été associé à une dépense. Son montant initial ne peut plus être modifié, même si la dépense a ensuite été annulée ou remboursée. Tu peux toujours modifier son nom, sa catégorie, sa photo et ses autres informations.', 409);
+    }
+    const source = String(body.source === undefined ? initialIncome.source || '' : body.source || '').trim().slice(0, 100);
+    const categoryId = String(body.categoryId === undefined ? initialIncome.categoryId || 'other_income' : body.categoryId || 'other_income').trim().slice(0, 80);
+    const date = String(body.date === undefined ? initialIncome.date || '' : body.date || '');
+    const month = String(body.month === undefined ? initialIncome.month || date.slice(0, 7) : body.month || date.slice(0, 7));
+    const note = String(body.note === undefined ? initialIncome.note || '' : body.note || '').trim().slice(0, 250);
     const allowedCategories = new Set(['salary', 'business', 'sales', 'commission', 'rental', 'pension', 'gift', 'debt_repayment_received', 'other_income']);
     if (!Number.isSafeInteger(amount) || amount <= 0) return errorResponse('Indique un montant de revenu valide.', 400);
     if (!source) return errorResponse('Indique la source de ce revenu.', 400);
@@ -4399,16 +4454,32 @@ async function handleAIVision(request) {
 async function handleProfileActivity(request) {
   try {
     const decoded = await authenticate(request);
+    const body = await request.json().catch(() => ({}));
     const userRef = adminDb.collection('users').doc(decoded.uid);
     const profileSnap = await userRef.get();
-    // Do not create a skeletal profile here: the registration flow initializes
-    // the profile and triggers the one-time welcome email.
     if (!profileSnap.exists) return NextResponse.json({ success: true, profilePending: true });
     const profile = profileSnap.data() || {};
     const displayName = String(profile.displayName || decoded.name || decoded.email?.split('@')[0] || 'Utilisateur').trim().slice(0, 100);
     const searchName = displayName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('fr-FR').replace(/\s+/g, ' ').trim();
+    const requestedPlatform = String(body.platform || 'web').toLowerCase();
+    const platform = ['android', 'ios', 'web'].includes(requestedPlatform) ? requestedPlatform : 'web';
+    const usedAndroidApp = profile.usedAndroidApp === true || platform === 'android';
+    const usedWebApp = profile.usedWebApp === true || platform === 'web';
+    const profilePatch = {
+      lastSeenAt: FieldValue.serverTimestamp(),
+      lastSeenPlatform: platform,
+      usedAndroidApp,
+      usedWebApp,
+      usedWebOnly: usedWebApp && !usedAndroidApp,
+      hasProfilePhoto: Boolean(profile.photoURL),
+      theme: profile.theme === 'dark' ? 'dark' : 'light',
+      email: decoded.email || profile.email || null,
+      ...(platform === 'android' && !profile.firstAndroidUseAt ? { firstAndroidUseAt: FieldValue.serverTimestamp() } : {}),
+      ...(platform === 'web' && !profile.firstWebUseAt ? { firstWebUseAt: FieldValue.serverTimestamp() } : {}),
+      ...(typeof body.passwordLoginEnabled === 'boolean' ? { passwordLoginEnabled: body.passwordLoginEnabled } : {}),
+    };
     await Promise.all([
-      userRef.set({ lastSeenAt: FieldValue.serverTimestamp(), email: decoded.email || profile.email || null }, { merge: true }),
+      userRef.set(profilePatch, { merge: true }),
       adminDb.collection('userDirectory').doc(decoded.uid).set({
         displayName,
         searchName,
@@ -4417,7 +4488,7 @@ async function handleProfileActivity(request) {
         updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true }),
     ]);
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, platform });
   } catch (error) { return errorResponse(error.message || 'Impossible de mettre à jour le profil.', 401); }
 }
 
@@ -4653,9 +4724,12 @@ async function handleAdminOverview(request) {
     const users = adminDb.collection('users');
     const withdrawals = adminDb.collection('withdrawalRequests');
     const activeDebtQuery = adminDb.collectionGroup('debts').where('status', 'in', ['active', 'partial', 'late']);
-    const [userTotals, premiumCount, deposits, subscriptions, paidPayouts, pendingPayouts, latestUsers, latestDeposits, latestWithdrawals, topBalances, topExpenses, leastExpenses, topIncomes, lifetimeExpenses, lifetimeIncomes, billsSummary, budgetsSummary, activeDebts] = await Promise.all([
+    const [userTotals, premiumCount, androidUsers, webUsers, webOnlyUsers, deposits, subscriptions, paidPayouts, pendingPayouts, latestUsers, latestDeposits, latestWithdrawals, topBalances, topExpenses, leastExpenses, topIncomes, lifetimeExpenses, lifetimeIncomes, billsSummary, budgetsSummary, activeDebts] = await Promise.all([
       aggregateTotal(users, 'balance'),
       users.where('premiumUntil', '>', nowIso).count().get().then((snap) => snap.data().count).catch(() => 0),
+      users.where('usedAndroidApp', '==', true).count().get().then((snap) => snap.data().count).catch(() => null),
+      users.where('usedWebApp', '==', true).count().get().then((snap) => snap.data().count).catch(() => null),
+      users.where('usedWebOnly', '==', true).count().get().then((snap) => snap.data().count).catch(() => null),
       aggregateTotal(adminDb.collection('deposits').where('status', '==', 'CONFIRMED')),
       aggregateTotal(adminDb.collection('subscriptionPayments').where('status', '==', 'CONFIRMED')),
       aggregateTotal(withdrawals.where('status', '==', 'PAID')),
@@ -4686,6 +4760,9 @@ async function handleAdminOverview(request) {
       success: true,
       stats: {
         totalUsers: userTotals.count,
+        androidUsers: androidUsers == null ? null : Number(androidUsers) || 0,
+        webUsers: webUsers == null ? null : Number(webUsers) || 0,
+        webOnlyUsers: webOnlyUsers == null ? null : Number(webOnlyUsers) || 0,
         premiumUsers: Number(premiumCount) || 0,
         walletLiability: userTotals.total,
         confirmedDeposits: deposits.total,
@@ -4717,7 +4794,7 @@ async function handleAdminOverview(request) {
         leastExpenses: leastExpenses.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })),
         incomes: topIncomes.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })),
       },
-      note: 'Les détails par utilisateur et les objectifs d’épargne sont chargés uniquement à l’ouverture de leurs sections.',
+      note: 'Les compteurs de plateforme utilisent des agrégations Firestore. Les détails de profil et les historiques restent chargés uniquement à la demande.',
     });
   } catch (error) {
     return errorResponse(error.message || 'Accès administrateur refusé.', 401);
@@ -4790,7 +4867,13 @@ async function handleAdminUsers(request) {
     const url = new URL(request.url);
     const limitValue = Math.max(5, Math.min(100, Number(url.searchParams.get('limit')) || 40));
     const cursor = String(url.searchParams.get('cursor') || '').slice(0, 150);
-    let query = adminDb.collection('users').orderBy(FieldPath.documentId());
+    const platform = String(url.searchParams.get('platform') || 'all');
+    const users = adminDb.collection('users');
+    let query = platform === 'android'
+      ? users.where('usedAndroidApp', '==', true).orderBy(FieldPath.documentId())
+      : platform === 'web'
+        ? users.where('usedWebOnly', '==', true).orderBy(FieldPath.documentId())
+        : users.orderBy(FieldPath.documentId());
     if (cursor) {
       if (cursor.includes('/')) return errorResponse('Repère de pagination invalide.', 400);
       const cursorDoc = await adminDb.collection('users').doc(cursor).get();
@@ -8043,6 +8126,7 @@ const ROUTES = {
   'forecasts/duration/delete': { POST: handleDeleteDurationForecast },
   'finance/global-summary': { GET: handleGlobalFinanceSummary },
   'incomes/spent': { POST: handleIncomeSpendTotals },
+  'incomes/expenses': { GET: handleIncomeExpenseSummary },
   'incomes/add': { POST: handleCreateIncome },
   'incomes/update': { POST: handleUpdateIncome },
   'incomes/delete': { POST: handleDeleteIncome },

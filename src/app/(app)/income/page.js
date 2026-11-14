@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
-  Plus, Trash2, TrendingUp, CheckCircle2, Landmark, Save, RotateCcw, Percent,
+  Plus, Trash2, TrendingUp, CheckCircle2, Save, RotateCcw, Percent,
   PiggyBank, Target, Pencil, AlertTriangle, Calculator, ArrowRight, Clock3, MapPin, Pin
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -15,6 +15,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { CategoryManager } from '@/components/ui/CategoryManager';
 import { CategoryImage } from '@/components/ui/CategoryImage';
+import { CloudinaryImageField } from '@/components/ui/CloudinaryImageField';
 import { MonthPicker } from '@/components/ui/MonthPicker';
 import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/context/LanguageContext';
@@ -52,7 +53,7 @@ const currentTime = () => {
   const d = new Date();
   return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 };
-const emptyIncomeForm = () => ({ id: null, amount: '', source: 'Salaire', categoryId: 'salary', note: '', date: todayIso(), projectId: '', time: currentTime(), locationLabel: '', latitude: null, longitude: null, locationAccuracy: null, paymentMethod: '', details: '', flowType: 'normal', person: '', phone: '', dueDate: '', repaymentDebtId: '', counterpartyUid: '', counterpartyType: 'person', bankName: '', bankChoice: '', bankCustomName: '' });
+const emptyIncomeForm = () => ({ id: null, amount: '', amountLocked: false, source: 'Salaire', categoryId: 'salary', image: '', note: '', date: todayIso(), projectId: '', time: currentTime(), locationLabel: '', latitude: null, longitude: null, locationAccuracy: null, paymentMethod: '', details: '', flowType: 'normal', person: '', phone: '', dueDate: '', repaymentDebtId: '', counterpartyUid: '', counterpartyType: 'person', bankName: '', bankChoice: '', bankCustomName: '' });
 
 const FREQUENCIES = [
   { id: 'daily', label: 'Par jour', multiplier: 30 },
@@ -76,11 +77,41 @@ export default function IncomePage() {
   const { customCategories: customIncomeCategories } = useCustomCategories('income');
   const { rules, updatePercent, saveRules, resetRules, total, isValid, loading: rulesLoading } = useBudgetRules();
 
+  useEffect(() => {
+    if (!selectedIncome?.id || selectedIncome.neutralFlow || selectedIncome.cashPocket) {
+      setIncomeExpenseDetails({ incomeId: selectedIncome?.id || null, loading: false, loadingMore: false, totalSpent: 0, expenseCount: 0, expenses: [], nextCursor: null, error: '' });
+      return undefined;
+    }
+    let active = true;
+    setIncomeExpenseDetails({ incomeId: selectedIncome.id, loading: true, loadingMore: false, totalSpent: 0, expenseCount: 0, expenses: [], nextCursor: null, error: '' });
+    (async () => {
+      try {
+        const token = await user.getIdToken();
+        const response = await fetch('/api/incomes/expenses?incomeId=' + encodeURIComponent(selectedIncome.id), {
+          headers: { Authorization: 'Bearer ' + token },
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de charger les dépenses associées.');
+        if (active) setIncomeExpenseDetails({
+          incomeId: selectedIncome.id, loading: false, loadingMore: false,
+          totalSpent: Number(result.totalSpent) || 0,
+          expenseCount: Number(result.expenseCount) || 0,
+          expenses: Array.isArray(result.expenses) ? result.expenses : [],
+          nextCursor: result.nextCursor || null, error: '',
+        });
+      } catch (loadError) {
+        if (active) setIncomeExpenseDetails({ incomeId: selectedIncome.id, loading: false, loadingMore: false, totalSpent: 0, expenseCount: 0, expenses: [], nextCursor: null, error: loadError.message || 'Détail indisponible.' });
+      }
+    })();
+    return () => { active = false; };
+  }, [selectedIncome?.id, selectedIncome?.neutralFlow, selectedIncome?.cashPocket, user]);
+
   const [month, setMonth] = useState(todayMonth());
   const [incomeSection, setIncomeSection] = useState('all');
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyIncomeForm());
   const [selectedIncome, setSelectedIncome] = useState(null);
+  const [incomeExpenseDetails, setIncomeExpenseDetails] = useState({ incomeId: null, loading: false, loadingMore: false, totalSpent: 0, expenseCount: 0, expenses: [], nextCursor: null, error: '' });
   const [saving, setSaving] = useState(false);
   const [savingRules, setSavingRules] = useState(false);
   const [savingApplied, setSavingApplied] = useState(false);
@@ -433,8 +464,10 @@ export default function IncomePage() {
     setForm({
       id: income.id,
       amount: String(income.amount || ''),
+      amountLocked: income.balanceAvailable !== true || Number(income.spent) > 0,
       source: income.source || 'Revenu',
       categoryId: income.categoryId || 'other_income',
+      image: income.image || '',
       note: income.note || '',
       date: income.date || todayIso(),
       projectId: income.projectId || '',
@@ -488,6 +521,7 @@ export default function IncomePage() {
         date: form.date, month: form.date.slice(0, 7), projectId: ['normal', 'debt_borrowed'].includes(form.flowType) && isPremium ? form.projectId : '', time: form.time,
         locationLabel: form.locationLabel, latitude: form.latitude, longitude: form.longitude,
         locationAccuracy: form.locationAccuracy, paymentMethod: form.paymentMethod, details: form.details,
+        image: form.image || '',
       };
       if (form.id) {
         if (form.flowType === 'debt_borrowed') await updateIncome(user.uid, form.id, { projectId: isPremium ? (form.projectId || '') : '' });
@@ -538,6 +572,27 @@ export default function IncomePage() {
 
   const handleDelete = async () => {
     if (deleteId) { await deleteIncome(user.uid, deleteId); setDeleteId(null); }
+  };
+
+  const loadMoreIncomeExpenses = async () => {
+    if (!selectedIncome?.id || !incomeExpenseDetails.nextCursor || incomeExpenseDetails.loadingMore) return;
+    setIncomeExpenseDetails((current) => ({ ...current, loadingMore: true, error: '' }));
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch('/api/incomes/expenses?incomeId=' + encodeURIComponent(selectedIncome.id) + '&cursor=' + encodeURIComponent(incomeExpenseDetails.nextCursor), {
+        headers: { Authorization: 'Bearer ' + token },
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de charger les dépenses suivantes.');
+      setIncomeExpenseDetails((current) => current.incomeId !== selectedIncome.id ? current : ({
+        ...current,
+        loadingMore: false,
+        expenses: [...current.expenses, ...(Array.isArray(result.expenses) ? result.expenses : [])],
+        nextCursor: result.nextCursor || null,
+      }));
+    } catch (loadError) {
+      setIncomeExpenseDetails((current) => ({ ...current, loadingMore: false, error: loadError.message || 'Impossible de charger les dépenses suivantes.' }));
+    }
   };
 
   return (
@@ -788,7 +843,7 @@ export default function IncomePage() {
                 className={`rounded-2xl border p-3 transition ${inc.isExhausted ? 'border-slate-100 bg-slate-50/50' : 'border-slate-200 bg-white'}`}>
                 <button type="button" data-pin-long-press="true" onClick={() => openIncomeDetails(inc)} className="flex w-full items-center justify-between gap-3 rounded-xl text-left focus:outline-none focus:ring-2 focus:ring-brand-200">
                   <span className="flex min-w-0 items-center gap-3">
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700"><Landmark size={18}/></span>
+                    <CategoryImage categoryId={inc.categoryId} image={inc.image || [...INCOME_CATEGORIES, ...customIncomeCategories].find((category) => category.id === inc.categoryId)?.image} size="md"/>
                     <span className="min-w-0">
                       <span className="flex flex-wrap items-center gap-2"><strong className="truncate text-sm text-slate-900">{inc.source}</strong>{inc.isPinned && <Pin size={12} className="fill-current text-brand-600" aria-label="Épinglé"/>}{inc.isExhausted && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">Épuisé</span>}</span>
                       <span className="mt-0.5 block text-xs text-slate-500">{formatDate(inc.date)} · {inc.cashPocket ? 'Portefeuille espèces' : INCOME_CATEGORIES.find(c => c.id === inc.categoryId)?.label || 'Revenu'}</span>
@@ -887,8 +942,8 @@ export default function IncomePage() {
           return (
             <div className="space-y-4">
               <div className="rounded-2xl bg-brand-50 p-4 text-center">
-                <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-brand-700"><TrendingUp size={22}/></span>
-                <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-brand-800">{selectedIncome.cashPocket ? 'Poche espèces · mouvement neutre' : INCOME_CATEGORIES.find((category) => category.id === selectedIncome.categoryId)?.label || 'Revenu'}</p>
+                <CategoryImage categoryId={selectedIncome.categoryId} image={selectedIncome.image || [...INCOME_CATEGORIES, ...customIncomeCategories].find((category) => category.id === selectedIncome.categoryId)?.image} size="lg"/>
+                <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-brand-800">{selectedIncome.cashPocket ? 'Poche espèces · mouvement neutre' : [...INCOME_CATEGORIES, ...customIncomeCategories].find((category) => category.id === selectedIncome.categoryId)?.label || [...INCOME_CATEGORIES, ...customIncomeCategories].find((category) => category.id === selectedIncome.categoryId)?.name || 'Revenu'}</p>
                 <p className="mt-1 text-2xl font-bold tracking-tight text-slate-900">{formatCurrency(selectedIncome.amount)}</p>
                 <p className="mt-1 text-xs text-slate-600">{selectedIncome.source}</p>
               </div>
@@ -901,6 +956,43 @@ export default function IncomePage() {
                 <div className="py-3 text-sm"><p className="text-slate-500">Note</p><p className="mt-1 whitespace-pre-wrap text-slate-800">{selectedIncome.note || 'Aucune note'}</p></div>
               </div>
               {selectedIncome.latitude != null && selectedIncome.longitude != null && <a href={'https://www.google.com/maps?q=' + selectedIncome.latitude + ',' + selectedIncome.longitude} target="_blank" rel="noreferrer" className="block rounded-xl border border-slate-200 px-3 py-2.5 text-center text-xs font-semibold text-brand-800 hover:bg-brand-50">Voir la position sur la carte</a>}
+              {!selectedIncome.cashPocket && !selectedIncome.neutralFlow && (
+                <section className="rounded-xl border border-slate-200 bg-white p-3 text-left">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div><h3 className="text-sm font-bold text-slate-900">Utilisation de ce revenu</h3><p className="mt-1 text-xs text-slate-500">Le total couvre toutes les dépenses rattachées. Les opérations détaillées se chargent par groupes de 50 pour limiter les lectures.</p></div>
+                    {incomeExpenseDetails.loading && <span className="text-xs text-slate-400">Calcul…</span>}
+                  </div>
+                  {incomeExpenseDetails.error && <p className="mt-3 text-xs text-red-600">{incomeExpenseDetails.error}</p>}
+                  {!incomeExpenseDetails.loading && !incomeExpenseDetails.error && incomeExpenseDetails.incomeId === selectedIncome.id && (
+                    <>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <div className="rounded-lg bg-slate-50 p-3"><p className="text-[10px] text-slate-500">Total dépensé</p><p className="mt-1 text-sm font-bold text-slate-900">{formatCurrency(incomeExpenseDetails.totalSpent)}</p></div>
+                        <div className="rounded-lg bg-slate-50 p-3"><p className="text-[10px] text-slate-500">Montant restant estimé</p><p className="mt-1 text-sm font-bold text-brand-700">{formatCurrency(Math.max(0, Number(selectedIncome.amount || 0) - incomeExpenseDetails.totalSpent))}</p></div>
+                      </div>
+                      <p className="mt-2 text-[11px] text-slate-500">{incomeExpenseDetails.expenseCount} dépense(s) associée(s) au total.</p>
+                      {incomeExpenseDetails.expenses.length > 0 && (() => {
+                        const totalsByCategory = new Map();
+                        incomeExpenseDetails.expenses.forEach((expense) => {
+                          const id = expense.categoryId || 'other';
+                          totalsByCategory.set(id, (totalsByCategory.get(id) || 0) + (Number(expense.amount) || 0));
+                        });
+                        const category = (id) => [...EXPENSE_CATEGORIES, ...customCategories].find((item) => item.id === id);
+                        const rows = [...totalsByCategory.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+                        return <div className="mt-3"><p className="text-xs font-semibold text-slate-700">Catégories les plus présentes dans les opérations affichées</p><div className="mt-2 space-y-2">{rows.map(([id, amount]) => <div key={id} className="flex items-center justify-between gap-3 text-xs"><span className="truncate text-slate-600">{category(id)?.label || category(id)?.name || id}</span><strong className="shrink-0 text-slate-800">{formatCurrency(amount)}</strong></div>)}</div></div>;
+                      })()}
+                      <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+                        <div className="flex items-center justify-between gap-3"><p className="text-xs font-semibold text-slate-700">Dépenses associées</p><span className="text-[10px] text-slate-400">{incomeExpenseDetails.expenses.length} chargée(s)</span></div>
+                        {incomeExpenseDetails.expenses.map((expense) => {
+                          const expenseCategory = [...EXPENSE_CATEGORIES, ...customCategories].find((item) => item.id === expense.categoryId);
+                          const title = expense.title || expense.name || expense.description || expense.note || expenseCategory?.label || expenseCategory?.name || 'Dépense';
+                          return <div key={expense.id} className="flex items-start justify-between gap-3 rounded-lg border border-slate-100 p-2.5"><div className="min-w-0"><p className="truncate text-xs font-semibold text-slate-800">{title}</p><p className="mt-1 text-[10px] text-slate-500">{expense.date || 'Date inconnue'} · {expenseCategory?.label || expenseCategory?.name || expense.categoryId || 'Autre'}{expense.expenseType ? ' · ' + expense.expenseType : ''}</p></div><strong className="shrink-0 text-xs text-slate-900">{formatCurrency(expense.amount)}</strong></div>;
+                        })}
+                        {incomeExpenseDetails.nextCursor && <button type="button" onClick={loadMoreIncomeExpenses} disabled={incomeExpenseDetails.loadingMore} className="inline-flex min-h-10 w-full items-center justify-center rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">{incomeExpenseDetails.loadingMore ? 'Chargement…' : 'Charger 50 autres dépenses'}</button>}
+                      </div>
+                    </>
+                  )}
+                </section>
+              )}
               <AssistantShortcut label="Analyser ce revenu avec Mč" prompt={`Analyse ce revenu enregistré dans Pata : source ${selectedIncome.source || 'non précisée'}, montant ${selectedIncome.amount} FCFA, date ${selectedIncome.date || 'non précisée'}, catégorie ${selectedIncome.categoryId || 'non précisée'}. Explique son importance dans mon équilibre financier et propose des conseils concrets. Ne modifie aucune donnée.`} promptEn={`Analyze this income entry in Pata: source ${selectedIncome.source || 'not specified'}, amount ${selectedIncome.amount} XAF, date ${selectedIncome.date || 'not specified'}, category ${translateText([...INCOME_CATEGORIES, ...customIncomeCategories].find((item) => item.id === selectedIncome.categoryId)?.label || selectedIncome.categoryId || 'not specified', 'en')}. Explain its importance to my financial balance and suggest practical advice. Do not change any data.`}/>
               {selectedIncome.cashPocket ? <p className="rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900">Cet argent provient d’un retrait Mobile Money déjà enregistré. Il ne constitue pas un revenu : il représente ton argent disponible en espèces. Relie les prochaines dépenses payées en espèces à cette source pour suivre son solde sans compter le retrait comme une dépense.</p> : selectedIncome.flowType === 'debt_borrowed' && selectedIncome.debtId ? <div className="space-y-2"><p className="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">Cet emprunt reste un mouvement neutre. Tu peux uniquement modifier son affectation à un projet ; le montant, le créancier, l’échéance et le suivi de remboursement restent protégés.</p><Button type="button" variant="outline" className="w-full" onClick={() => openEditIncome(selectedIncome)}><Pencil size={14}/> Modifier l’affectation au projet</Button></div> : selectedIncome.neutralFlow || selectedIncome.debtId || selectedIncome.repaymentDebtId ? <p className="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">Ce mouvement est lié au suivi des Dettes & prêts. Pour préserver le solde restant et l’historique, sa modification ou sa suppression se gère dans cette rubrique.</p> : <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="outline" className="flex-1" onClick={() => openEditIncome(selectedIncome)}><Pencil size={14}/> Modifier</Button>
@@ -933,9 +1025,11 @@ export default function IncomePage() {
                 <Input label="Date d’échéance" type="date" required value={form.dueDate} onChange={(event) => setForm({ ...form, dueDate: event.target.value })}/>
               </div>}
               {form.flowType === 'repayment_received' && <div><label className="mb-1 block text-sm font-medium text-slate-700">Créance remboursée</label><select required value={form.repaymentDebtId} onChange={(event) => setForm({ ...form, repaymentDebtId: event.target.value })} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="">Choisir une créance</option>{activeReceivableDebts.map((debt) => <option key={debt.id} value={debt.id}>{debt.person} · {formatCurrency(Number(debt.remaining) || 0)} restant</option>)}</select>{!activeReceivableDebts.length && <p className="mt-1 text-xs text-slate-500">Aucune créance active à encaisser.</p>}</div>}
-              <Input label="Montant (FCFA)" type="number" min="0" step="1" required value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
-              {form.flowType === 'normal' ? <div><p className="mb-2 text-sm font-medium text-slate-700">Catégorie de revenu</p><CategoryManager type="income" value={form.categoryId} onChange={(id) => { const category = [...INCOME_CATEGORIES, ...customIncomeCategories].find((item) => item.id === id); setForm({ ...form, categoryId: id, source: category?.label || category?.name || form.source }); }}/></div> : <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">Catégorie : <strong>{form.flowType === 'debt_borrowed' ? 'Dette contractée (mouvement neutre)' : 'Remboursement reçu (revenu normal)'}</strong></p>}
+              <Input label="Montant (FCFA)" type="number" min="0" step="1" required value={form.amount} disabled={form.amountLocked === true && !!form.id && form.flowType === 'normal'} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
+              {form.amountLocked === true && !!form.id && form.flowType === 'normal' && <p className="rounded-lg bg-amber-50 p-2.5 text-[11px] leading-5 text-amber-800">Ce revenu a déjà été utilisé. Son montant initial est verrouillé. Tu peux toujours modifier son nom, sa catégorie, sa photo et ses autres informations.</p>}
+              {form.flowType === 'normal' ? <div><p className="mb-2 text-sm font-medium text-slate-700">Catégorie de revenu</p><CategoryManager type="income" value={form.categoryId} onChange={(id) => setForm((current) => ({ ...current, categoryId: id }))}/></div> : <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">Catégorie : <strong>{form.flowType === 'debt_borrowed' ? 'Dette contractée (mouvement neutre)' : 'Remboursement reçu (revenu normal)'}</strong></p>}
               {form.flowType === 'normal' && <Input label="Nom / Source" required value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} />}
+              {form.flowType === 'normal' && <CloudinaryImageField value={form.image || ''} onChange={(image) => setForm((current) => ({ ...current, image }))} folder="pata/incomes" language={language} label="Photo du revenu (facultatif)"/>}
               <Input label="Date" type="date" required value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
               {isPremium && ['normal', 'debt_borrowed'].includes(form.flowType) && <div><label className="mb-1 block text-sm font-medium text-slate-700">{form.flowType === 'debt_borrowed' ? 'Affecter cet emprunt à un projet (facultatif)' : 'Affecter ce revenu à un projet (facultatif)'}</label><select value={form.projectId || ''} onChange={(e) => setForm({ ...form, projectId: e.target.value })} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="">Aucun projet — fonds non affectés</option>{projects.filter((item) => item.status === 'active').map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select><p className="mt-1 text-[11px] leading-4 text-slate-500">Les fonds affectés restent réservés au projet choisi et ne sont pas proposés pour les dépenses générales.</p></div>}
               <Input label="Note (facultatif)" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />

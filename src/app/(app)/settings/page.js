@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Save, LogOut, Download, FileText, FileSpreadsheet, Bell, ShieldCheck, LockKeyhole, KeyRound, ChevronRight, UserRound, Crown, Sun, Moon, Gift, MessageSquareText, Smartphone, Globe, BookOpen } from 'lucide-react';
+import { Save, LogOut, Download, FileText, FileSpreadsheet, Bell, ShieldCheck, LockKeyhole, KeyRound, ChevronRight, UserRound, Crown, Sun, Moon, Gift, MessageSquareText, Smartphone, Globe, BookOpen, HelpCircle } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -266,6 +266,7 @@ export default function SettingsPage() {
       <section className="space-y-2.5">
         <h2 className="px-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">{isEnglish ? 'Help and discovery' : 'Aide et découverte'}</h2>
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white divide-y divide-slate-100">
+          <SettingRow icon={HelpCircle} title={isEnglish ? 'Help Center' : 'Centre d’aide'} description={isEnglish ? 'Find answers and step-by-step guides before contacting support' : 'Retrouve les réponses et les étapes pour utiliser chaque fonction'} onClick={() => router.push('/help')} />
           <SettingRow icon={BookOpen} title={isEnglish ? 'Replay the Pata guide' : 'Revoir le guide de Pata'} description={isEnglish ? 'Take the animated tour of the main features again' : 'Revoir la présentation animée des principales fonctions'} onClick={() => window.dispatchEvent(new Event('pata:app-tour-start'))} />
         </div>
       </section>
