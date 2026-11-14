@@ -4492,6 +4492,73 @@ async function handleProfileActivity(request) {
   } catch (error) { return errorResponse(error.message || 'Impossible de mettre à jour le profil.', 401); }
 }
 
+
+async function handleAndroidDownloadEvent(request) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const clientId = String(body.clientId || '').trim();
+    const eventId = String(body.eventId || '').trim();
+    const source = String(body.source || '');
+    const version = String(body.version || '');
+    const versionCode = Number(body.versionCode);
+
+    if (!/^[a-zA-Z0-9_-]{16,96}$/.test(clientId)) return errorResponse('Identifiant de suivi invalide.', 400);
+    if (!/^[a-zA-Z0-9_-]{16,96}$/.test(eventId)) return errorResponse('Identifiant d’événement invalide.', 400);
+    if (!['download_page', 'in_app_update'].includes(source)) return errorResponse('Source de téléchargement invalide.', 400);
+    if (version !== String(androidVersion.version) || versionCode !== Number(androidVersion.versionCode)) {
+      return errorResponse('Cette version Android n’est plus la version de téléchargement active.', 409);
+    }
+
+    // Les identifiants locaux sont hachés avant stockage : aucun identifiant brut n’est conservé.
+    const clientKey = createHash('sha256').update(clientId).digest('hex');
+    const eventKey = createHash('sha256').update(eventId).digest('hex');
+    const eventRef = adminDb.collection('androidDownloadEvents').doc(eventKey);
+    const clientRef = adminDb.collection('androidDownloadClients').doc(clientKey);
+    const metricsRef = adminDb.collection('appMetrics').doc('androidDownloads');
+
+    const result = await adminDb.runTransaction(async (transaction) => {
+      const [eventSnapshot, clientSnapshot] = await Promise.all([
+        transaction.get(eventRef),
+        transaction.get(clientRef),
+      ]);
+      if (eventSnapshot.exists) return { recorded: false, uniqueClient: false };
+
+      const uniqueClient = !clientSnapshot.exists;
+      const clientPatch = {
+        lastClickedAt: FieldValue.serverTimestamp(),
+        lastClickedVersion: androidVersion.version,
+        lastClickedSource: source,
+        downloadClickCount: FieldValue.increment(1),
+      };
+      if (uniqueClient) clientPatch.firstClickedAt = FieldValue.serverTimestamp();
+
+      const metricsPatch = {
+        clickCount: FieldValue.increment(1),
+        lastClickedAt: FieldValue.serverTimestamp(),
+        lastClickedVersion: androidVersion.version,
+        lastClickedSource: source,
+      };
+      if (uniqueClient) metricsPatch.uniqueClientCount = FieldValue.increment(1);
+
+      transaction.create(eventRef, {
+        clientKey,
+        version: androidVersion.version,
+        versionCode: Number(androidVersion.versionCode),
+        source,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      transaction.set(clientRef, clientPatch, { merge: true });
+      transaction.set(metricsRef, metricsPatch, { merge: true });
+      return { recorded: true, uniqueClient };
+    });
+
+    return NextResponse.json({ success: true, ...result });
+  } catch (error) {
+    console.error('[PATA ANDROID DOWNLOAD TRACKING]', error.message || error);
+    return errorResponse('Impossible d’enregistrer ce clic de téléchargement.', 500);
+  }
+}
+
 async function handleIncomeAnalyticsEvent(request) {
   try {
     const { uid } = await authenticate(request);
@@ -4752,6 +4819,10 @@ async function handleAdminOverview(request) {
           console.warn('[ADMIN DEBT AGGREGATE]', error.message);
           return { count: null, total: null, unavailable: true };
         }),
+      adminDb.collection('appMetrics').doc('androidDownloads').get().catch((error) => {
+        console.warn('[ADMIN ANDROID DOWNLOAD METRICS]', error.message);
+        return null;
+      }),
     ]);
     const recentUsers = latestUsers.docs.map(safeAdminUser)
       .sort((a, b) => (Date.parse(b.createdAt || b.lastSeenAt || 0) || 0) - (Date.parse(a.createdAt || a.lastSeenAt || 0) || 0))
@@ -4763,6 +4834,10 @@ async function handleAdminOverview(request) {
         androidUsers: androidUsers == null ? null : Number(androidUsers) || 0,
         webUsers: webUsers == null ? null : Number(webUsers) || 0,
         webOnlyUsers: webOnlyUsers == null ? null : Number(webOnlyUsers) || 0,
+        androidDownloadClicks: androidDownloadMetrics?.exists ? Number(androidDownloadMetrics.data()?.clickCount) || 0 : 0,
+        androidDownloadClients: androidDownloadMetrics?.exists ? Number(androidDownloadMetrics.data()?.uniqueClientCount) || 0 : 0,
+        androidDownloadMetricsUnavailable: androidDownloadMetrics === null,
+
         premiumUsers: Number(premiumCount) || 0,
         walletLiability: userTotals.total,
         confirmedDeposits: deposits.total,
@@ -8101,6 +8176,7 @@ const ROUTES = {
   'referrals/transfer': { POST: handleReferralTransfer },
   'referrals/withdraw': { POST: handleReferralWithdrawal },
   'cotisations/pay-referral': { POST: handleCotisationReferralPayment },
+  'android/download': { POST: handleAndroidDownloadEvent },
   'profile/activity': { POST: handleProfileActivity },
   'analytics/income-created': { POST: handleIncomeAnalyticsEvent },
   'automations/run':       { POST: handleAutomationsRun },

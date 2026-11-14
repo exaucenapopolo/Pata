@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { App } from '@capacitor/app';
 import { Download, X } from 'lucide-react';
+import { trackAndroidDownloadClick } from '@/lib/analytics/androidDownload';
 
 export function AndroidUpdateChecker() {
   const [update, setUpdate] = useState(null);
@@ -22,7 +23,7 @@ export function AndroidUpdateChecker() {
         const installedCode = Number(installed.build || 0);
         const latestCode = Number(latest.versionCode || 0);
         if (active && latest.downloadAvailable === true && latestCode > installedCode) {
-          setUpdate({ version: latest.version, url: latest.apkUrl, notes: latest.releaseNotes || '' });
+          setUpdate({ version: latest.version, versionCode: latest.versionCode, url: latest.apkUrl, notes: latest.releaseNotes || '' });
         }
       } catch (error) {
         console.warn('[PATA ANDROID UPDATE]', error?.message || error);
@@ -44,7 +45,7 @@ export function AndroidUpdateChecker() {
         <div className="min-w-0 flex-1">
           <p className="text-sm font-bold text-slate-900">Mise à jour Pata {update.version} disponible</p>
           <p className="mt-1 text-xs leading-5 text-slate-600">{update.notes || 'Une nouvelle version Android est disponible.'} Le téléchargement et l’installation restent manuels.</p>
-          <a href={update.url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex min-h-9 items-center rounded-lg bg-[#075b43] px-3 text-xs font-semibold text-white">Télécharger la mise à jour</a>
+          <a href={update.url} onClick={() => trackAndroidDownloadClick({ version: update.version, versionCode: update.versionCode, source: 'in_app_update' })} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex min-h-9 items-center rounded-lg bg-[#075b43] px-3 text-xs font-semibold text-white">Télécharger la mise à jour</a>
         </div>
         <button type="button" onClick={() => setDismissed(true)} aria-label="Fermer" className="rounded-lg p-1.5 text-slate-400"><X size={16}/></button>
       </div>
