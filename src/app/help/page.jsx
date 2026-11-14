@@ -59,6 +59,65 @@ const HELP_FR = [
       { q: 'Quelle est la différence entre le compte gratuit et Premium ?', a: 'Le compte gratuit permet de découvrir les fonctions de base avec des limites mensuelles sur certaines créations et prévisions. Premium augmente ces capacités et débloque notamment le suivi automatique des confirmations Mobile Money sur Android. Consulte la page Abonnement pour les conditions à jour.' },
     ],
   },
+
+  {
+    title: 'Portefeuille et paiements',
+    items: [
+      { q: 'Comment recharger mon portefeuille Pata ?', a: 'Ouvre Portefeuille, saisis un montant entier d’au moins 100 FCFA, puis appuie sur Recharger. Tu seras dirigé vers le parcours de paiement proposé. Suis les instructions du fournisseur de paiement et reviens dans Pata pour consulter le résultat.' },
+      { q: 'Quand l’argent d’une recharge apparaît-il dans mon solde ?', a: 'Le montant est ajouté au solde disponible uniquement après confirmation du paiement. Une recharge encore en attente n’est pas un solde disponible. Consulte l’historique et laisse Pata vérifier la transaction avant de relancer un paiement qui semble bloqué.' },
+      { q: 'Où retrouver les opérations de mon portefeuille ?', a: 'Dans Portefeuille, consulte la section Historique pour les recharges et les autres opérations. La zone « Autres opérations » présente notamment certains débits internes, comme l’achat d’un accès à une discussion de cotisation.' },
+      { q: 'Le portefeuille prélève-t-il automatiquement de l’argent ?', a: 'Non. Une recharge alimente le portefeuille après confirmation. Pour financer une épargne ou une autre action, tu dois lancer et confirmer l’opération correspondante dans Pata. Vérifie toujours le montant et l’objet avant de valider.' },
+    ],
+  },
+  {
+    title: 'Factures et échéances',
+    items: [
+      { q: 'Comment enregistrer une facture récurrente ?', a: 'Ouvre Factures et échéances, puis Ajouter une facture. Donne-lui un nom, choisis son type, sa fréquence et sa prochaine date d’échéance. Renseigne le montant s’il est connu, la catégorie de dépense et le nombre de jours de rappel. Tu peux également ajouter le fournisseur, une référence de contrat et une note.' },
+      { q: 'Comment enregistrer une facture dont le montant change ?', a: 'Dans le formulaire de facture, active le montant variable. Tu peux alors laisser le montant vide si tu ne le connais pas encore. Lors du paiement, saisis le montant réellement payé pour cette échéance.' },
+      { q: 'Comment lire une facture avec une photo ?', a: 'Dans le formulaire, utilise la zone Lire une facture depuis une photo et prends une photo ou choisis une image. Pata propose les informations qu’il parvient à reconnaître, comme le fournisseur, le montant ou l’échéance. Relis et corrige les champs détectés avant d’enregistrer : la lecture automatique peut laisser certaines informations manquantes.' },
+      { q: 'Comment marquer une facture comme payée ?', a: 'Sur la fiche de la facture, appuie sur Marquer payée. Vérifie le montant, la date et la source de paiement, puis confirme. Pata enregistre une dépense correspondante et prépare la prochaine échéance lorsqu’il s’agit d’une facture récurrente. Si un budget risque d’être dépassé, Pata te demande une confirmation supplémentaire.' },
+      { q: 'Pata prélève-t-il automatiquement le montant de mes factures ?', a: 'Non. Pata suit les dates et peut te rappeler une échéance, mais il ne prélève pas et ne déplace pas automatiquement ton argent pour payer une facture. Tu dois enregistrer toi-même le paiement après l’avoir effectué.' },
+    ],
+  },
+  {
+    title: 'Dettes, prêts et remboursements',
+    items: [
+      { q: 'Quelle différence entre une dette et un prêt accordé ?', a: 'Dans Dettes & prêts, « Je dois » représente un montant que tu dois rembourser à une personne ou à une banque. « On me doit » représente un prêt que tu as accordé et que tu dois récupérer. Pour enregistrer une dette reçue, utilise Nouvelle dette ; pour un prêt accordé, utilise Nouveau prêt.' },
+      { q: 'Comment enregistrer un remboursement ?', a: 'Ouvre la fiche de la dette ou du prêt. Utilise l’action de remboursement proposée : un remboursement que tu verses est enregistré comme une dépense ; un remboursement que tu reçois est enregistré comme un revenu lié à la dette. Le solde restant et l’historique sont alors mis à jour.' },
+      { q: 'Puis-je relier une dette à un autre compte Pata ?', a: 'Lorsqu’une demande de liaison est proposée, envoie-la à l’autre compte et attends sa réponse. Tant qu’elle est en attente, ton suivi personnel reste actif. Si elle est acceptée, les remboursements déclarés par le débiteur doivent encore être confirmés par le créancier. Une demande refusée ne supprime pas ton suivi personnel.' },
+      { q: 'Pourquoi ne puis-je plus créer de dette avec le compte gratuit ?', a: 'Le compte gratuit permet de suivre jusqu’à deux dettes ou prêts actifs. Un dossier entièrement remboursé libère une place. Premium permet le suivi d’un nombre illimité de dossiers.' },
+    ],
+  },
+  {
+    title: 'Objectifs d’épargne, tirelires et retraits',
+    items: [
+      { q: 'Quelle différence entre un objectif et une tirelire ?', a: 'Un objectif d’épargne sert à atteindre un montant cible sur une période définie, avec un plan de versements. Une tirelire est plus souple : tu peux y déposer de l’argent quand tu le souhaites, sans date de fin obligatoire. Tu peux aussi lui ajouter une cible facultative.' },
+      { q: 'Comment effectuer un versement sur une épargne ?', a: 'Ouvre la fiche de ton objectif ou de ta tirelire, saisis le montant à verser et confirme. Si tu utilises ton portefeuille Pata, vérifie que son solde disponible couvre le montant. Chaque versement confirmé apparaît dans l’historique de l’épargne.' },
+      { q: 'Comment demander le retrait de mon épargne ?', a: 'Ouvre la fiche de l’épargne et choisis l’action de retrait ou de clôture proposée. Renseigne ton numéro Mobile Money et sélectionne MTN ou Orange selon le numéro. Vérifie le montant net et les éventuels frais affichés avant d’envoyer la demande. Le retrait reste soumis au traitement et à la confirmation du paiement.' },
+      { q: 'Comment fonctionnent les pénalités d’un objectif daté ?', a: 'Si tu as activé les pénalités de retard, l’ajustement de 7 % est calculé sur la somme qui reste réellement impayée à la date prévue, et non sur l’objectif total. La clôture anticipée d’un objectif daté peut appliquer des frais de 10 % sur le montant déjà épargné. Consulte toujours le récapitulatif affiché avant de confirmer.' },
+      { q: 'Pourquoi je ne peux pas supprimer une épargne qui contient encore de l’argent ?', a: 'C’est une protection : une épargne qui contient des fonds doit d’abord être retirée ou clôturée depuis sa fiche. Une suppression ne doit pas faire disparaître un solde sans opération correspondante.' },
+    ],
+  },
+  {
+    title: 'Cotisations : organiser le groupe et la discussion',
+    items: [
+      { q: 'Que faut-il préparer avant de lancer une cotisation ?', a: 'Lors de la création, indique le nom du groupe, le montant par membre et par période, le nombre de participants prévu, la fréquence et la date de début. Tu peux aussi préciser le délai de grâce et une majoration de retard fixe ou en pourcentage. Avant le lancement, invite les membres et définis leur ordre de passage.' },
+      { q: 'Pourquoi le bouton de lancement du groupe n’est-il pas encore disponible ?', a: 'Le groupe doit réunir le nombre de participants prévu et les positions doivent être définies. Vérifie aussi la date de début et les conditions affichées dans la fiche du groupe. Le chef du groupe peut réorganiser les membres avant le lancement.' },
+      { q: 'Comment savoir si un versement de cotisation est réellement payé ?', a: 'Après avoir lancé le paiement, attends le résultat de la vérification. Un paiement encore en attente ou échoué ne doit pas être considéré comme confirmé. Seuls les versements confirmés sont comptabilisés dans le suivi du groupe.' },
+      { q: 'Comment demander le retrait de mon tour de cotisation ?', a: 'Lorsque tu es le bénéficiaire du tour, ouvre le groupe et utilise Demander le retrait. Renseigne le numéro Mobile Money et choisis MTN ou Orange. La demande est transmise à l’administration ; son envoi ne signifie pas que le paiement est déjà effectué.' },
+      { q: 'Combien de messages puis-je envoyer dans la discussion du groupe ?', a: 'La discussion comprend 10 messages gratuits par jour. Lorsque ce quota est épuisé, tu peux acheter un pack de 10 messages supplémentaires pour 100 FCFA depuis la discussion. Les messages sont conservés pendant une durée limitée de 30 jours.' },
+      { q: 'Puis-je modifier ou supprimer un message envoyé ?', a: 'Ouvre les options du message. Tu peux répondre à un message, modifier le tien pendant les 15 minutes qui suivent son envoi, ou supprimer un message lorsque tu en as l’autorisation. Le chef du groupe dispose aussi des droits de modération prévus dans la discussion.' },
+    ],
+  },
+  {
+    title: 'Rapports, exports et notifications',
+    items: [
+      { q: 'Comment choisir la période de mon rapport ?', a: 'Ouvre Rapports financiers et choisis Jour, Semaine, Mois, Année ou Période personnalisée. Pour une période personnalisée, renseigne les deux dates. La date de début doit être antérieure ou égale à la date de fin.' },
+      { q: 'Comment télécharger un rapport PDF ou Excel ?', a: 'Dans Rapports financiers, utilise les boutons PDF ou Excel pour exporter la période actuellement sélectionnée. Dans Paramètres → Exporter mes données, tu peux aussi télécharger une copie plus large de tes revenus, dépenses, recharges, budgets, objectifs, prévisions et opérations programmées.' },
+      { q: 'Pourquoi le rapport distingue-t-il le revenu d’un emprunt ?', a: 'Un emprunt augmente temporairement l’argent disponible, mais il doit être remboursé : ce n’est pas un revenu gagné. De même, un prêt accordé à une autre personne est une sortie de trésorerie, mais pas une dépense de consommation. Le rapport distingue ces mouvements pour éviter de fausser ton analyse.' },
+      { q: 'Comment gérer les notifications de Pata ?', a: 'Ouvre Paramètres → Notifications pour consulter les réglages disponibles sur cet appareil. Vérifie également que les notifications sont autorisées dans les paramètres Android ou du navigateur. La réception d’une notification push dépend des autorisations et de la disponibilité de l’appareil.' },
+    ],
+  },
 ];
 
 const HELP_EN = [
@@ -113,6 +172,65 @@ const HELP_EN = [
       { q: 'How do I install the Android app?', a: 'Open Settings → Download Android app or visit the Download page. Download the official file, open it from your downloads and follow Android’s installation steps. Sign in with the same account you use on the website.' },
       { q: 'What does Mobile Money SMS import do?', a: 'On Android, this feature can detect MTN MoMo and Orange Money confirmations on your phone to make transaction tracking easier. Enable it in Settings → Mobile Money SMS import and grant the requested permissions. Automatic transaction recording requires Pata Premium.' },
       { q: 'What is the difference between Free and Premium?', a: 'The Free plan includes core features with monthly limits on selected creations and forecasts. Premium increases those limits and unlocks automatic Mobile Money confirmation tracking on Android. Check the Subscription page for current terms.' },
+    ],
+  },
+
+  {
+    title: 'Wallet and payments',
+    items: [
+      { q: 'How do I top up my Pata wallet?', a: 'Open Wallet, enter a whole amount of at least XAF 100, then tap Top up. Follow the payment instructions shown by the payment provider and return to Pata to check the result.' },
+      { q: 'When does a top-up appear in my available balance?', a: 'The amount is added to your available balance only after the payment is confirmed. A pending top-up is not available balance. Check the transaction history and let Pata verify the payment before starting another one that appears stuck.' },
+      { q: 'Where can I find wallet transactions?', a: 'Open Wallet and review the History section for top-ups and other operations. The Other wallet operations section can show internal debits, including access to a contribution group chat.' },
+      { q: 'Does the wallet pay bills or move money automatically?', a: 'No. A top-up adds money only after confirmation. You must start and confirm each separate action in Pata, such as funding a savings goal. Review the amount and purpose before confirming.' },
+    ],
+  },
+  {
+    title: 'Bills and due dates',
+    items: [
+      { q: 'How do I add a recurring bill?', a: 'Open Bills and due dates, then Add a bill. Enter its name, type, frequency and next due date. Add the amount when known, the expense category and how many days before the due date you want a reminder. You can also add the provider, account reference and a note.' },
+      { q: 'How do I record a bill whose amount changes?', a: 'Enable the variable amount option in the bill form. You can leave the amount empty when it is not known yet, then enter the actual amount when recording that payment.' },
+      { q: 'Can Pata read a bill from a photo?', a: 'In the bill form, choose Read a bill from a photo and take or select an image. Pata suggests information it can recognize, such as the provider, amount or due date. Review and correct the suggested fields before saving; some information may be missing.' },
+      { q: 'How do I mark a bill as paid?', a: 'Open the bill and tap Mark paid. Check the amount, payment date and payment source, then confirm. Pata records the corresponding expense and prepares the next due date for a recurring bill. If the payment may exceed a budget, Pata asks for an additional confirmation.' },
+      { q: 'Does Pata automatically withdraw money to pay my bills?', a: 'No. Pata tracks due dates and can remind you, but it does not automatically withdraw or move your money to pay a bill. Record the payment yourself after you have made it.' },
+    ],
+  },
+  {
+    title: 'Debts, loans and repayments',
+    items: [
+      { q: 'What is the difference between a debt and a loan I gave someone?', a: 'In Debts & Loans, “I owe” means you must repay a person or a bank. “Owed to me” means you lent money and expect to receive it back. Use New debt to record money you borrowed and New loan to record money you lent.' },
+      { q: 'How do I record a repayment?', a: 'Open the debt or loan and use its repayment action. A repayment you make is recorded as an expense; a repayment you receive is recorded as income linked to that debt. Pata updates the remaining balance and repayment history.' },
+      { q: 'Can I link a debt to another Pata account?', a: 'When the link request option is available, send the request to the other account and wait for its response. Your own record stays active while the request is pending. If accepted, repayments reported by the borrower still need confirmation from the creditor. A rejected link does not delete your personal record.' },
+      { q: 'Why can I no longer create a debt on the Free plan?', a: 'The Free plan allows up to two active debts or loans. A fully repaid record frees a place. Premium allows unlimited tracking.' },
+    ],
+  },
+  {
+    title: 'Savings goals, pockets and withdrawals',
+    items: [
+      { q: 'What is the difference between a savings goal and a pocket?', a: 'A savings goal has a target amount and a defined period, with a suggested payment plan. A savings pocket is more flexible: you can add money when you choose without a required end date. You may also give a pocket an optional target.' },
+      { q: 'How do I make a savings deposit?', a: 'Open the goal or pocket, enter the amount and confirm the deposit. If you use your Pata wallet, make sure the available balance covers the amount. Confirmed deposits appear in the savings history.' },
+      { q: 'How do I request a savings withdrawal?', a: 'Open the savings record and choose the withdrawal or closure action shown. Enter your Mobile Money number and select MTN or Orange. Review the net amount and any displayed fees before submitting. The request still needs processing and payment confirmation.' },
+      { q: 'How do late penalties work on a dated goal?', a: 'When late penalties are enabled, the 7% adjustment is calculated on the amount that is actually unpaid on the due date, not on the full target. Early closure of a dated goal may apply a 10% fee to the amount already saved. Always review the summary before confirming.' },
+      { q: 'Why can’t I delete a savings record that still has money in it?', a: 'This protects your balance. Money in a savings record must first be withdrawn or the record closed through its details. Deletion must not make a balance disappear without a matching transaction.' },
+    ],
+  },
+  {
+    title: 'Contributions: managing the group and its chat',
+    items: [
+      { q: 'What should I set up before starting a contribution group?', a: 'When creating the group, enter its name, contribution per member and period, expected participant count, frequency and start date. You can also define a grace period and a fixed or percentage late fee. Before starting, invite the members and set their turn order.' },
+      { q: 'Why is the Start group option not available?', a: 'The group must have the expected number of participants and the turn order must be set. Check the start date and the conditions shown on the group details. The group owner can rearrange members before starting.' },
+      { q: 'How do I know whether a contribution payment is confirmed?', a: 'After starting a payment, wait for the verification result. A pending or failed payment must not be treated as confirmed. Only confirmed contributions count in the group tracking.' },
+      { q: 'How do I request the payout for my contribution turn?', a: 'When you are the beneficiary of a turn, open the group and choose Request withdrawal. Enter your Mobile Money number and select MTN or Orange. The request is sent to the administration; submitting it does not mean the payment has already been made.' },
+      { q: 'How many messages can I send in a contribution group chat?', a: 'The chat includes 10 free messages per day. After that, you can buy a pack of 10 additional messages for XAF 100 from the conversation. Messages are kept for a limited period of 30 days.' },
+      { q: 'Can I edit or delete a sent message?', a: 'Open the message options. You can reply to a message, edit your own message within 15 minutes of sending it, or delete a message when you have permission. The group owner also has the moderation permissions provided in the chat.' },
+    ],
+  },
+  {
+    title: 'Reports, exports and notifications',
+    items: [
+      { q: 'How do I choose a report period?', a: 'Open Financial reports and choose Day, Week, Month, Year or Custom period. For a custom period, enter both dates. The start date must be on or before the end date.' },
+      { q: 'How do I download a PDF or Excel report?', a: 'In Financial reports, use the PDF or Excel buttons to export the currently selected period. In Settings → Export my data, you can also download a broader copy of your income, expenses, wallet top-ups, budgets, goals, forecasts and scheduled operations.' },
+      { q: 'Why does the report distinguish a loan from income?', a: 'Borrowed money temporarily increases available cash but must be repaid, so it is not earned income. Money lent to someone else is a cash outflow, but it is not everyday consumption. Reports separate these movements so the analysis is not misleading.' },
+      { q: 'How do I manage Pata notifications?', a: 'Open Settings → Notifications to review the options available on this device. Also check that notifications are allowed in Android or browser settings. Push delivery depends on the device permissions and availability.' },
     ],
   },
 ];
