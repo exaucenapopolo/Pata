@@ -2260,7 +2260,6 @@ async function handleNotificationOpportunity(request) {
         title: 'Découvre les outils Pata Premium',
         body: 'Explore les fonctionnalités avancées qui peuvent t’aider à approfondir tes budgets, tes objectifs et tes analyses. Consulte les avantages avant de décider.',
         target: '/premium',
-        allowEmail: false,
       };
     }
     if (!candidate) return NextResponse.json({ success: true, skipped: 'features_already_used' });
@@ -2877,7 +2876,18 @@ async function handleNotificationScheduler(request) {
         }
         const incomeRows = monthIncomesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
         const realIncomeRows = incomeRows.filter((item) => !item.neutralFlow && item.flowType !== 'debt_borrowed');
+        const todayRealIncomeRows = realIncomeRows.filter((item) => String(item.date || '') === today && (!item.flowType || item.flowType === 'normal'));
         const largestIncome = realIncomeRows.slice().sort((a, b) => (Number(b.amount) || 0) - (Number(a.amount) || 0))[0] || null;
+        if (todayExpenses.length > 0 && todayRealIncomeRows.length === 0
+          && daysBetweenDateKeys(String(userData.lastNoIncomeRetentionDate || '').slice(0, 10), today) >= 3) {
+          candidates.push({
+            key: 'no-income-today:' + today, topic: 'no_income_today', priority: 58,
+            title: 'Aucun revenu enregistré aujourd’hui',
+            body: 'Tu as noté ' + todayExpenses.length + ' dépense(s) aujourd’hui, mais aucun revenu ordinaire pour le moment. Si tu as reçu un revenu et que tu ne l’as pas encore saisi, ajoute-le dans Pata afin que ton bilan du jour soit complet.',
+            target: '/incomes', source: 'no_income_today',
+            profileUpdate: { lastNoIncomeRetentionDate: today },
+          });
+        }
         if (largestIncome && userData.lastIncomeSummaryWeek !== weekStart) {
           candidates.push({
             key: 'income-summary:' + weekStart, topic: 'income_summary', priority: 72,
@@ -2929,7 +2939,6 @@ async function handleNotificationScheduler(request) {
             body: 'Tu peux explorer les outils avancés de Pata pour aller plus loin dans le suivi de tes budgets, objectifs et analyses. Consulte les avantages avant de décider.',
             target: '/premium', source: 'premium_retention',
             profileUpdate: { lastPremiumReminderDate: today },
-            allowEmail: false,
           });
         }
         const lastSeenValue = userData.lastSeenAt?.toDate ? userData.lastSeenAt.toDate()
