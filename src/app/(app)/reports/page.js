@@ -65,6 +65,8 @@ export default function ReportsPage() {
   const [selectedDay, setSelectedDay] = useState(iso(new Date()));
   const [selectedWeekDate, setSelectedWeekDate] = useState(iso(new Date()));
   const [goalDepositTotals, setGoalDepositTotals] = useState({});
+  const [weekendReport, setWeekendReport] = useState(null);
+  const [weekendReportLoading, setWeekendReportLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
@@ -92,6 +94,37 @@ export default function ReportsPage() {
     load();
     return () => { active = false; };
   }, [goals, user]);
+
+
+  useEffect(() => {
+    let active = true;
+    if (!user) {
+      setWeekendReport(null);
+      setWeekendReportLoading(false);
+      return () => { active = false; };
+    }
+    setWeekendReportLoading(true);
+    const loadWeekendReport = async () => {
+      try {
+        const token = await user.getIdToken();
+        const response = await fetch('/api/reports/weekend', {
+          method: 'GET',
+          credentials: 'same-origin',
+          headers: { Authorization: 'Bearer ' + token },
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de charger le bilan du week-end.');
+        if (active) setWeekendReport(result);
+      } catch (error) {
+        console.warn('[PATA WEEKEND REPORT]', error?.message || error);
+        if (active) setWeekendReport(null);
+      } finally {
+        if (active) setWeekendReportLoading(false);
+      }
+    };
+    void loadWeekendReport();
+    return () => { active = false; };
+  }, [user]);
 
   const range = useMemo(() => {
     const now = new Date();
@@ -326,6 +359,74 @@ export default function ReportsPage() {
         </div>
         <p className="mt-3 text-sm font-semibold text-slate-800">{range.label}</p>
         {!rangeValid && <p className="mt-1 text-xs text-red-600">La date de début doit être antérieure ou égale à la date de fin.</p>}
+      </Card>
+
+      <Card>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle>Bilan du week-end</CardTitle>
+            {weekendReport && <p className="mt-1 text-xs text-slate-500">
+              Du vendredi {formatDate(weekendReport.startDate)} au dimanche {formatDate(weekendReport.endDate)}
+              {' · '}{weekendReport.isCurrentWeekend ? 'Week-end en cours' : 'Dernier week-end terminé'}
+            </p>}
+          </div>
+          {weekendReport && <span className="rounded-lg bg-slate-100 px-3 py-1.5 text-[11px] font-semibold text-slate-600">
+            {weekendReport.isCurrentWeekend ? 'En cours' : 'Terminé'}
+          </span>}
+        </div>
+        {weekendReportLoading ? (
+          <p className="mt-3 text-sm text-slate-500">Chargement du bilan de vendredi à dimanche…</p>
+        ) : weekendReport ? (
+          <>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="rounded-lg bg-slate-50 p-3">
+                <p className="text-xs text-slate-500">Revenus enregistrés</p>
+                <p className="mt-1 text-lg font-bold text-emerald-700">{formatCurrency(weekendReport.incomeTotal)}</p>
+                <p className="mt-1 text-[11px] text-slate-500">{weekendReport.incomeCount} opération(s)</p>
+              </div>
+              <div className="rounded-lg bg-slate-50 p-3">
+                <p className="text-xs text-slate-500">Dépenses enregistrées</p>
+                <p className="mt-1 text-lg font-bold text-red-600">{formatCurrency(weekendReport.expenseTotal)}</p>
+                <p className="mt-1 text-[11px] text-slate-500">{weekendReport.expenseCount} opération(s)</p>
+              </div>
+              <div className="rounded-lg bg-slate-50 p-3">
+                <p className="text-xs text-slate-500">Différence</p>
+                <p className="mt-1 text-lg font-bold text-slate-900">{formatCurrency(weekendReport.net)}</p>
+                <p className="mt-1 text-[11px] text-slate-500">Revenus moins dépenses</p>
+              </div>
+            </div>
+            {weekendReport.byCategory?.length > 0 && (
+              <div className="mt-3 rounded-lg border border-slate-200 p-3">
+                <p className="mb-2 text-xs font-semibold text-slate-700">Où sont parties les dépenses ?</p>
+                <div className="space-y-2">
+                  {weekendReport.byCategory.slice(0, 5).map((item) => (
+                    <div key={item.categoryId} className="flex items-center justify-between gap-3 text-xs">
+                      <span className="min-w-0 text-slate-600">{resolveCategory(item.categoryId, 'expense', customCategories).label}</span>
+                      <strong className="shrink-0 text-slate-900">{formatCurrency(item.amount)}</strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {weekendReport.byDay?.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {weekendReport.byDay.map((item) => (
+                  <div key={item.date} className="rounded-lg bg-slate-50 px-3 py-2 text-xs">
+                    <span className="text-slate-500">{formatDate(item.date)}</span>
+                    <strong className="ml-2 text-slate-800">{formatCurrency(item.amount)}</strong>
+                  </div>
+                ))}
+              </div>
+            )}
+            {weekendReport.expenseCount === 0 && weekendReport.incomeCount === 0 && (
+              <p className="mt-3 text-xs leading-5 text-slate-500">
+                Aucune opération n’est enregistrée pour ce week-end. Vérifie si tu as bien ajouté les revenus et les dépenses concernés afin que ton bilan soit complet.
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="mt-3 text-sm text-slate-500">Le bilan du week-end n’est pas disponible pour le moment.</p>
+        )}
       </Card>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
