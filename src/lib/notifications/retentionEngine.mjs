@@ -178,6 +178,7 @@ export function buildCategoryAdviceNotification({
  */
 export function selectRetentionCandidates(candidates = [], limit = MAX_DAILY_RETENTION_NOTIFICATIONS) {
   const safeLimit = Math.max(0, Math.min(MAX_DAILY_RETENTION_NOTIFICATIONS, Math.floor(Number(limit) || 0)));
+  if (safeLimit === 0) return [];
   const selected = [];
   const seenKeys = new Set();
   const seenTopics = new Set();

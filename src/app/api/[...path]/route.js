@@ -7,7 +7,7 @@ import { isNotificationUnread } from '@/lib/notifications/notificationState.mjs'
 import { completeWithGroq } from '@/lib/ai/groqClient';
 import { normalizeWebPushSubscription, webPushSubscriptionId, sendPataWebPush, isExpiredWebPushError } from '@/lib/notifications/webPush.mjs';
 import { dispatchPushNotification } from '@/lib/notifications/dispatcher.mjs';
-import { claimDailyRetentionSlot, buildCategoryAdviceNotification, getDoualaDateKey, isWithinDoualaEveningWindow } from '@/lib/notifications/retentionEngine.mjs';
+import { claimDailyRetentionSlot, buildCategoryAdviceNotification, getDoualaDateKey as getRetentionDoualaDateKey, isWithinDoualaEveningWindow } from '@/lib/notifications/retentionEngine.mjs';
 import { AI_TOOLS, createExpenseForUser, updateExpenseForUser, deleteExpenseForUser, deleteIncomeForUser, executeAITool, runAutomationForUser, generateWeeklyReportForUser } from '@/lib/ai/financialTools';
 import { generateAudioWithGemini } from '@/lib/ai/geminiTTS';
 import { buildIncomePriorityReminder } from '@/lib/finance/incomePriorities.mjs';
@@ -125,7 +125,7 @@ async function persistAutomaticNotificationDelivery(userRef, userData, notificat
     body: String(notification.body || '').slice(0, 500),
     target,
     source,
-    date: String(delivery.date || getDoualaDateKey()),
+    date: String(delivery.date || getRetentionDoualaDateKey()),
     delivered: pushSent,
     pushSent,
     emailSent,
@@ -2087,7 +2087,7 @@ async function handleNotificationScheduler(request) {
     const suppliedSecret = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : request.headers.get('x-cron-secret');
     if (!expectedSecret || suppliedSecret !== expectedSecret) return errorResponse('Accès au planificateur refusé.', 401);
     const now = new Date();
-    const today = getDoualaDateKey(now);
+    const today = getRetentionDoualaDateKey(now);
     if (!isWithinDoualaEveningWindow(now)) {
       return NextResponse.json({ success: true, skippedOutsideEveningWindow: true, localTimeZone: 'Africa/Douala' });
     }
@@ -7652,7 +7652,7 @@ async function handleCotisationsScheduler(request) {
 
     const now = new Date();
     if (!isWithinDoualaEveningWindow(now)) return NextResponse.json({ success: true, skippedOutsideEveningWindow: true, localTimeZone: 'Africa/Douala' });
-    const today = getDoualaDateKey(now);
+    const today = getRetentionDoualaDateKey(now);
     const groupsSnap = await adminDb.collection('cotisationGroups').where('status', '==', 'active').limit(500).get();
     const totals = { groupsChecked: groupsSnap.size, turnEmails: 0, upcomingReminders: 0, dueReminders: 0, overdueReminders: 0, pushSent: 0, failed: 0, chatMessagesDeleted: 0, chatGroupsPruned: 0 };
     const appUrl = getPataAppUrl(request);
