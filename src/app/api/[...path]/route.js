@@ -212,10 +212,10 @@ async function sendScheduledNotificationEmail({ to, subject, html, idempotencyKe
   const key = String(idempotencyKey || '').trim().slice(0, 180);
   if (!recipient.includes('@') || !key || !String(subject || '').trim() || !html) return false;
 
-  // Pata réserve au maximum 100 e-mails de notification planifiée par jour local.
-  // Les e-mails transactionnels de sécurité et de paiement continuent d'utiliser
-  // sendPataEmail directement et ne sont pas bloqués par ce quota de rétention.
-  const dateKey = getRetentionDoualaDateKey();
+  // Le quota e-mail suit le jour UTC du fournisseur afin d'éviter un double
+  // quota autour de minuit au Cameroun. Les horaires d'envoi restent Africa/Douala.
+  // Les e-mails transactionnels de sécurité et de paiement gardent leur propre voie.
+  const dateKey = new Date().toISOString().slice(0, 10);
   const quotaRef = adminDb.collection('notificationEmailDailyQuotas').doc(dateKey);
   const reservation = await adminDb.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(quotaRef);
