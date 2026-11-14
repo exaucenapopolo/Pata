@@ -32,3 +32,13 @@ test('une erreur provenant du layout racine est récupérée par le boundary glo
   assert.match(globalError, /onClick=\{\(\) => reset\(\)\}/);
   assert.match(globalError, /href="\/support"/);
 });
+
+
+test('les statistiques de téléchargement Android sont bien récupérées par le tableau admin', () => {
+  const apiRoute = fs.readFileSync(new URL('../src/app/api/[...path]/route.js', import.meta.url), 'utf8');
+  const overviewStart = apiRoute.indexOf('async function handleAdminOverview');
+  const overviewEnd = apiRoute.indexOf('async function handleAdminSavings', overviewStart);
+  const overview = apiRoute.slice(overviewStart, overviewEnd);
+  assert.match(overview, /activeDebts,\s*androidDownloadMetrics\]\s*=\s*await Promise\.all/);
+  assert.match(overview, /androidDownloadMetrics\?\.exists/);
+});

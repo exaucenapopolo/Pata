@@ -4791,7 +4791,7 @@ async function handleAdminOverview(request) {
     const users = adminDb.collection('users');
     const withdrawals = adminDb.collection('withdrawalRequests');
     const activeDebtQuery = adminDb.collectionGroup('debts').where('status', 'in', ['active', 'partial', 'late']);
-    const [userTotals, premiumCount, androidUsers, webUsers, webOnlyUsers, deposits, subscriptions, paidPayouts, pendingPayouts, latestUsers, latestDeposits, latestWithdrawals, topBalances, topExpenses, leastExpenses, topIncomes, lifetimeExpenses, lifetimeIncomes, billsSummary, budgetsSummary, activeDebts] = await Promise.all([
+    const [userTotals, premiumCount, androidUsers, webUsers, webOnlyUsers, deposits, subscriptions, paidPayouts, pendingPayouts, latestUsers, latestDeposits, latestWithdrawals, topBalances, topExpenses, leastExpenses, topIncomes, lifetimeExpenses, lifetimeIncomes, billsSummary, budgetsSummary, activeDebts, androidDownloadMetrics] = await Promise.all([
       aggregateTotal(users, 'balance'),
       users.where('premiumUntil', '>', nowIso).count().get().then((snap) => snap.data().count).catch(() => 0),
       users.where('usedAndroidApp', '==', true).count().get().then((snap) => snap.data().count).catch(() => null),
