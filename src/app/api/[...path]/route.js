@@ -7,7 +7,7 @@ import { isNotificationUnread } from '@/lib/notifications/notificationState.mjs'
 import { completeWithGroq } from '@/lib/ai/groqClient';
 import { normalizeWebPushSubscription, webPushSubscriptionId, sendPataWebPush, isExpiredWebPushError } from '@/lib/notifications/webPush.mjs';
 import { dispatchPushNotification } from '@/lib/notifications/dispatcher.mjs';
-import { claimDailyRetentionSlot, buildCategoryAdviceNotification, selectRetentionCandidates, getDoualaDateKey as getRetentionDoualaDateKey, isWithinDoualaEveningWindow } from '@/lib/notifications/retentionEngine.mjs';
+import { claimDailyRetentionSlot, claimDailyNonEssentialSlot, buildCategoryAdviceNotification, selectRetentionCandidates, getDoualaDateKey as getRetentionDoualaDateKey, isWithinDoualaEveningWindow, isWithinDoualaWeekendMorningWindow } from '@/lib/notifications/retentionEngine.mjs';
 import { AI_TOOLS, createExpenseForUser, updateExpenseForUser, deleteExpenseForUser, deleteIncomeForUser, executeAITool, runAutomationForUser, generateWeeklyReportForUser } from '@/lib/ai/financialTools';
 import { generateAudioWithGemini } from '@/lib/ai/geminiTTS';
 import { buildIncomePriorityReminder } from '@/lib/finance/incomePriorities.mjs';
@@ -90,21 +90,66 @@ async function sendPataPushToUser(userRef,notification,appUrl,knownUserData=null
 }
 
 
+function getStoredTimestampMs(value) {
+  if (value?.toDate) return value.toDate().getTime();
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'number') return value;
+  const parsed = value ? new Date(value).getTime() : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 async function claimScheduledRetentionSlot(userRef, dateKey, notificationKey) {
   return adminDb.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(userRef);
     const profile = snapshot.exists ? snapshot.data() || {} : {};
-    const claim = claimDailyRetentionSlot({
+    const nowMs = Date.now();
+    const sharedClaim = claimDailyNonEssentialSlot({
+      date: profile.dailyNonEssentialDate,
+      count: profile.dailyNonEssentialCount,
+      keys: profile.dailyNonEssentialKeys,
+      lastAt: getStoredTimestampMs(profile.dailyNonEssentialLastAt),
+    }, dateKey, notificationKey, undefined, nowMs);
+    if (!sharedClaim.allowed) return sharedClaim;
+
+    const retentionClaim = claimDailyRetentionSlot({
       date: profile.dailyRetentionDate,
       count: profile.dailyRetentionCount,
       keys: profile.dailyRetentionKeys,
     }, dateKey, notificationKey);
+    if (!retentionClaim.allowed) return retentionClaim;
+
+    transaction.set(userRef, {
+      dailyRetentionDate: retentionClaim.state.date,
+      dailyRetentionCount: retentionClaim.state.count,
+      dailyRetentionKeys: retentionClaim.state.keys,
+      dailyRetentionUpdatedAt: FieldValue.serverTimestamp(),
+      dailyNonEssentialDate: sharedClaim.state.date,
+      dailyNonEssentialCount: sharedClaim.state.count,
+      dailyNonEssentialKeys: sharedClaim.state.keys,
+      dailyNonEssentialLastAt: new Date(sharedClaim.state.lastAt),
+      dailyNonEssentialUpdatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    return { ...retentionClaim, sharedRemaining: sharedClaim.remaining };
+  });
+}
+
+async function claimScheduledSpecialSlot(userRef, dateKey, notificationKey) {
+  return adminDb.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(userRef);
+    const profile = snapshot.exists ? snapshot.data() || {} : {};
+    const claim = claimDailyNonEssentialSlot({
+      date: profile.dailyNonEssentialDate,
+      count: profile.dailyNonEssentialCount,
+      keys: profile.dailyNonEssentialKeys,
+      lastAt: getStoredTimestampMs(profile.dailyNonEssentialLastAt),
+    }, dateKey, notificationKey);
     if (!claim.allowed) return claim;
     transaction.set(userRef, {
-      dailyRetentionDate: claim.state.date,
-      dailyRetentionCount: claim.state.count,
-      dailyRetentionKeys: claim.state.keys,
-      dailyRetentionUpdatedAt: FieldValue.serverTimestamp(),
+      dailyNonEssentialDate: claim.state.date,
+      dailyNonEssentialCount: claim.state.count,
+      dailyNonEssentialKeys: claim.state.keys,
+      dailyNonEssentialLastAt: new Date(claim.state.lastAt),
+      dailyNonEssentialUpdatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
     return claim;
   });
@@ -185,6 +230,66 @@ async function sendRetentionEmailFallback({ userData, title, body, target, categ
     console.warn('[PATA RETENTION EMAIL]', error.message || error);
     return false;
   }
+}
+
+
+function addDateKeyDays(dateKey, days) {
+  const date = new Date(String(dateKey || '') + 'T12:00:00.000Z');
+  if (Number.isNaN(date.getTime())) return '';
+  date.setUTCDate(date.getUTCDate() + Number(days || 0));
+  return date.toISOString().slice(0, 10);
+}
+
+function getWeekendRangeForDate(dateKey) {
+  const date = new Date(String(dateKey || '') + 'T12:00:00.000Z');
+  if (Number.isNaN(date.getTime())) throw new Error('Date de week-end invalide.');
+  const weekday = date.getUTCDay();
+  const daysSinceFriday = (weekday + 2) % 7;
+  const startDate = addDateKeyDays(dateKey, -daysSinceFriday);
+  return {
+    startDate,
+    endDate: addDateKeyDays(startDate, 2),
+    isCurrentWeekend: weekday === 5 || weekday === 6 || weekday === 0,
+  };
+}
+
+async function getWeekendFinancialSummary(userRef, dateKey) {
+  const range = getWeekendRangeForDate(dateKey);
+  const [expensesSnapshot, incomesSnapshot] = await Promise.all([
+    userRef.collection('expenses')
+      .where('date', '>=', range.startDate).where('date', '<=', range.endDate).get(),
+    userRef.collection('incomes')
+      .where('date', '>=', range.startDate).where('date', '<=', range.endDate).get(),
+  ]);
+  const expenses = expensesSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+    .filter((item) => !item.neutralFlow);
+  const incomes = incomesSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+    .filter((item) => !item.neutralFlow && item.flowType !== 'debt_borrowed');
+  const expenseTotal = expenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const incomeTotal = incomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const byCategory = new Map();
+  const byDay = new Map();
+  expenses.forEach((item) => {
+    const categoryId = String(item.categoryId || 'other');
+    byCategory.set(categoryId, (byCategory.get(categoryId) || 0) + (Number(item.amount) || 0));
+    const day = String(item.date || '');
+    const row = byDay.get(day) || { date: day, amount: 0, count: 0 };
+    row.amount += Number(item.amount) || 0;
+    row.count += 1;
+    byDay.set(day, row);
+  });
+  return {
+    ...range,
+    expenseTotal,
+    incomeTotal,
+    net: incomeTotal - expenseTotal,
+    expenseCount: expenses.length,
+    incomeCount: incomes.length,
+    byCategory: [...byCategory.entries()]
+      .map(([categoryId, amount]) => ({ categoryId, amount }))
+      .sort((a, b) => b.amount - a.amount),
+    byDay: [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date)),
+  };
 }
 
 
@@ -2080,6 +2185,215 @@ async function handleNotificationStatus(request) {
   }
 }
 
+async function handleNotificationOpportunity(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const userRef = adminDb.collection('users').doc(uid);
+    const userSnapshot = await userRef.get();
+    if (!userSnapshot.exists) return errorResponse('Profil utilisateur introuvable.', 404);
+    const userData = userSnapshot.data() || {};
+    const today = getRetentionDoualaDateKey();
+    const lastSentMs = getStoredTimestampMs(userData.lastFeatureDiscoveryAt);
+    if (lastSentMs && Date.now() - lastSentMs < 7 * 24 * 60 * 60 * 1000) {
+      return NextResponse.json({ success: true, skipped: 'discovery_cooldown' });
+    }
+
+    const [billsSnapshot, goalsSnapshot, budgetsSnapshot, membershipsSnapshot] = await Promise.all([
+      userRef.collection('bills').limit(100).get(),
+      userRef.collection('goals').limit(50).get(),
+      userRef.collection('budgets').limit(1).get(),
+      userRef.collection('cotisationMemberships').limit(1).get(),
+    ]);
+    const hasActiveBill = billsSnapshot.docs.some((doc) => doc.data()?.active !== false);
+    const hasActiveGoal = goalsSnapshot.docs.some((doc) => !doc.data()?.closed && !doc.data()?.withdrawnAt);
+    const candidates = [];
+    if (!hasActiveBill) candidates.push({
+      topic: 'bills', title: 'Suis aussi tes factures dans Pata',
+      body: 'Tu peux enregistrer le loyer, l’électricité, l’eau ou Internet, puis suivre les prochaines échéances pour mieux préparer tes paiements.',
+      target: '/bills',
+    });
+    if (!hasActiveGoal) candidates.push({
+      topic: 'savings', title: 'Donne un cap à ton épargne',
+      body: 'Crée un objectif dans Pata, fixe le montant que tu souhaites atteindre et suis tes versements au fil du temps.',
+      target: '/goals',
+    });
+    if (budgetsSnapshot.empty) candidates.push({
+      topic: 'budgets', title: 'Essaie les budgets par catégorie',
+      body: 'Définis une enveloppe pour l’alimentation, le transport ou une autre catégorie, puis vérifie ce qu’il te reste au cours du mois.',
+      target: '/budgets',
+    });
+    if (membershipsSnapshot.empty) candidates.push({
+      topic: 'cotisations', title: 'Découvre les cotisations de groupe',
+      body: 'Pata te permet de créer ou de rejoindre un groupe de cotisation et de suivre les contributions et les échéances au même endroit.',
+      target: '/cotisations',
+    });
+
+    let candidate = candidates.find((item) => item.topic !== userData.lastFeatureDiscoveryTopic) || candidates[0] || null;
+    if (!candidate && !isPremiumAccount(userData)
+      && (!getStoredTimestampMs(userData.lastPremiumDiscoveryAt)
+        || Date.now() - getStoredTimestampMs(userData.lastPremiumDiscoveryAt) >= 30 * 24 * 60 * 60 * 1000)) {
+      candidate = {
+        topic: 'premium',
+        title: 'Découvre les outils Pata Premium',
+        body: 'Explore les fonctionnalités avancées qui peuvent t’aider à approfondir tes budgets, tes objectifs et tes analyses. Consulte les avantages avant de décider.',
+        target: '/premium',
+        allowEmail: false,
+      };
+    }
+    if (!candidate) return NextResponse.json({ success: true, skipped: 'features_already_used' });
+
+    const notificationId = 'feature-discovery-' + candidate.topic + '-' + today;
+    const notificationRef = userRef.collection('notifications').doc(notificationId);
+    const existing = await notificationRef.get();
+    if (existing.exists) return NextResponse.json({ success: true, skipped: 'already_sent_today' });
+    const slot = await claimScheduledSpecialSlot(userRef, today, notificationId);
+    if (!slot.allowed) return NextResponse.json({ success: true, skipped: slot.reason });
+
+    const notification = {
+      title: candidate.title,
+      body: candidate.body,
+      target: candidate.target,
+      source: 'feature_discovery',
+      categoryId: candidate.topic,
+      url: candidate.target,
+      tag: notificationId,
+    };
+    const appUrl = getPataAppUrl(request);
+    const pushResult = await sendPataPushToUser(userRef, notification, appUrl, userData);
+    const pushSent = pushResult.fcmSent + pushResult.webPushSent;
+    const emailSent = pushSent === 0 && candidate.allowEmail !== false
+      ? await sendRetentionEmailFallback({
+        userData,
+        title: candidate.title,
+        body: candidate.body,
+        target: candidate.target,
+        category: 'Découverte d’une fonctionnalité',
+        idempotencyKey: 'pata-feature-discovery-' + uid + '-' + candidate.topic + '-' + today,
+      })
+      : false;
+    await persistAutomaticNotificationDelivery(userRef, userData, notificationId, notification, {
+      date: today, pushSent, emailSent, priority: 35,
+    });
+    await userRef.set({
+      lastFeatureDiscoveryAt: FieldValue.serverTimestamp(),
+      lastFeatureDiscoveryTopic: candidate.topic,
+      ...(candidate.topic === 'premium' ? { lastPremiumDiscoveryAt: FieldValue.serverTimestamp() } : {}),
+      lastNotificationAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    return NextResponse.json({ success: true, topic: candidate.topic, pushSent, emailSent });
+  } catch (error) {
+    console.warn('[PATA FEATURE DISCOVERY]', error.message || error);
+    return errorResponse(error.message || 'Impossible de préparer cette suggestion.', 500);
+  }
+}
+
+async function handleWeekendNotificationScheduler(request) {
+  try {
+    const expectedSecret = process.env.CRON_SECRET;
+    const authHeader = request.headers.get('authorization') || '';
+    const suppliedSecret = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : request.headers.get('x-cron-secret');
+    if (!expectedSecret || !suppliedSecret || !safeStringEqual(suppliedSecret, expectedSecret)) {
+      return errorResponse('Accès au planificateur du week-end refusé.', 401);
+    }
+
+    const now = new Date();
+    const today = getRetentionDoualaDateKey(now);
+    const weekday = new Date(today + 'T12:00:00.000Z').getUTCDay();
+    const isFridayOrSunday = weekday === 5 || weekday === 0;
+    const isSaturdayMorning = weekday === 6;
+    if (!isFridayOrSunday && !isSaturdayMorning) {
+      return NextResponse.json({ success: true, skipped: 'not_weekend' });
+    }
+    const withinWindow = isSaturdayMorning
+      ? isWithinDoualaWeekendMorningWindow(now)
+      : isWithinDoualaEveningWindow(now);
+    if (!withinWindow) {
+      return NextResponse.json({ success: true, skippedOutsideWindow: true, localTimeZone: 'Africa/Douala' });
+    }
+
+    const usersSnapshot = await adminDb.collection('users').get();
+    const appUrl = getPataAppUrl(request);
+    const totals = { checked: usersSnapshot.size, sent: 0, skipped: 0, failed: 0 };
+
+    for (const userDoc of usersSnapshot.docs) {
+      const userData = userDoc.data() || {};
+      try {
+        const lastSeenMs = getStoredTimestampMs(userData.lastSeenAt);
+        const createdAtMs = getStoredTimestampMs(userData.createdAt);
+        const activeRecently = (lastSeenMs && Date.now() - lastSeenMs <= 45 * 24 * 60 * 60 * 1000)
+          || (createdAtMs && Date.now() - createdAtMs <= 7 * 24 * 60 * 60 * 1000);
+        if (!activeRecently) { totals.skipped += 1; continue; }
+
+        const notificationId = 'weekend-' + today;
+        const notificationRef = userDoc.ref.collection('notifications').doc(notificationId);
+        const existing = await notificationRef.get();
+        if (existing.exists) { totals.skipped += 1; continue; }
+        const slot = await claimScheduledSpecialSlot(userDoc.ref, today, notificationId);
+        if (!slot.allowed) { totals.skipped += 1; continue; }
+
+        let title = '';
+        let body = '';
+        if (weekday === 5) {
+          title = 'Le week-end commence ce soir';
+          body = 'Avant les sorties et les achats du week-end, fixe un montant raisonnable à consacrer aux loisirs. Les petits paiements peuvent vite s’additionner : note tes dépenses dans Pata au fil des jours.';
+        } else if (weekday === 6) {
+          title = 'Bon week-end ! Garde le contrôle de tes dépenses';
+          body = 'Les sorties, le transport, les repas et les petits achats peuvent s’additionner. Choisis une enveloppe réaliste pour le week-end et pense à enregistrer chaque dépense dans Pata.';
+        } else {
+          const summary = await getWeekendFinancialSummary(userDoc.ref, today);
+          const expenseText = summary.expenseCount
+            ? 'Depuis vendredi, tu as enregistré ' + summary.expenseTotal.toLocaleString('fr-FR') + ' FCFA de dépenses dans Pata.'
+            : 'Vérifie si toutes les dépenses de vendredi à aujourd’hui ont bien été enregistrées.';
+          title = 'Le week-end se termine : fais ton bilan';
+          body = expenseText + ' Consulte ton rapport du week-end et prépare une nouvelle semaine avec un budget clair.';
+        }
+
+        const notification = {
+          title, body, target: '/reports',
+          source: 'weekend_retention', categoryId: 'weekend',
+          url: '/reports', tag: notificationId,
+        };
+        const pushResult = await sendPataPushToUser(userDoc.ref, notification, appUrl, userData);
+        const pushSent = pushResult.fcmSent + pushResult.webPushSent;
+        const emailSent = pushSent === 0
+          ? await sendRetentionEmailFallback({
+            userData, title, body, target: '/reports',
+            category: 'Bilan du week-end',
+            idempotencyKey: 'pata-weekend-' + userDoc.id + '-' + today,
+          })
+          : false;
+        await persistAutomaticNotificationDelivery(userDoc.ref, userData, notificationId, notification, {
+          date: today, pushSent, emailSent, priority: 45,
+        });
+        await userDoc.ref.set({
+          lastWeekendNotificationDate: today,
+          lastNotificationAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+        totals.sent += 1;
+      } catch (error) {
+        totals.failed += 1;
+        console.warn('[PATA WEEKEND NOTIFICATION]', userDoc.id, error.message || error);
+      }
+    }
+    return NextResponse.json({ success: true, date: today, weekday, ...totals });
+  } catch (error) {
+    console.error('[CRON] Weekend notifications:', error.message || error);
+    return errorResponse(error.message || 'Le rappel du week-end n’a pas pu être exécuté.', 500);
+  }
+}
+
+async function handleWeekendReport(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const today = getRetentionDoualaDateKey();
+    const summary = await getWeekendFinancialSummary(adminDb.collection('users').doc(uid), today);
+    return NextResponse.json({ success: true, ...summary });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de charger le rapport du week-end.', 500);
+  }
+}
+
+
 async function handleNotificationScheduler(request) {
   try {
     const expectedSecret = process.env.CRON_SECRET;
@@ -2369,7 +2683,8 @@ async function handleNotificationScheduler(request) {
             });
           let emailSent = false;
           const recipientEmail = String(userData.email || '').trim();
-          if (userData.emailRemindersEnabled !== false && recipientEmail.includes('@')) {
+          if (pushResult.fcmSent + pushResult.webPushSent === 0
+            && userData.emailRemindersEnabled !== false && recipientEmail.includes('@')) {
             try {
               await sendPataEmail({
                 to: recipientEmail,
@@ -7808,9 +8123,7 @@ async function handleCotisationsScheduler(request) {
       return errorResponse('Accès au planificateur des cotisations refusé.', 401);
     }
 
-    const now = new Date();
-    if (!isWithinDoualaEveningWindow(now)) return NextResponse.json({ success: true, skippedOutsideEveningWindow: true, localTimeZone: 'Africa/Douala' });
-    const today = getRetentionDoualaDateKey(now);
+    const today = getRetentionDoualaDateKey(new Date());
     const groupsSnap = await adminDb.collection('cotisationGroups').where('status', '==', 'active').limit(500).get();
     const totals = { groupsChecked: groupsSnap.size, turnEmails: 0, upcomingReminders: 0, dueReminders: 0, overdueReminders: 0, pushSent: 0, failed: 0, chatMessagesDeleted: 0, chatGroupsPruned: 0 };
     const appUrl = getPataAppUrl(request);
@@ -7845,11 +8158,6 @@ async function handleCotisationsScheduler(request) {
       try {
         const userSnap = await userRef.get();
         const userData = userSnap.exists ? userSnap.data() : {};
-        const retentionSlot = await claimScheduledRetentionSlot(userRef, today, 'cotisation:' + reminderId);
-        if (!retentionSlot.allowed) {
-          await reminderRef.set({ status: 'DEFERRED', deferredDate: today, deferredReason: retentionSlot.reason, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-          return false;
-        }
         const personalized = personalizeNotification({ title, body, url: '/cotisations', tag: reminderId, source: 'cotisation' }, { displayName: userData.displayName || member.displayName || '' });
 
         const recipientEmail = String(userData.email || member.email || '').trim();
@@ -8602,6 +8910,9 @@ const ROUTES = {
   'notifications/inbox': { GET: handleNotificationsInbox },
   'notifications/read': { POST: handleNotificationRead },
   'notifications/scheduler': { GET: handleNotificationScheduler, POST: handleNotificationScheduler },
+  'notifications/weekend-scheduler': { GET: handleWeekendNotificationScheduler, POST: handleWeekendNotificationScheduler },
+  'notifications/opportunity': { POST: handleNotificationOpportunity },
+  'reports/weekend': { GET: handleWeekendReport },
   'bills/list': { GET: handleBillsList },
   'bills/scan': { POST: handleBillsScan },
   'bills/create': { POST: handleBillsCreate },
