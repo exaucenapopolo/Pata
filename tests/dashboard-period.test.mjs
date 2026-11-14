@@ -33,3 +33,11 @@ test('Mč reçoit explicitement la période sélectionnée depuis le tableau de 
   assert.match(dashboard, /uniquement pour la période du \\$\{startDate\} au \\$\{endDate\}/);
   assert.match(dashboard, /Count no income or expense dated before/);
 });
+
+test('les montants de la bannière portent des libellés de période et affichent le chargement', () => {
+  assert.match(dashboard, /Entrées de la période/);
+  assert.match(dashboard, /Sorties de la période/);
+  assert.match(dashboard, /Solde de la période/);
+  assert.match(dashboard, /Période comptée : \{formatDate\(startDate\)\}/);
+  assert.match(dashboard, /globalFinanceSummary \? formatCurrency\(totalIncome\) : '…'/);
+});

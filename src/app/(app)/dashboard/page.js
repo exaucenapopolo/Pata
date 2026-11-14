@@ -397,7 +397,7 @@ export default function DashboardPage() {
         <div className="pointer-events-none absolute -right-12 -top-16 h-56 w-56 rounded-full border-[28px] border-white/5" />
         <div className="pointer-events-none absolute -bottom-20 right-24 h-40 w-40 rounded-full border-[20px] border-white/5" />
         <div className="relative flex flex-wrap items-start justify-between gap-4">
-          <div><p className="text-xs font-semibold tracking-wide text-emerald-100">TON ESPACE FINANCIER</p><h1 className="mt-2 text-xl font-bold tracking-tight sm:text-2xl">Bonjour {userName}</h1><p className="mt-1 max-w-sm text-xs leading-5 text-emerald-100 sm:text-sm">Voici ce qui se passe dans tes finances. Garde une vue claire sur ton argent.</p></div>
+          <div><p className="text-xs font-semibold tracking-wide text-emerald-100">TON ESPACE FINANCIER</p><h1 className="mt-2 text-xl font-bold tracking-tight sm:text-2xl">Bonjour {userName}</h1><p className="mt-1 max-w-sm text-xs leading-5 text-emerald-100 sm:text-sm">Voici ce qui se passe dans tes finances. Garde une vue claire sur ton argent.</p><p className="mt-2 text-[10px] font-medium text-emerald-100">Période comptée : {formatDate(startDate)} → {formatDate(endDate)}</p></div>
           <div className="flex flex-wrap items-center gap-2">
             <AssistantShortcut label="Conseil personnalisé" prompt={`Fais un bilan de ma situation financière Pata uniquement pour la période du ${startDate} au ${endDate} inclus. Calcule les revenus et dépenses en ne prenant aucune opération antérieure au ${startDate} ni postérieure au ${endDate}. Explique les points forts, les risques et trois actions prioritaires adaptées à cette période. Ne mélange jamais ce bilan avec les mois précédents et ne modifie aucune donnée.`} promptEn={`Review my Pata financial situation only for the period from ${startDate} through ${endDate}, inclusive. Count no income or expense dated before ${startDate} or after ${endDate}. Explain strengths, risks and three practical priorities for this period. Never mix this with previous months and do not change any data.`} />
             <Link href="/reports" className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-white/20 bg-white/10 px-3 text-xs font-semibold text-white transition hover:bg-white/15">Voir mon bilan <ChevronRight size={14}/></Link>
@@ -405,16 +405,16 @@ export default function DashboardPage() {
         </div>
         <div className="relative mt-4 grid grid-cols-3 gap-2 border-t border-white/15 pt-3">
           <div className="min-w-0 rounded-xl border border-white/15 bg-white/10 px-2.5 py-2.5 sm:px-3">
-            <p className="truncate text-[10px] font-medium text-emerald-100 sm:text-[11px]">Entrées cumulées</p>
-            <p className="mt-1 break-words text-sm font-bold leading-tight tracking-tight sm:text-xl">{formatCurrency(totalIncome)}</p>
+            <p className="truncate text-[10px] font-medium text-emerald-100 sm:text-[11px]">Entrées de la période</p>
+            <p className="mt-1 break-words text-sm font-bold leading-tight tracking-tight sm:text-xl">{globalFinanceSummary ? formatCurrency(totalIncome) : '…'}</p>
           </div>
           <div className="min-w-0 rounded-xl border border-white/15 bg-white/10 px-2.5 py-2.5 sm:px-3">
-            <p className="truncate text-[10px] font-medium text-emerald-100 sm:text-[11px]">Sorties totales</p>
-            <p className="mt-1 break-words text-sm font-bold leading-tight tracking-tight sm:text-xl">{formatCurrency(totalExpense)}</p>
+            <p className="truncate text-[10px] font-medium text-emerald-100 sm:text-[11px]">Sorties de la période</p>
+            <p className="mt-1 break-words text-sm font-bold leading-tight tracking-tight sm:text-xl">{globalFinanceSummary ? formatCurrency(totalExpense) : '…'}</p>
           </div>
           <div className="min-w-0 rounded-xl border border-white/20 bg-white/15 px-2.5 py-2.5 sm:px-3">
-            <p className="truncate text-[10px] font-semibold text-white sm:text-[11px]">Solde restant</p>
-            <p className="mt-1 break-words text-sm font-bold leading-tight tracking-tight sm:text-xl">{formatCurrency(globalBalance)}</p>
+            <p className="truncate text-[10px] font-semibold text-white sm:text-[11px]">Solde de la période</p>
+            <p className="mt-1 break-words text-sm font-bold leading-tight tracking-tight sm:text-xl">{globalFinanceSummary ? formatCurrency(globalBalance) : '…'}</p>
           </div>
         </div>
       </section>
