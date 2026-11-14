@@ -14,6 +14,7 @@ import { sumIncomeSpendTotals } from '@/lib/finance/incomeBalances.mjs';
 import { chatWithGroqVision, extractBillDataWithGroqVision } from '@/lib/ai/groqVision';
 import { generateImageWithPollinations } from '@/lib/ai/pollinationsImage';
 import { classifyAIRequest, selectAIToolsForIntent, buildCompactAIContext } from '@/lib/ai/compactContext';
+import { resolveAIReportPeriod } from '@/lib/ai/reportPeriod.mjs';
 import { buildHelpKnowledgeContext } from '@/lib/ai/helpKnowledge.mjs';
 import { computeGoalPlan, GOAL_LATE_PENALTY_RATE, GOAL_PENALTY_EFFECTIVE_DATE } from '@/lib/goalCalc';
 import { COTISATION_CHAT_PACK_PRICE, COTISATION_CHAT_PACK_SIZE, summarizeCotisationChatQuota, consumeCotisationChatQuota, sanitizeCotisationChatMessage, cotisationChatExpiry } from '@/lib/cotisations/chatPolicy.mjs';
@@ -4137,15 +4138,23 @@ async function handleAIChat(request) {
     }
     if (quota.reserved) reservedQuota = quota.date;
 
+    const reportPeriod = resolveAIReportPeriod(latestUserText, getDoualaToday());
     const userRef = adminDb.collection('users').doc(uid);
     const emptySnapshot = { docs: [] };
+    const includeIncomeContext = intent.needsIncomes || intent.overview;
+    const includeExpenseContext = intent.needsExpenses || intent.overview;
+    const incomePeriodQuery = userRef.collection('incomes')
+      .where('date', '>=', reportPeriod.startDate).where('date', '<=', reportPeriod.endDate);
+    const expensePeriodQuery = userRef.collection('expenses')
+      .where('date', '>=', reportPeriod.startDate).where('date', '<=', reportPeriod.endDate);
     const [
       userDoc, incomesSnap, expensesSnap, debtsSnap, financialTargetSnap, goalsSnap, budgetsSnap, automationsSnap,
       memorySnap, categoriesSnap, projectsSnap, cotisationMembershipsSnap, activityLogSnap, weeklyReportsSnap,
+      incomeSummarySnap, expenseSummarySnap,
     ] = await Promise.all([
       userRef.get(),
-      intent.needsIncomes ? userRef.collection('incomes').orderBy('date', 'desc').limit(35).get() : Promise.resolve(emptySnapshot),
-      intent.needsExpenses ? userRef.collection('expenses').orderBy('date', 'desc').limit(50).get() : Promise.resolve(emptySnapshot),
+      includeIncomeContext ? incomePeriodQuery.orderBy('date', 'desc').limit(35).get() : Promise.resolve(emptySnapshot),
+      includeExpenseContext ? expensePeriodQuery.orderBy('date', 'desc').limit(50).get() : Promise.resolve(emptySnapshot),
       intent.needsDebts ? userRef.collection('debts').orderBy('createdAt', 'desc').limit(25).get() : Promise.resolve(emptySnapshot),
       intent.needsFinancialTargets ? userRef.collection('financialTargets').doc(getDoualaMonthKey()).get() : Promise.resolve(null),
       intent.needsGoals ? userRef.collection('goals').limit(15).get() : Promise.resolve(emptySnapshot),
@@ -4157,6 +4166,8 @@ async function handleAIChat(request) {
       intent.cotisations ? userRef.collection('cotisationMemberships').limit(12).get() : Promise.resolve(emptySnapshot),
       intent.needsActivityLog ? userRef.collection('activity_log').orderBy('deletedAt', 'desc').limit(15).get() : Promise.resolve(emptySnapshot),
       intent.needsReports ? userRef.collection('weekly_reports').orderBy('weekStart', 'desc').limit(4).get() : Promise.resolve(emptySnapshot),
+      includeIncomeContext ? incomePeriodQuery.aggregate({ total: AggregateField.sum('amount'), count: AggregateField.count() }).get() : Promise.resolve(null),
+      includeExpenseContext ? expensePeriodQuery.aggregate({ total: AggregateField.sum('amount'), count: AggregateField.count() }).get() : Promise.resolve(null),
     ]);
 
     const goalsWithDeposits = intent.needsGoals
@@ -4247,6 +4258,17 @@ async function handleAIChat(request) {
 
     const userData = {
       profile: userDoc.exists ? userDoc.data() : {},
+      reportPeriod,
+      financeSummary: {
+        startDate: reportPeriod.startDate,
+        endDate: reportPeriod.endDate,
+        incomeIncluded: Boolean(incomeSummarySnap),
+        expenseIncluded: Boolean(expenseSummarySnap),
+        totalIncome: incomeSummarySnap ? Number(incomeSummarySnap.data()?.total) || 0 : null,
+        totalExpense: expenseSummarySnap ? Number(expenseSummarySnap.data()?.total) || 0 : null,
+        incomeCount: incomeSummarySnap ? Number(incomeSummarySnap.data()?.count) || 0 : null,
+        expenseCount: expenseSummarySnap ? Number(expenseSummarySnap.data()?.count) || 0 : null,
+      },
       incomes: incomesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
       expenses: expensesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
       debts: debtsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
@@ -4268,7 +4290,7 @@ async function handleAIChat(request) {
     const isEnglish = requestedLanguage === 'en';
     const systemPrompt = isEnglish
       ? `You are Mč, Pata's personal finance assistant. Speak with ${userName} in English.
-Be natural, patient and clear; never sound rushed. For a simple question, answer in a few clear sentences and explain any important term in plain language. For a financial review, comparison or advice request, begin with a one-sentence **In brief** summary, then explain the important figures and what they mean. When several figures need comparing, use one compact Markdown table (up to 8 rows and 5 columns) and explain its meaning below. Keep the explanation proportional to the question, avoid repetition, and give up to three practical next steps only when useful. Never invent missing data or describe a limited recent extract as a complete lifetime history. Do not emit raw HTML; use Markdown tables.
+Be natural, patient and clear; never sound rushed. For a simple question, answer in a few clear sentences and explain any important term in plain language. FINANCIAL PERIOD RULE: use only the period stated in the user's latest question and the exact period totals supplied below. If no other period is stated, use the current calendar month from its first day through today in Africa/Douala. Dates are inclusive. Never add operations from previous months or use lifetime profile counters to calculate a period balance. The supplied transaction lists are only examples from within that period; use the exact Firestore aggregate totals for sums and do not recompute totals by adding the sample lines. For a financial review, comparison or advice request, begin with a one-sentence **In brief** summary, then explain the important figures and what they mean. When several figures need comparing, use one compact Markdown table (up to 8 rows and 5 columns) and explain its meaning below. Keep the explanation proportional to the question, avoid repetition, and give up to three practical next steps only when useful. Never invent missing data or describe a limited recent extract as a complete lifetime history. Do not emit raw HTML; use Markdown tables.
 
 Pata helps users track income, expenses, debts and loans, budgets, savings, goals, group contributions, projects, wallet balances and reports. Borrowed money is a neutral cash inflow linked to a debt to repay; it is never earned income. Users can record a debt, identify an individual or bank lender, assign borrowing to a project and track monthly goals. Financial reference amounts are stored in XAF; the profile currency changes display only. The Pata wallet is an internal balance, not a bank account.
 
@@ -4286,7 +4308,7 @@ ${helpKnowledge || 'No matching Help Center answer was found. Use only verified 
 Data relevant only to this request:
 ${userContext}`
       : `Tu es Mč, l’assistante de gestion financière de Pata. Tu échanges en français avec ${userName}.
-Réponds naturellement, avec patience et clarté, sans donner l’impression d’être pressée. Pour une question simple, donne quelques phrases faciles à comprendre et explique les termes importants en mots courants. Pour un bilan, une comparaison ou un conseil financier, commence par un résumé d’une phrase sous **En bref**, puis explique les chiffres importants et ce qu’ils signifient. Lorsque plusieurs chiffres doivent être comparés, utilise un petit tableau Markdown (8 lignes et 5 colonnes maximum), puis explique ce qu’il faut en retenir. Adapte la longueur à la demande, évite les répétitions et propose jusqu’à trois actions concrètes seulement lorsqu’elles sont utiles. N’invente jamais une donnée manquante et ne présente pas un extrait récent comme un historique complet. N’écris pas de HTML brut : utilise les tableaux Markdown.
+Réponds naturellement, avec patience et clarté, sans donner l’impression d’être pressée. RÈGLE DE PÉRIODE FINANCIÈRE : utilise uniquement la période mentionnée dans la dernière question de l’utilisateur et les totaux exacts fournis ci-dessous. Si aucune autre période n’est précisée, prends le mois civil en cours, du premier jour du mois jusqu’à aujourd’hui, selon l’heure de Douala. Les dates de début et de fin sont incluses. N’ajoute jamais les opérations des mois précédents et n’utilise pas les compteurs historiques du profil pour calculer un bilan de période. Les listes d’opérations fournies ne sont que des exemples de cette période : utilise les totaux exacts agrégés par Firestore et ne recalcule pas la somme en additionnant ces extraits. Pour une question simple, donne quelques phrases faciles à comprendre et explique les termes importants en mots courants. Pour un bilan, une comparaison ou un conseil financier, commence par un résumé d’une phrase sous **En bref**, puis explique les chiffres importants et ce qu’ils signifient. Lorsque plusieurs chiffres doivent être comparés, utilise un petit tableau Markdown (8 lignes et 5 colonnes maximum), puis explique ce qu’il faut en retenir. Adapte la longueur à la demande, évite les répétitions et propose jusqu’à trois actions concrètes seulement lorsqu’elles sont utiles. N’invente jamais une donnée manquante et ne présente pas un extrait récent comme un historique complet. N’écris pas de HTML brut : utilise les tableaux Markdown.
 
 Pata aide à suivre les revenus, dépenses, dettes et prêts, budgets, épargne, objectifs, cotisations, projets, portefeuille et rapports. Un emprunt est une entrée de trésorerie neutre avec une dette à rembourser : ce n’est jamais un revenu gagné. Tu peux enregistrer une dette, préciser s’il s’agit d’une personne ou d’une banque, affecter l’emprunt à un projet et suivre tes objectifs mensuels. Les montants financiers de référence sont en FCFA; la devise du profil ne change que l’affichage. Le portefeuille Pata est un solde interne, pas un compte bancaire.
 

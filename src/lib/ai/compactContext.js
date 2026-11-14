@@ -83,11 +83,6 @@ export function buildCompactAIContext(data = {}, intent = {}) {
     `Profil: ${profile.displayName || 'Utilisateur'}; devise d’affichage: ${profile.currency || 'XAF'}; solde du portefeuille Pata: ${money(profile.balance)} FCFA; expiration Premium: ${dateLabel(profile.premiumUntil) || 'non active'}.`,
     'Les montants de référence sont en FCFA. Le portefeuille Pata est un solde interne, pas un compte bancaire ni un Mobile Money.',
   ];
-  const hasLifetimeIncome = profile.lifetimeIncomeAmount !== undefined && Number.isFinite(Number(profile.lifetimeIncomeAmount));
-  const hasLifetimeExpense = profile.lifetimeExpenseAmount !== undefined && Number.isFinite(Number(profile.lifetimeExpenseAmount));
-  if (hasLifetimeIncome || hasLifetimeExpense) {
-    lines.push(`COMPTEURS HISTORIQUES DU COMPTE: entrées de revenus cumulées ${money(profile.lifetimeIncomeAmount)} FCFA (${Math.max(0, Number(profile.lifetimeIncomeCount) || 0)} enregistrement(s)); sorties de dépenses cumulées ${money(profile.lifetimeExpenseAmount)} FCFA (${Math.max(0, Number(profile.lifetimeExpenseCount) || 0)} enregistrement(s)). Ces compteurs sont distincts du solde du portefeuille et ne constituent pas un solde bancaire.`);
-  }
   if (profile.monthlyStats && typeof profile.monthlyStats === 'object') {
     const monthStats = profile.monthlyStats;
     const currentMonth = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Douala', year: 'numeric', month: '2-digit' }).format(new Date());
@@ -95,13 +90,21 @@ export function buildCompactAIContext(data = {}, intent = {}) {
       lines.push(`UTILISATION CE MOIS-CI: ${Number(monthStats.incomes) || 0} revenu(s) saisi(s), ${Number(monthStats.expenses) || 0} dépense(s) saisie(s), ${Number(monthStats.budgets) || 0} budget(s), ${Number(monthStats.goals) || 0} objectif(s).`);
     }
   }
-  if (intent.needsIncomes || intent.needsExpenses || intent.overview) {
-    const ordinaryIncomes = incomes.filter((item) => item.flowType !== 'debt_borrowed' && item.categoryId !== 'debt_borrowed' && item.neutralFlow !== true);
-    const borrowedIncomes = incomes.filter((item) => item.flowType === 'debt_borrowed' || item.categoryId === 'debt_borrowed');
-    const incomeTotal = ordinaryIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-    const borrowedTotal = borrowedIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-    const expenseTotal = expenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-    lines.push(`Données récupérées : ${ordinaryIncomes.length} revenu(s) ordinaire(s), ${borrowedIncomes.length} emprunt(s), ${expenses.length} sortie(s). Revenus ordinaires : ${money(incomeTotal)} FCFA; emprunts reçus (flux neutres) : ${money(borrowedTotal)} FCFA; sorties : ${money(expenseTotal)} FCFA. Ce sont des extraits récents, pas nécessairement le cumul historique.`);
+  if (data.reportPeriod) {
+    lines.push(`PÉRIODE DE RÉFÉRENCE : du ${data.reportPeriod.startDate} au ${data.reportPeriod.endDate}, dates incluses. Les revenus et dépenses fournis à Mč ont été filtrés sur cette période.`);
+  }
+  const financeSummary = data.financeSummary || {};
+  if (financeSummary.incomeIncluded || financeSummary.expenseIncluded) {
+    const exactIncome = financeSummary.incomeIncluded
+      ? `Entrées enregistrées : ${money(financeSummary.totalIncome)} FCFA pour ${financeSummary.incomeCount} opération(s)`
+      : 'Entrées non demandées dans cette analyse';
+    const exactExpense = financeSummary.expenseIncluded
+      ? `Sorties enregistrées : ${money(financeSummary.totalExpense)} FCFA pour ${financeSummary.expenseCount} opération(s)`
+      : 'Sorties non demandées dans cette analyse';
+    const exactBalance = financeSummary.incomeIncluded && financeSummary.expenseIncluded
+      ? `Solde de la période (entrées moins sorties) : ${money(Number(financeSummary.totalIncome) - Number(financeSummary.totalExpense))} FCFA`
+      : '';
+    lines.push(`TOTAUX EXACTS SUR LA PÉRIODE UNIQUEMENT, calculés sur toutes les opérations correspondantes dans Firestore : ${exactIncome}; ${exactExpense}. ${exactBalance} Les lignes détaillées ci-dessous sont un extrait de la période, pas une liste exhaustive. Ne les additionne pas pour recalculer ces totaux.`);
   }
   if (intent.needsIncomes) {
     lines.push('SOURCES DE REVENUS (utilise exactement les IDs ci-dessous; ne devine jamais):');
@@ -112,7 +115,7 @@ export function buildCompactAIContext(data = {}, intent = {}) {
     }));
   }
   if (intent.needsExpenses) {
-    lines.push('DÉPENSES RÉCENTES (extrait, pas historique complet):');
+    lines.push('DÉPENSES DE LA PÉRIODE (extrait des opérations filtrées par date, pas l’historique complet):');
     lines.push(...expenses.slice(0, 18).map((item) => `ID ${item.id} | ${dateLabel(item.date)} | ${money(item.amount)} FCFA | catégorie ${item.categoryId || 'non précisée'} | ${String(item.note || '').slice(0, 70)} | source ${item.incomeSourceId || 'all'}`));
   }
   if (intent.needsDebts) {
