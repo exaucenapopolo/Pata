@@ -222,7 +222,7 @@ async function sendScheduledNotificationEmail({ to, subject, html, idempotencyKe
     const data = snapshot.exists ? snapshot.data() || {} : {};
     const keys = Array.isArray(data.idempotencyKeys) ? data.idempotencyKeys.map(String) : [];
     const count = Math.max(0, Number(data.count) || 0);
-    if (keys.includes(key)) return { allowed: false, reason: 'duplicate' };
+    if (keys.includes(key)) return { allowed: true, duplicate: true };
     if (count >= 100) return { allowed: false, reason: 'daily_email_limit' };
     transaction.set(quotaRef, {
       date: dateKey,
@@ -230,7 +230,7 @@ async function sendScheduledNotificationEmail({ to, subject, html, idempotencyKe
       idempotencyKeys: [...keys, key].slice(-100),
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
-    return { allowed: true };
+    return { allowed: true, duplicate: false };
   });
   if (!reservation.allowed) {
     if (reservation.reason === 'daily_email_limit') console.warn('[PATA NOTIFICATION EMAIL] Daily limit of 100 reached for', dateKey);
@@ -238,23 +238,26 @@ async function sendScheduledNotificationEmail({ to, subject, html, idempotencyKe
   }
 
   try {
+    // Un nouvel essai avec la même clé peut reprendre un envoi déjà réservé.
+    // Resend reçoit la même clé d’idempotence et ne crée pas un second message.
     await sendPataEmail({ to: recipient, subject, html, idempotencyKey: key });
     return true;
   } catch (error) {
-    // Libère la réservation lorsqu'un envoi échoue pour qu'un autre e-mail utile
-    // puisse utiliser cette place au cours de la même journée.
-    await adminDb.runTransaction(async (transaction) => {
-      const snapshot = await transaction.get(quotaRef);
-      if (!snapshot.exists) return;
-      const data = snapshot.data() || {};
-      const keys = Array.isArray(data.idempotencyKeys) ? data.idempotencyKeys.map(String) : [];
-      if (!keys.includes(key)) return;
-      transaction.set(quotaRef, {
-        count: Math.max(0, (Number(data.count) || 0) - 1),
-        idempotencyKeys: keys.filter((entry) => entry !== key),
-        updatedAt: FieldValue.serverTimestamp(),
-      }, { merge: true });
-    }).catch((releaseError) => console.warn('[PATA NOTIFICATION EMAIL QUOTA RELEASE]', releaseError.message || releaseError));
+    // Seule une réservation créée par cette tentative peut être libérée.
+    if (!reservation.duplicate) {
+      await adminDb.runTransaction(async (transaction) => {
+        const snapshot = await transaction.get(quotaRef);
+        if (!snapshot.exists) return;
+        const data = snapshot.data() || {};
+        const keys = Array.isArray(data.idempotencyKeys) ? data.idempotencyKeys.map(String) : [];
+        if (!keys.includes(key)) return;
+        transaction.set(quotaRef, {
+          count: Math.max(0, (Number(data.count) || 0) - 1),
+          idempotencyKeys: keys.filter((entry) => entry !== key),
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+      }).catch((releaseError) => console.warn('[PATA NOTIFICATION EMAIL QUOTA RELEASE]', releaseError.message || releaseError));
+    }
     throw error;
   }
 }
