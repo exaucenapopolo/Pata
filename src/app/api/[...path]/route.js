@@ -5766,7 +5766,7 @@ async function getAdminMonthlyMetrics(monthValue) {
   const range = (query) => query.where('createdAt', '>=', start).where('createdAt', '<', end);
   const nowIso = new Date().toISOString();
   const [
-    signups, activeUsers, currentPremium, groupCreations, activeGroups,
+    signups, activeUsers, currentPremium, activePremiumUsers, groupCreations, activeGroups, totalRegisteredUsers, everPremiumPayers,
     subscriptionSummary, walletSubscriptionSummary, cotisationSummary, walletSummary,
   ] = await Promise.all([
     range(users).count().get().then((snap) => Number(snap.data().count) || 0).catch(() => null),
@@ -5774,10 +5774,14 @@ async function getAdminMonthlyMetrics(monthValue) {
       .then((snap) => Number(snap.data().count) || 0).catch(() => null),
     users.where('premiumUntil', '>', nowIso).count().get()
       .then((snap) => Number(snap.data().count) || 0).catch(() => null),
+    users.where('premiumUntil', '>', nowIso).where('lastSeenAt', '>=', start).where('lastSeenAt', '<', end).count().get()
+      .then((snap) => Number(snap.data().count) || 0).catch(() => null),
     range(adminDb.collection('cotisationGroups')).count().get()
       .then((snap) => Number(snap.data().count) || 0).catch(() => null),
     adminDb.collection('cotisationGroups').where('status', '==', 'active').count().get()
       .then((snap) => Number(snap.data().count) || 0).catch(() => null),
+    users.count().get().then((snap) => Number(snap.data().count) || 0).catch(() => null),
+    users.where('lastPaymentDate', '>', '').count().get().then((snap) => Number(snap.data().count) || 0).catch(() => null),
     range(subscriptions).aggregate({ count: AggregateField.count(), total: AggregateField.sum('amount') }).get()
       .then((snap) => ({ count: Number(snap.data().count) || 0, total: Number(snap.data().total) || 0 }))
       .catch(() => ({ count: null, total: null, unavailable: true })),
@@ -5822,6 +5826,8 @@ async function getAdminMonthlyMetrics(monthValue) {
   const subscriptionProviderCost = subscriptionSummary.unavailable ? null : Math.round(externalSubscriptionBase * 0.03);
   const revenueTotal = subscriptionSummary.unavailable || cotisationSummary.unavailable || walletSummary.unavailable
     ? null : subscriptionRevenue + Number(cotisationSummary.fees || 0) + walletFees;
+  const pataNetRevenue = subscriptionSummary.unavailable || cotisationSummary.unavailable || walletSummary.unavailable
+    ? null : subscriptionRevenue - Number(subscriptionProviderCost || 0) + Number(cotPataRevenue || 0) + Number(walletPataRevenue || 0);
   const paymentCosts = subscriptionProviderCost == null || cotProviderCost == null || walletProviderCost == null
     ? null : subscriptionProviderCost + cotProviderCost + walletProviderCost;
   const netAfterPaymentCosts = revenueTotal == null || paymentCosts == null ? null : revenueTotal - paymentCosts;
@@ -5831,6 +5837,13 @@ async function getAdminMonthlyMetrics(monthValue) {
     newUsers: signups,
     activeUsers,
     premiumUsers: currentPremium,
+    activePremiumUsers,
+    totalRegisteredUsers,
+    everPremiumPayers,
+    registeredToPaidConversionRate: totalRegisteredUsers == null || !totalRegisteredUsers || everPremiumPayers == null
+      ? null : Math.round((everPremiumPayers / totalRegisteredUsers) * 10000) / 100,
+    activeToPremiumConversionRate: activeUsers == null || !activeUsers || activePremiumUsers == null
+      ? null : Math.round((activePremiumUsers / activeUsers) * 10000) / 100,
     cotisationGroupsCreated: groupCreations,
     activeCotisationGroups: activeGroups,
     subscriptionRevenue,
@@ -5849,6 +5862,7 @@ async function getAdminMonthlyMetrics(monthValue) {
     revenueTotal,
     paymentCosts,
     netAfterPaymentCosts,
+    pataNetRevenue,
     unavailable: subscriptionSummary.unavailable === true
       || cotisationSummary.unavailable === true || walletSummary.unavailable === true,
   };

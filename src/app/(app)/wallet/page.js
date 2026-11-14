@@ -61,6 +61,10 @@ export default function WalletPage() {
   }, [user]);
 
   const balance = profile?.balance || 0;
+  const parsedAmount = Number(amount);
+  const validAmount = /^\d+$/.test(String(amount)) && Number.isSafeInteger(parsedAmount) && parsedAmount >= 100;
+  const serviceFee = validAmount ? Math.round(parsedAmount * 0.05) : 0;
+  const totalToPay = validAmount ? parsedAmount + serviceFee : 0;
 
   const pendingDeposits = useMemo(
     () => deposits.filter((d) => (d.status || '').toUpperCase() === 'PENDING'),
@@ -177,13 +181,16 @@ export default function WalletPage() {
               ))}
             </div>
           </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="flex items-center justify-between gap-3 text-xs text-slate-600"><span>Montant crédité au portefeuille</span><strong className="tabular-nums text-slate-900">{validAmount ? formatCurrency(parsedAmount) : '—'}</strong></div>
+            <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-600"><span>Frais de service (5 %)</span><strong className="tabular-nums text-slate-900">{validAmount ? formatCurrency(serviceFee) : '—'}</strong></div>
+            <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-200 pt-3 text-sm font-bold text-slate-950"><span>Total à payer</span><span className="tabular-nums">{validAmount ? formatCurrency(totalToPay) : '—'}</span></div>
+          </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
           <Button type="submit" className="w-full" disabled={submitting}>
-            <Plus size={16} /> {submitting ? 'Ouverture…' : 'Recharger'}
+            <Plus size={16} /> {submitting ? 'Ouverture…' : validAmount ? 'Payer ' + formatCurrency(totalToPay) : 'Recharger'}
           </Button>
-          <p className="text-xs text-slate-500">
-            Le montant sera ajouté à ton solde dès que le paiement est confirmé.
-          </p>
+          <p className="text-xs leading-5 text-slate-500">Le montant saisi sera crédité sur ton portefeuille après confirmation. Les frais de service de 5 % s’ajoutent au paiement et sont affichés avant validation.</p>
         </form>
       </Card>
 
