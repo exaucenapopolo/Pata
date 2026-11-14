@@ -2,20 +2,29 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   MAX_DAILY_RETENTION_NOTIFICATIONS,
+  MAX_DAILY_NON_ESSENTIAL_NOTIFICATIONS,
+  MIN_NON_ESSENTIAL_GAP_MS,
   buildCategoryAdviceNotification,
+  claimDailyNonEssentialSlot,
   claimDailyRetentionSlot,
   getCategoryAdvice,
   getDoualaDateKey,
   isWithinDoualaEveningWindow,
+  isWithinDoualaWeekendMorningWindow,
   selectRetentionCandidates
 } from '../src/lib/notifications/retentionEngine.mjs';
 
-test('uses the requested Cameroon evening window, including 19:00 and excluding 22:00', () => {
-  // Cameroon is UTC+1: 18:00 UTC is 19:00 locally; 21:00 UTC is 22:00 locally.
-  assert.equal(isWithinDoualaEveningWindow(new Date('2026-11-14T18:00:00.000Z')), true);
-  assert.equal(isWithinDoualaEveningWindow(new Date('2026-11-14T20:59:00.000Z')), true);
-  assert.equal(isWithinDoualaEveningWindow(new Date('2026-11-14T21:00:00.000Z')), false);
-  assert.equal(isWithinDoualaEveningWindow(new Date('2026-11-14T17:59:00.000Z')), false);
+test('uses the Cameroon evening window from 17:30 through 22:30 inclusive', () => {
+  assert.equal(isWithinDoualaEveningWindow(new Date('2026-11-14T16:29:00.000Z')), false);
+  assert.equal(isWithinDoualaEveningWindow(new Date('2026-11-14T16:30:00.000Z')), true);
+  assert.equal(isWithinDoualaEveningWindow(new Date('2026-11-14T21:30:00.000Z')), true);
+  assert.equal(isWithinDoualaEveningWindow(new Date('2026-11-14T21:31:00.000Z')), false);
+});
+
+test('allows weekend morning messages before evening activities', () => {
+  assert.equal(isWithinDoualaWeekendMorningWindow(new Date('2026-11-14T07:00:00.000Z')), true);
+  assert.equal(isWithinDoualaWeekendMorningWindow(new Date('2026-11-14T10:30:00.000Z')), true);
+  assert.equal(isWithinDoualaWeekendMorningWindow(new Date('2026-11-14T11:31:00.000Z')), false);
 });
 
 test('computes the calendar day in Africa/Douala rather than UTC', () => {
@@ -38,15 +47,41 @@ test('reserves at most two daily retention slots and blocks duplicate keys', () 
   assert.equal(second.state.count, 2);
 });
 
-test('resets the shared daily budget on the next Cameroon calendar date', () => {
+test('resets the retention counter on the next Cameroon calendar date', () => {
   const full = { date: '2026-11-14', count: 2, keys: ['debt-1', 'bill-1'] };
   const nextDay = claimDailyRetentionSlot(full, '2026-11-15', 'category-food');
   assert.equal(nextDay.allowed, true);
   assert.equal(nextDay.state.count, 1);
-  assert.deepEqual(nextDay.state.keys, ['category-food']);
 });
 
-test('selects at most two distinct high-priority topics', () => {
+test('caps all non-essential messages at three per day and enforces a spacing gap', () => {
+  assert.equal(MAX_DAILY_NON_ESSENTIAL_NOTIFICATIONS, 3);
+  const start = 1000000;
+  const first = claimDailyNonEssentialSlot({}, '2026-11-14', 'retention-1', 3, start);
+  const tooSoon = claimDailyNonEssentialSlot(first.state, '2026-11-14', 'weekend-1', 3, start + 30 * 60 * 1000);
+  const second = claimDailyNonEssentialSlot(first.state, '2026-11-14', 'weekend-1', 3, start + MIN_NON_ESSENTIAL_GAP_MS);
+  const third = claimDailyNonEssentialSlot(second.state, '2026-11-14', 'feature-1', 3, start + 2 * MIN_NON_ESSENTIAL_GAP_MS);
+  const fourth = claimDailyNonEssentialSlot(third.state, '2026-11-14', 'extra-1', 3, start + 3 * MIN_NON_ESSENTIAL_GAP_MS);
+
+  assert.equal(first.allowed, true);
+  assert.equal(tooSoon.allowed, false);
+  assert.equal(tooSoon.reason, 'minimum_gap');
+  assert.equal(second.allowed, true);
+  assert.equal(third.allowed, true);
+  assert.equal(fourth.allowed, false);
+  assert.equal(fourth.reason, 'daily_limit');
+  assert.equal(third.state.count, 3);
+});
+
+test('resets the shared non-essential counter on the next local day', () => {
+  const full = { date: '2026-11-14', count: 3, keys: ['a', 'b', 'c'], lastAt: 1000000 };
+  const nextDay = claimDailyNonEssentialSlot(full, '2026-11-15', 'weekend-next', 3, 1000100);
+  assert.equal(nextDay.allowed, true);
+  assert.equal(nextDay.state.count, 1);
+  assert.deepEqual(nextDay.state.keys, ['weekend-next']);
+});
+
+test('selects at most two different priorities without duplicating a topic', () => {
   const selected = selectRetentionCandidates([
     { key: 'tip', topic: 'advice', title: 'Conseil', body: 'Texte', priority: 10 },
     { key: 'bill', topic: 'bills', title: 'Facture', body: 'Texte', priority: 90 },

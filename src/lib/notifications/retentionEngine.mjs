@@ -1,4 +1,6 @@
 export const MAX_DAILY_RETENTION_NOTIFICATIONS = 2;
+export const MAX_DAILY_NON_ESSENTIAL_NOTIFICATIONS = 3;
+export const MIN_NON_ESSENTIAL_GAP_MS = 90 * 60 * 1000;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -129,7 +131,20 @@ export function isWithinDoualaEveningWindow(date = new Date()) {
   const hour = Number(parts.find((part) => part.type === 'hour')?.value);
   const minute = Number(parts.find((part) => part.type === 'minute')?.value);
   const minutes = hour * 60 + minute;
-  return Number.isFinite(minutes) && minutes >= 19 * 60 && minutes < 22 * 60;
+  return Number.isFinite(minutes) && minutes >= (17 * 60 + 30) && minutes <= (22 * 60 + 30);
+}
+
+export function isWithinDoualaWeekendMorningWindow(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Africa/Douala',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(date);
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value);
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value);
+  const minutes = hour * 60 + minute;
+  return Number.isFinite(minutes) && minutes >= 7 * 60 && minutes <= (11 * 60 + 30);
 }
 
 function dayNumber(dateKey) {
@@ -214,4 +229,45 @@ export function claimDailyRetentionSlot(state = {}, dateKey, notificationKey, li
 
   const nextState = { date: dateKey, count: count + 1, keys: [...keys, key].slice(-safeLimit) };
   return { allowed: true, reason: 'reserved', state: nextState, remaining: Math.max(0, safeLimit - nextState.count) };
+}
+
+
+/**
+ * Shared daily limit for all non-essential retention and discovery messages.
+ * Transactional/operational alerts and cotisation messages must not call this.
+ */
+export function claimDailyNonEssentialSlot(
+  state = {},
+  dateKey,
+  notificationKey,
+  limit = MAX_DAILY_NON_ESSENTIAL_NOTIFICATIONS,
+  nowMs = Date.now(),
+  minimumGapMs = MIN_NON_ESSENTIAL_GAP_MS
+) {
+  const key = String(notificationKey || '').trim();
+  const safeLimit = Math.max(0, Math.min(MAX_DAILY_NON_ESSENTIAL_NOTIFICATIONS, Math.floor(Number(limit) || 0)));
+  const sameDay = state.date === dateKey;
+  const count = sameDay ? Math.max(0, Number(state.count) || 0) : 0;
+  const keys = sameDay && Array.isArray(state.keys) ? state.keys.map(String) : [];
+  const lastAt = sameDay ? Math.max(0, Number(state.lastAt) || 0) : 0;
+
+  if (!dateKey || !key) return { allowed: false, reason: 'invalid', state: { date: dateKey || '', count, keys, lastAt } };
+  if (keys.includes(key)) return { allowed: false, reason: 'duplicate', state: { date: dateKey, count, keys, lastAt } };
+  if (count >= safeLimit) return { allowed: false, reason: 'daily_limit', state: { date: dateKey, count, keys, lastAt } };
+  if (lastAt && Number.isFinite(Number(nowMs)) && Number(nowMs) - lastAt < Math.max(0, Number(minimumGapMs) || 0)) {
+    return { allowed: false, reason: 'minimum_gap', state: { date: dateKey, count, keys, lastAt } };
+  }
+
+  const nextState = {
+    date: dateKey,
+    count: count + 1,
+    keys: [...keys, key].slice(-safeLimit),
+    lastAt: Number(nowMs) || Date.now()
+  };
+  return {
+    allowed: true,
+    reason: 'reserved',
+    state: nextState,
+    remaining: Math.max(0, safeLimit - nextState.count)
+  };
 }
