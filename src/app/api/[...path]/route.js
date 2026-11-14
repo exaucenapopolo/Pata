@@ -7,6 +7,7 @@ import { isNotificationUnread } from '@/lib/notifications/notificationState.mjs'
 import { completeWithGroq } from '@/lib/ai/groqClient';
 import { normalizeWebPushSubscription, webPushSubscriptionId, sendPataWebPush, isExpiredWebPushError } from '@/lib/notifications/webPush.mjs';
 import { dispatchPushNotification } from '@/lib/notifications/dispatcher.mjs';
+import { claimDailyRetentionSlot, buildCategoryAdviceNotification, getDoualaDateKey, isWithinDoualaEveningWindow } from '@/lib/notifications/retentionEngine.mjs';
 import { AI_TOOLS, createExpenseForUser, updateExpenseForUser, deleteExpenseForUser, deleteIncomeForUser, executeAITool, runAutomationForUser, generateWeeklyReportForUser } from '@/lib/ai/financialTools';
 import { generateAudioWithGemini } from '@/lib/ai/geminiTTS';
 import { buildIncomePriorityReminder } from '@/lib/finance/incomePriorities.mjs';
@@ -86,6 +87,104 @@ async function sendPataPushToUser(userRef,notification,appUrl,knownUserData=null
  else if(result.attempted>0&&result.failed>0)await userRef.set({lastPushErrorCode:'push/delivery-failed',lastPushErrorAt:FieldValue.serverTimestamp()},{merge:true}).catch(()=>{});
  for(const e of result.errors)console.warn('[PATA AUTOMATIC PUSH]',userRef.id,e.channel,e.code);
  return result;
+}
+
+
+async function claimScheduledRetentionSlot(userRef, dateKey, notificationKey) {
+  return adminDb.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(userRef);
+    const profile = snapshot.exists ? snapshot.data() || {} : {};
+    const claim = claimDailyRetentionSlot({
+      date: profile.dailyRetentionDate,
+      count: profile.dailyRetentionCount,
+      keys: profile.dailyRetentionKeys,
+    }, dateKey, notificationKey);
+    if (!claim.allowed) return claim;
+    transaction.set(userRef, {
+      dailyRetentionDate: claim.state.date,
+      dailyRetentionCount: claim.state.count,
+      dailyRetentionKeys: claim.state.keys,
+      dailyRetentionUpdatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    return claim;
+  });
+}
+
+async function persistAutomaticNotificationDelivery(userRef, userData, notificationId, notification, delivery = {}) {
+  const uid = userRef.id;
+  const logId = createHash('sha256').update(uid + ':' + notificationId).digest('hex');
+  const notificationRef = userRef.collection('notifications').doc(notificationId);
+  const logRef = adminDb.collection('notificationDeliveryLogs').doc(logId);
+  const target = String(notification.target || notification.url || '/dashboard');
+  const source = String(notification.source || 'automatic_retention');
+  const pushSent = Math.max(0, Number(delivery.pushSent) || 0);
+  const emailSent = delivery.emailSent === true;
+  const now = FieldValue.serverTimestamp();
+  const notificationData = {
+    title: String(notification.title || 'Information Pata').slice(0, 80),
+    body: String(notification.body || '').slice(0, 500),
+    target,
+    source,
+    date: String(delivery.date || getDoualaDateKey()),
+    delivered: pushSent,
+    pushSent,
+    emailSent,
+    trackingLogId: logId,
+    read: false,
+    readAt: null,
+    createdAt: now,
+  };
+  const logData = {
+    uid,
+    displayName: String(userData.displayName || 'Utilisateur').slice(0, 100),
+    email: String(userData.email || '').slice(0, 160),
+    notificationId,
+    title: notificationData.title,
+    body: notificationData.body,
+    target,
+    source,
+    categoryId: String(notification.categoryId || ''),
+    date: notificationData.date,
+    priority: Number(delivery.priority) || 0,
+    pushSent,
+    emailSent,
+    channels: { inApp: true, push: pushSent > 0, email: emailSent },
+    inAppStored: true,
+    read: false,
+    readAt: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const batch = adminDb.batch();
+  batch.set(notificationRef, notificationData, { merge: true });
+  batch.set(logRef, logData, { merge: true });
+  await batch.commit();
+  return logId;
+}
+
+async function sendRetentionEmailFallback({ userData, title, body, target, category = '', amount = null, budgetAmount = null, idempotencyKey }) {
+  const email = String(userData?.email || '').trim();
+  if (userData?.emailRemindersEnabled === false || !email.includes('@')) return false;
+  try {
+    await sendPataEmail({
+      to: email,
+      subject: String(title || 'Un point sur tes finances').slice(0, 140),
+      html: financialReminderEmail({
+        name: userData.displayName,
+        headline: title,
+        message: body,
+        category,
+        amount,
+        budgetAmount,
+        targetUrl: target || '/dashboard',
+      }),
+      idempotencyKey,
+    });
+    return true;
+  } catch (error) {
+    console.warn('[PATA RETENTION EMAIL]', error.message || error);
+    return false;
+  }
 }
 
 
@@ -1987,7 +2086,11 @@ async function handleNotificationScheduler(request) {
     const authHeader = request.headers.get('authorization') || '';
     const suppliedSecret = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : request.headers.get('x-cron-secret');
     if (!expectedSecret || suppliedSecret !== expectedSecret) return errorResponse('Accès au planificateur refusé.', 401);
-    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Douala', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    const now = new Date();
+    const today = getDoualaDateKey(now);
+    if (!isWithinDoualaEveningWindow(now)) {
+      return NextResponse.json({ success: true, skippedOutsideEveningWindow: true, localTimeZone: 'Africa/Douala' });
+    }
     const month = today.slice(0, 7);
     const usersSnapshot = await adminDb.collection('users').get();
     const appUrl = getPataAppUrl(request);
@@ -2032,6 +2135,11 @@ async function handleNotificationScheduler(request) {
             title = 'Rappel de dette en retard';
             body = (debt.type === 'owed_to_me' ? 'Le remboursement attendu de ' : 'Le remboursement dû à ') + debt.person + ' est en retard de ' + Math.abs(daysUntil) + ' jour(s). Solde restant : ' + Number(debt.remaining).toLocaleString('fr-FR') + ' FCFA.';
           }
+          if (!reminderKey && debt.pendingRetentionReminderKey) {
+            reminderKey = String(debt.pendingRetentionReminderKey);
+            title = String(debt.pendingRetentionReminderTitle || 'Rappel concernant une dette');
+            body = String(debt.pendingRetentionReminderBody || 'Une dette en cours mérite une vérification dans Pata.');
+          }
           const retryEmailOnly = userData.emailRemindersEnabled !== false && !reminderKey
             && Boolean(debt.lastReminderKey)
             && debt.lastReminderEmailSent === false
@@ -2043,6 +2151,21 @@ async function handleNotificationScheduler(request) {
             body = String(debt.lastReminderBody);
           }
           if (!reminderKey || (debt.lastReminderKey === reminderKey && !retryEmailOnly)) continue;
+          const reminderId = 'debt-' + debtDoc.id + '-' + reminderKey;
+          if (!retryEmailOnly) {
+            const slot = await claimScheduledRetentionSlot(userDoc.ref, today, 'debt:' + debtDoc.id + ':' + reminderKey);
+            if (!slot.allowed) {
+              await debtDoc.ref.set({
+                pendingRetentionReminderKey: reminderKey,
+                pendingRetentionReminderTitle: title,
+                pendingRetentionReminderBody: body,
+                pendingRetentionReminderTarget: '/debts',
+                pendingRetentionReminderDate: today,
+              }, { merge: true });
+              skipped += 1;
+              continue;
+            }
+          }
           const notification = { title, body, url: '/debts', tag: 'pata-debt-' + debtDoc.id + '-' + reminderKey, source: 'debt_reminder' };
           const pushResult = retryEmailOnly
             ? { fcmSent: 0, webPushSent: 0 }
@@ -2071,16 +2194,16 @@ async function handleNotificationScheduler(request) {
               console.warn('[PATA DEBT EMAIL]', userDoc.id, emailError.message || emailError);
             }
           }
-          const reminderNotificationRef = userDoc.ref.collection('notifications').doc('debt-' + debtDoc.id + '-' + reminderKey);
+          const reminderNotificationRef = userDoc.ref.collection('notifications').doc(reminderId);
+          const pushSent = pushResult.fcmSent + pushResult.webPushSent;
           if (retryEmailOnly) {
             await reminderNotificationRef.set({ emailSent }, { merge: true });
+            const logId = createHash('sha256').update(userDoc.id + ':' + reminderId).digest('hex');
+            await adminDb.collection('notificationDeliveryLogs').doc(logId).set({ emailSent, updatedAt: FieldValue.serverTimestamp() }, { merge: true }).catch(() => {});
           } else {
-            await reminderNotificationRef.set({
-              title, body, target: '/debts', date: today,
-              delivered: pushResult.fcmSent + pushResult.webPushSent,
-              emailSent,
-              source: 'debt_reminder', read: false, readAt: null, createdAt: FieldValue.serverTimestamp(),
-            });
+            await persistAutomaticNotificationDelivery(userDoc.ref, userData, reminderId, {
+              title, body, target: '/debts', source: 'debt_reminder',
+            }, { date: today, pushSent, emailSent, priority: 95 });
           }
           await debtDoc.ref.update({
             lastReminderKey: reminderKey,
@@ -2088,6 +2211,11 @@ async function handleNotificationScheduler(request) {
             lastReminderEmailSent: userData.emailRemindersEnabled !== false && recipientEmail.includes('@') ? emailSent : null,
             lastReminderTitle: title,
             lastReminderBody: body,
+            pendingRetentionReminderKey: FieldValue.delete(),
+            pendingRetentionReminderTitle: FieldValue.delete(),
+            pendingRetentionReminderBody: FieldValue.delete(),
+            pendingRetentionReminderTarget: FieldValue.delete(),
+            pendingRetentionReminderDate: FieldValue.delete(),
           });
         }
       } catch (debtReminderError) {
@@ -2121,7 +2249,11 @@ async function handleNotificationScheduler(request) {
             : { docs: [], empty: false };
         if (billState.shouldInvite && billsSnapshot.empty) {
           const setupRef = userDoc.ref.collection('notifications').doc('bill-setup-invitation');
-          const shouldInvite = await adminDb.runTransaction(async (transaction) => {
+          const setupExisting = await setupRef.get();
+          const setupSlot = setupExisting.exists
+            ? { allowed: false }
+            : await claimScheduledRetentionSlot(userDoc.ref, today, 'bill:setup-invitation');
+          const shouldInvite = setupSlot.allowed && await adminDb.runTransaction(async (transaction) => {
             const existing = await transaction.get(setupRef);
             if (existing.exists) return false;
             transaction.create(setupRef, {
@@ -2145,6 +2277,12 @@ async function handleNotificationScheduler(request) {
               tag: 'pata-bill-setup',
               source: 'bill_setup_invitation',
             }, appUrl, userData);
+            await persistAutomaticNotificationDelivery(userDoc.ref, userData, 'bill-setup-invitation', {
+              title: 'Pense à enregistrer tes factures',
+              body: 'Tu paies l’électricité, l’eau, le loyer, la télévision, Internet ou des impôts ? Enregistre tes échéances dans Pata pour recevoir des rappels avant les dates de paiement.',
+              target: '/bills',
+              source: 'bill_setup_invitation',
+            }, { date: today, pushSent: setupPush.fcmSent + setupPush.webPushSent, priority: 30 });
             await setupRef.update({ delivered: setupPush.fcmSent + setupPush.webPushSent }).catch(() => {});
           }
         }
@@ -2177,6 +2315,11 @@ async function handleNotificationScheduler(request) {
               (Number(bill.amount) > 0 ? ' Montant estimé : ' + Number(bill.amount).toLocaleString('fr-FR') + ' FCFA.' : '') +
               ' Mets son statut à jour dans Pata.';
           }
+          if (!reminderKey && bill.pendingRetentionReminderKey) {
+            reminderKey = String(bill.pendingRetentionReminderKey);
+            title = String(bill.pendingRetentionReminderTitle || 'Rappel concernant une facture');
+            body = String(bill.pendingRetentionReminderBody || 'Une facture enregistrée mérite une vérification dans Pata.');
+          }
           const retryEmailOnly = userData.emailRemindersEnabled !== false && !reminderKey
             && Boolean(bill.lastReminderKey)
             && bill.lastReminderEmailSent === false
@@ -2188,6 +2331,21 @@ async function handleNotificationScheduler(request) {
             body = String(bill.lastReminderBody);
           }
           if (!reminderKey || (bill.lastReminderKey === reminderKey && !retryEmailOnly)) continue;
+          const reminderId = 'bill-' + billDoc.id + '-' + reminderKey;
+          if (!retryEmailOnly) {
+            const slot = await claimScheduledRetentionSlot(userDoc.ref, today, 'bill:' + billDoc.id + ':' + reminderKey);
+            if (!slot.allowed) {
+              await billDoc.ref.set({
+                pendingRetentionReminderKey: reminderKey,
+                pendingRetentionReminderTitle: title,
+                pendingRetentionReminderBody: body,
+                pendingRetentionReminderTarget: '/bills',
+                pendingRetentionReminderDate: today,
+              }, { merge: true });
+              skipped += 1;
+              continue;
+            }
+          }
           const notification = { title, body, url: '/bills', tag: 'pata-bill-' + billDoc.id + '-' + reminderKey, source: 'bill_reminder' };
           const pushResult = retryEmailOnly
             ? { fcmSent: 0, webPushSent: 0 }
@@ -2216,16 +2374,16 @@ async function handleNotificationScheduler(request) {
               console.warn('[PATA BILL EMAIL]', userDoc.id, emailError.message || emailError);
             }
           }
-          const reminderNotificationRef = userDoc.ref.collection('notifications').doc('bill-' + billDoc.id + '-' + reminderKey);
+          const reminderNotificationRef = userDoc.ref.collection('notifications').doc(reminderId);
+          const pushSent = pushResult.fcmSent + pushResult.webPushSent;
           if (retryEmailOnly) {
             await reminderNotificationRef.set({ emailSent }, { merge: true });
+            const logId = createHash('sha256').update(userDoc.id + ':' + reminderId).digest('hex');
+            await adminDb.collection('notificationDeliveryLogs').doc(logId).set({ emailSent, updatedAt: FieldValue.serverTimestamp() }, { merge: true }).catch(() => {});
           } else {
-            await reminderNotificationRef.set({
-              title, body, target: '/bills', date: today,
-              delivered: pushResult.fcmSent + pushResult.webPushSent,
-              emailSent,
-              source: 'bill_reminder', read: false, readAt: null, createdAt: FieldValue.serverTimestamp(),
-            });
+            await persistAutomaticNotificationDelivery(userDoc.ref, userData, reminderId, {
+              title, body, target: '/bills', source: 'bill_reminder',
+            }, { date: today, pushSent, emailSent, priority: 90 });
           }
           await billDoc.ref.update({
             lastReminderKey: reminderKey,
@@ -2233,6 +2391,11 @@ async function handleNotificationScheduler(request) {
             lastReminderEmailSent: userData.emailRemindersEnabled !== false && recipientEmail.includes('@') ? emailSent : null,
             lastReminderTitle: title,
             lastReminderBody: body,
+            pendingRetentionReminderKey: FieldValue.delete(),
+            pendingRetentionReminderTitle: FieldValue.delete(),
+            pendingRetentionReminderBody: FieldValue.delete(),
+            pendingRetentionReminderTarget: FieldValue.delete(),
+            pendingRetentionReminderDate: FieldValue.delete(),
           });
         }
       } catch (billReminderError) {
@@ -2327,6 +2490,8 @@ async function handleNotificationScheduler(request) {
         const personalized = personalizeNotification({ title, body }, userData);
         title = personalized.title;
         body = personalized.body;
+        const dailySlot = await claimScheduledRetentionSlot(userDoc.ref, today, 'daily:' + today);
+        if (!dailySlot.allowed) { skipped += 1; continue; }
         let delivered = 0;
         let emailSent = false;
         if(userData.dailySummaryEmailEnabled===true&&userData.email&&String(userData.email).includes('@')){try{await sendPataEmail({to:userData.email,subject:title,html:financialReminderEmail({name:userData.displayName,headline:title,message:body,category:overBudget?({food:'Alimentation',transport:'Transport',housing:'Logement',internet:'Internet',health:'Santé',leisure:'Loisirs',investment:'Investissement',contribution:'Cotisations',savings:'Épargne',other:'Autres'}[overBudget.categoryId]||'Dépenses'):'',amount:overBudget?overBudget.spent:null,budgetAmount:overBudget?overBudget.allocated:null,targetUrl:target}),idempotencyKey:'pata-daily-financial-'+userDoc.id+'-'+today});emailSent=true;}catch(emailError){console.warn('[DAILY FINANCIAL EMAIL]',userDoc.id,emailError.message||emailError);}}
@@ -2344,11 +2509,9 @@ async function handleNotificationScheduler(request) {
             lastPushErrorAt: FieldValue.serverTimestamp(),
           } : {}),
         });
-        await userDoc.ref.collection('notifications').doc(today).set({
-          title, body, target, date: today, delivered,
-          source: 'daily_reminder', read: false, readAt: null,
-          createdAt: FieldValue.serverTimestamp(),
-        }, { merge: true });
+        await persistAutomaticNotificationDelivery(userDoc.ref, userData, today, {
+          title, body, target, source: 'daily_reminder',
+        }, { date: today, pushSent: delivered, emailSent, priority: 50 });
         if (delivered > 0 || emailSent) sent += 1;
         else failed += 1;
       } catch (userError) {
@@ -7487,7 +7650,9 @@ async function handleCotisationsScheduler(request) {
       return errorResponse('Accès au planificateur des cotisations refusé.', 401);
     }
 
-    const today = cotisationToday();
+    const now = new Date();
+    if (!isWithinDoualaEveningWindow(now)) return NextResponse.json({ success: true, skippedOutsideEveningWindow: true, localTimeZone: 'Africa/Douala' });
+    const today = getDoualaDateKey(now);
     const groupsSnap = await adminDb.collection('cotisationGroups').where('status', '==', 'active').limit(500).get();
     const totals = { groupsChecked: groupsSnap.size, turnEmails: 0, upcomingReminders: 0, dueReminders: 0, overdueReminders: 0, pushSent: 0, failed: 0, chatMessagesDeleted: 0, chatGroupsPruned: 0 };
     const appUrl = getPataAppUrl(request);
@@ -7523,8 +7688,12 @@ async function handleCotisationsScheduler(request) {
       try {
         const userSnap = await userRef.get();
         const userData = userSnap.exists ? userSnap.data() : {};
+        const retentionSlot = await claimScheduledRetentionSlot(userRef, today, 'cotisation:' + reminderId);
+        if (!retentionSlot.allowed) {
+          await reminderRef.set({ status: 'DEFERRED', deferredDate: today, deferredReason: retentionSlot.reason, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+          return false;
+        }
         const personalized = personalizeNotification({ title, body, url: '/cotisations', tag: reminderId, source: 'cotisation' }, { displayName: userData.displayName || member.displayName || '' });
-        await inAppRef.set({ title: personalized.title, body: personalized.body, target: '/cotisations', source: 'cotisation', groupId: group.id, cycleKey: meta.cycleKey, read: false, readAt: null, createdAt: FieldValue.serverTimestamp() }, { merge: true });
 
         const recipientEmail = String(userData.email || member.email || '').trim();
         if (userData.emailRemindersEnabled !== false && recipientEmail.includes('@')) {
@@ -7552,6 +7721,14 @@ async function handleCotisationsScheduler(request) {
 
         const pushResult = await sendPataPushToUser(userRef, personalized, appUrl, userData);
         pushSent = pushResult.fcmSent + pushResult.webPushSent;
+        await persistAutomaticNotificationDelivery(userRef, userData, reminderId, {
+          title: personalized.title,
+          body: personalized.body,
+          target: '/cotisations',
+          source: 'cotisation_reminder',
+          categoryId: 'contribution',
+          groupId: group.id,
+        }, { date: today, pushSent, emailSent, priority: 88 });
 
         await reminderRef.set({
           status: 'SENT',
