@@ -7,7 +7,7 @@ import { isNotificationUnread } from '@/lib/notifications/notificationState.mjs'
 import { completeWithGroq } from '@/lib/ai/groqClient';
 import { normalizeWebPushSubscription, webPushSubscriptionId, sendPataWebPush, isExpiredWebPushError } from '@/lib/notifications/webPush.mjs';
 import { dispatchPushNotification } from '@/lib/notifications/dispatcher.mjs';
-import { claimDailyRetentionSlot, buildCategoryAdviceNotification, getDoualaDateKey as getRetentionDoualaDateKey, isWithinDoualaEveningWindow } from '@/lib/notifications/retentionEngine.mjs';
+import { claimDailyRetentionSlot, buildCategoryAdviceNotification, selectRetentionCandidates, getDoualaDateKey as getRetentionDoualaDateKey, isWithinDoualaEveningWindow } from '@/lib/notifications/retentionEngine.mjs';
 import { AI_TOOLS, createExpenseForUser, updateExpenseForUser, deleteExpenseForUser, deleteIncomeForUser, executeAITool, runAutomationForUser, generateWeeklyReportForUser } from '@/lib/ai/financialTools';
 import { generateAudioWithGemini } from '@/lib/ai/geminiTTS';
 import { buildIncomePriorityReminder } from '@/lib/finance/incomePriorities.mjs';
@@ -72,7 +72,7 @@ function getSafeNotificationImageUrl(value) {
 }
 async function sendPataPushToUser(userRef,notification,appUrl,knownUserData=null) {
  const snap=knownUserData?null:await userRef.get();const profile=knownUserData||(snap?.exists?snap.data():{})||{};
- const copy=personalizeNotification(notification,profile);
+ const copy=notification.personalize===false?{...notification,title:String(notification.title||'Information Pata').trim().slice(0,80),body:String(notification.body||'Ouvre Pata pour consulter cette information.').trim().slice(0,220)}:personalizeNotification(notification,profile);
  const tokens=Array.isArray(profile.pushTokens)?[...new Set(profile.pushTokens.filter(t=>typeof t==='string'&&t.length>20))]:[];
  const webPushTargets=[];let subscriptionsSnapshot=null;const knownCount=Math.max(0,Number(profile.webPushDeviceCount)||0);
  if(knownCount>0||profile.notificationsEnabled===true){subscriptionsSnapshot=await userRef.collection('webPushSubscriptions').get();for(const doc of subscriptionsSnapshot.docs){const d=doc.data()||{};if(d.endpoint&&d.keys?.p256dh&&d.keys?.auth)webPushTargets.push({id:doc.id,ref:doc.ref,subscription:{endpoint:d.endpoint,expirationTime:d.expirationTime??null,keys:d.keys}});}}
@@ -2175,7 +2175,7 @@ async function handleNotificationScheduler(request) {
             });
           let emailSent = false;
           const recipientEmail = String(userData.email || '').trim();
-          if (userData.emailRemindersEnabled !== false && recipientEmail.includes('@')) {
+          if (pushResult.fcmSent + pushResult.webPushSent === 0 && userData.emailRemindersEnabled !== false && recipientEmail.includes('@')) {
             try {
               await sendPataEmail({
                 to: recipientEmail,
@@ -2208,7 +2208,7 @@ async function handleNotificationScheduler(request) {
           await debtDoc.ref.update({
             lastReminderKey: reminderKey,
             lastReminderAt: FieldValue.serverTimestamp(),
-            lastReminderEmailSent: userData.emailRemindersEnabled !== false && recipientEmail.includes('@') ? emailSent : null,
+            lastReminderEmailSent: userData.emailRemindersEnabled !== false && recipientEmail.includes('@') && pushResult.fcmSent + pushResult.webPushSent === 0 ? emailSent : null,
             lastReminderTitle: title,
             lastReminderBody: body,
             pendingRetentionReminderKey: FieldValue.delete(),
@@ -2283,7 +2283,21 @@ async function handleNotificationScheduler(request) {
               target: '/bills',
               source: 'bill_setup_invitation',
             }, { date: today, pushSent: setupPush.fcmSent + setupPush.webPushSent, priority: 30 });
-            await setupRef.update({ delivered: setupPush.fcmSent + setupPush.webPushSent }).catch(() => {});
+            const setupDelivered = setupPush.fcmSent + setupPush.webPushSent;
+            const setupEmailSent = setupDelivered === 0
+              ? await sendRetentionEmailFallback({
+                userData, title: 'Pense à enregistrer tes factures',
+                body: 'Tu paies l’électricité, l’eau, le loyer, la télévision, Internet ou des impôts ? Enregistre tes échéances dans Pata pour recevoir des rappels avant les dates de paiement.',
+                target: '/bills', category: 'Factures',
+                idempotencyKey: 'pata-bill-setup-email-' + userDoc.id,
+              })
+              : false;
+            await persistAutomaticNotificationDelivery(userDoc.ref, userData, 'bill-setup-invitation', {
+              title: 'Pense à enregistrer tes factures',
+              body: 'Tu paies l’électricité, l’eau, le loyer, la télévision, Internet ou des impôts ? Enregistre tes échéances dans Pata pour recevoir des rappels avant les dates de paiement.',
+              target: '/bills', source: 'bill_setup_invitation',
+            }, { date: today, pushSent: setupDelivered, emailSent: setupEmailSent, priority: 30 });
+            await setupRef.update({ delivered: setupDelivered, emailSent: setupEmailSent }).catch(() => {});
           }
         }
         for (const billDoc of billsSnapshot.docs) {
@@ -2404,24 +2418,36 @@ async function handleNotificationScheduler(request) {
       if (userData.notificationsDailyDate === today) { skipped += 1; continue; }
       try {
         const monthStart = `${month}-01`;
-        const [todayExpensesSnap, monthExpensesSnap, budgetsSnap, automationsSnap, goalsSnap] = await Promise.all([
+        const [todayExpensesSnap, monthExpensesSnap, budgetsSnap, automationsSnap, goalsSnap, monthIncomesSnap, weeklyReportsSnap] = await Promise.all([
           userDoc.ref.collection('expenses').where('date', '==', today).get(),
           userDoc.ref.collection('expenses').where('date', '>=', monthStart).where('date', '<=', today).get(),
           userDoc.ref.collection('budgets').where('month', '==', month).get(),
           userDoc.ref.collection('automations').get(),
           userDoc.ref.collection('goals').limit(20).get(),
+          userDoc.ref.collection('incomes').where('date', '>=', monthStart).where('date', '<=', today).get(),
+          userDoc.ref.collection('weekly_reports').orderBy('weekStart', 'desc').limit(1).get(),
         ]);
         const todayExpenses = todayExpensesSnap.docs.map((doc) => doc.data()).filter((item) => !item.neutralFlow && (!item.expenseType || item.expenseType === 'consumption'));
         const monthExpenses = monthExpensesSnap.docs.map((doc) => doc.data()).filter((item) => !item.neutralFlow && (!item.expenseType || item.expenseType === 'consumption'));
         const totalToday = todayExpenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
         const categoryTotals = {};
+        const todayCategoryTotals = {};
         monthExpenses.forEach((item) => { categoryTotals[item.categoryId || 'other'] = (categoryTotals[item.categoryId || 'other'] || 0) + (Number(item.amount) || 0); });
+        todayExpenses.forEach((item) => { todayCategoryTotals[item.categoryId || 'other'] = (todayCategoryTotals[item.categoryId || 'other'] || 0) + (Number(item.amount) || 0); });
+        const localTodayDate = new Date(today + 'T12:00:00.000Z');
+        localTodayDate.setUTCDate(localTodayDate.getUTCDate() - ((localTodayDate.getUTCDay() + 6) % 7));
+        const weekStart = localTodayDate.toISOString().slice(0, 10);
+        const daysBetweenDateKeys = (from, to) => {
+          if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(String(from || '')) || !/^\\d{4}-\\d{2}-\\d{2}$/.test(String(to || ''))) return Infinity;
+          return Math.floor((Date.parse(to + 'T00:00:00Z') - Date.parse(from + 'T00:00:00Z')) / 86400000);
+        };
+        const categoryLabels = { food: 'Alimentation', transport: 'Transport', housing: 'Logement', internet: 'Internet', health: 'Santé', leisure: 'Loisirs', investment: 'Investissement', contribution: 'Cotisations', savings: 'Épargne', other: 'Autres' };
         const budgets = budgetsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
         const overBudget = budgets.map((budget) => {
           const spent = monthExpenses.filter((expense) => expense.categoryId === budget.categoryId && (budget.incomeSourceId === 'all' || !budget.incomeSourceId || expense.incomeSourceId === budget.incomeSourceId)).reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0);
           return { categoryId: budget.categoryId, allocated: Number(budget.amount) || 0, spent, over: spent - (Number(budget.amount) || 0) };
         }).filter((item) => item.allocated > 0 && item.over > 0).sort((a, b) => b.over - a.over)[0];
-        const runsToday = automationsSnap.docs.map((doc) => doc.data()).filter((item) => {
+        const runsToday = automationsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })).filter((item) => {
           const lastRunDate = item.lastRunAt?.toDate ? item.lastRunAt.toDate() : item.lastRunAt instanceof Date ? item.lastRunAt : item.lastRunAt ? new Date(item.lastRunAt) : null;
           const lastRunDay = lastRunDate && !Number.isNaN(lastRunDate.getTime())
             ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Douala', year: 'numeric', month: '2-digit', day: '2-digit' }).format(lastRunDate)
@@ -2441,65 +2467,197 @@ async function handleNotificationScheduler(request) {
           const anchor = new Date(anchorDate + 'T00:00:00Z');
           const current = new Date(today + 'T00:00:00Z');
           const daysSinceDeposit = Number.isNaN(anchor.getTime()) ? 0 : Math.floor((current.getTime() - anchor.getTime()) / 86400000);
-          if (daysSinceDeposit >= Math.max(1, Number(goal.frequencyDays))) savingsReminders.push({ name: String(goal.name || 'ton objectif'), frequencyDays: Number(goal.frequencyDays), daysSinceDeposit });
+          const lastReminderDate = String(goal.lastRetentionReminderDate || '').slice(0, 10);
+          const reminderCooldownDays = Math.max(3, Number(goal.frequencyDays) || 3);
+          if (daysSinceDeposit >= Math.max(1, Number(goal.frequencyDays))
+            && daysBetweenDateKeys(lastReminderDate, today) >= reminderCooldownDays) {
+            savingsReminders.push({
+              id: goalDoc.id, ref: goalDoc.ref,
+              name: String(goal.name || 'ton objectif'),
+              frequencyDays: Number(goal.frequencyDays),
+              daysSinceDeposit,
+              targetAmount: Math.max(0, Number(goal.targetAmount) || 0),
+              dueDate: String(goal.dueDate || goal.targetDate || ''),
+            });
+          }
         }
 
-        let title = 'Ton point financier du jour';
-        let body;
-        let target = '/dashboard';
-        if (overBudget) {
-          const overspend = overBudget.over;
-          title = 'Un budget mérite ton attention';
-          const categoryLabels = { food: 'Alimentation', transport: 'Transport', housing: 'Logement', internet: 'Internet', health: 'Santé', leisure: 'Loisirs', investment: 'Investissement', contribution: 'Cotisations', savings: 'Épargne', other: 'Autres' };
-          const categoryName = categoryLabels[overBudget.categoryId] || 'une catégorie de dépenses';
-          body = `Tes dépenses en ${categoryName.toLowerCase()} dépassent l’enveloppe prévue de ${overspend.toLocaleString('fr-FR')} FCFA. Ouvre Pata pour voir les opérations et ajuster ton budget.`;
-          target = '/budgets';
-        } else if (automationIssues.length) {
-          const issue = automationIssues[0];
-          const taskName = String(issue.note || 'Une dépense programmée').slice(0, 70);
-          title = 'Une opération programmée a besoin de toi';
-          body = `${taskName} n’a pas été enregistrée. ${String(issue.lastRunMessage || 'Vérifie les fonds disponibles et les paramètres de cette opération.').slice(0, 150)}`;
-          target = '/expenses';
-        } else if (savingsReminders.length) {
-          const goal = savingsReminders.sort((x, y) => y.daysSinceDeposit - x.daysSinceDeposit)[0];
-          title = 'Ton épargne attend ton prochain versement';
-          body = `Tu avais prévu d’alimenter « ${goal.name} » tous les ${goal.frequencyDays} jour(s). Ton dernier versement remonte à ${goal.daysSinceDeposit} jour(s). Même un petit montant peut t’aider à garder le rythme.`;
-          target = '/goals';
-        } else if (topCategory && monthExpenses.length) {
-          const labels = { food: 'Alimentation', transport: 'Transport', housing: 'Logement', internet: 'Internet', health: 'Santé', leisure: 'Loisirs', investment: 'Investissement', contribution: 'Cotisations', savings: 'Épargne', other: 'Autres' };
-          const categoryName = labels[topCategory[0]] || 'une catégorie';
-          title = 'Un aperçu de tes dépenses du mois';
-          body = `Ta catégorie la plus élevée est ${categoryName.toLowerCase()} avec ${Number(topCategory[1]).toLocaleString('fr-FR')} FCFA enregistrés. Consulte ton analyse pour voir comment cette catégorie évolue et ajuster ton budget si nécessaire.`;
-          target = '/reports';
-        } else if (automationRuns.length) {
-          title = 'Tes opérations programmées';
-          body = `${automationRuns.length} opération(s) programmée(s) ont été exécutée(s) aujourd’hui. Consulte les dépenses enregistrées dans Pata.`;
-          target = '/expenses';
-        } else if (todayExpenses.length) {
-          body = `Tu as noté ${todayExpenses.length} dépense(s) aujourd’hui, pour ${totalToday.toLocaleString('fr-FR')} FCFA. Ton suivi est à jour. Continue à garder le cap.`;
-          target = '/expenses';
-        } else {
-          const reminders = [
-            'As-tu pensé à noter tes dépenses d’aujourd’hui ? Quelques secondes suffisent pour garder un suivi fiable.',
-            'Petit rappel amical : ajoute tes dépenses du jour dans Pata pour ne pas perdre le fil de ton budget.',
-            'Ton suivi financier t’attend. Note les dépenses d’aujourd’hui, même les petites, pour garder une vue juste.',
-          ];
-          body = reminders[(Number(today.slice(-2)) || 1) % reminders.length];
-          target = '/expenses';
+        const candidates = [];
+        const budgetRetentionKey = overBudget ? month + ':' + String(overBudget.categoryId || 'other') : '';
+        if (overBudget && userData.lastBudgetRetentionKey !== budgetRetentionKey) {
+          const categoryName = categoryLabels[overBudget.categoryId] || 'Autres dépenses';
+          candidates.push({
+            key: 'budget:' + budgetRetentionKey, topic: 'budget', priority: 100,
+            title: 'Ton budget mérite une vérification',
+            body: 'Tes dépenses en ' + categoryName.toLowerCase() + ' dépassent le montant prévu de ' + overBudget.over.toLocaleString('fr-FR') + ' FCFA. Vérifie les dernières opérations et ajuste le reste du mois si nécessaire.',
+            target: '/budgets', source: 'budget_overrun',
+            profileUpdate: { lastBudgetRetentionKey: budgetRetentionKey },
+            emailCategory: categoryName,
+          });
         }
-        const personalized = personalizeNotification({ title, body }, userData);
-        title = personalized.title;
-        body = personalized.body;
+        if (automationIssues.length) {
+          const issue = automationIssues[0];
+          const lastIssueDate = String(userData.lastAutomationRetentionDate || '').slice(0, 10);
+          if (daysBetweenDateKeys(lastIssueDate, today) >= 3) {
+            const taskName = String(issue.note || 'Une dépense programmée').slice(0, 70);
+            candidates.push({
+              key: 'automation:' + String(issue.id || taskName) + ':' + today,
+              topic: 'automation', priority: 96,
+              title: 'Une opération programmée a besoin de toi',
+              body: taskName + ' n’a pas été enregistrée. ' + String(issue.lastRunMessage || 'Vérifie les fonds disponibles et les paramètres de cette opération.').slice(0, 120),
+              target: '/expenses', source: 'automation_issue',
+              profileUpdate: { lastAutomationRetentionDate: today },
+            });
+          }
+        }
+        if (savingsReminders.length) {
+          const goal = savingsReminders.sort((a, b) => b.daysSinceDeposit - a.daysSinceDeposit)[0];
+          const targetText = goal.targetAmount > 0 ? ' Ton objectif est de ' + goal.targetAmount.toLocaleString('fr-FR') + ' FCFA.' : '';
+          const dateText = /^\\d{4}-\\d{2}-\\d{2}$/.test(goal.dueDate) ? ' Échéance prévue : ' + goal.dueDate + '.' : '';
+          candidates.push({
+            key: 'goal:' + goal.id + ':' + today, topic: 'savings_goal', priority: 90,
+            title: 'Ton objectif d’épargne attend un versement',
+            body: 'Tu avais prévu d’alimenter « ' + goal.name + ' » tous les ' + goal.frequencyDays + ' jour(s). Ton dernier versement remonte à ' + goal.daysSinceDeposit + ' jour(s).' + targetText + dateText + ' Prépare le prochain versement à ton rythme.',
+            target: '/goals', source: 'savings_goal_reminder',
+            goalRef: goal.ref,
+          });
+        }
+        const monthlyTopCategory = Object.entries(categoryTotals).sort((a, b) => b[1] - a[1])[0] || null;
+        if (monthlyTopCategory && (Number(todayCategoryTotals[monthlyTopCategory[0]]) || 0) > 0) {
+          const categoryAdvice = buildCategoryAdviceNotification({
+            categoryId: monthlyTopCategory[0],
+            categoryLabel: categoryLabels[monthlyTopCategory[0]] || 'Autres',
+            monthlyAmount: monthlyTopCategory[1],
+            todayAmount: todayCategoryTotals[monthlyTopCategory[0]],
+            dateKey: today,
+          });
+          if (categoryAdvice) candidates.push({
+            key: 'category-advice:' + today + ':' + monthlyTopCategory[0],
+            topic: 'category_advice', priority: 86,
+            ...categoryAdvice,
+          });
+        }
+        const incomeRows = monthIncomesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+        const realIncomeRows = incomeRows.filter((item) => !item.neutralFlow && item.flowType !== 'debt_borrowed');
+        const largestIncome = realIncomeRows.slice().sort((a, b) => (Number(b.amount) || 0) - (Number(a.amount) || 0))[0] || null;
+        if (largestIncome && userData.lastIncomeSummaryWeek !== weekStart) {
+          candidates.push({
+            key: 'income-summary:' + weekStart, topic: 'income_summary', priority: 72,
+            title: 'Ton point sur les revenus du mois',
+            body: 'Tu as déjà enregistré ' + realIncomeRows.length + ' revenu(s) ce mois-ci. Le plus élevé est « ' + String(largestIncome.source || 'Revenu').slice(0, 55) + ' » avec ' + (Number(largestIncome.amount) || 0).toLocaleString('fr-FR') + ' FCFA. Consulte le détail dans Pata.',
+            target: '/incomes', source: 'income_weekly_summary',
+            profileUpdate: { lastIncomeSummaryWeek: weekStart },
+          });
+        }
+        const debtRowsThisWeek = incomeRows.filter((item) => item.flowType === 'debt_borrowed' && String(item.date || '') >= weekStart);
+        const borrowedThisWeek = debtRowsThisWeek.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+        const activeDebtRows = openDebts.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+          .filter((item) => Number(item.remaining) > 0);
+        const remainingToRepay = activeDebtRows.filter((item) => item.type !== 'owed_to_me')
+          .reduce((sum, item) => sum + (Number(item.remaining) || 0), 0);
+        const remainingToReceive = activeDebtRows.filter((item) => item.type === 'owed_to_me')
+          .reduce((sum, item) => sum + (Number(item.remaining) || 0), 0);
+        const peopleToRepay = new Set(activeDebtRows.filter((item) => item.type !== 'owed_to_me').map((item) => String(item.person || '').trim()).filter(Boolean)).size;
+        const peopleToReceive = new Set(activeDebtRows.filter((item) => item.type === 'owed_to_me').map((item) => String(item.person || '').trim()).filter(Boolean)).size;
+        if (userData.lastDebtSummaryWeek !== weekStart && (borrowedThisWeek > 0 || remainingToRepay > 0 || remainingToReceive > 0)) {
+          const parts = [];
+          if (borrowedThisWeek > 0) parts.push('Cette semaine, tu as enregistré ' + borrowedThisWeek.toLocaleString('fr-FR') + ' FCFA de dettes contractées.');
+          if (remainingToRepay > 0) parts.push('Il te reste ' + remainingToRepay.toLocaleString('fr-FR') + ' FCFA à rembourser sur ' + peopleToRepay + ' personne(s). Pense à prévoir progressivement les remboursements.');
+          if (remainingToReceive > 0) parts.push('Tu as encore ' + remainingToReceive.toLocaleString('fr-FR') + ' FCFA à recevoir de ' + peopleToReceive + ' personne(s).');
+          candidates.push({
+            key: 'debt-summary:' + weekStart, topic: 'debt_summary', priority: 84,
+            title: 'Fais le point sur tes dettes et prêts',
+            body: parts.join(' '),
+            target: '/debts', source: 'debt_weekly_summary',
+            profileUpdate: { lastDebtSummaryWeek: weekStart },
+          });
+        }
+        const latestReportDoc = weeklyReportsSnap.docs[0] || null;
+        if (latestReportDoc && userData.lastRetentionWeeklyReportId !== latestReportDoc.id) {
+          const reportData = latestReportDoc.data() || {};
+          candidates.push({
+            key: 'weekly-report:' + latestReportDoc.id, topic: 'weekly_report', priority: 80,
+            title: 'Un nouveau rapport financier est disponible',
+            body: 'Ton rapport de la semaine ' + String(reportData.weekStart || '').slice(0, 10) + ' est disponible. Consulte les tendances et les points à surveiller dans Pata.',
+            target: '/reports', source: 'weekly_report_ready',
+            profileUpdate: { lastRetentionWeeklyReportId: latestReportDoc.id },
+          });
+        }
+        if (!isPremiumAccount(userData)
+          && daysBetweenDateKeys(String(userData.lastPremiumReminderDate || '').slice(0, 10), today) >= 14) {
+          candidates.push({
+            key: 'premium-discovery:' + today, topic: 'premium_discovery', priority: 20,
+            title: 'Découvre ce que Pata Premium peut t’apporter',
+            body: 'Tu peux explorer les outils avancés de Pata pour aller plus loin dans le suivi de tes budgets, objectifs et analyses. Consulte les avantages avant de décider.',
+            target: '/premium', source: 'premium_retention',
+            profileUpdate: { lastPremiumReminderDate: today },
+            allowEmail: false,
+          });
+        }
+        const lastSeenValue = userData.lastSeenAt?.toDate ? userData.lastSeenAt.toDate()
+          : userData.lastSeenAt ? new Date(userData.lastSeenAt) : null;
+        const lastSeenDay = lastSeenValue && !Number.isNaN(lastSeenValue.getTime()) ? getRetentionDoualaDateKey(lastSeenValue) : '';
+        if (lastSeenDay && daysBetweenDateKeys(lastSeenDay, today) >= 3
+          && daysBetweenDateKeys(String(userData.lastReengagementDate || '').slice(0, 10), today) >= 7) {
+          candidates.push({
+            key: 'reengagement:' + today, topic: 'reengagement', priority: 14,
+            title: 'Ton suivi financier est prêt à reprendre',
+            body: 'Cela fait quelques jours que tu n’as pas consulté Pata. Reprends là où tu t’étais arrêté et vérifie tes dernières opérations.',
+            target: '/dashboard', source: 'reengagement',
+            profileUpdate: { lastReengagementDate: today },
+          });
+        }
+        if (!monthExpenses.length && !realIncomeRows.length
+          && daysBetweenDateKeys(String(userData.lastOnboardingReminderDate || '').slice(0, 10), today) >= 7) {
+          candidates.push({
+            key: 'first-entries:' + today, topic: 'first_entries', priority: 12,
+            title: 'Commence ton suivi dans Pata',
+            body: 'Enregistre un premier revenu ou une première dépense pour que tes tableaux, budgets et conseils commencent à refléter ta situation.',
+            target: '/dashboard', source: 'onboarding_retention',
+            profileUpdate: { lastOnboardingReminderDate: today },
+          });
+        }
+        if (todayExpenses.length && !candidates.some((item) => item.topic === 'category_advice')) {
+          candidates.push({
+            key: 'daily-expense-summary:' + today, topic: 'daily_expense_summary', priority: 42,
+            title: 'Ton activité du jour',
+            body: 'Tu as enregistré ' + todayExpenses.length + ' dépense(s) aujourd’hui, pour ' + totalToday.toLocaleString('fr-FR') + ' FCFA. Consulte le détail et garde ton suivi à jour.',
+            target: '/expenses', source: 'daily_expense_summary',
+          });
+        }
+        const selectedCandidate = selectRetentionCandidates(candidates, 1)[0];
+        if (!selectedCandidate) { skipped += 1; continue; }
+        let { title, body, target, source: dailySource, categoryId } = selectedCandidate;
+        target = target || '/dashboard';
+        const notificationId = today;
+        const notification = {
+          title, body, target, source: dailySource || 'daily_reminder',
+          categoryId: categoryId || '',
+          url: target, tag: 'pata-' + today + '-' + String(selectedCandidate.topic || 'daily'),
+          personalize: selectedCandidate.personalize !== false,
+        };
         const dailySlot = await claimScheduledRetentionSlot(userDoc.ref, today, 'daily:' + today);
         if (!dailySlot.allowed) { skipped += 1; continue; }
-        let delivered = 0;
-        let emailSent = false;
-        if(userData.dailySummaryEmailEnabled===true&&userData.email&&String(userData.email).includes('@')){try{await sendPataEmail({to:userData.email,subject:title,html:financialReminderEmail({name:userData.displayName,headline:title,message:body,category:overBudget?({food:'Alimentation',transport:'Transport',housing:'Logement',internet:'Internet',health:'Santé',leisure:'Loisirs',investment:'Investissement',contribution:'Cotisations',savings:'Épargne',other:'Autres'}[overBudget.categoryId]||'Dépenses'):'',amount:overBudget?overBudget.spent:null,budgetAmount:overBudget?overBudget.allocated:null,targetUrl:target}),idempotencyKey:'pata-daily-financial-'+userDoc.id+'-'+today});emailSent=true;}catch(emailError){console.warn('[DAILY FINANCIAL EMAIL]',userDoc.id,emailError.message||emailError);}}
-        const pushResult = await sendPataPushToUser(userDoc.ref, { title, body, url: target, tag: 'pata-' + today, source: 'daily_reminder' }, appUrl, userData);
-        delivered = pushResult.fcmSent + pushResult.webPushSent;
+        const pushResult = await sendPataPushToUser(userDoc.ref, notification, appUrl, userData);
+        const delivered = pushResult.fcmSent + pushResult.webPushSent;
+        const emailSent = delivered === 0 && selectedCandidate.allowEmail !== false
+          ? await sendRetentionEmailFallback({
+            userData, title, body, target,
+            category: selectedCandidate.emailCategory || '',
+            amount: overBudget ? overBudget.spent : null,
+            budgetAmount: overBudget ? overBudget.allocated : null,
+            idempotencyKey: 'pata-retention-' + userDoc.id + '-' + today,
+          })
+          : false;
+        await persistAutomaticNotificationDelivery(userDoc.ref, userData, notificationId, notification, {
+          date: today, pushSent: delivered, emailSent, priority: selectedCandidate.priority,
+        });
         await userDoc.ref.update({
           notificationsDailyDate: today,
           lastNotificationAt: FieldValue.serverTimestamp(),
+          lastRetentionNotificationAt: FieldValue.serverTimestamp(),
+          lastRetentionNotificationSource: dailySource || 'daily_reminder',
+          ...(selectedCandidate.profileUpdate || {}),
           ...(delivered > 0 ? {
             lastPushAcceptedAt: FieldValue.serverTimestamp(),
             lastPushErrorCode: FieldValue.delete(),
@@ -2509,9 +2667,9 @@ async function handleNotificationScheduler(request) {
             lastPushErrorAt: FieldValue.serverTimestamp(),
           } : {}),
         });
-        await persistAutomaticNotificationDelivery(userDoc.ref, userData, today, {
-          title, body, target, source: 'daily_reminder',
-        }, { date: today, pushSent: delivered, emailSent, priority: 50 });
+        if (selectedCandidate.goalRef) {
+          await selectedCandidate.goalRef.update({ lastRetentionReminderDate: today }).catch(() => {});
+        }
         if (delivered > 0 || emailSent) sent += 1;
         else failed += 1;
       } catch (userError) {
@@ -7682,7 +7840,6 @@ async function handleCotisationsScheduler(request) {
       if (!claimed) return false;
 
       const userRef = adminDb.collection('users').doc(member.uid);
-      const inAppRef = userRef.collection('notifications').doc(reminderId);
       let emailSent = false;
       let pushSent = 0;
       try {
@@ -7696,31 +7853,34 @@ async function handleCotisationsScheduler(request) {
         const personalized = personalizeNotification({ title, body, url: '/cotisations', tag: reminderId, source: 'cotisation' }, { displayName: userData.displayName || member.displayName || '' });
 
         const recipientEmail = String(userData.email || member.email || '').trim();
-        if (userData.emailRemindersEnabled !== false && recipientEmail.includes('@')) {
-          await sendPataEmail({
-            to: recipientEmail,
-            subject: title,
-            html: cotisationDueEmail({
-              name: userData.displayName || member.displayName,
-              groupName: group.name,
-              contributionAmount: group.contributionAmount,
-              paidAmount: member.paid,
-              remainingAmount: dueAmount,
-              dueLabel: meta.dueAt,
-              graceDays: group.graceDays,
-              lateFeeLabel: penaltyDue > 0
-                ? cotisationPenaltyLabel(group) + ' — montant appliqué : ' + penaltyDue.toLocaleString('fr-FR') + ' FCFA'
-                : cotisationPenaltyLabel(group),
-              overdue: String(reminderType || '').startsWith('overdue-week-'),
-              upcoming: reminderType === 'upcoming',
-            }),
-            idempotencyKey: 'pata-' + reminderId,
-          });
-          emailSent = true;
-        }
-
         const pushResult = await sendPataPushToUser(userRef, personalized, appUrl, userData);
         pushSent = pushResult.fcmSent + pushResult.webPushSent;
+        if (pushSent === 0 && userData.emailRemindersEnabled !== false && recipientEmail.includes('@')) {
+          try {
+            await sendPataEmail({
+              to: recipientEmail,
+              subject: title,
+              html: cotisationDueEmail({
+                name: userData.displayName || member.displayName,
+                groupName: group.name,
+                contributionAmount: group.contributionAmount,
+                paidAmount: member.paid,
+                remainingAmount: dueAmount,
+                dueLabel: meta.dueAt,
+                graceDays: group.graceDays,
+                lateFeeLabel: penaltyDue > 0
+                  ? cotisationPenaltyLabel(group) + ' — montant appliqué : ' + penaltyDue.toLocaleString('fr-FR') + ' FCFA'
+                  : cotisationPenaltyLabel(group),
+                overdue: String(reminderType || '').startsWith('overdue-week-'),
+                upcoming: reminderType === 'upcoming',
+              }),
+              idempotencyKey: 'pata-' + reminderId,
+            });
+            emailSent = true;
+          } catch (emailError) {
+            console.warn('[PATA COTISATION EMAIL]', member.uid, emailError.message || emailError);
+          }
+        }
         await persistAutomaticNotificationDelivery(userRef, userData, reminderId, {
           title: personalized.title,
           body: personalized.body,

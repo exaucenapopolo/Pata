@@ -168,7 +168,8 @@ export function buildCategoryAdviceNotification({
       '. Aujourd’hui : ' + formatFCFA(dayTotal) + '. ' + getCategoryAdvice(normalized, dateKey),
     target: '/reports',
     source: 'assistant_category_advice',
-    categoryId: normalized
+    categoryId: normalized,
+    personalize: false
   };
 }
 
