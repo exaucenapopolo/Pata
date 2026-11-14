@@ -399,7 +399,7 @@ export default function DashboardPage() {
           <div className="rounded-2xl border border-white/15 bg-white/10 p-3.5">
             <p className="text-[11px] font-medium text-emerald-100">Revenus accumulés</p>
             <p className="mt-1 break-words text-xl font-bold tracking-tight sm:text-2xl">{globalFinanceSummary ? formatCurrency(globalFinanceSummary.accumulatedIncome) : '…'}</p>
-            <p className="mt-1 text-[10px] leading-4 text-emerald-100">Argent reçu, hors emprunts et transferts vers les espèces</p>
+            <p className="mt-1 text-[10px] leading-4 text-emerald-100">Revenus gagnés, hors emprunts, remboursements reçus et transferts d’espèces</p>
           </div>
           <div className="rounded-2xl border border-white/15 bg-white/10 p-3.5">
             <p className="text-[11px] font-medium text-emerald-100">Sorties totales</p>

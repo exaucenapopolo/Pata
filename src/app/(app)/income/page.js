@@ -343,7 +343,11 @@ export default function IncomePage() {
 
   const monthIncomes = useMemo(() => incomesWithBalance.filter((i) => i.month === month).sort((a, b) => (a.date < b.date ? 1 : -1)), [incomesWithBalance, month]);
   const highestIncomeInMonth = useMemo(() => monthIncomes
-    .filter((income) => !income.neutralFlow && !income.cashPocket && income.flowType !== 'debt_borrowed')
+    .filter((income) => !income.neutralFlow
+      && !income.cashPocket
+      && income.flowType !== 'debt_borrowed'
+      && income.flowType !== 'repayment_received'
+      && income.categoryId !== 'debt_repayment_received')
     .reduce((highest, income) => Number(income.amount) > Number(highest?.amount || 0) ? income : highest, null), [monthIncomes]);
   const totalIncome = monthIncomes.filter((income) => !income.neutralFlow).reduce((s, i) => s + (Number(i.remaining) || 0), 0);
   const breakdown = useMemo(() => computeBudgetBreakdown(totalIncome, rules), [totalIncome, rules]);

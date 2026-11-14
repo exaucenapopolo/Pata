@@ -6,12 +6,13 @@ test('exclut les emprunts et les transferts vers la poche espèces des revenus g
   assert.deepEqual(buildDashboardMoneySummary({
     totalIncome: 150000,
     borrowedIncome: 30000,
+    debtRepaymentsReceived: 10000,
     cashPocketIncome: 10000,
     totalExpense: 45000,
   }), {
-    accumulatedIncome: 110000,
+    accumulatedIncome: 100000,
     totalOutflow: 45000,
-    remainingBalance: 65000,
+    remainingBalance: 55000,
   });
 });
 
@@ -49,5 +50,17 @@ test('les données invalides ne provoquent ni NaN ni montants négatifs artifici
     accumulatedIncome: 0,
     totalOutflow: 0,
     remainingBalance: 0,
+  });
+});
+
+test('exclut les remboursements de prêts reçus des revenus réellement gagnés', () => {
+  assert.deepEqual(buildDashboardMoneySummary({
+    totalIncome: 125000,
+    debtRepaymentsReceived: 25000,
+    totalExpense: 60000,
+  }), {
+    accumulatedIncome: 100000,
+    totalOutflow: 60000,
+    remainingBalance: 40000,
   });
 });
