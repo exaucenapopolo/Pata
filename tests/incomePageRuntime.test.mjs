@@ -39,6 +39,7 @@ test('les statistiques de téléchargement Android sont bien récupérées par l
   const overviewStart = apiRoute.indexOf('async function handleAdminOverview');
   const overviewEnd = apiRoute.indexOf('async function handleAdminSavings', overviewStart);
   const overview = apiRoute.slice(overviewStart, overviewEnd);
-  assert.match(overview, /activeDebts,\s*androidDownloadMetrics\]\s*=\s*await Promise\.all/);
+  assert.match(overview, /activeDebts,\s*androidDownloadMetrics(?:,\s*trackedUsers)?\]\s*=\s*await Promise\.all/);
   assert.match(overview, /androidDownloadMetrics\?\.exists/);
+  assert.match(overview, /unclassifiedPlatformUsers/);
 });

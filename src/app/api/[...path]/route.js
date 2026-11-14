@@ -2566,8 +2566,16 @@ async function handleIncomeExpenseSummary(request) {
       nextCursor: hasMore ? pageDocs[pageDocs.length - 1]?.id || null : null,
     });
   } catch (error) {
-    console.error('[PATA INCOME EXPENSE SUMMARY]', error.message || error);
-    return errorResponse(error.message || 'Impossible de charger les dépenses associées à ce revenu.', 502);
+    const message = error.message || 'Impossible de charger les dépenses associées à ce revenu.';
+    const isAuthenticationError = message === 'Token manquant.'
+      || /^auth\//.test(String(error.code || ''))
+      || /token.*(?:expired|invalid|revoked)|invalid.*token/i.test(message);
+    if (isAuthenticationError) {
+      console.warn('[PATA INCOME EXPENSE SUMMARY] Accès non authentifié ou session invalide.');
+      return errorResponse('Session invalide ou expirée. Reconnecte-toi.', 401);
+    }
+    console.error('[PATA INCOME EXPENSE SUMMARY]', message);
+    return errorResponse(message, 502);
   }
 }
 
