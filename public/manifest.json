@@ -34,9 +34,9 @@
       "url": "/expenses?new=1",
       "icons": [
         {
-          "src": "/android-chrome-192x192.png",
-          "sizes": "192x192",
-          "type": "image/png"
+          "src": "/shortcuts/expense.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
         }
       ]
     },
@@ -47,9 +47,9 @@
       "url": "/income?new=1",
       "icons": [
         {
-          "src": "/android-chrome-192x192.png",
-          "sizes": "192x192",
-          "type": "image/png"
+          "src": "/shortcuts/income.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
         }
       ]
     },
@@ -60,9 +60,9 @@
       "url": "/bills?new=1",
       "icons": [
         {
-          "src": "/android-chrome-192x192.png",
-          "sizes": "192x192",
-          "type": "image/png"
+          "src": "/shortcuts/bill.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
         }
       ]
     },
@@ -73,9 +73,9 @@
       "url": "/cotisations",
       "icons": [
         {
-          "src": "/android-chrome-192x192.png",
-          "sizes": "192x192",
-          "type": "image/png"
+          "src": "/shortcuts/cotisations.svg",
+          "sizes": "any",
+          "type": "image/svg+xml"
         }
       ]
     }

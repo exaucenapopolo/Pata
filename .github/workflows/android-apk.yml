@@ -62,6 +62,9 @@ jobs:
       - name: Tester les parseurs SMS
         run: npm run test:sms
 
+      - name: Vérifier les raccourcis PWA et Android
+        run: npm run test:android-shortcuts
+
       - name: Tester les priorités après réception d’un revenu
         run: npm run test:finance-priorities
 
@@ -88,6 +91,7 @@ jobs:
           npx cap add android
           npx cap sync android
           node native/android/prepare-android.mjs
+          PATA_ANDROID_PROJECT_DIR=android npm run test:android-shortcuts
 
       - name: Compiler l'APK de vérification
         run: |

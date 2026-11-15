@@ -69,6 +69,40 @@ const valuesResourceDir = path.join(root, 'android/app/src/main/res/values');
 fs.mkdirSync(iconResourceDir, { recursive: true });
 fs.mkdirSync(largeIconDir, { recursive: true });
 fs.mkdirSync(valuesResourceDir, { recursive: true });
+const shortcutsResourceDir = path.join(root, 'android/app/src/main/res/xml');
+fs.mkdirSync(shortcutsResourceDir, { recursive: true });
+
+function copyRequiredAndroidResource(source, destination) {
+  if (!fs.existsSync(source)) {
+    throw new Error('Ressource Android obligatoire introuvable : ' + path.relative(root, source));
+  }
+  fs.mkdirSync(path.dirname(destination), { recursive: true });
+  fs.copyFileSync(source, destination);
+  if (!fs.existsSync(destination)) {
+    throw new Error('La copie de la ressource Android a échoué : ' + path.relative(root, destination));
+  }
+}
+
+// Les ressources de raccourcis sont recopiées APRÈS cap sync, qui peut nettoyer res/.
+for (const file of [
+  'ic_shortcut_expense.xml',
+  'ic_shortcut_income.xml',
+  'ic_shortcut_bill.xml',
+  'ic_shortcut_cotisations.xml',
+]) {
+  copyRequiredAndroidResource(
+    path.join(root, 'native/android/res/drawable', file),
+    path.join(iconResourceDir, file)
+  );
+}
+copyRequiredAndroidResource(
+  path.join(root, 'native/android/res/xml/pata_shortcuts.xml'),
+  path.join(shortcutsResourceDir, 'pata_shortcuts.xml')
+);
+copyRequiredAndroidResource(
+  path.join(root, 'native/android/res/values/pata_shortcuts.xml'),
+  path.join(valuesResourceDir, 'pata_shortcuts.xml')
+);
 fs.copyFileSync(path.join(root, 'native/android/res/drawable/ic_stat_pata.xml'), path.join(iconResourceDir, 'ic_stat_pata.xml'));
 fs.copyFileSync(path.join(root, 'native/android/res/values/pata_colors.xml'), path.join(valuesResourceDir, 'pata_colors.xml'));
 fs.copyFileSync(path.join(root, 'public/android-chrome-192x192.png'), path.join(largeIconDir, 'pata_notification_large.png'));
@@ -114,6 +148,28 @@ if (!manifest.includes('android.intent.action.SEND')) {
 }
 fs.writeFileSync(manifestPath, manifest);
 
+// Échouer immédiatement si le manifeste référence une ressource non copiée.
+const requiredShortcutResources = [
+  'android/app/src/main/res/xml/pata_shortcuts.xml',
+  'android/app/src/main/res/values/pata_shortcuts.xml',
+  'android/app/src/main/res/drawable/ic_shortcut_expense.xml',
+  'android/app/src/main/res/drawable/ic_shortcut_income.xml',
+  'android/app/src/main/res/drawable/ic_shortcut_bill.xml',
+  'android/app/src/main/res/drawable/ic_shortcut_cotisations.xml',
+];
+for (const relativePath of requiredShortcutResources) {
+  if (!fs.existsSync(path.join(root, relativePath))) {
+    throw new Error('Raccourci Android incomplet : ressource absente ' + relativePath);
+  }
+}
+const shortcutXml = fs.readFileSync(path.join(root, 'android/app/src/main/res/xml/pata_shortcuts.xml'), 'utf8');
+if ((shortcutXml.match(/<shortcut\b/g) || []).length !== 4) {
+  throw new Error('Le fichier Android doit déclarer exactement quatre raccourcis Pata.');
+}
+if (!manifest.includes('android.app.shortcuts') || !manifest.includes('@xml/pata_shortcuts')) {
+  throw new Error('Le manifeste Android ne référence pas les raccourcis Pata.');
+}
+
 // WorkManager permet de synchroniser les SMS hors ligne puis de reprendre seul.
 const gradlePath = path.join(root, 'android/app/build.gradle');
 if (fs.existsSync(gradlePath)) {
@@ -137,4 +193,4 @@ if (fs.existsSync(gradlePath)) {
   gradle = gradle.replace(/versionName\s+["'][^"']+["']/, 'versionName "1.1.3"');
   fs.writeFileSync(gradlePath, gradle);
 }
-console.log('Pata Android 1.1.2 : connexion Google native, import SMS et notifications conservés.');
+console.log('Pata Android 1.1.3 : raccourcis, connexion Google, import SMS et notifications conservés.');

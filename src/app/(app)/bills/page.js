@@ -127,7 +127,12 @@ export default function BillsPage() {
   };
 
   useEffect(() => {
-    const openFromShortcut = () => openCreate();
+    const openFromShortcut = () => {
+      setScanFeedback('');
+      setScanError(false);
+      setForm(makeEmptyBill());
+      setShowEditor(true);
+    };
     window.addEventListener('pata:bill-new', openFromShortcut);
 
     const params = new URLSearchParams(window.location.search);
