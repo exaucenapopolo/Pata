@@ -71,16 +71,20 @@ function stripAmountsAndDates(value) {
     .replace(/[,:;.!?]/g, " ").replace(/\s+/g, " ").trim();
 }
 function extractCounterparty(text, type) {
-  let value = stripAmountsAndDates(text);
-  value = value.replace(/\b(j'ai|jai|je|nous|on|ai|contracte|contracté|contracter|pris|prends|dois|doit|pret|prêt|prets|prêts|prete|prêté|preter|prêter|dette|dettes|emprunt|emprunte|emprunté|emprunter|argent|fcfa|echeance|échéance|date limite)\b/gi, " ");
-  value = value.replace(/\b(?:une|un|de|du|des|chez|aupres|auprès|aupres de|auprès de|a|pour|à)\b/gi, " ");
-  value = value.replace(/\b(la|le|les|mon|ma|mes|moi|lui|elle|il|me|te|se|son|sa|ses)\b/gi, " ");
-  value = value.replace(/\s+/g, " ").trim();
+  let value = String(text || "");
+  value = value
+    .replace(/\b20\d{2}-\d{2}-\d{2}\b/g, " ")
+    .replace(/\b\d{1,3}(?:[ .,'’]\d{3})+\b|\b\d{1,10}\b/g, " ")
+    .replace(/(?:echeance|échéance|date limite|à rendre|a rendre|avant le|a payer le|à payer le|pour le)\s*(?:le|du)?\s*[:]?\s*(20\d{2}-\d{2}-\d{2}|demain|hier|apres[- ]demain)?/gi, " ");
+  value = normalize(value)
+    .replace(/\b(j'ai|jai|je|nous|on|ai|contracte|contracter|pris|prends|dois|doit|pret|prets|prete|preter|dette|dettes|emprunt|emprunte|emprunter|argent|fcfa|echeance|date|limite|rendre|avant|payer|demain|hier|apres|aujourd'hui)\b/gi, " ")
+    .replace(/\b(une|un|de|du|des|chez|aupres|a|pour|la|le|les|mon|ma|mes|moi|lui|elle|il|me|te|se|son|sa|ses)\b/gi, " ")
+    .replace(/[^a-z0-9' -]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   if (!value) return "";
   const tokens = value.split(" ").filter(Boolean);
-  const maxTokens = 4;
-  const chosen = tokens.slice(-maxTokens);
-  const name = chosen.join(" ").trim().slice(0, 100);
+  const name = tokens.slice(-4).join(" ").slice(0, 100);
   return name ? name.charAt(0).toLocaleUpperCase("fr-FR") + name.slice(1) : "";
 }
 function cleanNote(text) {
