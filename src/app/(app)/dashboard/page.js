@@ -161,27 +161,14 @@ export default function DashboardPage() {
     return { start: key(earliest), end: key(latest) };
   })();
 
-  const { incomes, balancesReady } = useIncomes();
-  const { expenses } = useExpenses({ startDate: dashboardDateWindow.start, endDate: dashboardDateWindow.end, limit: 1000 });
+  const { incomes, loading: incomesLoading, balancesReady } = useIncomes();
+  const { expenses, loading: expensesLoading } = useExpenses({ startDate: dashboardDateWindow.start, endDate: dashboardDateWindow.end, limit: 1000 });
   const { debts } = useDebts();
   const { goals } = useGoals();
   const { profile } = useProfile();
   const { customCategories } = useCustomCategories('expense');
 
-  useEffect(() => {
-    if (!Capacitor.isNativePlatform() || !balancesReady) return;
-    const premiumDate = profile?.premiumUntil?.toDate ? profile.premiumUntil.toDate() : new Date(profile?.premiumUntil || 0);
-    const premiumActive = Number.isFinite(premiumDate.getTime()) && premiumDate > new Date();
-    const available = premiumActive
-      ? incomes.filter((income) => !income.projectId && income.neutralFlow !== true
-          && income.flowType !== 'debt_borrowed' && income.categoryId !== 'debt_borrowed'
-          && income.balanceAvailable === true)
-          .reduce((sum, income) => sum + Math.max(0, Number(income.remaining) || 0), 0)
-      : 0;
-    PataQuickCapture.updateWidget({ availableAmount: Math.round(available), currency: 'FCFA' }).catch((error) => {
-      console.warn('[PATA HOME WIDGET]', error?.message || error);
-    });
-  }, [incomes, balancesReady, profile?.premiumUntil]);
+
 
   const targetSuggestions = useMemo(() => buildFinancialSuggestions({
     periodType: targetPeriodType, periodKey: targetPeriodKey, incomes, expenses, debts,
@@ -257,6 +244,17 @@ export default function DashboardPage() {
   const totalIncome = periodIncomeTotal;
   const totalExpense = periodExpenseTotal;
   const globalBalance = totalIncome - totalExpense;
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform() || incomesLoading || expensesLoading || !balancesReady) return;
+    const monthKey = todayIso().slice(0, 7);
+    PataQuickCapture.updateFinanceWidget({
+      incomeTotal: Math.round(totalIncome),
+      expenseTotal: Math.round(totalExpense),
+      monthKey,
+    }).catch((error) => {
+      console.warn('[PATA FINANCE WIDGET]', error?.message || error);
+    });
+  }, [totalIncome, totalExpense, incomesLoading, expensesLoading, balancesReady]);
   const periodTypeTotals = periodExpenses.filter((expense) => !expense.neutralFlow).reduce((totals, expense) => {
     totals[getDashboardExpenseType(expense)] += Number(expense.amount) || 0;
     return totals;

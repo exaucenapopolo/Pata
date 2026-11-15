@@ -47,11 +47,10 @@ public class PataQuickCaptureWorker extends Worker {
                 JSONObject recognized = body.optJSONObject("recognized");
                 long amount = recognized == null ? body.optLong("amount", 0L) : recognized.optLong("amount", 0L);
                 String type = recognized == null ? "" : recognized.optString("type", "");
+                String date = recognized == null ? "" : recognized.optString("date", "");
                 String category = categoryLabel(recognized == null ? "" : recognized.optString("categoryId", ""));
                 PataQuickCaptureReceiver.remove(context, id);
-                if (amount > 0 && ("income".equals(type) || "expense".equals(type))) {
-                    PataQuickCaptureWidgetProvider.adjustBalance(context, "income".equals(type) ? amount : -amount);
-                }
+                PataQuickCaptureWidgetProvider.adjustMonthlyTotal(context, type, amount, date);
                 String amountLabel = amount > 0
                     ? NumberFormat.getIntegerInstance(Locale.FRANCE).format(amount).replace('\u202f', ' ') + " FCFA"
                     : "Opération";

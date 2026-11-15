@@ -143,7 +143,6 @@ export function QuickCaptureCoordinator() {
   useEffect(() => {
     if (!user || !Capacitor.isNativePlatform() || profileLoading || premium) return;
     PataQuickCapture.setPersistentNotification({ enabled: false, uid: user.uid }).catch(() => {});
-    PataQuickCapture.updateWidget({ availableAmount: 0, currency: 'FCFA' }).catch(() => {});
   }, [user, premium, profileLoading]);
 
   useEffect(() => {

@@ -1,28 +1,68 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/pata_widget_root"
-    android:layout_width="match_parent" android:layout_height="match_parent"
-    android:orientation="horizontal" android:gravity="center_vertical"
-    android:paddingStart="10dp" android:paddingEnd="8dp"
-    android:paddingTop="7dp" android:paddingBottom="7dp"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center_vertical"
+    android:paddingStart="12dp"
+    android:paddingEnd="12dp"
+    android:paddingTop="9dp"
+    android:paddingBottom="9dp"
     android:background="@drawable/pata_widget_background">
+
+    <TextView
+        android:id="@+id/pata_widget_period"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="CE MOIS · FCFA"
+        android:textColor="#D7EEE6"
+        android:textSize="9sp"
+        android:textStyle="bold"
+        android:letterSpacing="0.09"/>
+
     <LinearLayout
-        android:layout_width="0dp" android:layout_height="wrap_content"
-        android:layout_weight="1" android:orientation="vertical"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="7dp"
+        android:orientation="horizontal"
         android:gravity="center_vertical">
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="DISPONIBLE" android:textColor="#D7EEE6"
-            android:textSize="9sp" android:textStyle="bold" android:letterSpacing="0.07"/>
-        <TextView android:id="@+id/pata_widget_balance"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="2dp" android:text="— FCFA"
-            android:textColor="#FFFFFF" android:textSize="15sp" android:textStyle="bold"
-            android:maxLines="1" android:ellipsize="end"/>
+
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="REVENUS" android:textColor="#D7EEE6" android:textSize="9sp" android:maxLines="1"/>
+            <TextView android:id="@+id/pata_widget_income"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="2dp" android:text="0" android:textColor="#FFFFFF"
+                android:textSize="16sp" android:textStyle="bold" android:maxLines="1" android:ellipsize="end"/>
+        </LinearLayout>
+
+        <View android:layout_width="1dp" android:layout_height="30dp"
+            android:layout_marginStart="5dp" android:layout_marginEnd="5dp" android:background="#548A79"/>
+
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="DÉPENSES" android:textColor="#D7EEE6" android:textSize="9sp" android:maxLines="1"/>
+            <TextView android:id="@+id/pata_widget_expense"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="2dp" android:text="0" android:textColor="#FFFFFF"
+                android:textSize="16sp" android:textStyle="bold" android:maxLines="1" android:ellipsize="end"/>
+        </LinearLayout>
+
+        <View android:layout_width="1dp" android:layout_height="30dp"
+            android:layout_marginStart="5dp" android:layout_marginEnd="5dp" android:background="#548A79"/>
+
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="DISPONIBLE" android:textColor="#D7EEE6" android:textSize="9sp" android:maxLines="1"/>
+            <TextView android:id="@+id/pata_widget_balance"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="2dp" android:text="0" android:textColor="#FFFFFF"
+                android:textSize="16sp" android:textStyle="bold" android:maxLines="1" android:ellipsize="end"/>
+        </LinearLayout>
     </LinearLayout>
-    <Button android:id="@+id/pata_widget_capture"
-        android:layout_width="46dp" android:layout_height="42dp"
-        android:minWidth="0dp" android:minHeight="0dp" android:padding="0dp"
-        android:text="＋" android:textAllCaps="false" android:textSize="22sp"
-        android:textColor="#075B43" android:backgroundTint="#FFFFFF"
-        android:contentDescription="Ajouter une opération sans ouvrir Pata"/>
 </LinearLayout>

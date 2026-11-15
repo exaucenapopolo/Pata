@@ -342,4 +342,19 @@ public class PataQuickCapturePlugin extends Plugin {
         PataQuickCaptureWidgetProvider.updateWidgets(getContext(), manager, ids);
         call.resolve(new JSObject().put("updated", true));
     }
+
+    @PluginMethod
+    public void updateFinanceWidget(PluginCall call) {
+        long income = Math.max(0L, Math.min(1000000000000L, call.getLong("incomeTotal", 0L)));
+        long expense = Math.max(0L, Math.min(1000000000000L, call.getLong("expenseTotal", 0L)));
+        String monthKey = call.getString("monthKey", "");
+        PataQuickCaptureWidgetProvider.updateFinanceSummary(getContext(), income, expense, monthKey);
+        call.resolve(new JSObject().put("updated", true));
+    }
+
+    @PluginMethod
+    public void clearFinanceWidget(PluginCall call) {
+        PataQuickCaptureWidgetProvider.updateFinanceSummary(getContext(), 0L, 0L, "");
+        call.resolve(new JSObject().put("updated", true));
+    }
 }
