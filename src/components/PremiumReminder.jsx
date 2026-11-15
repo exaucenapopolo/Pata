@@ -58,7 +58,7 @@ export function PremiumReminder() {
     }, DISPLAY_DELAY_MS);
 
     return () => window.clearTimeout(timer);
-  }, [loading, user?.uid, profile?.id, profile?.premiumUntil, pathname]);
+  }, [loading, user?.uid, profile, pathname]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -107,7 +107,7 @@ export function PremiumReminder() {
 
         <div className="space-y-4 p-5">
           <p className="text-sm leading-6 text-slate-600">
-            Tu utilises actuellement Pata gratuitement. Premium t'offre plus de capacité pour suivre tes opérations et profiter des outils avancés.
+            Tu utilises actuellement Pata gratuitement. Premium t’offres plus de capacité pour suivre tes opérations et profiter des outils avancés.
           </p>
 
           <div className="space-y-3 rounded-xl bg-emerald-50/70 p-3.5">
@@ -117,18 +117,18 @@ export function PremiumReminder() {
             </div>
             <div className="flex items-start gap-2.5">
               <Check size={16} className="mt-0.5 shrink-0 text-emerald-700" />
-              <p className="text-xs leading-5 text-slate-700">Une utilisation élargie de l'assistante Mč pour tes analyses.</p>
+              <p className="text-xs leading-5 text-slate-700">Une utilisation élargie de l’assistante Mč pour tes analyses.</p>
             </div>
             <div className="flex items-start gap-2.5">
               <Check size={16} className="mt-0.5 shrink-0 text-emerald-700" />
-              <p className="text-xs leading-5 text-slate-700">Le suivi automatique Mobile Money sur l'application Android.</p>
+              <p className="text-xs leading-5 text-slate-700">Le suivi automatique Mobile Money sur l’application Android.</p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-sm font-bold text-slate-900">À partir de 2 500 FCFA / mois</p>
-              <p className="mt-0.5 text-[11px] text-slate-500">Consulte les avantages et les conditions avant d'activer.</p>
+              <p className="mt-0.5 text-[11px] text-slate-500">Consulte les avantages et les conditions avant d’activer.</p>
             </div>
             <Sparkles size={20} className="text-emerald-700" />
           </div>
