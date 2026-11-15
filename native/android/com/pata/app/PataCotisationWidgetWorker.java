@@ -41,7 +41,7 @@ public class PataCotisationWidgetWorker extends Worker {
         int[] widgetIds = manager.getAppWidgetIds(new ComponentName(context, PataCotisationWidgetProvider.class));
         if (widgetIds.length == 0) {
             WorkManager.getInstance(context).cancelUniqueWork("pata_cotisations_widget_refresh_now");
-            WorkManager.getInstance(context).cancelUniquePeriodicWork(UNIQUE_PERIODIC);
+            WorkManager.getInstance(context).cancelUniqueWork(UNIQUE_PERIODIC);
             return;
         }
         Constraints constraints = new Constraints.Builder()

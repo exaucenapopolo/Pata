@@ -97,7 +97,7 @@ public class PataQuickCapturePlugin extends Plugin {
         if (manager != null) manager.cancel(NOTIFICATION_ID);
         PataCotisationWidgetProvider.updateData(getContext(), new JSONArray(), "");
         androidx.work.WorkManager.getInstance(getContext()).cancelUniqueWork("pata_cotisations_widget_refresh_now");
-        androidx.work.WorkManager.getInstance(getContext()).cancelUniquePeriodicWork("pata_cotisations_widget_periodic");
+        androidx.work.WorkManager.getInstance(getContext()).cancelUniqueWork("pata_cotisations_widget_periodic");
         call.resolve(new JSObject().put("cleared", true));
     }
 
