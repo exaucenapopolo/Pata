@@ -74,6 +74,7 @@ public class PataQuickCapturePlugin extends Plugin {
         try {
             PataQuickCaptureAuthStore.save(getContext(), uid, refreshToken, apiKey);
             PataQuickCaptureReceiver.schedulePending(getContext(), uid);
+            PataCotisationWidgetWorker.schedule(getContext());
             call.resolve(new JSObject().put("saved", true));
         } catch (Exception error) {
             call.reject(error.getMessage() == null ? "Impossible de sécuriser la session Pata." : error.getMessage(), error);

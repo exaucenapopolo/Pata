@@ -9355,6 +9355,86 @@ async function handleBillsPay(request) {
   }
 }
 
+async function handleCotisationsWidget(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const membershipSnapshot = await adminDb.collection('users').doc(uid)
+      .collection('cotisationMemberships').limit(10).get();
+    const entries = membershipSnapshot.docs.map((document) => ({
+      groupId: String(document.data()?.groupId || document.id),
+      pinned: document.data()?.pinned === true,
+    })).filter((item) => item.groupId && !item.groupId.includes('/'));
+
+    const groups = await Promise.all(entries.map(async (entry) => {
+      const groupRef = adminDb.collection('cotisationGroups').doc(entry.groupId);
+      const [groupSnapshot, memberSnapshot] = await Promise.all([
+        groupRef.get(),
+        groupRef.collection('members').doc(uid).get(),
+      ]);
+      if (!groupSnapshot.exists || !memberSnapshot.exists || memberSnapshot.data()?.active === false) return null;
+      const group = groupSnapshot.data() || {};
+      const meta = await resolveCurrentCotisationCycleMeta(groupRef, group);
+      const messageSnapshot = await groupRef.collection('chatMessages').orderBy('createdAt', 'desc').limit(1).get();
+      const messageDocument = messageSnapshot.docs[0] || null;
+      const messageData = messageDocument?.data() || {};
+      const messageExpiry = messageData.expiresAt?.toDate
+        ? messageData.expiresAt.toDate().getTime() : Date.parse(messageData.expiresAt || '');
+      const latestMessage = messageDocument && messageData.isDeleted !== true
+        && (!Number.isFinite(messageExpiry) || messageExpiry > Date.now())
+        ? {
+            authorName: String(messageData.authorName || 'Membre').slice(0, 30),
+            text: String(messageData.text || '').replace(/\s+/g, ' ').trim().slice(0, 100),
+            createdAt: serializeAdminValue(messageData.createdAt || null),
+          }
+        : null;
+      if (meta.notStarted || !meta.cycleKey) {
+        return {
+          id: entry.groupId,
+          name: String(group.name || 'Cotisation').slice(0, 60),
+          totalCollected: 0,
+          targetAmount: cotisationMoney(group.contributionAmount) * cotisationExpectedMembers(group),
+          status: 'NOT_STARTED',
+          latestMessage,
+          latestPayment: null,
+          pinned: entry.pinned,
+        };
+      }
+      const cycleRef = groupRef.collection('cycles').doc(meta.cycleKey);
+      const [cycleSnapshot, paymentSnapshot] = await Promise.all([
+        cycleRef.get(),
+        cycleRef.collection('payments').orderBy('createdAt', 'desc').limit(1).get(),
+      ]);
+      const cycle = cycleSnapshot.data() || {};
+      const paymentDocument = paymentSnapshot.docs[0] || null;
+      const paymentData = paymentDocument?.data() || {};
+      const latestPayment = paymentDocument && paymentData.status === 'CONFIRMED'
+        ? {
+            displayName: String(paymentData.displayName || 'Membre').slice(0, 30),
+            amount: cotisationMoney(paymentData.amount) + cotisationMoney(paymentData.penaltyAmount),
+            createdAt: serializeAdminValue(paymentData.createdAt || null),
+          }
+        : null;
+      return {
+        id: entry.groupId,
+        name: String(group.name || 'Cotisation').slice(0, 60),
+        totalCollected: cotisationMoney(cycle.totalCollected),
+        targetAmount: cotisationMoney(cycle.targetAmount || cycle.baseTargetAmount)
+          || cotisationMoney(group.contributionAmount) * cotisationExpectedMembers(group),
+        status: String(cycle.status || 'OPEN'),
+        latestMessage,
+        latestPayment,
+        pinned: entry.pinned,
+      };
+    }));
+    const visibleGroups = groups.filter(Boolean)
+      .sort((a, b) => Number(b.pinned) - Number(a.pinned))
+      .slice(0, 5);
+    return NextResponse.json({ success: true, groups: visibleGroups, updatedAt: new Date().toISOString() });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible d’actualiser le widget Cotisations.', 502);
+  }
+}
+
 const ROUTES = {
   'fapshi/checkout':       { POST: handleFapshiCheckout },
   'fapshi/webhook':        { POST: handleFapshiWebhook },
@@ -9455,6 +9535,7 @@ const ROUTES = {
   'cotisations/pay': { POST: handleCotisationPay },
   'cotisations/withdraw': { POST: handleCotisationWithdrawalRequest },
   'cotisations/list': { GET: handleCotisationsList },
+  'cotisations/widget': { GET: handleCotisationsWidget },
   'withdrawals/list': { GET: handleUserWithdrawalHistory },
   'projects/update': { POST: handleUpdateProject },
   'projects/delete': { POST: handleDeleteProject },

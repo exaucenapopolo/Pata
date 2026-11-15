@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/pata_cotisation_widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="12dp"
+    android:background="@drawable/pata_widget_background">
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="MES COTISATIONS"
+            android:textColor="#D7EEE6"
+            android:textStyle="bold"
+            android:textSize="10sp"
+            android:letterSpacing="0.08"/>
+        <TextView
+            android:id="@+id/pata_cotisation_widget_count"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="0 groupe(s)"
+            android:textColor="#D7EEE6"
+            android:textSize="9sp"/>
+    </LinearLayout>
+    <TextView
+        android:id="@+id/pata_cotisation_widget_groups"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="8dp"
+        android:text="Tes groupes, derniers versements et messages apparaîtront ici."
+        android:textColor="#FFFFFF"
+        android:textSize="11sp"
+        android:lineSpacingExtra="2dp"
+        android:maxLines="18"
+        android:ellipsize="end"/>
+</LinearLayout>

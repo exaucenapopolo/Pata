@@ -61,6 +61,8 @@ for (const file of [
   'PataQuickCaptureWorker.java',
   'PataQuickCaptureReceiver.java',
   'PataQuickCaptureWidgetProvider.java',
+  'PataCotisationWidgetProvider.java',
+  'PataCotisationWidgetWorker.java',
   'PataQuickCaptureTileService.java',
   'PataSmsPlugin.java',
   'PataSmsReceiver.java',
@@ -119,6 +121,8 @@ for (const [source, destination] of [
   ['native/android/res/drawable/pata_widget_background.xml', 'android/app/src/main/res/drawable/pata_widget_background.xml'],
   ['native/android/res/drawable/ic_pata_widget_mic.xml', 'android/app/src/main/res/drawable/ic_pata_widget_mic.xml'],
   ['native/android/res/xml/pata_quick_widget_info.xml', 'android/app/src/main/res/xml/pata_quick_widget_info.xml'],
+  ['native/android/res/layout/pata_cotisation_widget.xml', 'android/app/src/main/res/layout/pata_cotisation_widget.xml'],
+  ['native/android/res/xml/pata_cotisation_widget_info.xml', 'android/app/src/main/res/xml/pata_cotisation_widget_info.xml'],
 ]) {
   copyRequiredAndroidResource(path.join(root, source), path.join(root, destination));
 }
@@ -165,6 +169,15 @@ if (!manifest.includes('PataQuickCaptureWidgetProvider')) {
     '        </receiver>',
   ].join('\n');
   manifest = manifest.replace('</application>', widgetReceiver + '\n    </application>');
+}
+if (!manifest.includes('PataCotisationWidgetProvider')) {
+  const cotisationWidgetReceiver = [
+    '        <receiver android:name="com.pata.app.PataCotisationWidgetProvider" android:enabled="true" android:exported="true">',
+    '            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>',
+    '            <meta-data android:name="android.appwidget.provider" android:resource="@xml/pata_cotisation_widget_info" />',
+    '        </receiver>',
+  ].join('\n');
+  manifest = manifest.replace('</application>', cotisationWidgetReceiver + '\n    </application>');
 }
 if (!manifest.includes('PataQuickCaptureTileService')) {
   const tileService = [
@@ -236,6 +249,8 @@ fs.writeFileSync(manifestPath, manifest);
 const requiredShortcutResources = [
   'android/app/src/main/res/xml/pata_shortcuts.xml',
   'android/app/src/main/res/xml/pata_quick_widget_info.xml',
+  'android/app/src/main/res/layout/pata_cotisation_widget.xml',
+  'android/app/src/main/res/xml/pata_cotisation_widget_info.xml',
   'android/app/src/main/res/layout/pata_quick_capture_widget.xml',
   'android/app/src/main/res/drawable/pata_widget_background.xml',
   'android/app/src/main/res/drawable/ic_pata_widget_mic.xml',
