@@ -1,7 +1,7 @@
 {
   "version": "1.1.5",
   "versionCode": 16,
-  "downloadAvailable": false,
+  "downloadAvailable": true,
   "apkUrl": "https://github.com/exaucenapopolo/Pata/releases/latest/download/Pata-Android.apk",
   "releaseNotes": "Correction des raccourcis Android : affichage du menu au maintien sur l’icône et accès direct aux dépenses, revenus et cotisations. La PWA affiche les mêmes trois raccourcis. Ajout d’une invitation Premium périodique pour les comptes gratuits."
 }
