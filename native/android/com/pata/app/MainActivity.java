@@ -5,6 +5,7 @@ import android.app.NotificationManager;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.net.Uri;
 import android.os.Build;
 import com.getcapacitor.BridgeActivity;
 import org.json.JSONObject;
@@ -54,12 +55,32 @@ public class MainActivity extends BridgeActivity {
         prefs.edit().putString(SHARED_TEXT, shared.toString()).apply();
     }
 
+    private String getShortcutTargetFromData(Intent intent) {
+        Uri data = intent.getData();
+        if (data == null || !"https".equalsIgnoreCase(data.getScheme())) return null;
+
+        String host = data.getHost();
+        if (!"www.pata-yam.site".equalsIgnoreCase(host)
+            && !"pata-yam.site".equalsIgnoreCase(host)) return null;
+
+        String path = data.getPath();
+        if (!"/expenses".equals(path)
+            && !"/income".equals(path)
+            && !"/cotisations".equals(path)) return null;
+
+        String query = data.getEncodedQuery();
+        return path + (query == null || query.isEmpty() ? "" : "?" + query);
+    }
+
     // Les raccourcis Android et les notifications ouvrent une route interne Pata.
     private void openShortcutOrNotificationTarget(Intent intent) {
         if (intent == null) return;
 
         String target = intent.getStringExtra("pata_shortcut_target");
         intent.removeExtra("pata_shortcut_target");
+        if (target == null) {
+            target = getShortcutTargetFromData(intent);
+        }
         if (target == null) {
             target = intent.getStringExtra("pata_notification_target");
         }

@@ -16,7 +16,8 @@
     "test:cotisation-chat": "node --test tests/cotisationChatPolicy.test.mjs",
     "test:income-page-runtime": "node --test tests/incomePageRuntime.test.mjs",
     "test:e2e:production": "node --test tests/productionE2E.test.mjs",
-    "test:android-shortcuts": "node --test tests/androidShortcuts.test.mjs"
+    "test:android-shortcuts": "node --test tests/androidShortcuts.test.mjs",
+    "test:premium-reminder": "node --test tests/premiumReminderPolicy.test.mjs"
   },
   "dependencies": {
     "@capacitor-firebase/authentication": "6.3.1",

@@ -1,69 +1,156 @@
-/* eslint-disable react/no-unescaped-entities */
 'use client';
 
-import { useProfile } from '@/hooks/useProfile';
-import { Crown, ChevronRight, AlertTriangle, Sparkles } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { formatCurrency } from '@/lib/utils';
+import { usePathname } from 'next/navigation';
+import { Crown, Sparkles, X, ArrowRight, Check } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
+import { useProfile } from '@/hooks/useProfile';
+import {
+  isPremiumActive,
+  shouldShowPremiumReminder,
+} from '@/lib/premiumReminderPolicy';
+
+const DISPLAY_DELAY_MS = 12000;
 
 export function PremiumReminder() {
-  const { profile } = useProfile();
-  
-  if (!profile) return null;
+  const { user } = useAuth();
+  const { profile, loading } = useProfile();
+  const pathname = usePathname();
+  const [open, setOpen] = useState(false);
 
-  const now = new Date();
-  const premiumUntil = profile.premiumUntil ? new Date(profile.premiumUntil) : null;
-  
-  // Cas 1 : L'utilisateur n'a JAMAIS payé (premiumUntil est null)
-  if (!premiumUntil) {
-    return (
-      <div className="mx-4 mt-4 sm:mx-6 rounded-xl bg-gradient-to-r from-brand-50 to-emerald-50 border border-brand-200 p-3 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-brand-800 text-sm font-medium">
-          <Sparkles size={16} className="text-brand-600" />
-          <span>Découvre Pata Premium pour débloquer toutes les fonctionnalités illimitées.</span>
-        </div>
-        <Link href="/premium" className="flex items-center gap-1 text-xs font-bold text-brand-700 hover:underline shrink-0">
-          Découvrir <ChevronRight size={14} />
-        </Link>
-      </div>
-    );
-  }
+  useEffect(() => {
+    if (loading || !user?.uid || !profile) {
+      setOpen(false);
+      return undefined;
+    }
 
-  // Cas 2 : L'abonnement est expiré
-  if (premiumUntil < now) {
-    return (
-      <div className="mx-4 mt-4 sm:mx-6 rounded-xl bg-red-50 border border-red-200 p-3 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-red-800 text-sm font-medium">
-          <AlertTriangle size={16} />
-          <span>Ton abonnement Premium a expiré. Renouvelle pour retrouver l'accès illimité.</span>
-        </div>
-        <Link href="/premium" className="flex items-center gap-1 text-xs font-bold text-red-700 hover:underline shrink-0">
-          Renouveler <ChevronRight size={14} />
-        </Link>
-      </div>
-    );
-  }
+    if (pathname === '/premium' || pathname.startsWith('/premium/')) {
+      setOpen(false);
+      return undefined;
+    }
 
-  // Cas 3 : L'abonnement expire dans 3 jours ou moins
-  const daysLeft = Math.ceil((premiumUntil - now) / (1000 * 60 * 60 * 24));
-  if (daysLeft <= 3) {
-    return (
-      <div className="mx-4 mt-4 sm:mx-6 rounded-xl bg-amber-50 border border-amber-200 p-3 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-amber-800 text-sm font-medium">
-          <AlertTriangle size={16} />
-          <span>Ton abonnement expire dans <strong>{daysLeft} jour{daysLeft > 1 ? 's' : ''}</strong>. Renouvelle pour éviter les restrictions.</span>
-        </div>
-        <Link href="/premium" className="flex items-center gap-1 text-xs font-bold text-amber-700 hover:underline shrink-0">
-          Renouveler <ChevronRight size={14} />
-        </Link>
-      </div>
-    );
-  }
+    if (isPremiumActive(profile.premiumUntil)) {
+      setOpen(false);
+      return undefined;
+    }
 
-  // Cas 4 : Abonnement actif et il reste plus de 3 jours
+    const storageKey = 'pata-premium-reminder-last-shown:' + user.uid;
+    let lastShown = null;
+    try {
+      lastShown = window.localStorage.getItem(storageKey);
+    } catch {
+      // Si le stockage est indisponible, le rappel reste limité à cette session.
+    }
+
+    if (!shouldShowPremiumReminder(lastShown)) {
+      setOpen(false);
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => {
+      try {
+        window.localStorage.setItem(storageKey, String(Date.now()));
+      } catch {
+        // Ne pas bloquer l'application si le stockage local est désactivé.
+      }
+      setOpen(true);
+    }, DISPLAY_DELAY_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [loading, user?.uid, profile?.id, profile?.premiumUntil, pathname]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [open]);
+
+  if (!open) return null;
+
   return (
-    <div className="mx-4 mt-4 sm:mx-6 flex items-center gap-2 text-xs font-semibold text-brand-600">
-      <Crown size={14} /> Membre Premium — {daysLeft} jours restants
+    <div className="fixed inset-0 z-[150] flex items-center justify-center bg-slate-950/45 p-4">
+      <button
+        type="button"
+        aria-label="Fermer la présentation de Premium"
+        onClick={() => setOpen(false)}
+        className="absolute inset-0 h-full w-full cursor-default"
+      />
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="pata-premium-reminder-title"
+        className="relative z-[1] w-full max-w-md overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-2xl"
+      >
+        <div className="flex items-start justify-between gap-3 bg-[#075b43] px-5 py-4 text-white">
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/15">
+              <Crown size={21} />
+            </span>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-100">Pata Premium</p>
+              <h2 id="pata-premium-reminder-title" className="mt-0.5 text-lg font-bold">Va plus loin avec tes finances</h2>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            aria-label="Fermer"
+            className="rounded-lg p-1.5 text-white/85 transition hover:bg-white/10 hover:text-white"
+          >
+            <X size={19} />
+          </button>
+        </div>
+
+        <div className="space-y-4 p-5">
+          <p className="text-sm leading-6 text-slate-600">
+            Tu utilises actuellement Pata gratuitement. Premium t'offre plus de capacité pour suivre tes opérations et profiter des outils avancés.
+          </p>
+
+          <div className="space-y-3 rounded-xl bg-emerald-50/70 p-3.5">
+            <div className="flex items-start gap-2.5">
+              <Check size={16} className="mt-0.5 shrink-0 text-emerald-700" />
+              <p className="text-xs leading-5 text-slate-700">Des limites plus larges pour tes dépenses, revenus, budgets et objectifs.</p>
+            </div>
+            <div className="flex items-start gap-2.5">
+              <Check size={16} className="mt-0.5 shrink-0 text-emerald-700" />
+              <p className="text-xs leading-5 text-slate-700">Une utilisation élargie de l'assistante Mč pour tes analyses.</p>
+            </div>
+            <div className="flex items-start gap-2.5">
+              <Check size={16} className="mt-0.5 shrink-0 text-emerald-700" />
+              <p className="text-xs leading-5 text-slate-700">Le suivi automatique Mobile Money sur l'application Android.</p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-bold text-slate-900">À partir de 2 500 FCFA / mois</p>
+              <p className="mt-0.5 text-[11px] text-slate-500">Consulte les avantages et les conditions avant d'activer.</p>
+            </div>
+            <Sparkles size={20} className="text-emerald-700" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="min-h-11 rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+            >
+              Plus tard
+            </button>
+            <Link
+              href="/premium"
+              onClick={() => setOpen(false)}
+              className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-[#075b43] px-3 text-sm font-semibold text-white transition hover:bg-[#064a37]"
+            >
+              Découvrir Premium <ArrowRight size={15} />
+            </Link>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

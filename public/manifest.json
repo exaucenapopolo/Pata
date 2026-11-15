@@ -64,27 +64,9 @@
       ]
     },
     {
-      "name": "Ajouter une facture",
-      "short_name": "Facture",
-      "description": "Créer une facture ou une échéance.",
-      "url": "/bills?new=1",
-      "icons": [
-        {
-          "src": "/shortcuts/bill.png",
-          "sizes": "192x192",
-          "type": "image/png"
-        },
-        {
-          "src": "/shortcuts/bill.svg",
-          "sizes": "any",
-          "type": "image/svg+xml"
-        }
-      ]
-    },
-    {
       "name": "Mes cotisations",
       "short_name": "Cotisations",
-      "description": "Accéder rapidement aux groupes de cotisation.",
+      "description": "Accéder rapidement à tes groupes de cotisation.",
       "url": "/cotisations",
       "icons": [
         {

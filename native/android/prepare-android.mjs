@@ -87,7 +87,6 @@ function copyRequiredAndroidResource(source, destination) {
 for (const file of [
   'ic_shortcut_expense.xml',
   'ic_shortcut_income.xml',
-  'ic_shortcut_bill.xml',
   'ic_shortcut_cotisations.xml',
 ]) {
   copyRequiredAndroidResource(
@@ -137,10 +136,29 @@ if (!manifest.includes('com.google.firebase.messaging.default_notification_icon'
   manifest = manifest.replace(applicationTag[0], applicationTag[0] + '\n' + firebaseMetadata);
 }
 
-if (!manifest.includes('android.app.shortcuts')) {
-  const shortcutsMetadata = '        <meta-data android:name="android.app.shortcuts" android:resource="@xml/pata_shortcuts" />\n';
-  manifest = manifest.replace('</application>', shortcutsMetadata + '    </application>');
+// Android ne lit les raccourcis statiques que depuis l'activité MAIN/LAUNCHER.
+manifest = manifest.replace(
+  /<meta-data\b(?=[^>]*android:name=["']android\.app\.shortcuts["'])[^>]*\/>\s*/g,
+  ''
+);
+const launcherActivityMatch = [...manifest.matchAll(/<(activity(?:-alias)?)\b[^>]*>[\s\S]*?<\/\1>/g)]
+  .find((match) =>
+    match[0].includes('android.intent.action.MAIN')
+    && match[0].includes('android.intent.category.LAUNCHER')
+  );
+if (!launcherActivityMatch) {
+  throw new Error('Activité Android MAIN/LAUNCHER introuvable pour déclarer les raccourcis Pata.');
 }
+const launcherActivityTag = /^<(activity(?:-alias)?)/.exec(launcherActivityMatch[0])?.[1];
+if (!launcherActivityTag) {
+  throw new Error('Balise de l’activité de lancement Android introuvable.');
+}
+const shortcutsMetadata = '            <meta-data android:name="android.app.shortcuts" android:resource="@xml/pata_shortcuts" />\n        ';
+const updatedLauncherActivity = launcherActivityMatch[0].replace(
+  '</' + launcherActivityTag + '>',
+  shortcutsMetadata + '</' + launcherActivityTag + '>'
+);
+manifest = manifest.replace(launcherActivityMatch[0], updatedLauncherActivity);
 
 if (!manifest.includes('android.intent.action.SEND')) {
   const filter = '\n            <intent-filter>\n                <action android:name="android.intent.action.SEND" />\n                <category android:name="android.intent.category.DEFAULT" />\n                <data android:mimeType="text/plain" />\n            </intent-filter>\n';
@@ -154,7 +172,6 @@ const requiredShortcutResources = [
   'android/app/src/main/res/values/pata_shortcuts.xml',
   'android/app/src/main/res/drawable/ic_shortcut_expense.xml',
   'android/app/src/main/res/drawable/ic_shortcut_income.xml',
-  'android/app/src/main/res/drawable/ic_shortcut_bill.xml',
   'android/app/src/main/res/drawable/ic_shortcut_cotisations.xml',
 ];
 for (const relativePath of requiredShortcutResources) {
@@ -163,11 +180,22 @@ for (const relativePath of requiredShortcutResources) {
   }
 }
 const shortcutXml = fs.readFileSync(path.join(root, 'android/app/src/main/res/xml/pata_shortcuts.xml'), 'utf8');
-if ((shortcutXml.match(/<shortcut\b/g) || []).length !== 4) {
-  throw new Error('Le fichier Android doit déclarer exactement quatre raccourcis Pata.');
+if ((shortcutXml.match(/<shortcut\b/g) || []).length !== 3) {
+  throw new Error('Le fichier Android doit déclarer exactement trois raccourcis Pata.');
 }
-if (!manifest.includes('android.app.shortcuts') || !manifest.includes('@xml/pata_shortcuts')) {
-  throw new Error('Le manifeste Android ne référence pas les raccourcis Pata.');
+const shortcutMetadataCount = (manifest.match(/android:name="android\.app\.shortcuts"/g) || []).length;
+const finalLauncherActivity = [...manifest.matchAll(/<(activity(?:-alias)?)\b[^>]*>[\s\S]*?<\/\1>/g)]
+  .find((match) =>
+    match[0].includes('android.intent.action.MAIN')
+    && match[0].includes('android.intent.category.LAUNCHER')
+  );
+if (
+  shortcutMetadataCount !== 1
+  || !finalLauncherActivity
+  || !finalLauncherActivity[0].includes('android.app.shortcuts')
+  || !finalLauncherActivity[0].includes('@xml/pata_shortcuts')
+) {
+  throw new Error('Les raccourcis Pata doivent être déclarés une seule fois dans l’activité MAIN/LAUNCHER.');
 }
 
 // WorkManager permet de synchroniser les SMS hors ligne puis de reprendre seul.
@@ -189,8 +217,8 @@ if (fs.existsSync(gradlePath)) {
     if (depth !== 0) throw new Error('Bloc dependencies Gradle mal formé.');
     gradle = gradle.slice(0, close - 1) + '\n' + dependency + '\n' + gradle.slice(close - 1);
   }
-  gradle = gradle.replace(/versionCode\s+\d+/, 'versionCode 15');
-  gradle = gradle.replace(/versionName\s+["'][^"']+["']/, 'versionName "1.1.4"');
+  gradle = gradle.replace(/versionCode\s+\d+/, 'versionCode 16');
+  gradle = gradle.replace(/versionName\s+["'][^"']+["']/, 'versionName "1.1.5"');
   fs.writeFileSync(gradlePath, gradle);
 }
-console.log('Pata Android 1.1.4 : raccourcis, connexion Google, import SMS et notifications conservés.');
+console.log('Pata Android 1.1.5 : raccourcis, connexion Google, import SMS et notifications conservés.');

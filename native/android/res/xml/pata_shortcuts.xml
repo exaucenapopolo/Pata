@@ -9,9 +9,8 @@
         <intent
             android:action="android.intent.action.VIEW"
             android:targetPackage="com.pata.app"
-            android:targetClass="com.pata.app.MainActivity">
-            <extra android:name="pata_shortcut_target" android:value="/expenses?new=1" />
-        </intent>
+            android:targetClass="com.pata.app.MainActivity"
+            android:data="https://www.pata-yam.site/expenses?new=1" />
     </shortcut>
     <shortcut
         android:shortcutId="pata_new_income"
@@ -22,22 +21,8 @@
         <intent
             android:action="android.intent.action.VIEW"
             android:targetPackage="com.pata.app"
-            android:targetClass="com.pata.app.MainActivity">
-            <extra android:name="pata_shortcut_target" android:value="/income?new=1" />
-        </intent>
-    </shortcut>
-    <shortcut
-        android:shortcutId="pata_new_bill"
-        android:enabled="true"
-        android:icon="@drawable/ic_shortcut_bill"
-        android:shortcutShortLabel="@string/pata_shortcut_bill_short"
-        android:shortcutLongLabel="@string/pata_shortcut_bill_long">
-        <intent
-            android:action="android.intent.action.VIEW"
-            android:targetPackage="com.pata.app"
-            android:targetClass="com.pata.app.MainActivity">
-            <extra android:name="pata_shortcut_target" android:value="/bills?new=1" />
-        </intent>
+            android:targetClass="com.pata.app.MainActivity"
+            android:data="https://www.pata-yam.site/income?new=1" />
     </shortcut>
     <shortcut
         android:shortcutId="pata_cotisations"
@@ -48,8 +33,7 @@
         <intent
             android:action="android.intent.action.VIEW"
             android:targetPackage="com.pata.app"
-            android:targetClass="com.pata.app.MainActivity">
-            <extra android:name="pata_shortcut_target" android:value="/cotisations" />
-        </intent>
+            android:targetClass="com.pata.app.MainActivity"
+            android:data="https://www.pata-yam.site/cotisations" />
     </shortcut>
 </shortcuts>
