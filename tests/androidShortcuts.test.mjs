@@ -21,7 +21,7 @@ test('le manifeste PWA déclare quatre raccourcis installables et leurs icônes'
     assert.equal(shortcut.icons?.[0]?.src, item.pngIcon);
     assert.equal(shortcut.icons?.[0]?.type, 'image/png');
     assert.ok(shortcut.icons?.some((icon) => icon.src === item.icon && icon.type === 'image/svg+xml'));
-    assert.ok(fs.existsSync(path.join(root, 'public', item.pngIcon.replace(/^\\//, ''))), 'Icône PNG absente : ' + item.pngIcon);
+    assert.ok(fs.existsSync(path.join(root, 'public', item.pngIcon.slice(1))), 'Icône PNG absente : ' + item.pngIcon);
     assert.ok(fs.existsSync(path.join(root, 'public', item.icon.replace(/^\//, ''))), 'Icône absente : ' + item.icon);
   }
 });
