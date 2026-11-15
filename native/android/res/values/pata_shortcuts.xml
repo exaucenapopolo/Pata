@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pata_shortcut_expense_short">Dépense</string>
+    <string name="pata_shortcut_expense_long">Ajouter une dépense</string>
+    <string name="pata_shortcut_income_short">Revenu</string>
+    <string name="pata_shortcut_income_long">Ajouter un revenu</string>
+    <string name="pata_shortcut_bill_short">Facture</string>
+    <string name="pata_shortcut_bill_long">Ajouter une facture</string>
+    <string name="pata_shortcut_cotisations_short">Groupes</string>
+    <string name="pata_shortcut_cotisations_long">Ouvrir mes cotisations</string>
+</resources>

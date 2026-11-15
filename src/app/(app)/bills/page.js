@@ -126,6 +126,21 @@ export default function BillsPage() {
     setShowEditor(true);
   };
 
+  useEffect(() => {
+    const openFromShortcut = () => openCreate();
+    window.addEventListener('pata:bill-new', openFromShortcut);
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('new') === '1') {
+      openFromShortcut();
+      params.delete('new');
+      const query = params.toString();
+      window.history.replaceState(null, '', window.location.pathname + (query ? '?' + query : ''));
+    }
+
+    return () => window.removeEventListener('pata:bill-new', openFromShortcut);
+  }, []);
+
   const openEdit = (bill) => {
     setScanFeedback(''); setScanError(false);
     setForm({

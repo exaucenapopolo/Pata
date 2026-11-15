@@ -103,6 +103,11 @@ if (!manifest.includes('com.google.firebase.messaging.default_notification_icon'
   manifest = manifest.replace(applicationTag[0], applicationTag[0] + '\n' + firebaseMetadata);
 }
 
+if (!manifest.includes('android.app.shortcuts')) {
+  const shortcutsMetadata = '        <meta-data android:name="android.app.shortcuts" android:resource="@xml/pata_shortcuts" />\n';
+  manifest = manifest.replace('</application>', shortcutsMetadata + '    </application>');
+}
+
 if (!manifest.includes('android.intent.action.SEND')) {
   const filter = '\n            <intent-filter>\n                <action android:name="android.intent.action.SEND" />\n                <category android:name="android.intent.category.DEFAULT" />\n                <data android:mimeType="text/plain" />\n            </intent-filter>\n';
   manifest = manifest.replace(/(<activity[^>]*android:name="[^"]*MainActivity"[^>]*>[\s\S]*?)(<\/activity>)/, '$1' + filter + '$2');

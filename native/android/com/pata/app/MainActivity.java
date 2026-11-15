@@ -20,7 +20,7 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         createPataNotificationChannel();
         captureSharedIntent(getIntent());
-        openNotificationTarget(getIntent());
+        openShortcutOrNotificationTarget(getIntent());
     }
 
     @Override
@@ -28,7 +28,7 @@ public class MainActivity extends BridgeActivity {
         super.onNewIntent(intent);
         setIntent(intent);
         captureSharedIntent(intent);
-        openNotificationTarget(intent);
+        openShortcutOrNotificationTarget(intent);
     }
 
     private void createPataNotificationChannel() {
@@ -54,12 +54,22 @@ public class MainActivity extends BridgeActivity {
         prefs.edit().putString(SHARED_TEXT, shared.toString()).apply();
     }
 
-    private void openNotificationTarget(Intent intent) {
+    // Les raccourcis Android et les notifications ouvrent une route interne Pata.
+    private void openShortcutOrNotificationTarget(Intent intent) {
         if (intent == null) return;
-        String target = intent.getStringExtra("pata_notification_target");
-        if (target == null || !target.startsWith("/") || target.startsWith("//")) return;
+
+        String target = intent.getStringExtra("pata_shortcut_target");
+        intent.removeExtra("pata_shortcut_target");
+        if (target == null) {
+            target = intent.getStringExtra("pata_notification_target");
+        }
         intent.removeExtra("pata_notification_target");
+
+        if (target == null || !target.startsWith("/") || target.startsWith("//")
+            || target.contains("\\") || target.contains("://")) return;
+
         try {
+            if (getBridge() == null || getBridge().getWebView() == null) return;
             String destination = SITE_ORIGIN + target;
             String javascript = "window.location.assign(" + JSONObject.quote(destination) + ");";
             getBridge().getWebView().postDelayed(

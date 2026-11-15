@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="pata_new_expense"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_expense"
+        android:shortcutShortLabel="@string/pata_shortcut_expense_short"
+        android:shortcutLongLabel="@string/pata_shortcut_expense_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.pata.app"
+            android:targetClass="com.pata.app.MainActivity">
+            <extra android:name="pata_shortcut_target" android:value="/expenses?new=1" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="pata_new_income"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_income"
+        android:shortcutShortLabel="@string/pata_shortcut_income_short"
+        android:shortcutLongLabel="@string/pata_shortcut_income_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.pata.app"
+            android:targetClass="com.pata.app.MainActivity">
+            <extra android:name="pata_shortcut_target" android:value="/income?new=1" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="pata_new_bill"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_bill"
+        android:shortcutShortLabel="@string/pata_shortcut_bill_short"
+        android:shortcutLongLabel="@string/pata_shortcut_bill_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.pata.app"
+            android:targetClass="com.pata.app.MainActivity">
+            <extra android:name="pata_shortcut_target" android:value="/bills?new=1" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="pata_cotisations"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_cotisations"
+        android:shortcutShortLabel="@string/pata_shortcut_cotisations_short"
+        android:shortcutLongLabel="@string/pata_shortcut_cotisations_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.pata.app"
+            android:targetClass="com.pata.app.MainActivity">
+            <extra android:name="pata_shortcut_target" android:value="/cotisations" />
+        </intent>
+    </shortcut>
+</shortcuts>

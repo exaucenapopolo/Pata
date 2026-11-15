@@ -22,5 +22,62 @@
     }
   ],
   "scope": "/",
-  "display_override": ["standalone", "minimal-ui"]
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
+  "shortcuts": [
+    {
+      "name": "Ajouter une dépense",
+      "short_name": "Dépense",
+      "description": "Enregistrer une nouvelle dépense dans Pata.",
+      "url": "/expenses?new=1",
+      "icons": [
+        {
+          "src": "/android-chrome-192x192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Ajouter un revenu",
+      "short_name": "Revenu",
+      "description": "Enregistrer un nouveau revenu dans Pata.",
+      "url": "/income?new=1",
+      "icons": [
+        {
+          "src": "/android-chrome-192x192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Ajouter une facture",
+      "short_name": "Facture",
+      "description": "Créer une facture ou une échéance.",
+      "url": "/bills?new=1",
+      "icons": [
+        {
+          "src": "/android-chrome-192x192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Mes cotisations",
+      "short_name": "Cotisations",
+      "description": "Accéder rapidement aux groupes de cotisation.",
+      "url": "/cotisations",
+      "icons": [
+        {
+          "src": "/android-chrome-192x192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ]
 }
