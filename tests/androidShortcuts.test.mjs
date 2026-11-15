@@ -5,10 +5,10 @@ import path from 'node:path';
 
 const root = process.cwd();
 const expected = [
-  { route: '/expenses?new=1', icon: '/shortcuts/expense.svg', nativeId: 'pata_new_expense' },
-  { route: '/income?new=1', icon: '/shortcuts/income.svg', nativeId: 'pata_new_income' },
-  { route: '/bills?new=1', icon: '/shortcuts/bill.svg', nativeId: 'pata_new_bill' },
-  { route: '/cotisations', icon: '/shortcuts/cotisations.svg', nativeId: 'pata_cotisations' },
+  { route: '/expenses?new=1', icon: '/shortcuts/expense.svg', pngIcon: '/shortcuts/expense.png', nativeId: 'pata_new_expense' },
+  { route: '/income?new=1', icon: '/shortcuts/income.svg', pngIcon: '/shortcuts/income.png', nativeId: 'pata_new_income' },
+  { route: '/bills?new=1', icon: '/shortcuts/bill.svg', pngIcon: '/shortcuts/bill.png', nativeId: 'pata_new_bill' },
+  { route: '/cotisations', icon: '/shortcuts/cotisations.svg', pngIcon: '/shortcuts/cotisations.png', nativeId: 'pata_cotisations' },
 ];
 
 test('le manifeste PWA déclare quatre raccourcis installables et leurs icônes', () => {
@@ -18,8 +18,10 @@ test('le manifeste PWA déclare quatre raccourcis installables et leurs icônes'
     const shortcut = manifest.shortcuts.find((entry) => entry.url === item.route);
     assert.ok(shortcut, 'Raccourci PWA absent : ' + item.route);
     assert.ok(shortcut.name && shortcut.short_name && shortcut.description);
-    assert.equal(shortcut.icons?.[0]?.src, item.icon);
-    assert.equal(shortcut.icons?.[0]?.type, 'image/svg+xml');
+    assert.equal(shortcut.icons?.[0]?.src, item.pngIcon);
+    assert.equal(shortcut.icons?.[0]?.type, 'image/png');
+    assert.ok(shortcut.icons?.some((icon) => icon.src === item.icon && icon.type === 'image/svg+xml'));
+    assert.ok(fs.existsSync(path.join(root, 'public', item.pngIcon.replace(/^\\//, ''))), 'Icône PNG absente : ' + item.pngIcon);
     assert.ok(fs.existsSync(path.join(root, 'public', item.icon.replace(/^\//, ''))), 'Icône absente : ' + item.icon);
   }
 });
