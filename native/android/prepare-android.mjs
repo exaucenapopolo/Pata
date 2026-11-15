@@ -157,6 +157,7 @@ if (!manifest.includes('PataQuickCaptureReceiver')) {
     '        <receiver android:name="com.pata.app.PataQuickCaptureReceiver" android:enabled="true" android:exported="false">',
     '            <intent-filter><action android:name="com.pata.app.QUICK_CAPTURE_REPLY" /></intent-filter>',
     '            <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /></intent-filter>',
+    '            <intent-filter><action android:name="android.intent.action.MY_PACKAGE_REPLACED" /></intent-filter>',
     '        </receiver>',
   ].join('\n');
   manifest = manifest.replace('</application>', quickCaptureReceiver + '\n    </application>');

@@ -22,18 +22,23 @@ public class PataQuickCaptureReceiver extends BroadcastReceiver {
     static final String PREFS = "PataQuickCapture";
     static final String QUEUE = "pending_quick_captures";
     static final String REMOTE_KEY = "pata_quick_capture_reply";
+    static final String ACTION_REPLY = "com.pata.app.QUICK_CAPTURE_REPLY";
+    static final String ACTION_RESTORE = "com.pata.app.QUICK_CAPTURE_RESTORE";
 
     @Override
     public void onReceive(Context context, Intent intent) {
         if (intent == null) return;
-        if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
+        String action = intent.getAction();
+        if (Intent.ACTION_BOOT_COMPLETED.equals(action)
+            || Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)
+            || ACTION_RESTORE.equals(action)) {
             SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
             if (prefs.getBoolean("persistent_enabled", false)) {
-                PataQuickCapturePlugin.showPersistentNotification(context, "Réponds ici pour enregistrer une opération.");
+                PataQuickCapturePlugin.showPersistentNotification(context, null);
             }
             return;
         }
-        if (!"com.pata.app.QUICK_CAPTURE_REPLY".equals(intent.getAction())) return;
+        if (!ACTION_REPLY.equals(action)) return;
         Bundle results = RemoteInput.getResultsFromIntent(intent);
         if (results == null) return;
         CharSequence reply = results.getCharSequence(REMOTE_KEY);
@@ -46,7 +51,7 @@ public class PataQuickCaptureReceiver extends BroadcastReceiver {
     static String enqueue(Context context, String text, String ownerUid) {
         if (text == null || text.trim().isEmpty()) return "";
         if (ownerUid == null || ownerUid.trim().isEmpty()) {
-            PataQuickCapturePlugin.showPersistentNotification(context, "Ouvre Pata une fois pour connecter la saisie rapide.");
+            PataQuickCapturePlugin.showCaptureNeedsReviewNotification(context, "auth", "Ouvre Pata une fois pour connecter la saisie rapide.");
             return "";
         }
         String id = UUID.randomUUID().toString().replace("-", "");
@@ -75,7 +80,7 @@ public class PataQuickCaptureReceiver extends BroadcastReceiver {
             } catch (Exception ignored) { return ""; }
         }
         schedule(context, id);
-        PataQuickCapturePlugin.showPersistentNotification(context, "Saisie reçue. Enregistrement automatique…");
+        PataQuickCapturePlugin.showPersistentNotification(context, null);
         return id;
     }
 

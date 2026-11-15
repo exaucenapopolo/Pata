@@ -63,7 +63,7 @@ export function QuickCaptureSettings() {
     setWorking(true);
     setMessage('');
     try {
-      await PataQuickCapture.setPersistentNotification({ enabled: false, uid: user?.uid || '' });
+      await PataQuickCapture.setPersistentNotification({ enabled: false, uid: user?.uid || '', userInitiated: true });
       setEnabled(false);
       setMessage('La notification permanente Pata a été désactivée.');
     } catch (error) {
@@ -89,7 +89,7 @@ export function QuickCaptureSettings() {
         </div>
       </div>
       <div className="mt-4 grid gap-3 border-t border-slate-100 pt-3 sm:grid-cols-2">
-        <div className="flex gap-2"><Smartphone size={16} className="mt-0.5 shrink-0 text-slate-500"/><p className="text-[11px] leading-5 text-slate-600">Widget compact : ajoute Pata à l’écran d’accueil, puis touche le bouton + pour saisir une phrase sans ouvrir le tableau de bord.</p></div>
+        <div className="flex gap-2"><Smartphone size={16} className="mt-0.5 shrink-0 text-slate-500"/><p className="text-[11px] leading-5 text-slate-600">Widget Finances : affiche les revenus du mois, les dépenses et le disponible. Widget Cotisations : consulte les groupes, versements et derniers messages.</p></div>
         <div className="flex gap-2"><CircleHelp size={16} className="mt-0.5 shrink-0 text-slate-500"/><p className="text-[11px] leading-5 text-slate-600">Tuile Android : ouvre les réglages rapides, appuie sur Modifier, puis ajoute « Pata · Dépense rapide ».</p></div>
       </div>
       {message && <p role="status" className="mt-3 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-700">{message}</p>}

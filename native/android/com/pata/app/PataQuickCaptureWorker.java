@@ -49,13 +49,17 @@ public class PataQuickCaptureWorker extends Worker {
                 String type = recognized == null ? "" : recognized.optString("type", "");
                 String date = recognized == null ? "" : recognized.optString("date", "");
                 String category = categoryLabel(recognized == null ? "" : recognized.optString("categoryId", ""));
+                String source = recognized == null ? "" : recognized.optString("source", "");
                 PataQuickCaptureReceiver.remove(context, id);
                 PataQuickCaptureWidgetProvider.adjustMonthlyTotal(context, type, amount, date);
                 String amountLabel = amount > 0
                     ? NumberFormat.getIntegerInstance(Locale.FRANCE).format(amount).replace('\u202f', ' ') + " FCFA"
                     : "Opération";
-                PataQuickCapturePlugin.showPersistentNotification(context,
-                    "Enregistré : " + amountLabel + (category.isEmpty() ? "" : " · " + category));
+                String actionLabel = "income".equals(type) ? "Revenu" : "expense".equals(type) ? "Dépense" : "Opération";
+                String detail = actionLabel + " enregistré : " + amountLabel
+                    + (source.isEmpty() ? "" : " · " + source)
+                    + (category.isEmpty() ? "" : " · " + category);
+                PataQuickCapturePlugin.showCaptureResultNotification(context, id, detail);
                 return Result.success();
             }
 
@@ -80,7 +84,7 @@ public class PataQuickCaptureWorker extends Worker {
 
     private static void markForReview(Context context, String id, String message) {
         PataQuickCaptureReceiver.updateStatus(context, id, "review");
-        PataQuickCapturePlugin.showPersistentNotification(context, message);
+        PataQuickCapturePlugin.showCaptureNeedsReviewNotification(context, id, message);
     }
 
     private static String refreshFirebaseSession(Context context, PataQuickCaptureAuthStore.Session session)

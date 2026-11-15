@@ -1,6 +1,7 @@
 package com.pata.app;
 
 import android.Manifest;
+import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -17,6 +18,7 @@ import android.os.Build;
 import android.os.ParcelFileDescriptor;
 import android.speech.RecognizerIntent;
 import androidx.core.app.NotificationCompat;
+import androidx.core.app.NotificationManagerCompat;
 import androidx.core.app.RemoteInput;
 import androidx.core.content.ContextCompat;
 
@@ -49,12 +51,16 @@ public class PataQuickCapturePlugin extends Plugin {
     private static final String PREFS = "PataQuickCapture";
     private static final String CHANNEL = "pata_quick_capture";
     private static final int NOTIFICATION_ID = 74021;
+    private static final int NOTIFICATION_EVENT_BASE = 75000;
+    private static final String EVENT_CHANNEL = "pata_quick_capture_events";
     private static final String QUEUE = "pending_quick_captures";
 
     @PluginMethod
     public void requestNotificationPermission(PluginCall call) {
+        getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean("permission_prompt_attempted", true).apply();
         if (Build.VERSION.SDK_INT < 33 || getPermissionState("notifications") == PermissionState.GRANTED) {
-            call.resolve(new JSObject().put("granted", true));
+            call.resolve(new JSObject().put("granted", notificationsAllowed(getContext())));
             return;
         }
         requestPermissionForAlias("notifications", call, "quickNotificationPermissionCallback");
@@ -62,8 +68,7 @@ public class PataQuickCapturePlugin extends Plugin {
 
     @PermissionCallback
     private void quickNotificationPermissionCallback(PluginCall call) {
-        call.resolve(new JSObject().put("granted",
-            Build.VERSION.SDK_INT < 33 || getPermissionState("notifications") == PermissionState.GRANTED));
+        call.resolve(new JSObject().put("granted", notificationsAllowed(getContext())));
     }
 
     @PluginMethod
@@ -84,17 +89,26 @@ public class PataQuickCapturePlugin extends Plugin {
     @PluginMethod
     public void clearAuthSession(PluginCall call) {
         SharedPreferences prefs = getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        prefs.edit().putBoolean("persistent_enabled", false).remove("quick_capture_uid").apply();
+        prefs.edit().putBoolean("persistent_enabled", false)
+            .putBoolean("persistent_disabled_by_user", false)
+            .remove("quick_capture_uid").apply();
         PataQuickCaptureAuthStore.clear(getContext());
         NotificationManager manager = (NotificationManager) getContext().getSystemService(Context.NOTIFICATION_SERVICE);
         if (manager != null) manager.cancel(NOTIFICATION_ID);
+        PataCotisationWidgetProvider.updateData(getContext(), new JSONArray(), "");
+        androidx.work.WorkManager.getInstance(getContext()).cancelUniqueWork("pata_cotisations_widget_refresh_now");
+        androidx.work.WorkManager.getInstance(getContext()).cancelUniquePeriodicWork("pata_cotisations_widget_periodic");
         call.resolve(new JSObject().put("cleared", true));
     }
 
     @PluginMethod
     public void getPersistentNotificationStatus(PluginCall call) {
         SharedPreferences prefs = getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        call.resolve(new JSObject().put("enabled", prefs.getBoolean("persistent_enabled", false)));
+        call.resolve(new JSObject()
+            .put("enabled", prefs.getBoolean("persistent_enabled", false))
+            .put("permissionPromptAttempted", prefs.getBoolean("permission_prompt_attempted", false))
+            .put("userDisabled", prefs.getBoolean("persistent_disabled_by_user", false))
+            .put("permissionGranted", notificationsAllowed(getContext())));
     }
 
     @PluginMethod
@@ -107,9 +121,8 @@ public class PataQuickCapturePlugin extends Plugin {
                 call.reject("Compte Pata invalide. Reconnecte-toi avant d’activer la saisie rapide.");
                 return;
             }
-            if (Build.VERSION.SDK_INT >= 33
-                && ContextCompat.checkSelfPermission(getContext(), Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                call.reject("Autorise les notifications Pata dans Android.");
+            if (!notificationsAllowed(getContext())) {
+                call.reject("Autorise les notifications Pata dans les réglages Android.");
                 return;
             }
             PataQuickCaptureAuthStore.Session session = PataQuickCaptureAuthStore.read(getContext());
@@ -118,11 +131,13 @@ public class PataQuickCapturePlugin extends Plugin {
                 return;
             }
             prefs.edit().putBoolean("persistent_enabled", true)
+                .putBoolean("persistent_disabled_by_user", false)
                 .putString("quick_capture_uid", uid).apply();
             showPersistentNotification(getContext(), null);
             call.resolve(new JSObject().put("enabled", true));
         } else {
             prefs.edit().putBoolean("persistent_enabled", false)
+                .putBoolean("persistent_disabled_by_user", call.getBoolean("userInitiated", false))
                 .remove("quick_capture_uid").apply();
             NotificationManager manager = (NotificationManager) getContext().getSystemService(Context.NOTIFICATION_SERVICE);
             if (manager != null) manager.cancel(NOTIFICATION_ID);
@@ -130,11 +145,27 @@ public class PataQuickCapturePlugin extends Plugin {
         }
     }
 
-    static void showPersistentNotification(Context context, String status) {
+    static boolean notificationsAllowed(Context context) {
+        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return false;
+        return Build.VERSION.SDK_INT < 33
+            || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    @PluginMethod
+    public void ensurePersistentNotification(PluginCall call) {
+        String uid = call.getString("uid", "");
+        SharedPreferences prefs = getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        PataQuickCaptureAuthStore.Session session = PataQuickCaptureAuthStore.read(getContext());
+        boolean enabled = prefs.getBoolean("persistent_enabled", false)
+            && uid != null && uid.equals(session == null ? "" : session.uid)
+            && notificationsAllowed(getContext());
+        if (enabled) showPersistentNotification(getContext(), null);
+        call.resolve(new JSObject().put("enabled", enabled));
+    }
+
+    static void showPersistentNotification(Context context, String ignoredStatus) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        if (!prefs.getBoolean("persistent_enabled", false)) return;
-        if (Build.VERSION.SDK_INT >= 33
-            && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return;
+        if (!prefs.getBoolean("persistent_enabled", false) || !notificationsAllowed(context)) return;
         NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         if (manager == null) return;
         if (Build.VERSION.SDK_INT >= 26) {
@@ -150,18 +181,23 @@ public class PataQuickCapturePlugin extends Plugin {
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         Intent replyIntent = new Intent(context, PataQuickCaptureReceiver.class)
-            .setAction("com.pata.app.QUICK_CAPTURE_REPLY");
+            .setAction(PataQuickCaptureReceiver.ACTION_REPLY);
         int mutableFlag = Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0;
         PendingIntent replyPending = PendingIntent.getBroadcast(context, 745, replyIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | mutableFlag);
+        Intent restoreIntent = new Intent(context, PataQuickCaptureReceiver.class)
+            .setAction(PataQuickCaptureReceiver.ACTION_RESTORE);
+        PendingIntent restorePending = PendingIntent.getBroadcast(context, 746, restoreIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         RemoteInput remoteInput = new RemoteInput.Builder(PataQuickCaptureReceiver.REMOTE_KEY)
             .setLabel("Ex. 500 transport ou salaire 100 000 FCFA").build();
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_pata)
             .setContentTitle("Pata · Saisie rapide")
-            .setContentText(status == null ? "Réponds ici : 500 transport · salaire 100 000." : status)
+            .setContentText("Réponds ici : 500 transport · salaire 100 000.")
             .setContentIntent(openPending)
+            .setDeleteIntent(restorePending)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setOngoing(true)
@@ -173,7 +209,49 @@ public class PataQuickCapturePlugin extends Plugin {
                 .addRemoteInput(remoteInput)
                 .setAllowGeneratedReplies(true)
                 .build());
-        manager.notify(NOTIFICATION_ID, builder.build());
+        Notification notification = builder.build();
+        notification.flags |= Notification.FLAG_NO_CLEAR;
+        manager.notify(NOTIFICATION_ID, notification);
+    }
+
+    static void showCaptureResultNotification(Context context, String captureId, String message) {
+        showCaptureEvent(context, captureId, "Opération enregistrée", message);
+    }
+
+    static void showCaptureNeedsReviewNotification(Context context, String captureId, String message) {
+        showCaptureEvent(context, captureId, "Une précision est nécessaire", message);
+    }
+
+    private static void showCaptureEvent(Context context, String captureId, String title, String message) {
+        if (!notificationsAllowed(context)) return;
+        NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (manager == null) return;
+        if (Build.VERSION.SDK_INT >= 26) {
+            NotificationChannel channel = new NotificationChannel(
+                EVENT_CHANNEL, "Confirmations de saisie Pata", NotificationManager.IMPORTANCE_DEFAULT);
+            channel.setDescription("Confirmations ponctuelles et demandes de précision pour les saisies rapides.");
+            channel.setShowBadge(true);
+            manager.createNotificationChannel(channel);
+        }
+        Intent open = new Intent(context, MainActivity.class)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            .putExtra("pata_notification_target", "/dashboard");
+        PendingIntent content = PendingIntent.getActivity(context,
+            76000 + Math.abs((captureId == null ? "" : captureId).hashCode() % 100000),
+            open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        Notification notification = new NotificationCompat.Builder(context, EVENT_CHANNEL)
+            .setSmallIcon(R.drawable.ic_stat_pata)
+            .setContentTitle(title)
+            .setContentText(message == null ? "" : message)
+            .setStyle(new NotificationCompat.BigTextStyle().bigText(message == null ? "" : message))
+            .setContentIntent(content)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .setOngoing(false)
+            .setOnlyAlertOnce(true)
+            .build();
+        int id = NOTIFICATION_EVENT_BASE + Math.abs((captureId == null ? "" : captureId).hashCode() % 100000);
+        manager.notify(id, notification);
     }
 
     @PluginMethod

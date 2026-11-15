@@ -141,6 +141,44 @@ export function QuickCaptureCoordinator() {
   }, [user, premium, profileLoading, openDraft, analyzeSharedImage]);
 
   useEffect(() => {
+    if (!user || !Capacitor.isNativePlatform() || profileLoading) return undefined;
+    let active = true;
+    const configurePersistentCapture = async () => {
+      try {
+        if (!premium) {
+          await PataQuickCapture.setPersistentNotification({ enabled: false, uid: user.uid });
+          return;
+        }
+        await user.getIdToken(true);
+        if (!active) return;
+        await PataQuickCapture.setAuthSession({
+          uid: user.uid,
+          refreshToken: user.refreshToken,
+          apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+        });
+        const state = await PataQuickCapture.getPersistentNotificationStatus();
+        if (state?.userDisabled) return;
+        if (state?.enabled) {
+          await PataQuickCapture.ensurePersistentNotification({ uid: user.uid });
+          return;
+        }
+        if (!state?.permissionPromptAttempted) {
+          const permission = await PataQuickCapture.requestNotificationPermission();
+          if (permission?.granted !== true) return;
+        }
+        const refreshed = await PataQuickCapture.getPersistentNotificationStatus();
+        if (active && refreshed?.permissionGranted && !refreshed?.userDisabled) {
+          await PataQuickCapture.setPersistentNotification({ enabled: true, uid: user.uid, automatic: true });
+        }
+      } catch (error) {
+        console.warn('[PATA PERSISTENT CAPTURE]', error?.message || error);
+      }
+    };
+    void configurePersistentCapture();
+    return () => { active = false; };
+  }, [user, premium, profileLoading]);
+
+  useEffect(() => {
     if (!user || !Capacitor.isNativePlatform() || profileLoading || premium) return;
     PataQuickCapture.setPersistentNotification({ enabled: false, uid: user.uid }).catch(() => {});
   }, [user, premium, profileLoading]);
