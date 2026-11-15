@@ -245,16 +245,44 @@ export default function DashboardPage() {
   const totalExpense = periodExpenseTotal;
   const globalBalance = totalIncome - totalExpense;
   useEffect(() => {
-    if (!Capacitor.isNativePlatform() || incomesLoading || expensesLoading || !balancesReady) return;
-    const monthKey = todayIso().slice(0, 7);
-    PataQuickCapture.updateFinanceWidget({
-      incomeTotal: Math.round(totalIncome),
-      expenseTotal: Math.round(totalExpense),
-      monthKey,
-    }).catch((error) => {
-      console.warn('[PATA FINANCE WIDGET]', error?.message || error);
-    });
-  }, [totalIncome, totalExpense, incomesLoading, expensesLoading, balancesReady]);
+    if (!Capacitor.isNativePlatform() || incomesLoading || expensesLoading || !balancesReady) return undefined;
+    let active = true;
+    const updateMonthWidget = async () => {
+      try {
+        const today = todayIso();
+        const monthKey = today.slice(0, 7);
+        const monthStart = monthKey + '-01';
+        let incomeTotal = totalIncome;
+        let expenseTotal = totalExpense;
+        const premiumDate = profile?.premiumUntil?.toDate ? profile.premiumUntil.toDate() : new Date(profile?.premiumUntil || 0);
+        const premiumActive = Number.isFinite(premiumDate.getTime()) && premiumDate > new Date();
+        if (!premiumActive) {
+          await PataQuickCapture.clearFinanceWidget();
+          return;
+        }
+        if (startDate !== monthStart || endDate !== today) {
+          const token = await user.getIdToken();
+          const response = await fetch('/api/finance/global-summary?startDate=' + monthStart + '&endDate=' + today + '&excludeNeutral=true', {
+            headers: { Authorization: 'Bearer ' + token },
+          });
+          const summary = await response.json().catch(() => ({}));
+          if (!response.ok || !summary.success) throw new Error(summary.error || 'Résumé mensuel indisponible.');
+          incomeTotal = Number(summary.totalIncome) || 0;
+          expenseTotal = Number(summary.totalExpense) || 0;
+        }
+        if (!active) return;
+        await PataQuickCapture.updateFinanceWidget({
+          incomeTotal: Math.round(incomeTotal),
+          expenseTotal: Math.round(expenseTotal),
+          monthKey,
+        });
+      } catch (error) {
+        console.warn('[PATA FINANCE WIDGET]', error?.message || error);
+      }
+    };
+    void updateMonthWidget();
+    return () => { active = false; };
+  }, [totalIncome, totalExpense, startDate, endDate, incomesLoading, expensesLoading, balancesReady, profile?.premiumUntil, user]);
   const periodTypeTotals = periodExpenses.filter((expense) => !expense.neutralFlow).reduce((totals, expense) => {
     totals[getDashboardExpenseType(expense)] += Number(expense.amount) || 0;
     return totals;

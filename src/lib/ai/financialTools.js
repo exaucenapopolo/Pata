@@ -160,7 +160,8 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
   const phone = cleanText(input.phone, 30);
   const dueDate = String(input.dueDate || '').trim();
   const repaymentDebtId = cleanText(input.repaymentDebtId, 150);
-  if (flowType === 'loan_given' && (!person || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate))) throw new Error('Indique le nom de la personne et la date d’échéance du prêt.');
+  if (flowType === 'loan_given' && !person) throw new Error('Indique le nom de la personne à qui tu as prêté cet argent.');
+  if (flowType === 'loan_given' && dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) throw new Error('La date d’échéance du prêt est invalide.');
   if (flowType === 'repayment' && (!repaymentDebtId || categoryId !== 'debt_repayment')) throw new Error('Choisis la dette à rembourser avant de continuer.');
   if (flowType !== 'repayment' && repaymentDebtId) throw new Error('Ce remboursement n’est pas associé à une dette valide.');
   if (cashWithdrawal && repaymentDebtId) throw new Error('Un retrait Mobile Money ne peut pas être classé comme remboursement de dette.');
@@ -432,7 +433,7 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
         flowType,
         neutralFlow: flowType === 'loan_given' || cashWithdrawal,
         ...(cashWithdrawal ? { cashWithdrawal: true, cashPocketIncomeId: cashWalletRef.id } : {}),
-        ...(flowType === 'loan_given' ? { person, phone: phone || null, dueDate, debtId: newDebtRef.id } : {}),
+        ...(flowType === 'loan_given' ? { person, phone: phone || null, dueDate: dueDate || null, pendingDetails: !dueDate, debtId: newDebtRef.id } : {}),
         ...(flowType === 'repayment' ? { repaymentDebtId } : {}),
         projectId: expenseType === 'project' ? projectId : null,
         projectName: expenseType === 'project' ? projectName : null,
@@ -460,7 +461,13 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
     }
 
     if (flowType === 'loan_given') {
-      transaction.create(newDebtRef, { type: 'owed_to_me', person, phone: phone || null, amount, remaining: amount, createdAt: FieldValue.serverTimestamp(), dueDate, status: dueDate < todayDouala() ? 'late' : 'active', note, transactionId: created[0]?.expenseId || null });
+      transaction.create(newDebtRef, {
+        type: 'owed_to_me', person, phone: phone || null, amount, remaining: amount,
+        createdAt: FieldValue.serverTimestamp(), dueDate: dueDate || null,
+        pendingDetails: !dueDate, ...(dueDate ? {} : { lastDetailsReminderAt: FieldValue.serverTimestamp() }),
+        status: dueDate && dueDate < todayDouala() ? 'late' : 'active',
+        note, transactionId: created[0]?.expenseId || null,
+      });
     } else if (repaymentDebtRef) {
       const debt = repaymentDebtSnap.data() || {};
       const remaining = Math.max(0, (Number(debt.remaining) || 0) - amount);
@@ -1288,13 +1295,14 @@ export const AI_TOOLS = [
   },
 ];
 
-async function addDebt(uid, args, idempotencyKey = null) {
+async function addDebt(uid, args, idempotencyKey = null, premiumOnly = false) {
   const amount = asPositiveMoney(args.amount, 'Dette');
   const counterpartyType = args.counterpartyType === 'bank' ? 'bank' : 'person';
   const creditorName = cleanText(counterpartyType === 'bank' ? (args.bankName || args.person) : args.person, 100);
   if (!creditorName) throw new Error(counterpartyType === 'bank' ? 'Indique le nom de la banque créancière.' : 'Indique le nom de la personne qui t’a prêté cet argent.');
   const dueDate = String(args.dueDate || '').trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) throw new Error('Indique une date d’échéance valide pour cette dette.');
+  if (dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) throw new Error('La date d’échéance de cette dette est invalide.');
+
   const date = /^\d{4}-\d{2}-\d{2}$/.test(String(args.date || '')) ? String(args.date) : todayDouala();
   const projectId = cleanText(args.projectId, 150);
   if (projectId.includes('/')) throw new Error('Identifiant de projet invalide.');
@@ -1316,6 +1324,7 @@ async function addDebt(uid, args, idempotencyKey = null) {
     if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
     const userData = userSnap.data() || {};
     const premium = isPremium(userData);
+    if (premiumOnly && !premium) throw new Error('Pata Quick Capture est réservé à Pata Premium. Ton abonnement doit être actif pour continuer.');
     const activeDebtCount = Number.isSafeInteger(Number(userData.activeDebtCount)) && userData.activeDebtCount !== null
       ? Number(userData.activeDebtCount) : activeDebtsSnap.size;
     if (!premium && activeDebtCount >= 2) throw new Error('Le compte gratuit est limité à 2 dettes ou prêts actifs. Passe à Premium pour en suivre davantage.');
@@ -1331,20 +1340,22 @@ async function addDebt(uid, args, idempotencyKey = null) {
     const result = {
       success: true,
       message: `Dette contractée auprès de « ${creditorName} » enregistrée : ${amount.toLocaleString('fr-FR')} FCFA. Elle reste exclue des revenus ordinaires.`,
-      amount, person: creditorName, counterpartyType, debtId: debtRef.id, incomeId: incomeRef.id, dueDate, date,
+      amount, person: creditorName, counterpartyType, debtId: debtRef.id, incomeId: incomeRef.id, dueDate: dueDate || null, date,
+      pendingDetails: !dueDate,
       ...(projectId ? { projectId, projectName } : {}),
     };
     transaction.create(incomeRef, {
       amount, source: creditorName, categoryId: 'debt_borrowed', month: date.slice(0, 7), date, note,
       flowType: 'debt_borrowed', neutralFlow: true, person: creditorName, counterpartyType, ...bankFields,
-      phone: cleanText(args.phone, 30) || null, dueDate, debtId: debtRef.id,
+      phone: cleanText(args.phone, 30) || null, dueDate: dueDate || null, pendingDetails: !dueDate, debtId: debtRef.id,
       ...(projectId ? { projectId, projectName } : {}), createdAt: FieldValue.serverTimestamp(),
     });
     transaction.create(debtRef, {
       type: 'i_owe', person: creditorName, counterpartyType, ...bankFields,
       phone: cleanText(args.phone, 30) || null, amount, remaining: amount,
-      createdAt: FieldValue.serverTimestamp(), dueDate,
-      status: dueDate < todayDouala() ? 'late' : 'active',
+      createdAt: FieldValue.serverTimestamp(), dueDate: dueDate || null,
+      pendingDetails: !dueDate, ...(dueDate ? {} : { lastDetailsReminderAt: FieldValue.serverTimestamp() }),
+      status: dueDate && dueDate < todayDouala() ? 'late' : 'active',
       note, transactionId: incomeRef.id,
       ...(projectId ? { projectId, projectName } : {}),
     });
@@ -1734,7 +1745,7 @@ export async function executeAITool(uid, toolName, rawArgs, userMessages = [], o
     case 'update_expense': return updateExpenseForUser(uid, args.expenseId, args);
     case 'delete_expense': return deleteExpenseForUser(uid, args.expenseId);
     case 'add_income': return addIncome(uid, args);
-    case 'add_debt': return addDebt(uid, args, options.idempotencyKey || null);
+    case 'add_debt': return addDebt(uid, args, options.idempotencyKey || null, options.premiumOnly === true);
     case 'set_financial_targets': return setFinancialTargets(uid, args);
     case 'apply_budget_plan': return applyBudgetPlan(uid, args);
     case 'create_goal': return addGoal(uid, args);

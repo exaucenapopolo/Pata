@@ -2535,13 +2535,28 @@ async function handleNotificationScheduler(request) {
         for (const debtDoc of openDebts.docs) {
           const debt = debtDoc.data() || {};
           const dueDate = String(debt.dueDate || '');
-          if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate) || !(Number(debt.remaining) > 0)) continue;
-          const daysUntil = Math.round((Date.parse(dueDate + 'T00:00:00Z') - Date.parse(today + 'T00:00:00Z')) / 86400000);
-          if (daysUntil < 0 && debt.status !== 'late') await debtDoc.ref.update({ status: 'late', updatedAt: FieldValue.serverTimestamp() });
+          if (!(Number(debt.remaining) > 0)) continue;
+          const missingDueDate = !/^\d{4}-\d{2}-\d{2}$/.test(dueDate);
+          const daysUntil = missingDueDate ? null : Math.round((Date.parse(dueDate + 'T00:00:00Z') - Date.parse(today + 'T00:00:00Z')) / 86400000);
+          if (!missingDueDate && daysUntil < 0 && debt.status !== 'late') await debtDoc.ref.update({ status: 'late', updatedAt: FieldValue.serverTimestamp() });
           let reminderKey = '';
           let title = '';
           let body = '';
-          if (daysUntil === 3) {
+          let targetPath = missingDueDate ? '/debts?editDue=' + encodeURIComponent(debtDoc.id) : '/debts';
+          if (missingDueDate) {
+            const lastNudge = debt.lastDetailsReminderAt?.toDate
+              ? debt.lastDetailsReminderAt.toDate().getTime()
+              : Date.parse(debt.lastDetailsReminderAt || '');
+            const daysSinceNudge = Number.isFinite(lastNudge) ? Math.floor((now.getTime() - lastNudge) / 86400000) : 999;
+            if (daysSinceNudge >= 7 || debt.pendingRetentionReminderKey) {
+              reminderKey = 'missing-due-date-' + today;
+              title = 'Complète l’échéance de ta dette ou de ton prêt';
+              body = (debt.type === 'owed_to_me'
+                ? 'Le prêt accordé à ' + (debt.person || 'cette personne')
+                : 'La dette contractée auprès de ' + (debt.person || 'cette personne'))
+                + ' est bien enregistré. Ajoute sa date de remboursement pour que Pata puisse te rappeler le bon moment.';
+            }
+          } else if (daysUntil === 3) {
             reminderKey = 'before-3-' + today;
             title = 'Une échéance approche';
             body = (debt.type === 'owed_to_me' ? (debt.person + ' doit te rembourser') : ('Tu dois rembourser ' + debt.person)) + ' dans 3 jours : ' + Number(debt.remaining).toLocaleString('fr-FR') + ' FCFA. Consulte le suivi dans Pata.';
@@ -2558,8 +2573,9 @@ async function handleNotificationScheduler(request) {
             reminderKey = String(debt.pendingRetentionReminderKey);
             title = String(debt.pendingRetentionReminderTitle || 'Rappel concernant une dette');
             body = String(debt.pendingRetentionReminderBody || 'Une dette en cours mérite une vérification dans Pata.');
+            targetPath = String(debt.pendingRetentionReminderTarget || targetPath);
           }
-          const retryEmailOnly = userData.emailRemindersEnabled !== false && !reminderKey
+          const retryEmailOnly = !missingDueDate && userData.emailRemindersEnabled !== false && !reminderKey
             && Boolean(debt.lastReminderKey)
             && debt.lastReminderEmailSent === false
             && Boolean(debt.lastReminderTitle)
@@ -2585,7 +2601,7 @@ async function handleNotificationScheduler(request) {
               continue;
             }
           }
-          const notification = { title, body, url: '/debts', tag: 'pata-debt-' + debtDoc.id + '-' + reminderKey, source: 'debt_reminder' };
+          const notification = { title, body, url: targetPath, tag: 'pata-debt-' + debtDoc.id + '-' + reminderKey, source: missingDueDate ? 'debt_details_followup' : 'debt_reminder' };
           const pushResult = retryEmailOnly
             ? { fcmSent: 0, webPushSent: 0 }
             : await sendPataPushToUser(userDoc.ref, notification, appUrl, userData).catch((pushError) => {
@@ -2621,7 +2637,7 @@ async function handleNotificationScheduler(request) {
             await adminDb.collection('notificationDeliveryLogs').doc(logId).set({ emailSent, updatedAt: FieldValue.serverTimestamp() }, { merge: true }).catch(() => {});
           } else {
             await persistAutomaticNotificationDelivery(userDoc.ref, userData, reminderId, {
-              title, body, target: '/debts', source: 'debt_reminder',
+              title, body, target: targetPath, source: missingDueDate ? 'debt_details_followup' : 'debt_reminder',
             }, { date: today, pushSent, emailSent, priority: 95 });
           }
           await debtDoc.ref.update({
@@ -2723,13 +2739,27 @@ async function handleNotificationScheduler(request) {
           const bill = billDoc.data() || {};
           if (bill.active === false) continue;
           const dueDate = String(bill.nextDueDate || '');
-          if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) continue;
-          const daysUntil = Math.round((Date.parse(dueDate + 'T00:00:00Z') - Date.parse(today + 'T00:00:00Z')) / 86400000);
+          const missingBillDetails = bill.pendingDetails === true || bill.frequencyPending === true
+            || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate);
+          const daysUntil = missingBillDetails ? null : Math.round((Date.parse(dueDate + 'T00:00:00Z') - Date.parse(today + 'T00:00:00Z')) / 86400000);
           const reminderDays = Math.max(0, Number(bill.reminderDaysBefore ?? 3) || 0);
           let reminderKey = '';
           let title = '';
           let body = '';
-          if (daysUntil > 0 && daysUntil === reminderDays) {
+          let targetPath = missingBillDetails ? '/bills?edit=' + encodeURIComponent(billDoc.id) : '/bills';
+          if (missingBillDetails) {
+            const lastNudge = bill.lastDetailsReminderAt?.toDate
+              ? bill.lastDetailsReminderAt.toDate().getTime()
+              : Date.parse(bill.lastDetailsReminderAt || '');
+            const daysSinceNudge = Number.isFinite(lastNudge) ? Math.floor((now.getTime() - lastNudge) / 86400000) : 999;
+            if (daysSinceNudge >= 7 || bill.pendingRetentionReminderKey) {
+              reminderKey = 'missing-details-' + today;
+              title = 'Complète les informations de ta facture';
+              body = (bill.name || 'Ta facture') + ' est enregistrée. Ajoute sa prochaine échéance'
+                + (bill.frequencyPending === true ? ' et sa fréquence de paiement' : '')
+                + ' pour que Pata puisse te prévenir au bon moment.';
+            }
+          } else if (daysUntil > 0 && daysUntil === reminderDays) {
             reminderKey = 'before-' + reminderDays + '-' + today;
             title = 'Une facture approche';
             body = String(bill.name || 'Une facture') + ' arrive à échéance dans ' + daysUntil + ' jour(s).' +
@@ -2752,8 +2782,9 @@ async function handleNotificationScheduler(request) {
             reminderKey = String(bill.pendingRetentionReminderKey);
             title = String(bill.pendingRetentionReminderTitle || 'Rappel concernant une facture');
             body = String(bill.pendingRetentionReminderBody || 'Une facture enregistrée mérite une vérification dans Pata.');
+            targetPath = String(bill.pendingRetentionReminderTarget || targetPath);
           }
-          const retryEmailOnly = userData.emailRemindersEnabled !== false && !reminderKey
+          const retryEmailOnly = !missingBillDetails && userData.emailRemindersEnabled !== false && !reminderKey
             && Boolean(bill.lastReminderKey)
             && bill.lastReminderEmailSent === false
             && Boolean(bill.lastReminderTitle)
@@ -2779,7 +2810,7 @@ async function handleNotificationScheduler(request) {
               continue;
             }
           }
-          const notification = { title, body, url: '/bills', tag: 'pata-bill-' + billDoc.id + '-' + reminderKey, source: 'bill_reminder' };
+          const notification = { title, body, url: targetPath, tag: 'pata-bill-' + billDoc.id + '-' + reminderKey, source: missingBillDetails ? 'bill_details_followup' : 'bill_reminder' };
           const pushResult = retryEmailOnly
             ? { fcmSent: 0, webPushSent: 0 }
             : await sendPataPushToUser(userDoc.ref, notification, appUrl, userData).catch((pushError) => {
@@ -2816,7 +2847,7 @@ async function handleNotificationScheduler(request) {
             await adminDb.collection('notificationDeliveryLogs').doc(logId).set({ emailSent, updatedAt: FieldValue.serverTimestamp() }, { merge: true }).catch(() => {});
           } else {
             await persistAutomaticNotificationDelivery(userDoc.ref, userData, reminderId, {
-              title, body, target: '/bills', source: 'bill_reminder',
+              title, body, target: targetPath, source: missingBillDetails ? 'bill_details_followup' : 'bill_reminder',
             }, { date: today, pushSent, emailSent, priority: 90 });
           }
           await billDoc.ref.update({
@@ -3289,10 +3320,15 @@ async function handleGlobalFinanceSummary(request) {
       incomePeriod.get(),
       expensePeriod.get(),
     ]);
-    const sumAmount = (snapshot) => snapshot.docs.reduce((sum, document) =>
+    const excludeNeutral = url.searchParams.get('excludeNeutral') === 'true';
+    const eligibleRows = (snapshot) => snapshot.docs.filter((document) => {
+      if (!excludeNeutral) return true;
+      return document.data()?.neutralFlow !== true;
+    });
+    const sumAmount = (rows) => rows.reduce((sum, document) =>
       sum + (Number(document.data()?.amount) || 0), 0);
-    const totalIncome = sumAmount(incomesSnapshot);
-    const totalExpense = sumAmount(expensesSnapshot);
+    const totalIncome = sumAmount(eligibleRows(incomesSnapshot));
+    const totalExpense = sumAmount(eligibleRows(expensesSnapshot));
 
     return NextResponse.json({
       success: true,
@@ -9034,6 +9070,66 @@ async function handleUserWithdrawalHistory(request) {
   } catch (error) { return errorResponse(error.message || 'Impossible de charger l’historique des retraits.', 401); }
 }
 
+async function handleDebtDueDate(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    const debtId = String(body.debtId || '').trim().slice(0, 150);
+    const dueDate = String(body.dueDate || '').trim();
+    if (!debtId || debtId.includes('/')) return errorResponse('Dette ou prêt introuvable.', 400);
+    if (dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return errorResponse('La date d’échéance est invalide.', 400);
+    if (dueDate) {
+      const parsed = new Date(dueDate + 'T00:00:00.000Z');
+      if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== dueDate) return errorResponse('La date d’échéance est invalide.', 400);
+    }
+    const userRef = adminDb.collection('users').doc(uid);
+    const debtRef = userRef.collection('debts').doc(debtId);
+    const initial = await debtRef.get();
+    if (!initial.exists) return errorResponse('Dette ou prêt introuvable.', 404);
+    const initialData = initial.data() || {};
+    const transactionId = String(initialData.transactionId || '');
+    const transactionCollection = initialData.type === 'owed_to_me' ? 'expenses' : 'incomes';
+    const transactionRef = transactionId && !transactionId.includes('/')
+      ? userRef.collection(transactionCollection).doc(transactionId) : null;
+    const result = await adminDb.runTransaction(async (transaction) => {
+      const reads = [transaction.get(debtRef)];
+      if (transactionRef) reads.push(transaction.get(transactionRef));
+      const snapshots = await Promise.all(reads);
+      const debtSnapshot = snapshots[0];
+      const rowSnapshot = transactionRef ? snapshots[1] : null;
+      if (!debtSnapshot.exists) throw new Error('Dette ou prêt introuvable.');
+      const debt = debtSnapshot.data() || {};
+      if (debt.status === 'paid' || debt.status === 'cancelled') throw new Error('Une dette soldée ou annulée ne peut plus recevoir d’échéance.');
+      const today = getDoualaToday();
+      let status = debt.status || 'active';
+      if (dueDate && dueDate < today) status = 'late';
+      else if (status === 'late') status = Number(debt.remaining) < Number(debt.amount) ? 'partial' : 'active';
+      transaction.update(debtRef, {
+        dueDate: dueDate || null,
+        pendingDetails: !dueDate,
+        status,
+        lastDetailsReminderAt: FieldValue.delete(),
+        lastReminderKey: FieldValue.delete(),
+        pendingRetentionReminderKey: FieldValue.delete(),
+        pendingRetentionReminderTitle: FieldValue.delete(),
+        pendingRetentionReminderBody: FieldValue.delete(),
+        pendingRetentionReminderTarget: FieldValue.delete(),
+        pendingRetentionReminderDate: FieldValue.delete(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      if (transactionRef && rowSnapshot?.exists) transaction.update(transactionRef, {
+        dueDate: dueDate || null,
+        pendingDetails: !dueDate,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      return { debtId, dueDate: dueDate || null, status, pendingDetails: !dueDate };
+    });
+    return NextResponse.json({ success: true, ...result });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible d’enregistrer l’échéance.', 400);
+  }
+}
+
 async function handleDebtRepayments(request) {
   try {
     const { uid } = await authenticate(request);
@@ -9071,7 +9167,7 @@ function normalizePataBill(body, previous = {}) {
   const isVariable = body.isVariable === undefined ? previous.isVariable === true : body.isVariable === true;
   const frequency = String(body.frequency === undefined ? previous.frequency || 'monthly' : body.frequency).trim();
   const nextDueDate = String(body.nextDueDate === undefined ? previous.nextDueDate || '' : body.nextDueDate).trim();
-  const dueDay = Number(body.dueDay === undefined ? previous.dueDay || nextDueDate.slice(8, 10) : body.dueDay);
+  const dueDay = nextDueDate ? Number(body.dueDay === undefined ? previous.dueDay || nextDueDate.slice(8, 10) : body.dueDay) : null;
   const reminderDaysBefore = Number(body.reminderDaysBefore === undefined ? previous.reminderDaysBefore ?? 3 : body.reminderDaysBefore);
   const expenseCategoryId = String(body.expenseCategoryId === undefined ? previous.expenseCategoryId || 'other' : body.expenseCategoryId).trim();
   if (!name) throw new Error('Donne un nom à cette facture.');
@@ -9080,14 +9176,20 @@ function normalizePataBill(body, previous = {}) {
     throw new Error('Indique un montant estimé valide ou active le montant variable.');
   }
   if (!PATA_BILL_FREQUENCIES.has(frequency)) throw new Error('Choisis une fréquence de paiement valide.');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(nextDueDate)) throw new Error('Indique la prochaine date de paiement.');
-  const parsedDate = new Date(nextDueDate + 'T00:00:00Z');
-  if (Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== nextDueDate) throw new Error('La date de paiement est invalide.');
-  if (!Number.isInteger(dueDay) || dueDay < 1 || dueDay > 31) throw new Error('Le jour de paiement doit être compris entre 1 et 31.');
+  if (nextDueDate) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(nextDueDate)) throw new Error('La date de paiement est invalide.');
+    const parsedDate = new Date(nextDueDate + 'T00:00:00Z');
+    if (Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== nextDueDate) throw new Error('La date de paiement est invalide.');
+    if (!Number.isInteger(dueDay) || dueDay < 1 || dueDay > 31) throw new Error('Le jour de paiement doit être compris entre 1 et 31.');
+  } else if (previous.pendingDetails !== true && body.allowIncomplete !== true) {
+    throw new Error('Indique la prochaine date de paiement.');
+  }
   if (!PATA_BILL_REMINDERS.has(reminderDaysBefore)) throw new Error('Choisis un délai de rappel valide.');
   if (!PATA_BILL_EXPENSE_CATEGORIES.has(expenseCategoryId)) throw new Error('Choisis une catégorie de dépense valide.');
   return {
     name, billType, amount, isVariable, frequency, nextDueDate, dueDay,
+    pendingDetails: !nextDueDate || body.frequencyPending === true,
+    frequencyPending: body.frequencyPending === true,
     reminderDaysBefore, expenseCategoryId,
     providerName: String(body.providerName === undefined ? previous.providerName || '' : body.providerName).trim().slice(0, 100),
     accountReference: String(body.accountReference === undefined ? previous.accountReference || '' : body.accountReference).trim().slice(0, 100),
@@ -9220,7 +9322,19 @@ async function handleBillsUpdate(request) {
         && typeof profile.activeBillCount === 'number' && Number.isInteger(profile.activeBillCount)) {
         transaction.set(userRef, { activeBillCount: Math.max(0, profile.activeBillCount + (isActive ? 1 : -1)) }, { merge: true });
       }
-      transaction.update(ref, { ...data, updatedAt: FieldValue.serverTimestamp() });
+      transaction.update(ref, {
+        ...data,
+        lastDetailsReminderAt: FieldValue.delete(),
+        lastReminderKey: FieldValue.delete(),
+        lastReminderTitle: FieldValue.delete(),
+        lastReminderBody: FieldValue.delete(),
+        pendingRetentionReminderKey: FieldValue.delete(),
+        pendingRetentionReminderTitle: FieldValue.delete(),
+        pendingRetentionReminderBody: FieldValue.delete(),
+        pendingRetentionReminderTarget: FieldValue.delete(),
+        pendingRetentionReminderDate: FieldValue.delete(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
       savedData = data;
     });
     return NextResponse.json({ success: true, bill: { id: billId, ...savedData } });
@@ -9268,6 +9382,10 @@ async function handleBillsPay(request) {
     if (!billSnapshot.exists) return errorResponse('Facture introuvable.', 404);
     const bill = billSnapshot.data() || {};
     if (bill.active === false) return errorResponse('Cette facture est désactivée.', 400);
+    if (bill.pendingDetails === true || bill.frequencyPending === true
+      || !/^\d{4}-\d{2}-\d{2}$/.test(String(bill.nextDueDate || ''))) {
+      return errorResponse('Complète d’abord la prochaine échéance et la fréquence de cette facture.', 409);
+    }
     const dueDate = String(body.dueDate || bill.nextDueDate || '').trim();
     if (dueDate !== String(bill.nextDueDate || '')) return errorResponse('Cette échéance a changé. Actualise la liste des factures.', 409);
     if (bill.lastPaidDueDate === dueDate) return NextResponse.json({ success: true, alreadyPaid: true, nextDueDate: bill.nextDueDate });
@@ -9552,6 +9670,7 @@ const ROUTES = {
   'debts/requests/respond': { POST: handleDebtRequestRespond },
   'debts/list': { GET: async (request) => { try { const { uid } = await authenticate(request); const snapshot = await adminDb.collection('users').doc(uid).collection('debts').orderBy('createdAt', 'desc').get(); return NextResponse.json({ success: true, debts: snapshot.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })) }); } catch (error) { return errorResponse(error.message || 'Impossible de charger les dettes.', 401); } } },
   'debts/repayments': { GET: handleDebtRepayments },
+  'debts/due-date': { POST: handleDebtDueDate },
   'expenses/add':          { POST: handleAddExpense },
   'expenses/update':       { POST: handleUpdateExpense },
   'expenses/delete':       { POST: handleDeleteExpense },

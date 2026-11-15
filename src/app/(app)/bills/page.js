@@ -154,8 +154,8 @@ export default function BillsPage() {
       billType: bill.billType || 'other',
       amount: String(bill.amount ?? ''),
       isVariable: bill.isVariable === true,
-      frequency: bill.frequency || 'monthly',
-      nextDueDate: String(bill.nextDueDate || todayIso()).slice(0, 10),
+      frequency: bill.frequencyPending === true ? '' : bill.frequency || 'monthly',
+      nextDueDate: String(bill.nextDueDate || '').slice(0, 10),
       reminderDaysBefore: Number(bill.reminderDaysBefore ?? 3),
       expenseCategoryId: bill.expenseCategoryId || 'other',
       providerName: bill.providerName || '',
@@ -164,6 +164,18 @@ export default function BillsPage() {
     });
     setShowEditor(true);
   };
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const billId = params.get('edit');
+    if (!billId || !bills.length) return;
+    const bill = bills.find((item) => item.id === billId);
+    if (!bill) return;
+    openEdit(bill);
+    params.delete('edit');
+    const query = params.toString();
+    window.history.replaceState(null, '', window.location.pathname + (query ? '?' + query : ''));
+  }, [bills]);
 
   const scanBillImage = async (event) => {
     const file = event.target.files?.[0];
@@ -247,6 +259,7 @@ export default function BillsPage() {
         amount: form.amount === '' ? 0 : Number(form.amount),
         isVariable: form.isVariable,
         frequency: form.frequency,
+        frequencyPending: false,
         nextDueDate: form.nextDueDate,
         dueDay: Number(String(form.nextDueDate).slice(8, 10)),
         reminderDaysBefore: Number(form.reminderDaysBefore),
@@ -369,9 +382,10 @@ export default function BillsPage() {
       ) : (
         <div className="space-y-3">
           {activeBills.map((bill) => {
-            const remainingDays = daysUntil(bill.nextDueDate);
-            const statusLabel = remainingDays < 0 ? 'En retard de ' + Math.abs(remainingDays) + ' jour(s)' : remainingDays === 0 ? 'À payer aujourd’hui' : remainingDays <= 7 ? 'Échéance proche' : 'Échéance programmée';
-            const statusClass = remainingDays < 0 ? 'bg-red-50 text-red-700' : remainingDays <= 7 ? 'bg-amber-50 text-amber-800' : 'bg-slate-100 text-slate-600';
+            const hasDueDate = Boolean(bill.nextDueDate);
+            const remainingDays = hasDueDate ? daysUntil(bill.nextDueDate) : 9999;
+            const statusLabel = bill.pendingDetails === true || !hasDueDate ? 'Informations à compléter' : remainingDays < 0 ? 'En retard de ' + Math.abs(remainingDays) + ' jour(s)' : remainingDays === 0 ? 'À payer aujourd’hui' : remainingDays <= 7 ? 'Échéance proche' : 'Échéance programmée';
+            const statusClass = !hasDueDate || bill.pendingDetails === true ? 'bg-amber-50 text-amber-800' : remainingDays < 0 ? 'bg-red-50 text-red-700' : remainingDays <= 7 ? 'bg-amber-50 text-amber-800' : 'bg-slate-100 text-slate-600';
             const billTypeLabel = BILL_TYPES.find(([id]) => id === bill.billType)?.[1] || 'Autre facture';
             return (
               <article key={bill.id} className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
@@ -383,13 +397,13 @@ export default function BillsPage() {
                     </div>
                     <p className="mt-1 text-xs text-slate-500">{billTypeLabel}{bill.providerName ? ' · ' + bill.providerName : ''}</p>
                     <p className="mt-2 text-sm font-semibold text-slate-800">{bill.isVariable ? 'Montant variable' : formatCurrency(Number(bill.amount) || 0)} <span className="font-normal text-slate-500">· {frequencyLabel(bill.frequency)}</span></p>
-                    <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-500"><Clock3 size={13}/> Prochaine échéance : {formatDate(bill.nextDueDate)}</p>
+                    <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-500"><Clock3 size={13}/> Prochaine échéance : {hasDueDate ? formatDate(bill.nextDueDate) : 'À préciser'}</p>
                     {bill.accountReference && <p className="mt-1 text-[11px] text-slate-500">Référence : {bill.accountReference}</p>}
                     {bill.lastPaidAt && <p className="mt-1 text-[11px] text-emerald-700">Dernier paiement enregistré : {formatDate(String(bill.lastPaidAt).slice(0, 10))}</p>}
                     <p className="mt-1 text-[10px] text-slate-400">Rappel {Number(bill.reminderDaysBefore) === 0 ? 'le jour de l’échéance' : Number(bill.reminderDaysBefore) + ' jour(s) avant'}</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Button size="sm" onClick={() => startPayment(bill)}><Check size={14}/> Marquer payée</Button>
+                    {hasDueDate && bill.pendingDetails !== true && <Button size="sm" onClick={() => startPayment(bill)}><Check size={14}/> Marquer payée</Button>}
                     <Button size="sm" variant="outline" onClick={() => openEdit(bill)}><Pencil size={14}/> Modifier</Button>
                     <Button size="sm" variant="ghost" onClick={() => disableBill(bill)} disabled={saving}><Trash2 size={14}/> Désactiver</Button>
                   </div>
@@ -421,7 +435,8 @@ export default function BillsPage() {
               </select>
             </label>
             <label className="block text-sm font-medium text-slate-700">Fréquence
-              <select value={form.frequency} onChange={(event) => setForm({ ...form, frequency: event.target.value })} className="mt-1 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm">
+              <select required value={form.frequency} onChange={(event) => setForm({ ...form, frequency: event.target.value })} className="mt-1 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm">
+                <option value="">À préciser</option>
                 {FREQUENCIES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
               </select>
             </label>

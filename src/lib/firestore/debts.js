@@ -53,3 +53,7 @@ export async function listDebtRequests() {
 export async function respondDebtRequest(requestId, decision) {
   return callDebtApi('requests/respond', 'POST', { requestId, decision });
 }
+
+export async function updateDebtDueDate(debtId, dueDate) {
+  return callDebtApi('due-date', 'POST', { debtId, dueDate });
+}

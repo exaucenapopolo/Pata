@@ -50,16 +50,35 @@ public class PataQuickCaptureWorker extends Worker {
                 String date = recognized == null ? "" : recognized.optString("date", "");
                 String category = categoryLabel(recognized == null ? "" : recognized.optString("categoryId", ""));
                 String source = recognized == null ? "" : recognized.optString("source", "");
+                boolean pendingDetails = recognized != null && recognized.optBoolean("pendingDetails", false);
+                String billId = recognized == null ? "" : recognized.optString("billId", "");
+                String debtId = recognized == null ? "" : recognized.optString("debtId", "");
                 PataQuickCaptureReceiver.remove(context, id);
                 PataQuickCaptureWidgetProvider.adjustMonthlyTotal(context, type, amount, date);
                 String amountLabel = amount > 0
                     ? NumberFormat.getIntegerInstance(Locale.FRANCE).format(amount).replace('\u202f', ' ') + " FCFA"
                     : "Opération";
-                String actionLabel = "income".equals(type) ? "Revenu" : "expense".equals(type) ? "Dépense" : "Opération";
+                String actionLabel = "income".equals(type) ? "Revenu"
+                    : "expense".equals(type) ? "Dépense"
+                    : "loan_given".equals(type) ? "Prêt accordé"
+                    : "debt_borrowed".equals(type) ? "Dette contractée"
+                    : "bill".equals(type) ? "Facture" : "Opération";
                 String detail = actionLabel + " enregistré : " + amountLabel
                     + (source.isEmpty() ? "" : " · " + source)
-                    + (category.isEmpty() ? "" : " · " + category);
-                PataQuickCapturePlugin.showCaptureResultNotification(context, id, detail);
+                    + (category.isEmpty() || "bill".equals(type) ? "" : " · " + category);
+                if (pendingDetails && !billId.isEmpty()) {
+                    PataQuickCapturePlugin.showCaptureFollowUpNotification(context, id,
+                        "Facture enregistrée · échéance à préciser",
+                        detail + ". Complète sa date et sa fréquence pour recevoir les bons rappels.",
+                        "/bills?edit=" + billId);
+                } else if (pendingDetails && !debtId.isEmpty()) {
+                    PataQuickCapturePlugin.showCaptureFollowUpNotification(context, id,
+                        "Opération enregistrée · échéance à préciser",
+                        detail + ". Ajoute la date de remboursement quand tu auras un moment.",
+                        "/debts?editDue=" + debtId);
+                } else {
+                    PataQuickCapturePlugin.showCaptureResultNotification(context, id, detail);
+                }
                 return Result.success();
             }
 

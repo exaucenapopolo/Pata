@@ -1,12 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { HandCoins, ArrowDownLeft, ArrowUpRight, CalendarClock, History, ChevronDown, Loader2, Plus } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useDebts } from '@/hooks/useDebts';
 import { useProfile } from '@/hooks/useProfile';
-import { listDebtRepayments } from '@/lib/firestore/debts';
+import { listDebtRepayments, updateDebtDueDate } from '@/lib/firestore/debts';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { EmptyState } from '@/components/ui/EmptyState';
 import DebtRequestsPanel from '@/components/debts/DebtRequestsPanel';
@@ -36,6 +36,10 @@ export default function DebtsPage() {
   const [repaymentsByDebt, setRepaymentsByDebt] = useState({});
   const [historyLoadingId, setHistoryLoadingId] = useState('');
   const [historyError, setHistoryError] = useState('');
+  const [editingDueDateId, setEditingDueDateId] = useState('');
+  const [dueDateDraft, setDueDateDraft] = useState('');
+  const [dueDateSaving, setDueDateSaving] = useState(false);
+  const [dueDateFeedback, setDueDateFeedback] = useState('');
 
   const openDebts = useMemo(() => debts.filter((debt) => OPEN_STATUSES.includes(debt.status) && Number(debt.remaining) > 0), [debts]);
   const receivables = openDebts.filter((debt) => debt.type === 'owed_to_me');
@@ -56,6 +60,35 @@ export default function DebtsPage() {
   });
 
   const statusLabel = { active: 'En cours', partial: 'Partiellement remboursée', paid: 'Soldée', late: 'En retard', cancelled: 'Annulée' };
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const debtId = params.get('editDue');
+    if (!debtId || !debts.length) return;
+    const debt = debts.find((item) => item.id === debtId);
+    if (!debt) return;
+    setEditingDueDateId(debt.id);
+    setDueDateDraft(dateKey(debt.dueDate));
+    params.delete('editDue');
+    const query = params.toString();
+    window.history.replaceState(null, '', window.location.pathname + (query ? '?' + query : ''));
+  }, [debts]);
+
+  const saveDebtDueDate = async (event, debt) => {
+    event.preventDefault();
+    if (!user?.uid || !dueDateDraft) return;
+    setDueDateSaving(true);
+    setDueDateFeedback('');
+    try {
+      await updateDebtDueDate(debt.id, dueDateDraft);
+      setEditingDueDateId('');
+      setDueDateFeedback('Échéance enregistrée. Pata pourra maintenant te rappeler cette date.');
+    } catch (error) {
+      setDueDateFeedback(error.message || 'Impossible d’enregistrer cette échéance.');
+    } finally {
+      setDueDateSaving(false);
+    }
+  };
 
   const toggleHistory = async (debt) => {
     if (expandedDebtId === debt.id) {

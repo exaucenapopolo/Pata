@@ -33,7 +33,6 @@ test('reconnaît une date relative hier', () => {
   const result = parseQuickCapture('Taxi 1 500 FCFA hier', now);
   assert.equal(result.date, '2026-11-14');
 });
-
 test('reconnaît une saisie courte sans verbe ni formulaire', () => {
   const result = parseQuickCapture('transport 500', now);
   assert.equal(result.type, 'expense');
@@ -54,4 +53,80 @@ test('ne confond pas une date ISO avec le montant', () => {
   const result = parseQuickCapture('transport 500 le 2026-11-14', now);
   assert.equal(result.amount, 500);
   assert.equal(result.date, '2026-11-14');
+});
+test('conserve le nom de la source d’un revenu opérateur Mobile Money', () => {
+  const result = parseQuickCapture('50 000 revenu MTN', now);
+  assert.equal(result.type, 'income');
+  assert.equal(result.amount, 50000);
+  assert.equal(result.categoryId, 'other_income');
+  assert.equal(result.source, 'MTN');
+  assert.equal(result.needsReview, false);
+});
+test('classe une dépense inconnue dans Autre sans bloquer l’enregistrement', () => {
+  const result = parseQuickCapture('500 photocopie', now);
+  assert.equal(result.type, 'expense');
+  assert.equal(result.categoryId, 'other');
+  assert.equal(result.needsReview, false);
+});
+test('reconnaît un prêt accordé, le bénéficiaire et une échéance facultative', () => {
+  const result = parseQuickCapture('prêt 500 à Jean', now);
+  assert.equal(result.type, 'loan_given');
+  assert.equal(result.amount, 500);
+  assert.equal(result.person, 'Jean');
+  assert.equal(result.dueDate, null);
+  assert.equal(result.needsReview, false);
+});
+test('reconnaît un prêt accordé avec échéance explicite', () => {
+  const result = parseQuickCapture('prêt 500 à Jean échéance 2026-11-22', now);
+  assert.equal(result.type, 'loan_given');
+  assert.equal(result.person, 'Jean');
+  assert.equal(result.date, '2026-11-15');
+  assert.equal(result.dueDate, '2026-11-22');
+});
+test('reconnaît une dette contractée sans échéance', () => {
+  const result = parseQuickCapture('dette 300 Exauce', now);
+  assert.equal(result.type, 'debt_borrowed');
+  assert.equal(result.amount, 300);
+  assert.equal(result.person, 'Exauce');
+  assert.equal(result.needsReview, false);
+});
+test('reconnaît une facture internet en attente de date', () => {
+  const result = parseQuickCapture('facture 500 internet', now);
+  assert.equal(result.type, 'bill');
+  assert.equal(result.amount, 500);
+  assert.equal(result.billType, 'internet');
+  assert.equal(result.billName, 'Facture Internet');
+  assert.equal(result.dueDate, null);
+  assert.equal(result.needsReview, false);
+});
+test('lit une fréquence mensuelle explicitement écrite pour une facture', () => {
+  const result = parseQuickCapture('facture 5 000 internet mensuelle échéance 2026-11-25', now);
+  assert.equal(result.frequency, 'monthly');
+  assert.equal(result.dueDate, '2026-11-25');
+});
+test('accepte une facture à montant variable même si le montant est inconnu', () => {
+  const result = parseQuickCapture('facture internet', now);
+  assert.equal(result.type, 'bill');
+  assert.equal(result.amount, null);
+  assert.equal(result.isVariable, true);
+  assert.equal(result.needsReview, false);
+});
+
+test('reconnaît une échéance écrite avec le mot le sans changer la date de saisie', () => {
+  const result = parseQuickCapture('prêt 500 à Jean échéance le 2026-11-22', now);
+  assert.equal(result.person, 'Jean');
+  assert.equal(result.date, '2026-11-15');
+  assert.equal(result.dueDate, '2026-11-22');
+});
+test('reconnaît une date ISO seule comme échéance sur une dette', () => {
+  const result = parseQuickCapture('dette 300 Exauce 2026-11-22', now);
+  assert.equal(result.person, 'Exauce');
+  assert.equal(result.date, '2026-11-15');
+  assert.equal(result.dueDate, '2026-11-22');
+});
+test('reconnaît la fréquence même lorsque le type de facture reste à préciser', () => {
+  const result = parseQuickCapture('facture 500 mensuelle', now);
+  assert.equal(result.type, 'bill');
+  assert.equal(result.billType, 'other');
+  assert.equal(result.frequency, 'monthly');
 });

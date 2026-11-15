@@ -215,14 +215,18 @@ public class PataQuickCapturePlugin extends Plugin {
     }
 
     static void showCaptureResultNotification(Context context, String captureId, String message) {
-        showCaptureEvent(context, captureId, "Opération enregistrée", message);
+        showCaptureEvent(context, captureId, "Opération enregistrée", message, "/dashboard");
     }
 
     static void showCaptureNeedsReviewNotification(Context context, String captureId, String message) {
-        showCaptureEvent(context, captureId, "Une précision est nécessaire", message);
+        showCaptureEvent(context, captureId, "Une précision est nécessaire", message, "/dashboard");
     }
 
-    private static void showCaptureEvent(Context context, String captureId, String title, String message) {
+    static void showCaptureFollowUpNotification(Context context, String captureId, String title, String message, String targetPath) {
+        showCaptureEvent(context, captureId, title, message, targetPath);
+    }
+
+    private static void showCaptureEvent(Context context, String captureId, String title, String message, String targetPath) {
         if (!notificationsAllowed(context)) return;
         NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         if (manager == null) return;
@@ -235,7 +239,7 @@ public class PataQuickCapturePlugin extends Plugin {
         }
         Intent open = new Intent(context, MainActivity.class)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            .putExtra("pata_notification_target", "/dashboard");
+            .putExtra("pata_notification_target", targetPath == null || targetPath.trim().isEmpty() ? "/dashboard" : targetPath);
         PendingIntent content = PendingIntent.getActivity(context,
             76000 + Math.abs((captureId == null ? "" : captureId).hashCode() % 100000),
             open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
