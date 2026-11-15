@@ -106,7 +106,11 @@ public class PataQuickCaptureWorker extends Worker {
             String rotated = body.optString("refresh_token", session.refreshToken);
             String uid = body.optString("user_id", session.uid);
             if (idToken.isEmpty() || !session.uid.equals(uid)) throw new AuthUnavailableException("invalid_firebase_session");
-            PataQuickCaptureAuthStore.updateRefreshToken(context, rotated);
+            try {
+                PataQuickCaptureAuthStore.updateRefreshToken(context, rotated);
+            } catch (Exception storageError) {
+                throw new AuthUnavailableException("refreshed_token_persistence_failed");
+            }
             return idToken;
         } finally {
             if (connection != null) connection.disconnect();
