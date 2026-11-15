@@ -86,8 +86,8 @@ jobs:
       - name: Générer le projet Android Capacitor
         run: |
           npx cap add android
-          node native/android/prepare-android.mjs
           npx cap sync android
+          node native/android/prepare-android.mjs
 
       - name: Compiler l'APK de vérification
         run: |
