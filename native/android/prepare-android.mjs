@@ -55,6 +55,10 @@ execFileSync('npx', [
 
 for (const file of [
   'MainActivity.java',
+  'PataQuickCapturePlugin.java',
+  'PataQuickCaptureReceiver.java',
+  'PataQuickCaptureWidgetProvider.java',
+  'PataQuickCaptureTileService.java',
   'PataSmsPlugin.java',
   'PataSmsReceiver.java',
   'PataMobileMoneyParser.java',
@@ -66,9 +70,11 @@ for (const file of [
 const iconResourceDir = path.join(root, 'android/app/src/main/res/drawable');
 const largeIconDir = path.join(root, 'android/app/src/main/res/drawable-nodpi');
 const valuesResourceDir = path.join(root, 'android/app/src/main/res/values');
+const layoutResourceDir = path.join(root, 'android/app/src/main/res/layout');
 fs.mkdirSync(iconResourceDir, { recursive: true });
 fs.mkdirSync(largeIconDir, { recursive: true });
 fs.mkdirSync(valuesResourceDir, { recursive: true });
+fs.mkdirSync(layoutResourceDir, { recursive: true });
 const shortcutsResourceDir = path.join(root, 'android/app/src/main/res/xml');
 fs.mkdirSync(shortcutsResourceDir, { recursive: true });
 
@@ -105,12 +111,21 @@ copyRequiredAndroidResource(
 fs.copyFileSync(path.join(root, 'native/android/res/drawable/ic_stat_pata.xml'), path.join(iconResourceDir, 'ic_stat_pata.xml'));
 fs.copyFileSync(path.join(root, 'native/android/res/values/pata_colors.xml'), path.join(valuesResourceDir, 'pata_colors.xml'));
 fs.copyFileSync(path.join(root, 'public/android-chrome-192x192.png'), path.join(largeIconDir, 'pata_notification_large.png'));
+for (const [source, destination] of [
+  ['native/android/res/layout/pata_quick_capture_widget.xml', 'android/app/src/main/res/layout/pata_quick_capture_widget.xml'],
+  ['native/android/res/drawable/pata_widget_background.xml', 'android/app/src/main/res/drawable/pata_widget_background.xml'],
+  ['native/android/res/drawable/ic_pata_widget_mic.xml', 'android/app/src/main/res/drawable/ic_pata_widget_mic.xml'],
+  ['native/android/res/xml/pata_quick_widget_info.xml', 'android/app/src/main/res/xml/pata_quick_widget_info.xml'],
+]) {
+  copyRequiredAndroidResource(path.join(root, source), path.join(root, destination));
+}
 
 const manifestPath = path.join(root, 'android/app/src/main/AndroidManifest.xml');
 let manifest = fs.readFileSync(manifestPath, 'utf8');
 const permissions = [
   'android.permission.RECEIVE_SMS',
   'android.permission.POST_NOTIFICATIONS',
+  'android.permission.RECEIVE_BOOT_COMPLETED',
   'android.permission.ACCESS_COARSE_LOCATION',
   'android.permission.ACCESS_FINE_LOCATION',
   'android.permission.INTERNET',
@@ -123,6 +138,32 @@ for (const permission of permissions) {
 if (!manifest.includes('PataSmsReceiver')) {
   const receiver = '\n        <receiver\n            android:name="com.pata.app.PataSmsReceiver"\n            android:enabled="true"\n            android:exported="true">\n            <intent-filter android:priority="999">\n                <action android:name="android.provider.Telephony.SMS_RECEIVED" />\n            </intent-filter>\n        </receiver>\n';
   manifest = manifest.replace('</application>', receiver + '    </application>');
+}
+if (!manifest.includes('PataQuickCaptureReceiver')) {
+  const quickCaptureReceiver = [
+    '        <receiver android:name="com.pata.app.PataQuickCaptureReceiver" android:enabled="true" android:exported="false">',
+    '            <intent-filter><action android:name="com.pata.app.QUICK_CAPTURE_REPLY" /></intent-filter>',
+    '            <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /></intent-filter>',
+    '        </receiver>',
+  ].join('\n');
+  manifest = manifest.replace('</application>', quickCaptureReceiver + '\n    </application>');
+}
+if (!manifest.includes('PataQuickCaptureWidgetProvider')) {
+  const widgetReceiver = [
+    '        <receiver android:name="com.pata.app.PataQuickCaptureWidgetProvider" android:enabled="true" android:exported="true">',
+    '            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>',
+    '            <meta-data android:name="android.appwidget.provider" android:resource="@xml/pata_quick_widget_info" />',
+    '        </receiver>',
+  ].join('\n');
+  manifest = manifest.replace('</application>', widgetReceiver + '\n    </application>');
+}
+if (!manifest.includes('PataQuickCaptureTileService')) {
+  const tileService = [
+    '        <service android:name="com.pata.app.PataQuickCaptureTileService" android:label="Pata · Dépense rapide" android:icon="@drawable/ic_stat_pata" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE" android:exported="true">',
+    '            <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter>',
+    '        </service>',
+  ].join('\n');
+  manifest = manifest.replace('</application>', tileService + '\n    </application>');
 }
 // Firebase Cloud Messaging : identité Pata et canal système par défaut.
 if (!manifest.includes('com.google.firebase.messaging.default_notification_icon')) {
@@ -164,11 +205,31 @@ if (!manifest.includes('android.intent.action.SEND')) {
   const filter = '\n            <intent-filter>\n                <action android:name="android.intent.action.SEND" />\n                <category android:name="android.intent.category.DEFAULT" />\n                <data android:mimeType="text/plain" />\n            </intent-filter>\n';
   manifest = manifest.replace(/(<activity[^>]*android:name="[^"]*MainActivity"[^>]*>[\s\S]*?)(<\/activity>)/, '$1' + filter + '$2');
 }
+const mainShareActivity = manifest.match(/<activity\b[^>]*android:name="[^"]*MainActivity"[^>]*>[\s\S]*?<\/activity>/);
+if (mainShareActivity) {
+  const extraShareFilters = [];
+  if (!manifest.includes('android:mimeType="image/*"')) {
+    extraShareFilters.push('            <intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="image/*" /></intent-filter>');
+    extraShareFilters.push('            <intent-filter><action android:name="android.intent.action.SEND_MULTIPLE" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="image/*" /></intent-filter>');
+  }
+  if (!manifest.includes('android:mimeType="application/pdf"')) {
+    extraShareFilters.push('            <intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="application/pdf" /></intent-filter>');
+    extraShareFilters.push('            <intent-filter><action android:name="android.intent.action.SEND_MULTIPLE" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="application/pdf" /></intent-filter>');
+  }
+  if (extraShareFilters.length) {
+    const updatedShareActivity = mainShareActivity[0].replace('</activity>', extraShareFilters.join('\n') + '\n        </activity>');
+    manifest = manifest.replace(mainShareActivity[0], updatedShareActivity);
+  }
+}
 fs.writeFileSync(manifestPath, manifest);
 
 // Échouer immédiatement si le manifeste référence une ressource non copiée.
 const requiredShortcutResources = [
   'android/app/src/main/res/xml/pata_shortcuts.xml',
+  'android/app/src/main/res/xml/pata_quick_widget_info.xml',
+  'android/app/src/main/res/layout/pata_quick_capture_widget.xml',
+  'android/app/src/main/res/drawable/pata_widget_background.xml',
+  'android/app/src/main/res/drawable/ic_pata_widget_mic.xml',
   'android/app/src/main/res/values/pata_shortcuts.xml',
   'android/app/src/main/res/drawable/ic_shortcut_expense.xml',
   'android/app/src/main/res/drawable/ic_shortcut_income.xml',
@@ -217,8 +278,8 @@ if (fs.existsSync(gradlePath)) {
     if (depth !== 0) throw new Error('Bloc dependencies Gradle mal formé.');
     gradle = gradle.slice(0, close - 1) + '\n' + dependency + '\n' + gradle.slice(close - 1);
   }
-  gradle = gradle.replace(/versionCode\s+\d+/, 'versionCode 16');
-  gradle = gradle.replace(/versionName\s+["'][^"']+["']/, 'versionName "1.1.5"');
+  gradle = gradle.replace(/versionCode\s+\d+/, 'versionCode 17');
+  gradle = gradle.replace(/versionName\s+["'][^"']+["']/, 'versionName "1.1.6"');
   fs.writeFileSync(gradlePath, gradle);
 }
-console.log('Pata Android 1.1.5 : raccourcis, connexion Google, import SMS et notifications conservés.');
+console.log('Pata Android 1.1.6 : widget, notification persistante, tuile, partage et saisie vocale intégrés.');

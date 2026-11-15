@@ -147,7 +147,7 @@ function getExpenseTypeForBudget(expense) {
     ? expense.expenseType : 'consumption';
 }
 
-export async function createExpenseForUser(uid, input, { countQuota = true, sourceOverride = null, idempotencyKey = null, externalFunding = false, skipBudgetConfirmation = false } = {}) {
+export async function createExpenseForUser(uid, input, { countQuota = true, sourceOverride = null, idempotencyKey = null, externalFunding = false, skipBudgetConfirmation = false, premiumOnly = false } = {}) {
   const amount = asPositiveMoney(input.amount, 'Dépense');
   const flowType = cleanText(input.flowType || (input.repaymentDebtId ? 'repayment' : 'normal'), 30);
   const cashWithdrawal = flowType === 'cash_withdrawal';
@@ -216,6 +216,7 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
     }
 
     const userData = userSnap.data();
+    if (premiumOnly && !isPremium(userData)) throw new Error('Cette saisie rapide est réservée à Pata Premium. Ton abonnement doit être actif pour continuer.');
     const activeDebtCount = Number.isSafeInteger(Number(userData.activeDebtCount)) && userData.activeDebtCount !== null
       ? Number(userData.activeDebtCount) : (activeDebtsSnap?.size || 0);
     if (newDebtRef && !isPremium(userData) && activeDebtCount >= 2) throw new Error('Le compte gratuit est limité à 2 dettes ou prêts actifs. Passe à Premium pour en suivre davantage.');

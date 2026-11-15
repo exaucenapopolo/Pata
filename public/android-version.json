@@ -1,7 +1,7 @@
 {
-  "version": "1.1.5",
-  "versionCode": 16,
-  "downloadAvailable": true,
+  "version": "1.1.6",
+  "versionCode": 17,
+  "downloadAvailable": false,
   "apkUrl": "https://github.com/exaucenapopolo/Pata/releases/latest/download/Pata-Android.apk",
-  "releaseNotes": "Correction des raccourcis Android : affichage du menu au maintien sur l’icône et accès direct aux dépenses, revenus et cotisations. La PWA affiche les mêmes trois raccourcis. Ajout d’une invitation Premium périodique pour les comptes gratuits."
+  "releaseNotes": "Pata Quick Capture : saisie rapide depuis une notification permanente avec réponse directe, widget Android avec solde disponible, tuile Réglages rapides, saisie vocale en français et partage de reçus, images et PDF vers Pata. Les opérations passent par une vérification avant enregistrement."
 }

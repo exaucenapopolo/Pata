@@ -15,6 +15,7 @@ import { NotificationOpportunityTrigger } from '@/components/NotificationOpportu
 import { PinGate } from '@/components/security/PinGate';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { SmsImportCoordinator } from '@/components/SmsImportCoordinator';
+import { QuickCaptureCoordinator } from '@/components/QuickCaptureCoordinator';
 import { AndroidUpdateChecker } from '@/components/AndroidUpdateChecker';
 import { AppFeatureTour } from '@/components/AppFeatureTour';
 
@@ -34,6 +35,7 @@ export default function AppLayout({ children }) {
         <Header />
         <AndroidUpdateChecker />
         <SmsImportCoordinator />
+        <QuickCaptureCoordinator />
         <PremiumReminder />  {/* 🟢 Bandeau d'alerte */}
         <NativePushManager />
         <FirstAccessPermissions />

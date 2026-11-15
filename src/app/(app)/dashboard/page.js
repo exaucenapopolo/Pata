@@ -14,6 +14,8 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { CategoryImage } from '@/components/ui/CategoryImage';
 import { AssistantShortcut } from '@/components/ai/AssistantShortcut';
 import { useIncomes } from '@/hooks/useIncomes';
+import { Capacitor } from '@capacitor/core';
+import { PataQuickCapture } from '@/lib/quickCapture/nativePlugin';
 import { useExpenses } from '@/hooks/useExpenses';
 import { useDebts } from '@/hooks/useDebts';
 import { useGoals } from '@/hooks/useGoals';
@@ -159,12 +161,27 @@ export default function DashboardPage() {
     return { start: key(earliest), end: key(latest) };
   })();
 
-  const { incomes } = useIncomes();
+  const { incomes, balancesReady } = useIncomes();
   const { expenses } = useExpenses({ startDate: dashboardDateWindow.start, endDate: dashboardDateWindow.end, limit: 1000 });
   const { debts } = useDebts();
   const { goals } = useGoals();
   const { profile } = useProfile();
   const { customCategories } = useCustomCategories('expense');
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform() || !balancesReady) return;
+    const premiumDate = profile?.premiumUntil?.toDate ? profile.premiumUntil.toDate() : new Date(profile?.premiumUntil || 0);
+    const premiumActive = Number.isFinite(premiumDate.getTime()) && premiumDate > new Date();
+    const available = premiumActive
+      ? incomes.filter((income) => !income.projectId && income.neutralFlow !== true
+          && income.flowType !== 'debt_borrowed' && income.categoryId !== 'debt_borrowed'
+          && income.balanceAvailable === true)
+          .reduce((sum, income) => sum + Math.max(0, Number(income.remaining) || 0), 0)
+      : 0;
+    PataQuickCapture.updateWidget({ availableAmount: Math.round(available), currency: 'FCFA' }).catch((error) => {
+      console.warn('[PATA HOME WIDGET]', error?.message || error);
+    });
+  }, [incomes, balancesReady, profile?.premiumUntil]);
 
   const targetSuggestions = useMemo(() => buildFinancialSuggestions({
     periodType: targetPeriodType, periodKey: targetPeriodKey, incomes, expenses, debts,

@@ -22,6 +22,8 @@ import { PinSecuritySettings } from '@/components/security/PinSecuritySettings';
 import { PasswordSettings } from '@/components/security/PasswordSettings';
 import { ReferralsSettings } from '@/components/ReferralsSettings';
 import { SmsImportSettings } from '@/components/SmsImportSettings';
+import { PataQuickCapture } from '@/lib/quickCapture/nativePlugin';
+import { QuickCaptureSettings } from '@/components/QuickCaptureSettings';
 import { ProfilePhotoEditor } from '@/components/profile/ProfilePhotoEditor';
 import { useLanguage } from '@/context/LanguageContext';
 import { translateText } from '@/lib/i18n/translations';
@@ -201,6 +203,11 @@ export default function SettingsPage() {
 
   const onLogout = async () => {
     if (!confirm(isEnglish ? 'Sign out?' : 'Se déconnecter ?')) return;
+    // Désactive l’accès natif permanent sur cet appareil avant de fermer la session.
+    await Promise.all([
+      PataQuickCapture.setPersistentNotification({ enabled: false, uid: user?.uid || '' }).catch(() => {}),
+      PataQuickCapture.updateWidget({ availableAmount: 0, currency: 'FCFA' }).catch(() => {}),
+    ]);
     await logout();
     router.replace('/login');
   };
@@ -240,6 +247,8 @@ export default function SettingsPage() {
           <SettingRow icon={Crown} title="Mon abonnement" description={isPremium ? `Premium actif jusqu’au ${expiry.toLocaleDateString(getPreferredLocale())}` : 'Tu utilises actuellement la version gratuite'} value={isPremium ? 'Premium' : 'Gratuit'} onClick={() => setActivePanel('subscription')} />
         </div>
       </section>
+
+      <QuickCaptureSettings />
 
       <section className="space-y-2.5">
         <h2 className="px-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Sécurité et notifications</h2>

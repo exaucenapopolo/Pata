@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:padding="14dp"
+    android:background="@drawable/pata_widget_background">
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="ARGENT DISPONIBLE" android:textColor="#D7EEE6"
+        android:textSize="10sp" android:textStyle="bold" android:letterSpacing="0.08"/>
+    <TextView android:id="@+id/pata_widget_balance"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="3dp" android:text="— FCFA"
+        android:textColor="#FFFFFF" android:textSize="23sp" android:textStyle="bold"
+        android:maxLines="1" android:ellipsize="end"/>
+    <TextView android:id="@+id/pata_widget_status"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="2dp" android:text="Ouvre Pata pour synchroniser ton solde"
+        android:textColor="#D7EEE6" android:textSize="9sp"/>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="10dp" android:orientation="horizontal" android:gravity="center_vertical">
+        <Button android:id="@+id/pata_widget_expense" android:layout_width="0dp"
+            android:layout_height="40dp" android:layout_weight="1" android:minWidth="0dp"
+            android:text="Dépense" android:textAllCaps="false" android:textSize="11sp"/>
+        <Button android:id="@+id/pata_widget_income" android:layout_width="0dp"
+            android:layout_height="40dp" android:layout_marginStart="5dp"
+            android:layout_weight="1" android:minWidth="0dp"
+            android:text="Revenu" android:textAllCaps="false" android:textSize="11sp"/>
+        <ImageButton android:id="@+id/pata_widget_voice" android:layout_width="40dp"
+            android:layout_height="40dp" android:layout_marginStart="5dp"
+            android:contentDescription="Saisie vocale" android:src="@drawable/ic_pata_widget_mic"
+            android:backgroundTint="#D7EEE6" android:scaleType="centerInside" android:padding="9dp"/>
+    </LinearLayout>
+    <TextView android:id="@+id/pata_widget_refresh" android:layout_width="wrap_content"
+        android:layout_height="wrap_content" android:layout_marginTop="4dp"
+        android:text="Actualiser" android:textColor="#D7EEE6" android:textSize="9sp"/>
+</LinearLayout>
