@@ -38,6 +38,12 @@ export function QuickCaptureSettings() {
     setWorking(true);
     setMessage('');
     try {
+      await user.getIdToken(true);
+      await PataQuickCapture.setAuthSession({
+        uid: user.uid,
+        refreshToken: user.refreshToken,
+        apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+      });
       const permission = await PataQuickCapture.requestNotificationPermission();
       if (permission?.granted !== true) {
         setMessage('Autorise les notifications Pata dans Android pour activer cette fonction.');
@@ -73,7 +79,7 @@ export function QuickCaptureSettings() {
         <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-emerald-50 text-emerald-800"><BellRing size={19}/></span>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-bold text-slate-900">Pata Quick Capture</p>
-          <p className="mt-1 text-xs leading-5 text-slate-600">Garde une entrée Pata dans tes notifications pour saisir une dépense, un revenu ou dicter une opération sans chercher l’application.</p>
+          <p className="mt-1 text-xs leading-5 text-slate-600">Réponds directement à la notification avec une phrase comme « transport 500 » ou « salaire 100 000 ». Pata reconnaît l’opération et l’enregistre en arrière-plan.</p>
           <div className="mt-3 flex flex-wrap gap-2">
             {enabled
               ? <button type="button" disabled={working} onClick={disable} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50">Désactiver</button>
@@ -83,7 +89,7 @@ export function QuickCaptureSettings() {
         </div>
       </div>
       <div className="mt-4 grid gap-3 border-t border-slate-100 pt-3 sm:grid-cols-2">
-        <div className="flex gap-2"><Smartphone size={16} className="mt-0.5 shrink-0 text-slate-500"/><p className="text-[11px] leading-5 text-slate-600">Widget : maintiens le doigt sur l’écran d’accueil, ouvre les widgets, puis ajoute Pata.</p></div>
+        <div className="flex gap-2"><Smartphone size={16} className="mt-0.5 shrink-0 text-slate-500"/><p className="text-[11px] leading-5 text-slate-600">Widget compact : ajoute Pata à l’écran d’accueil, puis touche le bouton + pour saisir une phrase sans ouvrir le tableau de bord.</p></div>
         <div className="flex gap-2"><CircleHelp size={16} className="mt-0.5 shrink-0 text-slate-500"/><p className="text-[11px] leading-5 text-slate-600">Tuile Android : ouvre les réglages rapides, appuie sur Modifier, puis ajoute « Pata · Dépense rapide ».</p></div>
       </div>
       {message && <p role="status" className="mt-3 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-700">{message}</p>}

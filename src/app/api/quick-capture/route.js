@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { FieldValue } from 'firebase-admin/firestore';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { createExpenseForUser } from '@/lib/ai/financialTools';
+import { parseQuickCapture } from '@/lib/quickCapture/parser.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -13,8 +14,15 @@ function isPremium(profile = {}) {
   const expiry = raw?.toDate ? raw.toDate() : new Date(raw || 0);
   return Number.isFinite(expiry.getTime()) && expiry.getTime() > Date.now();
 }
-function errorResponse(message, status = 400) {
-  return NextResponse.json({ success: false, error: message }, { status });
+function errorResponse(message, status = 400, details = {}) {
+  return NextResponse.json({ success: false, error: message, ...details }, { status });
+}
+function doualaToday() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Douala', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return values.year + '-' + values.month + '-' + values.day;
 }
 function validDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return false;
@@ -28,12 +36,25 @@ export async function POST(request) {
     const decoded = await adminAuth.verifyIdToken(authorization.slice(7));
     const uid = decoded.uid;
     const body = await request.json();
-    const type = body.type === 'income' ? 'income' : body.type === 'expense' ? 'expense' : '';
-    const amount = Number(body.amount);
-    const categoryId = String(body.categoryId || '').trim();
-    const date = String(body.date || '').trim();
-    const note = String(body.note || '').trim().slice(0, 250);
     const idempotencyKey = String(body.idempotencyKey || '').trim();
+    let recognized = null;
+    if (typeof body.text === 'string' && body.text.trim()) {
+      const today = doualaToday();
+      const parsed = parseQuickCapture(body.text, new Date(today + 'T12:00:00.000Z'));
+      if (parsed.needsReview) {
+        return errorResponse(
+          'Je n’ai pas reconnu avec assez de certitude le montant ou le type de cette opération. Elle n’a pas été enregistrée.',
+          422,
+          { needsReview: true, recognized: parsed }
+        );
+      }
+      recognized = parsed;
+    }
+    const type = recognized?.type || (body.type === 'income' ? 'income' : body.type === 'expense' ? 'expense' : '');
+    const amount = Number(recognized?.amount ?? body.amount);
+    const categoryId = String(recognized?.categoryId ?? body.categoryId ?? '').trim();
+    const date = String(recognized?.date ?? body.date ?? '').trim();
+    const note = String(recognized?.note ?? body.note ?? '').trim().slice(0, 250);
     if (!type) return errorResponse('Choisis une dépense ou un revenu.', 400);
     if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 1000000000) return errorResponse('Le montant doit être un nombre entier positif en FCFA.', 400);
     if (!validDate(date)) return errorResponse('La date de l’opération est invalide.', 400);
@@ -57,11 +78,17 @@ export async function POST(request) {
         premiumOnly: true,
         skipBudgetConfirmation: body.confirmBudgetOverrun === true,
       });
-      return NextResponse.json({ success: true, ...result });
+      const recognizedResult = recognized
+        ? { type, amount, categoryId, date, note, source: recognized.source || '' }
+        : null;
+      if (result?.confirmationRequired) {
+        return NextResponse.json({ success: false, ...result, recognized: recognizedResult }, { status: 409 });
+      }
+      return NextResponse.json({ success: true, ...result, recognized: recognizedResult });
     }
 
     if (!INCOME_CATEGORIES.has(categoryId)) return errorResponse('Choisis une catégorie de revenu valide.', 400);
-    const source = String(body.source || '').trim().slice(0, 100);
+    const source = String(recognized?.source || body.source || '').trim().slice(0, 100);
     if (!source) return errorResponse('Indique la source de ce revenu, par exemple « Salaire ».', 400);
     const month = date.slice(0, 7);
     const currentMonth = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Douala', year: 'numeric', month: '2-digit' }).format(new Date());
@@ -91,7 +118,10 @@ export async function POST(request) {
       }, { merge: true });
       return saved;
     });
-    return NextResponse.json({ success: true, ...result });
+    return NextResponse.json({
+      success: true, ...result,
+      recognized: recognized ? { type, amount, categoryId, date, note, source } : null,
+    });
   } catch (caught) {
     const message = caught?.message || 'Impossible d’enregistrer cette opération rapide.';
     const status = /session|token|auth/i.test(message) ? 401

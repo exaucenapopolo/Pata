@@ -1,7 +1,7 @@
 {
-  "version": "1.1.6",
-  "versionCode": 17,
+  "version": "1.1.7",
+  "versionCode": 18,
   "downloadAvailable": true,
   "apkUrl": "https://github.com/exaucenapopolo/Pata/releases/latest/download/Pata-Android.apk",
-  "releaseNotes": "Pata Quick Capture : saisie rapide depuis une notification permanente avec réponse directe, widget Android avec solde disponible, tuile Réglages rapides, saisie vocale en français et partage de reçus, images et PDF vers Pata. Les opérations passent par une vérification avant enregistrement."
+  "releaseNotes": "Pata Quick Capture amélioré : widget compact 2x1, saisie dans une petite fenêtre native sans ouvrir le tableau de bord, réponse directe à la notification, reconnaissance automatique du type, du montant, de la catégorie et de la date, puis enregistrement en arrière-plan. Les saisies ambiguës restent en attente de vérification. Session d'arrière-plan protégée par Android Keystore."
 }

@@ -6,6 +6,14 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import androidx.core.app.RemoteInput;
+import androidx.work.BackoffPolicy;
+import androidx.work.Constraints;
+import androidx.work.Data;
+import androidx.work.ExistingWorkPolicy;
+import androidx.work.NetworkType;
+import androidx.work.OneTimeWorkRequest;
+import androidx.work.WorkManager;
+import java.util.concurrent.TimeUnit;
 import java.util.UUID;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -21,7 +29,7 @@ public class PataQuickCaptureReceiver extends BroadcastReceiver {
         if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
             SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
             if (prefs.getBoolean("persistent_enabled", false)) {
-                PataQuickCapturePlugin.showPersistentNotification(context, "Pata est prêt pour tes saisies rapides.");
+                PataQuickCapturePlugin.showPersistentNotification(context, "Réponds ici pour enregistrer une opération.");
             }
             return;
         }
@@ -31,13 +39,17 @@ public class PataQuickCaptureReceiver extends BroadcastReceiver {
         CharSequence reply = results.getCharSequence(REMOTE_KEY);
         String text = reply == null ? "" : reply.toString().trim();
         if (text.isEmpty()) return;
-        SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        enqueue(context, text, prefs.getString("quick_capture_uid", ""));
-        PataQuickCapturePlugin.showPersistentNotification(context, "Saisie reçue. Appuie ici pour vérifier et confirmer.");
+        PataQuickCaptureAuthStore.Session session = PataQuickCaptureAuthStore.read(context);
+        enqueue(context, text, session == null ? "" : session.uid);
     }
 
-    static void enqueue(Context context, String text, String ownerUid) {
-        if (text == null || text.trim().isEmpty()) return;
+    static String enqueue(Context context, String text, String ownerUid) {
+        if (text == null || text.trim().isEmpty()) return "";
+        if (ownerUid == null || ownerUid.trim().isEmpty()) {
+            PataQuickCapturePlugin.showPersistentNotification(context, "Ouvre Pata une fois pour connecter la saisie rapide.");
+            return "";
+        }
+        String id = UUID.randomUUID().toString().replace("-", "");
         synchronized (PataQuickCaptureReceiver.class) {
             SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
             JSONArray queue;
@@ -53,13 +65,72 @@ public class PataQuickCaptureReceiver extends BroadcastReceiver {
             }
             JSONObject item = new JSONObject();
             try {
-                item.put("id", UUID.randomUUID().toString().replace("-", ""));
+                item.put("id", id);
                 item.put("text", text.trim().substring(0, Math.min(500, text.trim().length())));
-                item.put("ownerUid", ownerUid == null ? "" : ownerUid);
+                item.put("ownerUid", ownerUid);
                 item.put("createdAt", System.currentTimeMillis());
+                item.put("status", "pending");
                 queue.put(item);
                 prefs.edit().putString(QUEUE, queue.toString()).apply();
-            } catch (Exception ignored) { }
+            } catch (Exception ignored) { return ""; }
+        }
+        schedule(context, id);
+        PataQuickCapturePlugin.showPersistentNotification(context, "Saisie reçue. Enregistrement automatique…");
+        return id;
+    }
+
+    static void schedule(Context context, String id) {
+        Constraints constraints = new Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED).build();
+        Data input = new Data.Builder().putString("capture_id", id).build();
+        OneTimeWorkRequest work = new OneTimeWorkRequest.Builder(PataQuickCaptureWorker.class)
+            .setInputData(input).setConstraints(constraints)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 20, TimeUnit.SECONDS).build();
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            "pata_quick_capture_" + id, ExistingWorkPolicy.KEEP, work);
+    }
+
+    static void schedulePending(Context context, String uid) {
+        if (uid == null || uid.isEmpty()) return;
+        JSONArray queue;
+        try { queue = new JSONArray(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(QUEUE, "[]")); }
+        catch (Exception ignored) { return; }
+        for (int i = 0; i < queue.length(); i++) {
+            JSONObject item = queue.optJSONObject(i);
+            if (item == null || !uid.equals(item.optString("ownerUid", ""))) continue;
+            if ("pending".equals(item.optString("status", "pending"))) {
+                schedule(context, item.optString("id", ""));
+            }
+        }
+    }
+
+    static JSONObject find(Context context, String id) {
+        synchronized (PataQuickCaptureReceiver.class) {
+            JSONArray queue;
+            try { queue = new JSONArray(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(QUEUE, "[]")); }
+            catch (Exception ignored) { return null; }
+            for (int i = 0; i < queue.length(); i++) {
+                JSONObject item = queue.optJSONObject(i);
+                if (item != null && id.equals(item.optString("id"))) return item;
+            }
+        }
+        return null;
+    }
+
+    static void updateStatus(Context context, String id, String status) {
+        synchronized (PataQuickCaptureReceiver.class) {
+            SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            JSONArray queue;
+            try { queue = new JSONArray(prefs.getString(QUEUE, "[]")); }
+            catch (Exception ignored) { return; }
+            for (int i = 0; i < queue.length(); i++) {
+                JSONObject item = queue.optJSONObject(i);
+                if (item != null && id.equals(item.optString("id"))) {
+                    try { item.put("status", status); } catch (Exception ignored) { }
+                    break;
+                }
+            }
+            prefs.edit().putString(QUEUE, queue.toString()).apply();
         }
     }
 

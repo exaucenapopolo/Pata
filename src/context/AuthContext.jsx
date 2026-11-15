@@ -100,6 +100,14 @@ export function AuthProvider({ children }) {
       const uid = auth.currentUser?.uid;
       if (uid && typeof window !== 'undefined') window.localStorage.removeItem('pata-pin-last-background:' + uid);
     } catch { /* sessionStorage peut être indisponible */ }
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const { PataQuickCapture } = await import('@/lib/quickCapture/nativePlugin');
+        await PataQuickCapture.clearAuthSession();
+      } catch (error) {
+        console.warn('La session native de saisie rapide n’a pas pu être effacée :', error?.message);
+      }
+    }
     return signOut(auth);
   };
 

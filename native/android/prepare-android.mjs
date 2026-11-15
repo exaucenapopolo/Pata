@@ -56,6 +56,9 @@ execFileSync('npx', [
 for (const file of [
   'MainActivity.java',
   'PataQuickCapturePlugin.java',
+  'PataQuickCaptureAuthStore.java',
+  'PataQuickCaptureActivity.java',
+  'PataQuickCaptureWorker.java',
   'PataQuickCaptureReceiver.java',
   'PataQuickCaptureWidgetProvider.java',
   'PataQuickCaptureTileService.java',
@@ -138,6 +141,12 @@ for (const permission of permissions) {
 if (!manifest.includes('PataSmsReceiver')) {
   const receiver = '\n        <receiver\n            android:name="com.pata.app.PataSmsReceiver"\n            android:enabled="true"\n            android:exported="true">\n            <intent-filter android:priority="999">\n                <action android:name="android.provider.Telephony.SMS_RECEIVED" />\n            </intent-filter>\n        </receiver>\n';
   manifest = manifest.replace('</application>', receiver + '    </application>');
+}
+if (!manifest.includes('PataQuickCaptureActivity')) {
+  const quickCaptureActivity = [
+    '        <activity android:name="com.pata.app.PataQuickCaptureActivity" android:enabled="true" android:exported="false" android:excludeFromRecents="true" android:theme="@android:style/Theme.Material.Light.Dialog.Alert" android:windowSoftInputMode="stateAlwaysVisible|adjustResize" />',
+  ].join('\n');
+  manifest = manifest.replace('</application>', quickCaptureActivity + '\n    </application>');
 }
 if (!manifest.includes('PataQuickCaptureReceiver')) {
   const quickCaptureReceiver = [
@@ -278,8 +287,8 @@ if (fs.existsSync(gradlePath)) {
     if (depth !== 0) throw new Error('Bloc dependencies Gradle mal formé.');
     gradle = gradle.slice(0, close - 1) + '\n' + dependency + '\n' + gradle.slice(close - 1);
   }
-  gradle = gradle.replace(/versionCode\s+\d+/, 'versionCode 17');
-  gradle = gradle.replace(/versionName\s+["'][^"']+["']/, 'versionName "1.1.6"');
+  gradle = gradle.replace(/versionCode\s+\d+/, 'versionCode 18');
+  gradle = gradle.replace(/versionName\s+["'][^"']+["']/, 'versionName "1.1.7"');
   fs.writeFileSync(gradlePath, gradle);
 }
-console.log('Pata Android 1.1.6 : widget, notification persistante, tuile, partage et saisie vocale intégrés.');
+console.log('Pata Android 1.1.7 : widget compact, saisie en fenêtre native et enregistrement autonome en arrière-plan.');

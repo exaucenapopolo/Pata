@@ -1,6 +1,6 @@
 const EXPENSE_RULES = [
   ["transport", /taxi|moto|bus|transport|essence|carburant|yango|uber|trajet/i],
-  ["food", /repas|nourriture|manger|bouffe|restaurant|resto|pain|marché|courses|alimentation/i],
+  ["food", /repas|nourriture|manger|bouffe|restaurant|resto|pain|marché|courses|alimentation|cuisine|boisson/i],
   ["housing", /loyer|maison|logement|eau|électricité|electricite|ménage|réparation/i],
   ["internet", /internet|wifi|forfait|téléphone|telephone|crédit|credit|data|connexion/i],
   ["health", /santé|sante|pharmacie|médicament|medicament|hôpital|hopital|médecin|medecin/i],
@@ -20,7 +20,8 @@ const INCOME_RULES = [
 ];
 const normalize = (value) => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("fr-CM");
 function extractAmount(text) {
-  const match = String(text || "").match(/(?:^|\D)(\d{1,3}(?:[ .,'’]\d{3})+|\d{1,10})(?:\s*(?:fcfa|xaf|cfa|francs?))?/i);
+  const amountText = String(text || "").replace(/\b20\d{2}-\d{2}-\d{2}\b/g, " ");
+  const match = amountText.match(/(?:^|\D)(\d{1,3}(?:[ .,'’]\d{3})+|\d{1,10})(?:\s*(?:fcfa|xaf|cfa|francs?))?/i);
   if (!match) return null;
   const amount = Number(match[1].replace(/\D/g, ""));
   return Number.isSafeInteger(amount) && amount > 0 && amount <= 1000000000 ? amount : null;
@@ -54,7 +55,11 @@ export function parseQuickCapture(input, now = new Date()) {
   let type = income ? "income" : expense ? "expense" : null;
   if (incomeVerb) type = "income";
   else if (expenseVerb) type = "expense";
-  const categoryId = income ? income[0] : expense ? expense[0] : null;
+  const categoryId = type === "income"
+    ? (income ? income[0] : "other_income")
+    : type === "expense"
+      ? (expense ? expense[0] : "other")
+      : null;
   const note = cleanNote(raw);
   const source = type === "income"
     ? (categoryId === "salary" ? "Salaire" : categoryId === "sales" ? "Vente" : categoryId === "business" ? "Business" : note || "Autre revenu")

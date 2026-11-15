@@ -33,3 +33,25 @@ test('reconnaît une date relative hier', () => {
   const result = parseQuickCapture('Taxi 1 500 FCFA hier', now);
   assert.equal(result.date, '2026-11-14');
 });
+
+test('reconnaît une saisie courte sans verbe ni formulaire', () => {
+  const result = parseQuickCapture('transport 500', now);
+  assert.equal(result.type, 'expense');
+  assert.equal(result.amount, 500);
+  assert.equal(result.categoryId, 'transport');
+  assert.equal(result.date, '2026-11-15');
+  assert.equal(result.needsReview, false);
+});
+test('reconnaît un revenu de salaire en saisie courte', () => {
+  const result = parseQuickCapture('salaire 100 000', now);
+  assert.equal(result.type, 'income');
+  assert.equal(result.amount, 100000);
+  assert.equal(result.categoryId, 'salary');
+  assert.equal(result.source, 'Salaire');
+  assert.equal(result.needsReview, false);
+});
+test('ne confond pas une date ISO avec le montant', () => {
+  const result = parseQuickCapture('transport 500 le 2026-11-14', now);
+  assert.equal(result.amount, 500);
+  assert.equal(result.date, '2026-11-14');
+});

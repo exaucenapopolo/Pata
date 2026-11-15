@@ -249,7 +249,7 @@ export function QuickCaptureCoordinator() {
     <>
       <Modal open={!!draft} onClose={closeDraft} title="Pata Quick Capture" className="max-w-lg">
         <form onSubmit={save} className="space-y-3">
-          <p className="text-xs leading-5 text-slate-500">{draft.rawText ? 'Saisie reçue : « ' + draft.rawText + ' »' : 'Complète les informations nécessaires. Rien ne sera enregistré avant ta confirmation.'}</p>
+          <p className="text-xs leading-5 text-slate-500">{draft.rawText ? 'Saisie reçue : « ' + draft.rawText + ' »' : 'Complète uniquement ce qui manque. La date est déterminée automatiquement à partir de ta phrase.'}</p>
           <div className="grid grid-cols-2 gap-2">
             <button type="button" onClick={() => setDraft((current) => ({ ...current, type: 'expense', categoryId: current.type === 'income' ? 'other' : current.categoryId }))} className={'flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-semibold ' + (draft.type === 'expense' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><ArrowUpRight size={16}/> Dépense</button>
             <button type="button" onClick={() => setDraft((current) => ({ ...current, type: 'income', categoryId: current.type === 'expense' ? 'other_income' : current.categoryId }))} className={'flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-semibold ' + (draft.type === 'income' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><ArrowDownLeft size={16}/> Revenu</button>
@@ -265,14 +265,9 @@ export function QuickCaptureCoordinator() {
           {draft.type === 'income' && <label className="block text-xs font-semibold text-slate-700">Source du revenu
             <input value={draft.source} onChange={(event) => setDraft((current) => ({ ...current, source: event.target.value }))} placeholder="Ex. Salaire, vente, activité…" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm font-normal"/>
           </label>}
-          <div className="grid grid-cols-2 gap-2">
-            <label className="block text-xs font-semibold text-slate-700">Date
-              <input type="date" required value={draft.date} onChange={(event) => setDraft((current) => ({ ...current, date: event.target.value }))} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm font-normal"/>
-            </label>
-            <label className="block text-xs font-semibold text-slate-700">Détail (facultatif)
-              <input value={draft.note} onChange={(event) => setDraft((current) => ({ ...current, note: event.target.value }))} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm font-normal"/>
-            </label>
-          </div>
+          <label className="block text-xs font-semibold text-slate-700">Détail (facultatif)
+            <input value={draft.note} onChange={(event) => setDraft((current) => ({ ...current, note: event.target.value }))} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm font-normal"/>
+          </label>
           {draft.analysisWarning && <p className="rounded-xl bg-amber-50 p-3 text-[11px] leading-5 text-amber-900">{draft.analysisWarning}</p>}
           {draft.confirmationRequired && <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">{draft.confirmationMessage}</p>}
           {error && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-xs text-rose-700">{error}</p>}
