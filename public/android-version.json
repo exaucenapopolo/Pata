@@ -1,7 +1,7 @@
 {
   "version": "1.1.4",
   "versionCode": 15,
-  "downloadAvailable": false,
+  "downloadAvailable": true,
   "apkUrl": "https://github.com/exaucenapopolo/Pata/releases/latest/download/Pata-Android.apk",
   "releaseNotes": "Ajout de quatre raccourcis rapides pour les dépenses, revenus, factures et cotisations sur PWA et Android. Correction de la préparation des ressources Android et ouverture directe du formulaire de facture."
 }
