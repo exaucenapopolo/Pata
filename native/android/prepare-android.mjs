@@ -189,8 +189,8 @@ if (fs.existsSync(gradlePath)) {
     if (depth !== 0) throw new Error('Bloc dependencies Gradle mal formé.');
     gradle = gradle.slice(0, close - 1) + '\n' + dependency + '\n' + gradle.slice(close - 1);
   }
-  gradle = gradle.replace(/versionCode\s+\d+/, 'versionCode 14');
-  gradle = gradle.replace(/versionName\s+["'][^"']+["']/, 'versionName "1.1.3"');
+  gradle = gradle.replace(/versionCode\s+\d+/, 'versionCode 15');
+  gradle = gradle.replace(/versionName\s+["'][^"']+["']/, 'versionName "1.1.4"');
   fs.writeFileSync(gradlePath, gradle);
 }
-console.log('Pata Android 1.1.3 : raccourcis, connexion Google, import SMS et notifications conservés.');
+console.log('Pata Android 1.1.4 : raccourcis, connexion Google, import SMS et notifications conservés.');
