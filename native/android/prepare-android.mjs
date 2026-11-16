@@ -305,8 +305,8 @@ if (fs.existsSync(gradlePath)) {
     if (depth !== 0) throw new Error('Bloc dependencies Gradle mal formé.');
     gradle = gradle.slice(0, close - 1) + '\n' + dependency + '\n' + gradle.slice(close - 1);
   }
-  gradle = gradle.replace(/versionCode\s+\d+/, 'versionCode 20');
-  gradle = gradle.replace(/versionName\s+["'][^"']+["']/, 'versionName "1.1.9"');
+  gradle = gradle.replace(/versionCode\s+\d+/, 'versionCode 21');
+  gradle = gradle.replace(/versionName\s+["'][^"']+["']/, 'versionName "1.2.0"');
   fs.writeFileSync(gradlePath, gradle);
 }
-console.log('Pata Android 1.1.9 : widgets financiers optimisés, saisie souple et pièces justificatives.');
+console.log('Pata Android 1.2.0 : Mč par notification, saisie vocale et factures Mobile Money.');

@@ -22,7 +22,8 @@
     "test:android-widgets": "node --test tests/androidWidgets.test.mjs",
     "test:android-ai-notification": "node --test tests/androidAINotification.test.mjs",
     "test:sms-bill-payment": "node --test tests/smsBillPayment.test.mjs",
-    "test:quick-capture-income": "node --test tests/quickCaptureIncomeFlows.test.mjs"
+    "test:quick-capture-income": "node --test tests/quickCaptureIncomeFlows.test.mjs",
+    "test:android-release-version": "node --test tests/androidReleaseVersion.test.mjs"
   },
   "dependencies": {
     "@capacitor-firebase/authentication": "6.3.1",

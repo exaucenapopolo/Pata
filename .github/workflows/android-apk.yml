@@ -70,6 +70,8 @@ jobs:
         run: npm run test:android-widgets
       - name: Vérifier la conversation Mč depuis les notifications Android
         run: npm run test:android-ai-notification
+      - name: Vérifier la version Android et la préparation de la release
+        run: npm run test:android-release-version
 
       - name: Tester la reconnaissance des saisies rapides
         run: npm run test:quick-capture
@@ -274,8 +276,8 @@ jobs:
         if: ${{ (inputs.publish_release == 'true' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[PUBLISH_ANDROID_RELEASE]'))) && env.ANDROID_KEYSTORE_BASE64 != '' && env.ANDROID_KEYSTORE_PASSWORD != '' && env.ANDROID_KEY_ALIAS != '' && env.ANDROID_KEY_PASSWORD != '' }}
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: android-v1.1.9
-          name: Pata Android 1.1.9
+          tag_name: android-v1.2.0
+          name: Pata Android 1.2.0
           target_commitish: main
           generate_release_notes: true
           overwrite_files: true
