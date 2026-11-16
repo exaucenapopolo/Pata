@@ -309,6 +309,69 @@ export async function POST(request) {
     }
 
     if (type !== 'income') return errorResponse('Type de saisie non pris en charge.', 400);
+    const incomeFlowType = ['normal', 'debt_borrowed', 'repayment_received'].includes(body.incomeFlowType)
+      ? body.incomeFlowType : 'normal';
+    if (incomeFlowType !== 'normal') {
+      const person = cleanText(body.incomePerson || body.person || '', 100);
+      const counterpartyType = body.incomeCounterpartyType === 'bank' ? 'bank' : 'person';
+      const bankName = counterpartyType === 'bank' ? cleanText(body.incomeBankName || person, 100) : '';
+      const repaymentDebtId = cleanText(body.repaymentDebtId || '', 150);
+      const flowCategory = incomeFlowType === 'debt_borrowed' ? 'debt_borrowed' : 'debt_repayment_received';
+      if (incomeFlowType === 'debt_borrowed' && !(counterpartyType === 'bank' ? bankName : person)) {
+        return errorResponse(counterpartyType === 'bank'
+          ? 'Indique le nom de la banque auprès de qui tu as contracté cette dette.'
+          : 'Indique la personne auprès de qui tu as contracté cette dette.', 422, { needsReview: true });
+      }
+      if (incomeFlowType === 'debt_borrowed' && !validDate(body.incomeDueDate || dueDate)) {
+        return errorResponse('Indique la date d’échéance de cette dette.', 422, { needsReview: true });
+      }
+      if (incomeFlowType === 'repayment_received' && (!repaymentDebtId || repaymentDebtId.includes('/'))) {
+        return errorResponse('Choisis la créance qui vient d’être remboursée.', 422, { needsReview: true });
+      }
+      const incomeResponse = await fetch(new URL('/api/incomes/add', request.url), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: authorization },
+        body: JSON.stringify({
+          amount,
+          source: incomeFlowType === 'debt_borrowed' ? (bankName || person) : source,
+          categoryId: flowCategory,
+          flowType: incomeFlowType,
+          person,
+          counterpartyType,
+          bankName,
+          phone: cleanText(body.incomePhone || '', 30),
+          dueDate: body.incomeDueDate || dueDate,
+          repaymentDebtId,
+          date,
+          month: date.slice(0, 7),
+          note,
+          quickCaptureId: idempotencyKey,
+        }),
+        cache: 'no-store',
+      });
+      const incomeResult = await incomeResponse.json().catch(() => ({}));
+      if (!incomeResponse.ok || !incomeResult.success) {
+        return NextResponse.json({
+          success: false,
+          error: incomeResult.error || 'Impossible d’enregistrer ce mouvement de revenu.',
+          needsReview: incomeResponse.status === 400,
+          recognized: parsed,
+        }, { status: incomeResponse.status || 400 });
+      }
+      return NextResponse.json({
+        success: true,
+        ...incomeResult,
+        recognized: makeRecognized(parsed || { type, amount, categoryId: flowCategory, date }, {
+          type, amount, categoryId: flowCategory,
+          source: incomeResult.source || source || person || bankName,
+          person: person || bankName,
+          incomeFlowType,
+          debtId: incomeResult.debtId || null,
+          repaymentDebtId: incomeResult.repaymentDebtId || null,
+          repaymentCompleted: incomeResult.repaymentCompleted === true,
+        }),
+      });
+    }
     if (!INCOME_CATEGORIES.has(categoryId)) return errorResponse('La catégorie de revenu est invalide. Classe ce revenu dans « Autre revenu » si nécessaire.', 400);
     const source = cleanText(parsed?.source || body.source || '', 100);
     if (!source) return errorResponse('Indique la source de ce revenu, par exemple « MTN », « Orange » ou « Salaire ».', 400);

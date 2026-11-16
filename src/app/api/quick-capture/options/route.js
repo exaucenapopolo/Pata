@@ -43,6 +43,17 @@ export async function GET(request) {
           amount: Math.max(0, Number(data.amount) || 0),
         };
       });
+    const mapDebt = (doc) => {
+      const data = doc.data() || {};
+      return {
+        id: doc.id,
+        type: data.type,
+        person: String(data.person || data.bankName || '').slice(0, 100),
+        remaining: Math.max(0, Number(data.remaining) || 0),
+        status: data.status,
+        dueDate: String(data.dueDate || '').slice(0, 10),
+      };
+    };
     const debts = debtsSnap.docs
       .filter((doc) => {
         const data = doc.data() || {};
@@ -50,17 +61,16 @@ export async function GET(request) {
           && ['active', 'partial', 'late'].includes(data.status)
           && Number(data.remaining) > 0;
       })
-      .map((doc) => {
+      .map(mapDebt);
+    const receivables = debtsSnap.docs
+      .filter((doc) => {
         const data = doc.data() || {};
-        return {
-          id: doc.id,
-          person: String(data.person || data.bankName || '').slice(0, 100),
-          remaining: Math.max(0, Number(data.remaining) || 0),
-          status: data.status,
-          dueDate: String(data.dueDate || '').slice(0, 10),
-        };
-      });
-    return NextResponse.json({ success: true, incomes, debts });
+        return data.type === 'owed_to_me'
+          && ['active', 'partial', 'late'].includes(data.status)
+          && Number(data.remaining) > 0;
+      })
+      .map(mapDebt);
+    return NextResponse.json({ success: true, incomes, debts, receivables });
   } catch (error) {
     console.error('[PATA QUICK CAPTURE OPTIONS]', error.message || error);
     return NextResponse.json({ success: false, error: 'Impossible de charger les sources et dettes disponibles.' }, { status: 500 });

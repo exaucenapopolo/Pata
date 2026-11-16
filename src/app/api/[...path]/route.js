@@ -3463,9 +3463,14 @@ async function handleCreateIncome(request) {
 
     const userRef = adminDb.collection('users').doc(uid);
     const smsImportId = /^sms_[a-f0-9]{64}$/.test(String(body.smsImportId || '')) ? String(body.smsImportId) : null;
+    const quickCaptureId = /^[a-zA-Z0-9_-]{8,100}$/.test(String(body.quickCaptureId || ''))
+      ? String(body.quickCaptureId) : null;
     const incomeCollection = userRef.collection('incomes');
-    // Sans import SMS, doc() génère un identifiant. Ne jamais lui transmettre undefined : Firestore le rejette comme documentPath invalide.
-    const incomeRef = smsImportId ? incomeCollection.doc(smsImportId) : incomeCollection.doc();
+    // Une clé Quick Capture stable protège aussi les appels répétés à la suite d'une coupure réseau.
+    const incomeRef = smsImportId
+      ? incomeCollection.doc(smsImportId)
+      : quickCaptureId ? incomeCollection.doc('quick_' + quickCaptureId.replace(/[^a-zA-Z0-9_-]/g, '_'))
+        : incomeCollection.doc();
     const newDebtRef = flowType === 'debt_borrowed' ? userRef.collection('debts').doc() : null;
     const repaymentDebtRef = flowType === 'repayment_received' ? userRef.collection('debts').doc(repaymentDebtId) : null;
     const builtInCategories = new Set(['salary', 'business', 'sales', 'commission', 'rental', 'pension', 'gift', 'debt_repayment_received', 'debt_borrowed', 'other_income']);
@@ -3488,8 +3493,18 @@ async function handleCreateIncome(request) {
       const repaymentDebtSnap = repaymentDebtRef ? snapshots[newDebtRef ? 3 : 2] : null;
       if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
       if (existingIncomeSnap?.exists) {
-        if (existingIncomeSnap.data()?.smsImportId !== smsImportId) throw new Error('Identifiant d’import déjà utilisé.');
-        return { id: incomeRef.id, duplicate: true };
+        const existingIncome = existingIncomeSnap.data() || {};
+        const sameSmsImport = Boolean(smsImportId && existingIncome.smsImportId === smsImportId);
+        const sameQuickCapture = Boolean(quickCaptureId && existingIncome.quickCaptureId === quickCaptureId);
+        if (!sameSmsImport && !sameQuickCapture) throw new Error('Identifiant de saisie déjà utilisé.');
+        return {
+          id: incomeRef.id,
+          duplicate: true,
+          debtId: existingIncome.debtId || null,
+          repaymentDebtId: existingIncome.repaymentDebtId || null,
+          repaymentCompleted: existingIncome.repaymentCompleted === true,
+          source: existingIncome.source || source,
+        };
       }
       const userData = userSnap.data();
       const premiumAccount = isPremiumAccount(userData);
@@ -3526,6 +3541,7 @@ async function handleCreateIncome(request) {
         ...(flowType === 'repayment_received' ? { repaymentDebtId } : {}),
         ...(projectId ? { projectId, projectName } : {}),
         ...(smsImportId ? { smsImportId } : {}),
+        ...(quickCaptureId ? { quickCaptureId } : {}),
         ...optionalMetadata,
         createdAt: FieldValue.serverTimestamp(),
       });
@@ -3560,7 +3576,13 @@ async function handleCreateIncome(request) {
       return {
         id: incomeRef.id,
         ...(newDebtRef ? { debtId: newDebtRef.id } : {}),
-        ...(repaymentDebtRef ? { repaymentDebtId } : {}),
+        ...(repaymentDebtRef ? {
+          repaymentDebtId,
+          repaymentCompleted,
+          remaining: Math.max(0, (Number(repaymentDebt?.remaining) || 0) - amount),
+        } : {}),
+        ...(newDebtRef ? { debtId: newDebtRef.id } : {}),
+        source: finalSource || 'Revenu',
         ...(!neutralFlow ? { current: stats.incomes, limit: PLAN_LIMITS.FREE.incomes } : {}),
         ...(projectId ? { projectId, projectName } : {}),
       };
