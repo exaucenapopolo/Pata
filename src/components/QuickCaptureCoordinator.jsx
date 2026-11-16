@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { App } from '@capacitor/app';
+import { useRouter } from 'next/navigation';
 import { Capacitor } from '@capacitor/core';
 import { ReceiptText, X, Check, ArrowDownLeft, ArrowUpRight, LoaderCircle, HandCoins, Mic, MessageCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
@@ -66,12 +67,14 @@ const today = () => {
 const makeId = () => (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : 'quick_' + Date.now() + '_' + Math.random().toString(16).slice(2));
 
 export function QuickCaptureCoordinator() {
+  const router = useRouter();
   const { user } = useAuth();
   const { profile, loading: profileLoading } = useProfile();
   const premium = premiumActive(profile);
   const [draft, setDraft] = useState(null);
   const [working, setWorking] = useState(false);
   const [notice, setNotice] = useState('');
+  const [budgetPrompt, setBudgetPrompt] = useState(null);
   const [error, setError] = useState('');
   const [captureOptions, setCaptureOptions] = useState({ incomes: [], debts: [], receivables: [] });
   const [optionsLoading, setOptionsLoading] = useState(false);
@@ -120,6 +123,7 @@ export function QuickCaptureCoordinator() {
             }
             break;
           }
+          if (result.budgetRecommendation) setBudgetPrompt(result.budgetRecommendation);
           await removeOfflineCapture(item.id);
           if (item.nativeCaptureId) {
             await PataQuickCapture.clearPendingCapture({ id: item.nativeCaptureId }).catch(() => {});
@@ -555,16 +559,21 @@ export function QuickCaptureCoordinator() {
         }
         window.dispatchEvent(new Event('pata:income-balances-refresh'));
       }
-      setNotice(draft.type === 'income'
-        ? draft.incomeFlowType === 'debt_borrowed' ? 'Dette contractée enregistrée dans Pata. Elle reste séparée des revenus gagnés.'
-          : draft.incomeFlowType === 'repayment_received'
-            ? (result.repaymentCompleted ? 'Créance entièrement remboursée : elle est maintenant soldée.' : 'Remboursement reçu enregistré. Reste à recevoir : ' + Number(result.remaining || 0).toLocaleString('fr-FR') + ' FCFA.')
-            : 'Revenu enregistré dans Pata.'
-        : draft.type === 'bill' ? 'Facture enregistrée dans Pata avec son justificatif.'
-          : draft.type === 'debt_borrowed' ? 'Dette contractée enregistrée dans Pata. Elle reste séparée des revenus gagnés.'
-          : draft.type === 'debt_repayment'
-            ? (result.repaymentCompleted ? 'Dette entièrement remboursée : elle est maintenant soldée.' : 'Remboursement enregistré. Solde restant : ' + Number(result.remaining || 0).toLocaleString('fr-FR') + ' FCFA.')
-            : 'Dépense enregistrée dans Pata.');
+      if (result.budgetRecommendation) setBudgetPrompt(result.budgetRecommendation);
+      setNotice(result.budgetRecommendation
+        ? (result.budgetRecommendation.isSalary
+          ? 'Salaire enregistré. Pata te recommande fortement de le répartir en budgets pour couvrir tout le mois.'
+          : 'Revenu enregistré. Pense à le répartir en budgets pour protéger tes priorités.')
+        : draft.type === 'income'
+          ? draft.incomeFlowType === 'debt_borrowed' ? 'Dette contractée enregistrée dans Pata. Elle reste séparée des revenus gagnés.'
+            : draft.incomeFlowType === 'repayment_received'
+              ? (result.repaymentCompleted ? 'Créance entièrement remboursée : elle est maintenant soldée.' : 'Remboursement reçu enregistré. Reste à recevoir : ' + Number(result.remaining || 0).toLocaleString('fr-FR') + ' FCFA.')
+              : 'Revenu enregistré dans Pata.'
+          : draft.type === 'bill' ? 'Facture enregistrée dans Pata avec son justificatif.'
+            : draft.type === 'debt_borrowed' ? 'Dette contractée enregistrée dans Pata. Elle reste séparée des revenus gagnés.'
+            : draft.type === 'debt_repayment'
+              ? (result.repaymentCompleted ? 'Dette entièrement remboursée : elle est maintenant soldée.' : 'Remboursement enregistré. Solde restant : ' + Number(result.remaining || 0).toLocaleString('fr-FR') + ' FCFA.')
+              : 'Dépense enregistrée dans Pata.');
       setDraft(null);
     } catch (saveError) {
       const networkFailure = typeof navigator !== 'undefined' && (!navigator.onLine
@@ -698,7 +707,7 @@ export function QuickCaptureCoordinator() {
     return (
       <>
         {voiceDialogs}
-        {notice && <div role="status" className="fixed bottom-24 left-3 right-3 z-[95] mx-auto flex max-w-md items-start gap-3 rounded-2xl border border-slate-200 bg-white p-3 text-xs leading-5 text-slate-700 shadow-lg"><ReceiptText size={16} className="mt-0.5 shrink-0 text-emerald-700"/><span className="flex-1">{notice}</span><button type="button" onClick={() => setNotice('')} aria-label="Fermer"><X size={14}/></button></div>}
+        {notice && <div role="status" className="fixed bottom-24 left-3 right-3 z-[95] mx-auto flex max-w-md items-start gap-3 rounded-2xl border border-slate-200 bg-white p-3 text-xs leading-5 text-slate-700 shadow-lg"><ReceiptText size={16} className="mt-0.5 shrink-0 text-emerald-700"/><div className="min-w-0 flex-1 space-y-2"><p>{notice}</p>{budgetPrompt && <div className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => { const target = budgetPrompt.target; setBudgetPrompt(null); if (target) router.push(target); }} className="rounded-lg bg-[#075b43] px-3 py-2 text-[11px] font-semibold text-white">Créer un budget lié</button><button type="button" onClick={() => setBudgetPrompt(null)} className="px-2 py-2 text-[11px] font-semibold text-slate-500 underline">Plus tard</button></div>}</div><button type="button" onClick={() => { setNotice(''); setBudgetPrompt(null); }} aria-label="Fermer"><X size={14}/></button></div>}
       </>
     );
   }
