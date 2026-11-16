@@ -375,6 +375,7 @@ export function SmsImportCoordinator() {
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Button size="sm" disabled={workingId === item.id
                     || (item.direction === 'withdrawal' && choice.confirmWithdrawal !== true)
+                    || (!incoming && selectedDebtRepayment && !suggestedDebtId)
                     || (!incoming && item.eventType !== 'withdrawal' && !selectedDebtRepayment && (!selectedExpenseType || (selectedExpenseType === 'project' && !choice.projectId)))} onClick={() => confirm(item)}>
                     <Check size={14}/>{workingId === item.id ? 'Enregistrement…' : warnings[item.id] ? 'Confirmer malgré le budget' : item.eventType === 'withdrawal' ? 'Confirmer le transfert vers espèces' : 'Confirmer l’opération'}
                   </Button>

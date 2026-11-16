@@ -1,7 +1,7 @@
 {
-  "version": "1.1.8",
-  "versionCode": 19,
-  "downloadAvailable": true,
+  "version": "1.1.9",
+  "versionCode": 20,
+  "downloadAvailable": false,
   "apkUrl": "https://github.com/exaucenapopolo/Pata/releases/latest/download/Pata-Android.apk",
-  "releaseNotes": "Pata Quick Capture 1.1.8 : widget Finances redimensionnable avec revenus, dépenses et disponible du mois ; second widget Cotisations en lecture seule ; notification persistante Premium rétablie automatiquement ; confirmations séparées ; saisie directe des revenus nommés, prêts, dettes et factures, avec rappels ciblés pour compléter les échéances et fréquences manquantes."
+  "releaseNotes": "Pata 1.1.9 : compréhension élargie des revenus et dépenses (synonymes, variantes et dates libres) ; échéances automatiques pour factures, dettes et prêts ; widget Finances à cinq indicateurs et sans lecture dédiée lorsqu’il n’est pas installé ; widget Cotisations plus lisible avec actualisation limitée ; fiches factures avec photo et import depuis un PDF ou une image ; transferts Mobile Money classables en remboursement de dette et rattachables à un revenu."
 }
