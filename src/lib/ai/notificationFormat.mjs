@@ -7,7 +7,7 @@ export function sanitizeNotificationReply(value, maxLength = 420) {
     .replace(/<[^>]*>/g, ' ');
   const lines = text.split('\n').map((line) => line
     .replace(/^\s{0,3}#{1,6}\s+/, '')
-    .replace(/^\s*(?:[-*+] \s+|\d+[.)]\s+)/, '')
+    .replace(/^\s*(?:[-*+]\s+|\d+[.)]\s+)/, '')
   ).filter((line) => {
     const clean = line.trim();
     if (!clean) return false;
