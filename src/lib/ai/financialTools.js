@@ -487,7 +487,11 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
     const result = {
       success: true, amount, date, categoryId, expenseType, flowType,
       ...(newDebtRef ? { debtId: newDebtRef.id } : {}),
-      ...(repaymentDebtRef ? { repaymentDebtId } : {}),
+      ...(repaymentDebtRef ? {
+        repaymentDebtId,
+        repaymentCompleted,
+        remaining: Math.max(0, (Number(repaymentDebtSnap?.data()?.remaining) || 0) - amount),
+      } : {}),
       projectId: expenseType === 'project' ? projectId : null,
       projectName: projectName || null,
       allocations: created,
