@@ -69,7 +69,7 @@ public class PataCotisationWidgetProvider extends AppWidgetProvider {
             int minHeight = options == null
                 ? 205
                 : options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 205);
-            int maxRows = minHeight < 145 ? 1 : minHeight < 205 ? 2 : MAX_GROUPS;
+            int maxRows = minHeight < 145 ? 1 : minHeight < 255 ? 2 : MAX_GROUPS;
 
             RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.pata_cotisation_widget);
             views.setTextViewText(R.id.pata_cotisation_widget_count,

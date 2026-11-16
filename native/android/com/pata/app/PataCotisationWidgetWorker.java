@@ -37,26 +37,25 @@ public class PataCotisationWidgetWorker extends Worker {
     }
 
     static void schedule(Context context) {
+        WorkManager workManager = WorkManager.getInstance(context);
         AppWidgetManager manager = AppWidgetManager.getInstance(context);
         int[] widgetIds = manager.getAppWidgetIds(new ComponentName(context, PataCotisationWidgetProvider.class));
         if (widgetIds.length == 0) {
-            WorkManager.getInstance(context).cancelUniqueWork("pata_cotisations_widget_refresh_now");
-            WorkManager.getInstance(context).cancelUniqueWork(UNIQUE_PERIODIC);
+            workManager.cancelUniqueWork("pata_cotisations_widget_refresh_now");
+            workManager.cancelUniquePeriodicWork(UNIQUE_PERIODIC);
             return;
         }
+
+        // Pas de rafraîchissement réseau périodique : une mise à jour ponctuelle
+        // à l'installation, puis lorsque Pata est réellement réouvert.
+        workManager.cancelUniquePeriodicWork(UNIQUE_PERIODIC);
         Constraints constraints = new Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED).build();
         OneTimeWorkRequest immediate = new OneTimeWorkRequest.Builder(PataCotisationWidgetWorker.class)
             .setConstraints(constraints).build();
-        WorkManager.getInstance(context).enqueueUniqueWork(
+        workManager.enqueueUniqueWork(
             "pata_cotisations_widget_refresh_now", ExistingWorkPolicy.KEEP, immediate);
-        PeriodicWorkRequest periodic = new PeriodicWorkRequest.Builder(
-            PataCotisationWidgetWorker.class, 30, TimeUnit.MINUTES)
-            .setConstraints(constraints).build();
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-            UNIQUE_PERIODIC, ExistingPeriodicWorkPolicy.KEEP, periodic);
     }
-
     @NonNull
     @Override
     public Result doWork() {
