@@ -253,6 +253,7 @@ jobs:
           fi
           echo "Keystore Android validé, certificat de distribution identique et bloc buildTypes.release configuré."
 
+      # Publication Android 1.2.1 : génération, contrôle de signature et activation du téléchargement.
       - name: Compiler l'APK release signée
         if: ${{ (inputs.publish_release == 'true' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[PUBLISH_ANDROID_RELEASE]'))) && env.ANDROID_KEYSTORE_BASE64 != '' && env.ANDROID_KEYSTORE_PASSWORD != '' && env.ANDROID_KEY_ALIAS != '' && env.ANDROID_KEY_PASSWORD != '' }}
         run: |
