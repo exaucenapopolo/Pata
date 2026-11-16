@@ -11,6 +11,8 @@ import { claimDailyRetentionSlot, claimDailyNonEssentialSlot, buildCategoryAdvic
 import { AI_TOOLS, createExpenseForUser, updateExpenseForUser, deleteExpenseForUser, deleteIncomeForUser, executeAITool, runAutomationForUser, generateWeeklyReportForUser } from '@/lib/ai/financialTools';
 import { generateAudioWithGemini } from '@/lib/ai/geminiTTS';
 import { buildIncomePriorityReminder } from '@/lib/finance/incomePriorities.mjs';
+import { buildIncomeBudgetRecommendation } from '@/lib/finance/incomeBudgetRecommendation.mjs';
+import { buildRecurringExpenseReminders } from '@/lib/notifications/recurringExpenses.mjs';
 import { sumIncomeSpendTotals } from '@/lib/finance/incomeBalances.mjs';
 import { chatWithGroqVision, extractBillDataWithGroqVision } from '@/lib/ai/groqVision';
 import { generateImageWithPollinations } from '@/lib/ai/pollinationsImage';
@@ -100,18 +102,11 @@ function getStoredTimestampMs(value) {
 }
 
 async function claimScheduledRetentionSlot(userRef, dateKey, notificationKey) {
+  // Les deux rappels financiers du soir ont leur propre compteur.
+  // Ils ne consomment pas les trois créneaux de rétention en journée.
   return adminDb.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(userRef);
     const profile = snapshot.exists ? snapshot.data() || {} : {};
-    const nowMs = Date.now();
-    const sharedClaim = claimDailyNonEssentialSlot({
-      date: profile.dailyNonEssentialDate,
-      count: profile.dailyNonEssentialCount,
-      keys: profile.dailyNonEssentialKeys,
-      lastAt: getStoredTimestampMs(profile.dailyNonEssentialLastAt),
-    }, dateKey, notificationKey, undefined, nowMs);
-    if (!sharedClaim.allowed) return sharedClaim;
-
     const retentionClaim = claimDailyRetentionSlot({
       date: profile.dailyRetentionDate,
       count: profile.dailyRetentionCount,
@@ -124,13 +119,8 @@ async function claimScheduledRetentionSlot(userRef, dateKey, notificationKey) {
       dailyRetentionCount: retentionClaim.state.count,
       dailyRetentionKeys: retentionClaim.state.keys,
       dailyRetentionUpdatedAt: FieldValue.serverTimestamp(),
-      dailyNonEssentialDate: sharedClaim.state.date,
-      dailyNonEssentialCount: sharedClaim.state.count,
-      dailyNonEssentialKeys: sharedClaim.state.keys,
-      dailyNonEssentialLastAt: new Date(sharedClaim.state.lastAt),
-      dailyNonEssentialUpdatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
-    return { ...retentionClaim, sharedRemaining: sharedClaim.remaining };
+    return retentionClaim;
   });
 }
 
@@ -2870,7 +2860,7 @@ async function handleNotificationScheduler(request) {
       if (userData.notificationsDailyDate === today) { skipped += 1; continue; }
       try {
         const monthStart = `${month}-01`;
-        const [todayExpensesSnap, monthExpensesSnap, budgetsSnap, automationsSnap, goalsSnap, monthIncomesSnap, weeklyReportsSnap] = await Promise.all([
+        const [todayExpensesSnap, monthExpensesSnap, budgetsSnap, automationsSnap, goalsSnap, monthIncomesSnap, weeklyReportsSnap, recurringPatternsSnap] = await Promise.all([
           userDoc.ref.collection('expenses').where('date', '==', today).get(),
           userDoc.ref.collection('expenses').where('date', '>=', monthStart).where('date', '<=', today).get(),
           userDoc.ref.collection('budgets').where('month', '==', month).get(),
@@ -2878,6 +2868,9 @@ async function handleNotificationScheduler(request) {
           userDoc.ref.collection('goals').limit(20).get(),
           userDoc.ref.collection('incomes').where('date', '>=', monthStart).where('date', '<=', today).get(),
           userDoc.ref.collection('weekly_reports').orderBy('weekStart', 'desc').limit(1).get(),
+          userData.hasRecurringExpensePatterns === true
+            ? userDoc.ref.collection('recurringExpenses').where('active', '==', true).limit(30).get()
+            : Promise.resolve({ docs: [] }),
         ]);
         const todayExpenses = todayExpensesSnap.docs.map((doc) => doc.data()).filter((item) => !item.neutralFlow && (!item.expenseType || item.expenseType === 'consumption'));
         const monthExpenses = monthExpensesSnap.docs.map((doc) => doc.data()).filter((item) => !item.neutralFlow && (!item.expenseType || item.expenseType === 'consumption'));
@@ -2935,6 +2928,19 @@ async function handleNotificationScheduler(request) {
         }
 
         const candidates = [];
+        const recurringReminders = buildRecurringExpenseReminders(
+          recurringPatternsSnap.docs.map((document) => ({ id: document.id, ...document.data() })),
+          today,
+          7,
+        );
+        if (recurringReminders.length) {
+          const recurring = recurringReminders[0];
+          candidates.push({
+            ...recurring,
+            priority: 98,
+            patternRef: userDoc.ref.collection('recurringExpenses').doc(recurring.patternId),
+          });
+        }
         const budgetRetentionKey = overBudget ? month + ':' + String(overBudget.categoryId || 'other') : '';
         if (overBudget && userData.lastBudgetRetentionKey !== budgetRetentionKey) {
           const categoryName = categoryLabels[overBudget.categoryId] || 'Autres dépenses';
@@ -3171,6 +3177,12 @@ async function handleNotificationScheduler(request) {
         });
         if (selectedCandidate.goalRef) {
           await selectedCandidate.goalRef.update({ lastRetentionReminderDate: today }).catch(() => {});
+        }
+        if (selectedCandidate.patternRef && (delivered > 0 || emailSent)) {
+          await selectedCandidate.patternRef.update({
+            lastReminderDueDate: selectedCandidate.dueDate,
+            lastReminderAt: FieldValue.serverTimestamp(),
+          }).catch(() => {});
         }
         if (delivered > 0 || emailSent) sent += 1;
         else failed += 1;
