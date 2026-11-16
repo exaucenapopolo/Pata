@@ -71,10 +71,14 @@ test('les réponses depuis la notification permanente réutilisent une conversat
   const receiver = read('native/android/com/pata/app/PataQuickCaptureReceiver.java');
   const worker = read('native/android/com/pata/app/PataAIConversationWorker.java');
   assert.match(receiver, /AI_ACTIVE_CONVERSATION\s*=\s*"active_ai_notification_conversation_id"/);
-  assert.match(receiver, /resolveAIConversationId\(Context context, String requestedId\)/);
+  assert.match(receiver, /resolveAIConversationId\(Context context, String requestedId, String ownerUid\)/);
+  assert.match(receiver, /AI_ACTIVE_CONVERSATION_OWNER\s*=\s*"active_ai_notification_conversation_owner_uid"/);
+  assert.match(receiver, /!owner\.equals\(storedOwner\)/);
   assert.match(receiver, /item\.put\("conversationId", resolvedConversationId\)/);
   assert.match(receiver, /remove\(AI_QUEUE\)\.remove\(AI_ACTIVE_CONVERSATION\)/);
+  assert.match(receiver, /remove\(AI_ACTIVE_CONVERSATION_OWNER\)/);
   assert.match(worker, /resolveAIConversationId\(/);
+  assert.match(worker, /queued\.optString\("conversationId", ""\), owner/);
 });
 
 test('Mč recharge les derniers messages de la conversation de notification avant de répondre', () => {
