@@ -7,6 +7,7 @@ import { normalizeSmsBillPayment } from '@/lib/bills/smsBillPayment.mjs';
 import { sendPataEmail, renderPataEmail, escapeEmailHtml } from '@/lib/email/resend';
 import { sendPataWebPush } from '@/lib/notifications/webPush.mjs';
 import { dispatchPushNotification } from '@/lib/notifications/dispatcher.mjs';
+import { buildIncomeBudgetRecommendation } from '@/lib/finance/incomeBudgetRecommendation.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -212,7 +213,19 @@ async function createSmsIncome(uid, transactionHash, item, providerName) {
     });
     return { id: incomeId, duplicate: false };
   });
-  return result;
+  return {
+    ...result,
+    ...(!result.duplicate ? {
+      budgetRecommendation: buildIncomeBudgetRecommendation({
+        incomeId: result.id,
+        amount: item.amount,
+        source: providerName,
+        categoryId: 'other_income',
+        date: item.date,
+        flowType: 'normal',
+      }),
+    } : {}),
+  };
 }
 
 async function notifyAutomaticSmsTransaction(uid, profile, transaction) {
@@ -377,7 +390,7 @@ async function notifyAutomaticSmsTransaction(uid, profile, transaction) {
 
   let emailSent = false;
   let emailStatus = 'no_email';
-  if (email.includes('@')) {
+  if (pushResult.fcmSent + pushResult.webPushSent === 0 && safeProfile.emailRemindersEnabled !== false && email.includes('@')) {
     const operationLabel = requiresReview ? 'Opération à classer'
       : transaction.direction === 'income' ? 'Revenu reçu' : 'Dépense détectée';
     const safeName = escapeEmailHtml(displayName || 'Bonjour');
@@ -571,9 +584,11 @@ async function handleAutomaticDeviceImport(body) {
   try {
     let operationId;
     let budgetWarnings = [];
+    let budgetRecommendation = null;
     if (parsed.direction === 'income') {
       const result = await createSmsIncome(uid, hash, parsed, providerName);
       operationId = result.id;
+      budgetRecommendation = result.budgetRecommendation || null;
     } else {
       const categoryId = inferExpenseCategory(counterparty, parsed.eventType, parsed.suggestedCategoryId);
       const result = await createExpenseForUser(uid, {
@@ -640,6 +655,7 @@ async function handleAutomaticDeviceImport(body) {
     }, { merge: true });
     return NextResponse.json({
       success: true, duplicate: false, operationId, target, budgetWarnings,
+      ...(budgetRecommendation ? { budgetRecommendation } : {}),
       notifications: notificationResult,
     });
   } catch (error) {
@@ -1015,7 +1031,12 @@ export async function POST(request) {
         return { inAppSent: false, notificationError: String(error.message || 'NOTIFICATION_FAILED').slice(0, 120) };
       });
       await ref.set({ notificationStatus: notificationResult, notificationUpdatedAt: FieldValue.serverTimestamp() }, { merge: true });
-      return NextResponse.json({ success: true, operationId, target, ...(billId ? { billId } : {}), notifications: notificationResult });
+      return NextResponse.json({
+        success: true, operationId, target,
+        ...(billId ? { billId } : {}),
+        ...(operationResult.budgetRecommendation ? { budgetRecommendation: operationResult.budgetRecommendation } : {}),
+        notifications: notificationResult,
+      });
     }
 
     return responseError('Action d’import SMS inconnue.', 400);
