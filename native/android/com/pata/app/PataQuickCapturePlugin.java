@@ -427,6 +427,13 @@ public class PataQuickCapturePlugin extends Plugin {
     }
 
     @PluginMethod
+    public void isFinanceWidgetInstalled(PluginCall call) {
+        AppWidgetManager manager = AppWidgetManager.getInstance(getContext());
+        int[] ids = manager.getAppWidgetIds(new ComponentName(getContext(), PataQuickCaptureWidgetProvider.class));
+        call.resolve(new JSObject().put("installed", ids != null && ids.length > 0));
+    }
+
+    @PluginMethod
     public void updateFinanceWidget(PluginCall call) {
         long income = Math.max(0L, Math.min(1000000000000L, call.getLong("incomeTotal", 0L)));
         long expense = Math.max(0L, Math.min(1000000000000L, call.getLong("expenseTotal", 0L)));

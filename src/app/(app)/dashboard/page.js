@@ -255,6 +255,8 @@ export default function DashboardPage() {
     let active = true;
     const updateMonthWidget = async () => {
       try {
+        const widgetState = await PataQuickCapture.isFinanceWidgetInstalled();
+        if (widgetState?.installed !== true) return;
         const today = todayIso();
         const monthKey = today.slice(0, 7);
         const monthStart = monthKey + '-01';
