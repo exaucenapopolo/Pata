@@ -15,22 +15,7 @@ import { getWithdrawalFundingSuggestion } from '@/lib/finance/cashWithdrawal.mjs
 import { subscribeProjects } from '@/lib/firestore/projects';
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '@/lib/constants';
 import { parseMobileMoneySms } from '@/lib/sms/parseMobileMoneySms.mjs';
-function inferSmsBillType(counterparty) {
-  const value = String(counterparty || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase();
-  if (/(eneo|electricite|electricity|sonel)/.test(value)) return 'electricity';
-  if (/(camwater|water|eau)/.test(value)) return 'water';
-  if (/(canal|television|television|tv subscription)/.test(value)) return 'television';
-  if (/(internet|fibre|fiber|wifi|data|forfait internet|bundle internet)/.test(value)) return 'internet';
-  if (/(loyer|rent)/.test(value)) return 'rent';
-  return 'other';
-}
-
-function smsBillCategory(billType) {
-  if (['electricity', 'water', 'rent', 'taxes', 'insurance'].includes(billType)) return 'housing';
-  if (['internet', 'telephone', 'television', 'subscription'].includes(billType)) return 'internet';
-  return 'other';
-}
-
+import { resolveSmsBillChoice, smsBillCategory } from '@/lib/sms/smsBillChoice.mjs';
 function normalizeDebtMatch(value) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
@@ -186,6 +171,7 @@ export function SmsImportCoordinator() {
     setNotice('');
     try {
       const choice = choices[item.id] || {};
+      const { billName, billType, billFrequency, billExpenseCategoryId } = resolveSmsBillChoice(item, choice);
       const isIncome = item.direction === 'income';
       const isCashWithdrawal = item.eventType === 'withdrawal';
       const recordBill = !isIncome && !isCashWithdrawal && choice.recordBill === true;
@@ -193,9 +179,6 @@ export function SmsImportCoordinator() {
       const withdrawalSourceIncomeId = isCashWithdrawal ? (choice.withdrawalSourceIncomeId || withdrawalSuggestion.defaultSourceId) : '';
       const debtCandidates = matchingDebtsForSms(item, debts);
       const repaymentDebtId = recordBill ? '' : (Object.prototype.hasOwnProperty.call(choice, 'repaymentDebtId') ? choice.repaymentDebtId : (debtCandidates.length === 1 ? debtCandidates[0].id : ''));
-      const billType = choice.billType || inferSmsBillType(item.counterparty);
-      const billFrequency = choice.billFrequency || 'monthly';
-      const billExpenseCategoryId = choice.billExpenseCategoryId || smsBillCategory(billType);
       const selectedCategoryId = recordBill
         ? billExpenseCategoryId
         : choice.categoryId || (isIncome ? 'other_income' : item.suggestedCategoryId || 'other');
@@ -211,7 +194,7 @@ export function SmsImportCoordinator() {
         throw new Error('Choisis la dette concernée pour enregistrer ce remboursement.');
       }
       if (recordBill) {
-        if (!String(choice.billName || (item.counterparty ? 'Facture ' + item.counterparty : '')).trim()) {
+        if (!billName) {
           throw new Error('Indique le nom de la facture payée.');
         }
         if (billFrequency !== 'once' && !String(choice.billNextDueDate || '').trim()) {
@@ -241,7 +224,7 @@ export function SmsImportCoordinator() {
           confirmBudgetOverrun: warnings[item.id] === true,
           repaymentDebtId,
           recordBill,
-          billName: String(choice.billName || (item.counterparty ? 'Facture ' + item.counterparty : '')).trim(),
+          billName,
           billType,
           billFrequency,
           billNextDueDate: choice.billNextDueDate || '',
@@ -303,6 +286,7 @@ export function SmsImportCoordinator() {
           {pending.map((item) => {
             const incoming = item.direction === 'income';
             const choice = choices[item.id] || {};
+            const { billName, billType, billFrequency, billExpenseCategoryId } = resolveSmsBillChoice(item, choice);
             const label = item.provider === 'mtn_momo' ? 'MTN MoMo' : 'Orange Money';
             const baseCategories = incoming
               ? INCOME_CATEGORIES.filter((category) => !['debt_borrowed', 'debt_repayment_received'].includes(category.id))
@@ -363,14 +347,14 @@ export function SmsImportCoordinator() {
                       repaymentDebtId: '',
                     })} className={'min-h-10 rounded-lg border px-2 text-xs font-semibold ' + (!choice.recordBill ? 'border-emerald-700 bg-white text-emerald-900' : 'border-slate-200 bg-white text-slate-600')}>Dépense</button>
                     <button type="button" onClick={() => {
-                      const suggestedType = choice.billType || inferSmsBillType(item.counterparty);
+                      const defaults = resolveSmsBillChoice(item, choice);
                       updateChoice(item.id, {
                         recordBill: true,
-                        billName: choice.billName || (item.counterparty ? 'Facture ' + item.counterparty : ''),
-                        billType: suggestedType,
-                        billFrequency: choice.billFrequency || 'monthly',
-                        billExpenseCategoryId: choice.billExpenseCategoryId || smsBillCategory(suggestedType),
-                        categoryId: choice.billExpenseCategoryId || smsBillCategory(suggestedType),
+                        billName: defaults.billName,
+                        billType: defaults.billType,
+                        billFrequency: defaults.billFrequency,
+                        billExpenseCategoryId: defaults.billExpenseCategoryId,
+                        categoryId: defaults.billExpenseCategoryId,
                         expenseType: 'consumption',
                         projectId: '',
                         repaymentDebtId: '',
@@ -380,7 +364,7 @@ export function SmsImportCoordinator() {
                 </div>}
                 {choice.recordBill && !incoming && item.eventType !== 'withdrawal' && <>
                   <label className="mt-3 block text-xs font-semibold text-slate-700">Nom de la facture
-                    <input maxLength={100} value={choice.billName ?? (item.counterparty ? 'Facture ' + item.counterparty : '')} onChange={(event) => updateChoice(item.id, { billName: event.target.value })} placeholder="Ex. Facture ENEO" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800"/>
+                    <input maxLength={100} value={billName} onChange={(event) => updateChoice(item.id, { billName: event.target.value })} placeholder="Ex. Facture ENEO" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800"/>
                   </label>
                   <div className="grid grid-cols-2 gap-2">
                     <label className="mt-2 block text-xs font-semibold text-slate-700">Type de facture
