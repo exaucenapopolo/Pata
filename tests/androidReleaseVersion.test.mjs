@@ -12,9 +12,9 @@ test('la mise à jour Android utilise un code supérieur à la version distribu�
   assert.equal(version.version, '1.2.1');
   assert.equal(version.versionCode, 22);
   assert.match(prepare, /versionCode 22/);
-  assert.match(prepare, /versionName "1\.2\.0"/);
-  assert.match(workflow, /tag_name: android-v1\.2\.0/);
-  assert.match(workflow, /name: Pata Android 1\.2\.0/);
+  assert.match(prepare, /versionName "1\.2\.1"/);
+  assert.match(workflow, /tag_name: android-v1\.2\.1/);
+  assert.match(workflow, /name: Pata Android 1\.2\.1/);
 });
 
 test('le contrôle de mise à jour attend la disponibilité du nouvel APK signé', () => {
