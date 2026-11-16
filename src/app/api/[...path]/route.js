@@ -16,6 +16,7 @@ import { chatWithGroqVision, extractBillDataWithGroqVision } from '@/lib/ai/groq
 import { generateImageWithPollinations } from '@/lib/ai/pollinationsImage';
 import { classifyAIRequest, selectAIToolsForIntent, buildCompactAIContext } from '@/lib/ai/compactContext';
 import { resolveAIReportPeriod } from '@/lib/ai/reportPeriod.mjs';
+import { sanitizeNotificationReply } from '@/lib/ai/notificationFormat.mjs';
 import { buildHelpKnowledgeContext } from '@/lib/ai/helpKnowledge.mjs';
 import { computeGoalPlan, GOAL_LATE_PENALTY_RATE, GOAL_PENALTY_EFFECTIVE_DATE } from '@/lib/goalCalc';
 import { COTISATION_CHAT_PACK_PRICE, COTISATION_CHAT_PACK_SIZE, summarizeCotisationChatQuota, consumeCotisationChatQuota, sanitizeCotisationChatMessage, cotisationChatExpiry } from '@/lib/cotisations/chatPolicy.mjs';
@@ -4995,6 +4996,12 @@ async function handleAIChat(request) {
     const requestTools = selectAIToolsForIntent(AI_TOOLS, intent, latestUserText);
 
     const notificationMode = body.notificationMode === true;
+    const notificationConversationId = notificationMode
+      ? String(body.notificationConversationId || body.clientRequestId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 100)
+      : '';
+    if (notificationMode && !notificationConversationId) {
+      return errorResponse('Identifiant de conversation par notification manquant.', 400);
+    }
     const quota = await reserveDailyAIQuota(uid, { premiumOnly: notificationMode });
     if (!quota.allowed) {
       const message = quota.premiumRequired
@@ -5011,7 +5018,10 @@ async function handleAIChat(request) {
     const reportPeriod = resolveAIReportPeriod(latestUserText, getDoualaToday());
     const userRef = adminDb.collection('users').doc(uid);
     const notificationSessionRef = notificationMode
-      ? userRef.collection('ai_notification_sessions').doc('active')
+      ? userRef.collection('ai_notification_sessions').doc(notificationConversationId)
+      : null;
+    const notificationChatRef = notificationMode
+      ? userRef.collection('ai_chats').doc(notificationConversationId)
       : null;
     const emptySnapshot = { docs: [] };
     const includeIncomeContext = intent.needsIncomes || intent.overview;
@@ -5023,7 +5033,7 @@ async function handleAIChat(request) {
     const [
       userDoc, incomesSnap, expensesSnap, debtsSnap, financialTargetSnap, goalsSnap, budgetsSnap, automationsSnap,
       memorySnap, categoriesSnap, projectsSnap, cotisationMembershipsSnap, activityLogSnap, weeklyReportsSnap,
-      notificationSessionSnap,
+      notificationSessionSnap, notificationChatSnap,
     ] = await Promise.all([
       userRef.get(),
       includeIncomeContext ? incomePeriodQuery.orderBy('date', 'desc').get() : Promise.resolve(emptySnapshot),
@@ -5040,6 +5050,7 @@ async function handleAIChat(request) {
       intent.needsActivityLog ? userRef.collection('activity_log').orderBy('deletedAt', 'desc').limit(15).get() : Promise.resolve(emptySnapshot),
       intent.needsReports ? userRef.collection('weekly_reports').orderBy('weekStart', 'desc').limit(4).get() : Promise.resolve(emptySnapshot),
       notificationSessionRef ? notificationSessionRef.get() : Promise.resolve(null),
+      notificationChatRef ? notificationChatRef.get() : Promise.resolve(null),
     ]);
 
     const goalsWithDeposits = intent.needsGoals
@@ -5206,7 +5217,7 @@ ${userContext}`;
     const notificationInstructions = notificationMode
       ? (isEnglish
         ? '\\n\\nNOTIFICATION CONVERSATION: This is a short, separate Mč conversation started from the persistent Android notification. Use the compact prior context below only to understand follow-ups. Answer in 1–3 short sentences, ideally under 420 characters. Do not mention or modify the full AssistantChat history.'
-        : '\\n\\nCONVERSATION PAR NOTIFICATION : Cette discussion Mč est courte et séparée de la conversation complète AssistantChat. Utilise uniquement le contexte résumé ci-dessous pour comprendre les relances. Réponds en 1 à 3 phrases courtes, idéalement moins de 420 caractères. Ne prétends pas avoir chargé l’historique complet.')
+        : '\\n\\nCONVERSATION PAR NOTIFICATION : Réponds en 1 à 3 phrases simples, moins de 420 caractères. Aucun tableau, aucune liste, aucune puce, aucun titre Markdown, aucun astérisque, aucun bloc de code ni symbole décoratif. Donne uniquement l’information utile. Cette conversation reste séparée de l’historique de l’assistant ouvert dans l’application.')
         + (notificationSummary ? (isEnglish ? '\\nPrevious notification context: ' : '\\nRésumé de la conversation via notification : ') + notificationSummary : '')
       : '';
     let modelMessages = [
@@ -5314,7 +5325,8 @@ ${userContext}`;
     }
 
     if (notificationMode) {
-      const notificationReply = String(reply || '').trim().slice(0, 520);
+      const notificationReply = sanitizeNotificationReply(reply, 420)
+        || 'J’ai préparé les informations. Ouvre Pata pour consulter les détails.';
       const nextSummary = [
         notificationSummary,
         'Utilisateur: ' + latestUserText.slice(-320),
@@ -5326,6 +5338,28 @@ ${userContext}`;
         lastReply: notificationReply,
         updatedAt: FieldValue.serverTimestamp(),
       }, { merge: true });
+
+      const requestId = String(body.clientRequestId || '').trim().slice(0, 120);
+      await adminDb.runTransaction(async (transaction) => {
+        const snapshot = await transaction.get(notificationChatRef);
+        const existing = snapshot.exists ? snapshot.data() || {} : {};
+        const processedIds = Array.isArray(existing.processedRequestIds)
+          ? existing.processedRequestIds.map(String)
+          : [];
+        if (requestId && processedIds.includes(requestId)) return;
+        const messages = Array.isArray(existing.messages) ? existing.messages.slice(-58) : [];
+        messages.push({ role: 'user', content: latestUserText.slice(-1800) });
+        messages.push({ role: 'assistant', content: notificationReply });
+        transaction.set(notificationChatRef, {
+          title: String(existing.title || latestUserText || 'Discussion par notification').slice(0, 60),
+          source: 'notification',
+          pinned: existing.pinned === true,
+          messages: messages.slice(-60),
+          processedRequestIds: requestId ? [...processedIds, requestId].slice(-60) : processedIds,
+          createdAt: existing.createdAt || FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+      });
       return NextResponse.json({
         success: true,
         reply: notificationReply,
