@@ -231,8 +231,21 @@ function extractCounterparty(text, type) {
     .replace(/\b(une|un|de|du|des|chez|aupres|a|pour|la|le|les|mon|ma|mes|moi|lui|elle|il|me|te|se|son|sa|ses)\b/gi, " ")
     .replace(/[^a-z0-9' -]/g, " ").replace(/\s+/g, " ").trim();
   if (!value) return "";
-  const tokens = value.split(" ").filter(Boolean);
-  const name = tokens.slice(-4).join(" ").slice(0, 100);
+  const normalizedName = value.split(" ").filter(Boolean).slice(-4);
+  const rawTokens = String(text || "").match(/[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’-]*/g) || [];
+  const preserved = [];
+  let cursor = rawTokens.length - 1;
+  for (let index = normalizedName.length - 1; index >= 0; index--) {
+    const target = normalizedName[index];
+    while (cursor >= 0) {
+      const candidate = rawTokens[cursor--];
+      if (normalize(candidate) === target) {
+        preserved.unshift(candidate);
+        break;
+      }
+    }
+  }
+  const name = (preserved.length ? preserved.join(" ") : normalizedName.join(" ")).slice(0, 100);
   return name ? name.charAt(0).toLocaleUpperCase("fr-FR") + name.slice(1) : "";
 }
 function cleanNote(text, categoryAliases = [], beforeAmountOnly = false) {
@@ -295,6 +308,7 @@ export function parseQuickCapture(input, now = new Date()) {
   const explicitDateLabels = /(?:date de (?:transaction|l'operation|operation|paiement|l'achat|achat|facture)|date (?:de )?(?:transaction|paiement|achat)|effectue le|operation du|transaction du)/.test(normalized);
   const income = INCOME_RULES.find((rule) => matchesRules(normalized, rule));
   const expense = EXPENSE_RULES.find((rule) => matchesRules(normalized, rule));
+  const incomeSourceName = extractIncomeSourceName(raw);
   const incomeVerb = /\b(recu|recois|reception|encaisse|encaissement|gagne|touche|versement recu|revenu|recette|remuneration|on m'a envoye|jai recu|on m'a paye|credit de mon compte|argent recu|entree d'argent)\b/.test(normalized);
   const expenseVerb = /\b(depense|depens|paye|payer|achete|achat|sorti|sortie|regle|reglement|consomme|consommation|utilise|utilisation|j'ai mange|jai mange)\b/.test(normalized);
   let type = null;
@@ -302,6 +316,7 @@ export function parseQuickCapture(input, now = new Date()) {
   else if (hasRepayment) type = "debt_repayment";
   else if (hasLoan) type = "loan_given";
   else if (hasDebt) type = "debt_borrowed";
+  else if (expense && (expenseVerb || incomeSourceName)) type = "expense";
   else if (income || incomeVerb) type = "income";
   else if (expense || expenseVerb || (amount && cleanNote(raw))) type = "expense";
 
@@ -316,7 +331,6 @@ export function parseQuickCapture(input, now = new Date()) {
       : type === "debt_repayment" ? "debt_repayment" : null;
   const person = type === "loan_given" || type === "debt_borrowed" || type === "debt_repayment"
     ? extractCounterparty(raw, type) : "";
-  const incomeSourceName = type === "expense" ? extractIncomeSourceName(raw) : "";
   const note = cleanNote(raw, type === "expense" ? expense?.[2] || [] : type === "bill" ? bill?.categoryAliases || [] : [], type === "expense");
   const source = type === "income" ? extractIncomeSource(raw, categoryId, income?.[1]) : "";
   const dueDate = hasRepayment ? null : extractDueDate(raw, now, hasBill, hasLoan, hasDebt);
