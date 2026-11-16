@@ -80,8 +80,8 @@ test('le widget financier se rafraîchit en arrière-plan avec le compte Premium
 
 test('le widget est vidé et son rafraîchissement annulé à la déconnexion ou à la perte Premium', () => {
   const plugin = read('native/android/com/pata/app/PataQuickCapturePlugin.java');
-  assert.match(plugin, /public void clearAuthSession/);
-  assert.match(plugin, /putBoolean\\("premium_enabled", false\\)/);
-  assert.match(plugin, /cancelUniqueWork\\("pata_finance_widget_refresh"\\)/);
-  assert.match(plugin, /public void clearFinanceWidget/);
+  assert.ok(plugin.includes('public void clearAuthSession'));
+  assert.ok(plugin.includes('putBoolean("premium_enabled", false)'));
+  assert.ok(plugin.includes('cancelUniqueWork("pata_finance_widget_refresh")'));
+  assert.ok(plugin.includes('public void clearFinanceWidget'));
 });
