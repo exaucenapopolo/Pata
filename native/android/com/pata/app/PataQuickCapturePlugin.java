@@ -53,6 +53,8 @@ public class PataQuickCapturePlugin extends Plugin {
     private static final int NOTIFICATION_ID = 74021;
     private static final int NOTIFICATION_EVENT_BASE = 75000;
     private static final String EVENT_CHANNEL = "pata_quick_capture_events";
+    private static final String AI_CHANNEL = "pata_ai_notification_chat";
+    private static final int AI_NOTIFICATION_ID = 74221;
     private static final String QUEUE = "pending_quick_captures";
 
     @PluginMethod
@@ -79,6 +81,7 @@ public class PataQuickCapturePlugin extends Plugin {
         try {
             PataQuickCaptureAuthStore.save(getContext(), uid, refreshToken, apiKey);
             PataQuickCaptureReceiver.schedulePending(getContext(), uid);
+            PataQuickCaptureReceiver.schedulePendingAI(getContext(), uid);
             PataCotisationWidgetWorker.schedule(getContext());
             call.resolve(new JSObject().put("saved", true));
         } catch (Exception error) {
@@ -93,6 +96,7 @@ public class PataQuickCapturePlugin extends Plugin {
             .putBoolean("persistent_disabled_by_user", false)
             .remove("quick_capture_uid").apply();
         PataQuickCaptureAuthStore.clear(getContext());
+        PataQuickCaptureReceiver.clearPendingAI(getContext());
         NotificationManager manager = (NotificationManager) getContext().getSystemService(Context.NOTIFICATION_SERVICE);
         if (manager != null) manager.cancel(NOTIFICATION_ID);
         PataCotisationWidgetProvider.updateData(getContext(), new JSONArray(), "");
@@ -192,6 +196,13 @@ public class PataQuickCapturePlugin extends Plugin {
         RemoteInput remoteInput = new RemoteInput.Builder(PataQuickCaptureReceiver.REMOTE_KEY)
             .setLabel("Ex. 500 transport ou salaire 100 000 FCFA").build();
 
+        Intent aiReplyIntent = new Intent(context, PataQuickCaptureReceiver.class)
+            .setAction(PataQuickCaptureReceiver.ACTION_AI_REPLY);
+        PendingIntent aiReplyPending = PendingIntent.getBroadcast(context, 747, aiReplyIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT | mutableFlag);
+        RemoteInput aiRemoteInput = new RemoteInput.Builder(PataQuickCaptureReceiver.AI_REMOTE_KEY)
+            .setLabel("Écris à Mč…").build();
+
         NotificationCompat.Builder builder = new NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_pata)
             .setContentTitle("Pata · Saisie rapide")
@@ -208,10 +219,63 @@ public class PataQuickCapturePlugin extends Plugin {
                 R.drawable.ic_shortcut_expense, "Saisir", replyPending)
                 .addRemoteInput(remoteInput)
                 .setAllowGeneratedReplies(true)
+                .build())
+            // La saisie reste la première action et le parcours principal.
+            .addAction(new NotificationCompat.Action.Builder(
+                R.drawable.ic_stat_pata, "Parler avec Mč", aiReplyPending)
+                .addRemoteInput(aiRemoteInput)
+                .setAllowGeneratedReplies(true)
                 .build());
         Notification notification = builder.build();
         notification.flags |= Notification.FLAG_NO_CLEAR;
         manager.notify(NOTIFICATION_ID, notification);
+    }
+
+    static void showAIConversationReplyNotification(Context context, String message) {
+        showAIConversationReplyNotification(context, "Mč", message, "/dashboard");
+    }
+
+    static void showAIConversationReplyNotification(Context context, String title, String message, String targetPath) {
+        if (!notificationsAllowed(context)) return;
+        NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (manager == null) return;
+        if (Build.VERSION.SDK_INT >= 26) {
+            NotificationChannel channel = new NotificationChannel(
+                AI_CHANNEL, "Conversation Mč", NotificationManager.IMPORTANCE_DEFAULT);
+            channel.setDescription("Réponses courtes de Mč directement depuis les notifications Pata.");
+            channel.setShowBadge(false);
+            manager.createNotificationChannel(channel);
+        }
+        Intent open = new Intent(context, MainActivity.class)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            .putExtra("pata_notification_target", targetPath == null || targetPath.trim().isEmpty() ? "/dashboard" : targetPath);
+        PendingIntent content = PendingIntent.getActivity(context, 74221, open,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        Intent replyIntent = new Intent(context, PataQuickCaptureReceiver.class)
+            .setAction(PataQuickCaptureReceiver.ACTION_AI_REPLY);
+        int mutableFlag = Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0;
+        PendingIntent replyPending = PendingIntent.getBroadcast(context, 74222, replyIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT | mutableFlag);
+        RemoteInput remoteInput = new RemoteInput.Builder(PataQuickCaptureReceiver.AI_REMOTE_KEY)
+            .setLabel("Répondre à Mč…").build();
+        String safeMessage = message == null ? "" : message.trim();
+        Notification notification = new NotificationCompat.Builder(context, AI_CHANNEL)
+            .setSmallIcon(R.drawable.ic_stat_pata)
+            .setContentTitle(title == null || title.trim().isEmpty() ? "Mč · Pata" : title)
+            .setContentText(safeMessage)
+            .setStyle(new NotificationCompat.BigTextStyle().bigText(safeMessage))
+            .setContentIntent(content)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .setOngoing(false)
+            .setOnlyAlertOnce(true)
+            .addAction(new NotificationCompat.Action.Builder(
+                R.drawable.ic_stat_pata, "Répondre", replyPending)
+                .addRemoteInput(remoteInput)
+                .setAllowGeneratedReplies(true)
+                .build())
+            .build();
+        manager.notify(AI_NOTIFICATION_ID, notification);
     }
 
     static void showCaptureResultNotification(Context context, String captureId, String message) {

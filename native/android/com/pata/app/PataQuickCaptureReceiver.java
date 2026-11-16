@@ -23,6 +23,9 @@ public class PataQuickCaptureReceiver extends BroadcastReceiver {
     static final String QUEUE = "pending_quick_captures";
     static final String REMOTE_KEY = "pata_quick_capture_reply";
     static final String ACTION_REPLY = "com.pata.app.QUICK_CAPTURE_REPLY";
+    static final String ACTION_AI_REPLY = "com.pata.app.AI_NOTIFICATION_REPLY";
+    static final String AI_REMOTE_KEY = "pata_ai_notification_reply";
+    static final String AI_QUEUE = "pending_ai_notification_replies";
     static final String ACTION_RESTORE = "com.pata.app.QUICK_CAPTURE_RESTORE";
 
     @Override
@@ -35,7 +38,19 @@ public class PataQuickCaptureReceiver extends BroadcastReceiver {
             SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
             if (prefs.getBoolean("persistent_enabled", false)) {
                 PataQuickCapturePlugin.showPersistentNotification(context, null);
+                PataQuickCaptureAuthStore.Session session = PataQuickCaptureAuthStore.read(context);
+                if (session != null) schedulePendingAI(context, session.uid);
             }
+            return;
+        }
+        if (ACTION_AI_REPLY.equals(action)) {
+            Bundle results = RemoteInput.getResultsFromIntent(intent);
+            if (results == null) return;
+            CharSequence reply = results.getCharSequence(AI_REMOTE_KEY);
+            String text = reply == null ? "" : reply.toString().trim();
+            if (text.isEmpty()) return;
+            PataQuickCaptureAuthStore.Session session = PataQuickCaptureAuthStore.read(context);
+            enqueueAIReply(context, text, session == null ? "" : session.uid);
             return;
         }
         if (!ACTION_REPLY.equals(action)) return;
@@ -82,6 +97,99 @@ public class PataQuickCaptureReceiver extends BroadcastReceiver {
         schedule(context, id);
         PataQuickCapturePlugin.showPersistentNotification(context, null);
         return id;
+    }
+
+    static String enqueueAIReply(Context context, String text, String ownerUid) {
+        if (text == null || text.trim().isEmpty()) return "";
+        if (ownerUid == null || ownerUid.trim().isEmpty()) {
+            PataQuickCapturePlugin.showAIConversationReplyNotification(context,
+                "Reconnecte-toi à Pata pour parler avec Mč.");
+            return "";
+        }
+        String id = UUID.randomUUID().toString().replace("-", "");
+        synchronized (PataQuickCaptureReceiver.class) {
+            SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            JSONArray queue;
+            try { queue = new JSONArray(prefs.getString(AI_QUEUE, "[]")); }
+            catch (Exception ignored) { queue = new JSONArray(); }
+            if (queue.length() >= 12) {
+                JSONArray trimmed = new JSONArray();
+                for (int i = Math.max(1, queue.length() - 10); i < queue.length(); i++) {
+                    JSONObject item = queue.optJSONObject(i);
+                    if (item != null) trimmed.put(item);
+                }
+                queue = trimmed;
+            }
+            JSONObject item = new JSONObject();
+            try {
+                item.put("id", id);
+                item.put("text", text.trim().substring(0, Math.min(1200, text.trim().length())));
+                item.put("ownerUid", ownerUid);
+                item.put("createdAt", System.currentTimeMillis());
+                queue.put(item);
+                prefs.edit().putString(AI_QUEUE, queue.toString()).apply();
+            } catch (Exception ignored) { return ""; }
+        }
+        scheduleAIReply(context, id);
+        PataQuickCapturePlugin.showPersistentNotification(context, null);
+        return id;
+    }
+
+    static void scheduleAIReply(Context context, String id) {
+        Constraints constraints = new Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED).build();
+        Data input = new Data.Builder().putString("ai_reply_id", id).build();
+        OneTimeWorkRequest work = new OneTimeWorkRequest.Builder(PataAIConversationWorker.class)
+            .setInputData(input).setConstraints(constraints)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 20, TimeUnit.SECONDS).build();
+        // Les réponses sont ajoutées à une seule chaîne pour conserver l'ordre des échanges.
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            "pata_ai_notification_conversation", ExistingWorkPolicy.APPEND_OR_REPLACE, work);
+    }
+
+    static void schedulePendingAI(Context context, String uid) {
+        if (uid == null || uid.isEmpty()) return;
+        JSONArray queue;
+        try { queue = new JSONArray(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(AI_QUEUE, "[]")); }
+        catch (Exception ignored) { return; }
+        for (int i = 0; i < queue.length(); i++) {
+            JSONObject item = queue.optJSONObject(i);
+            if (item == null || !uid.equals(item.optString("ownerUid", ""))) continue;
+            scheduleAIReply(context, item.optString("id", ""));
+        }
+    }
+
+    static JSONObject findAI(Context context, String id) {
+        synchronized (PataQuickCaptureReceiver.class) {
+            JSONArray queue;
+            try { queue = new JSONArray(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(AI_QUEUE, "[]")); }
+            catch (Exception ignored) { return null; }
+            for (int i = 0; i < queue.length(); i++) {
+                JSONObject item = queue.optJSONObject(i);
+                if (item != null && id.equals(item.optString("id"))) return item;
+            }
+        }
+        return null;
+    }
+
+    static void removeAI(Context context, String id) {
+        synchronized (PataQuickCaptureReceiver.class) {
+            SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            JSONArray queue;
+            try { queue = new JSONArray(prefs.getString(AI_QUEUE, "[]")); }
+            catch (Exception ignored) { queue = new JSONArray(); }
+            JSONArray remaining = new JSONArray();
+            for (int i = 0; i < queue.length(); i++) {
+                JSONObject item = queue.optJSONObject(i);
+                if (item != null && !id.equals(item.optString("id"))) remaining.put(item);
+            }
+            prefs.edit().putString(AI_QUEUE, remaining.toString()).apply();
+        }
+    }
+
+    static void clearPendingAI(Context context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(AI_QUEUE).apply();
+        WorkManager.getInstance(context).cancelUniqueWork("pata_ai_notification_conversation");
     }
 
     static void schedule(Context context, String id) {
