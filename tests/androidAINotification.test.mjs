@@ -44,7 +44,11 @@ test('le composeur vocal peut afficher la réponse Mč dans une notification And
   const plugin = read('native/android/com/pata/app/PataQuickCapturePlugin.java');
   const coordinator = read('src/components/QuickCaptureCoordinator.jsx');
   assert.match(plugin, /public void showAIConversationReply\(PluginCall call\)/);
-  assert.match(plugin, /showAIConversationReplyNotification\(getContext\(\), title, message, "\/dashboard"\)/);
+  assert.match(plugin, /showAIConversationReplyNotification\(getContext\(\), title, message, "\/dashboard", conversationId\)/);
+  assert.match(coordinator, /notificationConversationId: voiceChatConversationId/);
+  assert.match(coordinator, /conversationId: voiceChatConversationId/);
+  assert.match(plugin, /pata_ai_conversation_id/);
+  assert.match(worker, /notificationConversationId/);
   assert.match(coordinator, /PataQuickCapture\.showAIConversationReply\(/);
   assert.match(coordinator, /notificationMode: true/);
 });
