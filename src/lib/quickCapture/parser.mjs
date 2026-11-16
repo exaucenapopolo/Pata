@@ -164,20 +164,11 @@ function stripAliasTerms(text, aliases = [], beforeAmountOnly = false) {
     ? amountMatch.index + amountMatch[0].length - amountMatch[1].length
     : original.length;
   let before = original.slice(0, amountStart);
-  let after = original.slice(amountStart);
+  const after = original.slice(amountStart);
   for (const alias of aliases) {
     const target = normalize(alias);
     if (!target || !hasAlias(before, target)) continue;
-    const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, "\\function stripAliasTerms(text, aliases = []) {
-  let value = String(text || "");
-  for (const alias of aliases) {
-    const target = normalize(alias);
-    if (!target || !hasAlias(value, target)) continue;
-    const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
-    value = value.replace(new RegExp("(^|[^a-z0-9])" + escaped + "($|[^a-z0-9])", "gi"), " ");
-  }
-  return value;
-}").replace(/\s+/g, "\\s+");
+    const escaped = target.replace(/[.*+?^$()|[\]{}\\]/g, '\\$&').replace(/\s+/g, '\\s+');
     const exact = new RegExp("(^|[^a-z0-9])" + escaped + "($|[^a-z0-9])", "i");
     if (exact.test(before)) {
       before = before.replace(exact, " ");
@@ -186,7 +177,10 @@ function stripAliasTerms(text, aliases = [], beforeAmountOnly = false) {
     if (!target.includes(" ") && target.length >= 6) {
       const words = before.match(/[a-z0-9]+/gi) || [];
       const misspelling = words.find((word) => editDistanceAtMostOne(normalize(word), target));
-      if (misspelling) before = before.replace(new RegExp("(^|[^a-z0-9])" + misspelling + "($|[^a-z0-9])", "i"), " ");
+      if (misspelling) {
+        const safeWord = misspelling.replace(/[.*+?^$()|[\]{}\\]/g, '\\$&');
+        before = before.replace(new RegExp("(^|[^a-z0-9])" + safeWord + "($|[^a-z0-9])", "i"), " ");
+      }
     }
   }
   if (beforeAmountOnly) return before + after;
@@ -194,16 +188,7 @@ function stripAliasTerms(text, aliases = [], beforeAmountOnly = false) {
   for (const alias of aliases) {
     const target = normalize(alias);
     if (!target || !hasAlias(value, target)) continue;
-    const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, "\\function stripAliasTerms(text, aliases = []) {
-  let value = String(text || "");
-  for (const alias of aliases) {
-    const target = normalize(alias);
-    if (!target || !hasAlias(value, target)) continue;
-    const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
-    value = value.replace(new RegExp("(^|[^a-z0-9])" + escaped + "($|[^a-z0-9])", "gi"), " ");
-  }
-  return value;
-}").replace(/\s+/g, "\\s+");
+    const escaped = target.replace(/[.*+?^$()|[\]{}\\]/g, '\\$&').replace(/\s+/g, '\\s+');
     value = value.replace(new RegExp("(^|[^a-z0-9])" + escaped + "($|[^a-z0-9])", "gi"), " ");
   }
   return value;
