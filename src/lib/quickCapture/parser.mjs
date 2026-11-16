@@ -120,7 +120,7 @@ function extractAmount(text) {
     .replace(/\b[0-3]?\d[/.\-][01]?\d(?:[/.\-]20\d{2})?\b/g, " ")
     .replace(/\b\d{1,2}(?:er)?\s+(?:janvier|janv|fevrier|fevr|fev|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)(?:\s+20\d{2})?\b/gi, " ")
     .replace(/\b(?:janvier|janv|fevrier|fevr|fev|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)\s+\d{1,2}(?:\s+20\d{2})?\b/gi, " ");
-  const match = amountText.match(/(?:^|\D)(\d{1,3}(?:[ .,'’]\d{3})+|\d{1,10})(?:\s*(?:fcfa|xaf|cfa|francs?))?/i);
+  const match = amountText.match(/(?:^|\D)(\d{1,3}(?:[ .,'’]\d{3})+|\d{1,10})(?:\s*(?:fcfa|xaf|cfa|francs?|euros?|eur|eru))?/i);
   if (!match) return null;
   const amount = Number(match[1].replace(/\D/g, ""));
   return Number.isSafeInteger(amount) && amount > 0 && amount <= 1000000000 ? amount : null;
@@ -130,7 +130,7 @@ function stripAmountsAndDates(value) {
     .replace(/\b20\d{2}-\d{1,2}-\d{1,2}\b/g, " ")
     .replace(/\b[0-3]?\d[/.\-][01]?\d(?:[/.\-]20\d{2})?\b/g, " ")
     .replace(/\b\d{1,3}(?:[ .,'’]\d{3})+\b|\b\d{1,10}\b/g, " ")
-    .replace(/\b(fcfa|xaf|cfa|francs?)\b/gi, " ")
+    .replace(/\b(fcfa|xaf|cfa|francs?|euros?|eur|eru)\b/gi, " ")
     .replace(/\b(demain|hier|apres demain|echeance|date limite|a rendre|avant le|date|le|du|pour le|a payer le)\b/gi, " ")
     .replace(/[,:;.!?]/g, " ").replace(/\s+/g, " ").trim();
 }

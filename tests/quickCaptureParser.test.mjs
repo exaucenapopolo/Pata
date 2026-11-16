@@ -185,3 +185,18 @@ test('détecte correctement le montant après une date écrite avec le mois en p
   assert.equal(result.amount, 750);
   assert.equal(result.dueDate, "2026-11-17");
 });
+
+test('ne conserve pas une devise mal transcrite dans la note de dépense', () => {
+  const result = parseQuickCapture("nourriture 500 eru", now);
+  assert.equal(result.type, "expense");
+  assert.equal(result.amount, 500);
+  assert.equal(result.categoryId, "food");
+  assert.equal(result.note, "");
+});
+test('reconnaît une dette lorsque la date précède le montant', () => {
+  const result = parseQuickCapture("dette à Paul 20 novembre 300 euros", now);
+  assert.equal(result.type, "debt_borrowed");
+  assert.equal(result.amount, 300);
+  assert.equal(result.person, "Paul");
+  assert.equal(result.dueDate, "2026-11-20");
+});
