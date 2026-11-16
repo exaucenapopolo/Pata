@@ -9,6 +9,7 @@ const sample = {
     { date: '2026-11-11', amount: 3000, categoryId: 'transport', expenseType: 'consumption', neutralFlow: true, flowType: 'repayment' },
     { date: '2026-11-16', amount: 500, categoryId: 'transport', expenseType: 'consumption', note: 'Taxi' },
     { date: '2026-11-16', amount: 2000, categoryId: 'phone', expenseType: 'project', note: 'Accessoire' },
+    { date: '2026-11-16', amount: 3000, categoryId: 'debt_repayment', expenseType: 'consumption', neutralFlow: true, flowType: 'repayment', note: 'Remboursement' },
     { date: '2026-11-15', amount: 1000, categoryId: 'food', expenseType: 'consumption' },
   ],
   budgets: [{ month: '2026-11', categoryId: 'transport', amount: 30000, incomeSourceId: 'all' }],
@@ -17,10 +18,12 @@ const sample = {
 
 test('calcule les dépenses exactes du jour et distingue consommation, projet et autres sorties', () => {
   const facts = buildDailySpendingFacts(sample);
-  assert.equal(facts.todayTotal, 2500);
-  assert.equal(facts.todayCount, 2);
+  assert.equal(facts.todayTotal, 5500);
+  assert.equal(facts.todayCount, 3);
   assert.equal(facts.todayByType.consumption, 500);
   assert.equal(facts.todayByType.project, 2000);
+  assert.equal(facts.todayByType.other, 3000);
+  assert.equal(facts.todayOperations[2].type, 'Autre sortie / flux neutre');
   assert.equal(facts.todayOperations[0].category, 'Transport');
 });
 

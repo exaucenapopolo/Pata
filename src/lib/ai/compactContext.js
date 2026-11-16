@@ -143,7 +143,7 @@ export function buildCompactAIContext(data = {}, intent = {}) {
       proposedSpendText: data.latestUserText,
     });
     lines.push('DÉPENSES ENREGISTRÉES AUJOURD’HUI (date locale Africa/Douala, toutes les opérations trouvées):');
-    lines.push(`Date ${dailyFacts.today} | total des sorties ${money(dailyFacts.todayTotal)} FCFA | ${dailyFacts.todayCount} opération(s) | consommation ${money(dailyFacts.todayByType.consumption)} FCFA | projets ${money(dailyFacts.todayByType.project)} FCFA | épargne ${money(dailyFacts.todayByType.savings)} FCFA | investissements ${money(dailyFacts.todayByType.investment)} FCFA`);
+    lines.push(`Date ${dailyFacts.today} | total des sorties ${money(dailyFacts.todayTotal)} FCFA | ${dailyFacts.todayCount} opération(s) | consommation ${money(dailyFacts.todayByType.consumption)} FCFA | projets ${money(dailyFacts.todayByType.project)} FCFA | épargne ${money(dailyFacts.todayByType.savings)} FCFA | investissements ${money(dailyFacts.todayByType.investment)} FCFA | autres flux et remboursements ${money(dailyFacts.todayByType.other)} FCFA`);
     if (dailyFacts.todayOperations.length) {
       lines.push(...dailyFacts.todayOperations.map((item) => `Aujourd’hui: ${money(item.amount)} FCFA | ${item.category} | ${item.type} | ${item.note || 'Sans note'}`));
     } else {

@@ -28,8 +28,6 @@ export function buildDailySpendingFacts({ today, expenses = [], budgets = [], ca
   const month = todayDate.slice(0, 7);
   const todayRows = expenses.filter((item) => isoDate(item.date) === todayDate);
   const monthlyRows = expenses.filter((item) => isoDate(item.date).slice(0, 7) === month);
-  const typeOf = (item) => ['consumption', 'project', 'savings', 'investment'].includes(item.expenseType)
-    ? item.expenseType : 'consumption';
   // Reproduit exactement les exclusions du contrôle financier Pata pour expenseLimit.
   const isOrdinaryExpense = (item) => !(
     item.neutralFlow === true
@@ -38,6 +36,34 @@ export function buildDailySpendingFacts({ today, expenses = [], budgets = [], ca
     || ['loan_given', 'debt_repayment'].includes(item.categoryId)
     || (item.expenseType && item.expenseType !== 'consumption')
   );
+  const typeOf = (item) => {
+    if (['project', 'savings', 'investment'].includes(item.expenseType)) return item.expenseType;
+    return isOrdinaryExpense(item) ? 'consumption' : 'other';
+  };
+  const monthConsumptionRows = monthlyRows.filter(isOrdinaryExpense);
+  const todayConsumptionRows = todayRows.filter(isOrdinaryExpense);
+  const todayByType = todayRows.reduce((totals, item) => {
+    totals[typeOf(item)] += numericAmount(item.amount);
+    return totals;
+  }, { consumption: 0, project: 0, savings: 0, investment: 0, other: 0 });
+  const todayOperations = todayRows.map((item) => {
+    const category = categories.find((candidate) => candidate.id === item.categoryId);
+    const categoryName = category?.name || item.categoryName || item.categoryId || 'Catégorie non précisée';
+    const typeLabels = {
+      consumption: 'Consommation',
+      project: 'Projet',
+      savings: 'Épargne',
+      investment: 'Investissement',
+      other: 'Autre sortie / flux neutre',
+    };
+    return {
+      amount: numericAmount(item.amount),
+      category: String(categoryName).slice(0, 50),
+      type: typeLabels[typeOf(item)],
+      note: String(item.note || '').slice(0, 100),
+    };
+  });
+  const todayTotal = todayRows.reduce((sum, item) => sum + numericAmount(item.amount), 0);
   const monthConsumptionRows = monthlyRows.filter(isOrdinaryExpense);
   const todayConsumptionRows = todayRows.filter(isOrdinaryExpense);
   const todayByType = todayRows.reduce((totals, item) => {
