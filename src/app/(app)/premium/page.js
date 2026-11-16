@@ -11,6 +11,17 @@ import { formatCurrency } from '@/lib/utils';
 
 const PRICE = 2500;
 const BENEFITS = [
+  { group: 'Automatisation et saisie intelligente', items: [
+    ['Détection automatique des SMS entrants et sortants Mobile Money', false, true],
+    ['Enregistrement automatique des opérations reconnues par SMS', false, true],
+    ['Saisie rapide depuis la notification permanente Pata', false, true],
+    ['Saisie conservée hors connexion puis synchronisée automatiquement', false, true],
+    ['Reconnaissance des emprunts, dettes et remboursements en langage naturel', false, true],
+    ['Conversation Mč directement depuis les notifications', false, true],
+    ['Historique séparé des conversations Mč par notification', false, true],
+    ['Épingler les conversations importantes de Mč', false, true],
+    ['Widget Android des soldes financiers du tableau de bord', false, true],
+  ]},
   { group: 'Gestion quotidienne', items: [
     ['Enregistrer des dépenses', '60 par mois', 'Sans limite'],
     ['Enregistrer des revenus', '2 par mois', 'Sans limite'],
@@ -33,8 +44,6 @@ const BENEFITS = [
     ['Analyse de scénarios et recommandations', true, true],
   ]},
   { group: 'Suivi Mobile Money', items: [
-    ['Détection des confirmations Mobile Money', false, true],
-    ['Enregistrement automatique des opérations détectées', false, true],
     ['Détection et classement des retraits MTN et Orange', false, true],
     ['Rapprochement des retraits avec un revenu déjà suivi', false, true],
     ['Suivi séparé de l’argent disponible en espèces', false, true],
