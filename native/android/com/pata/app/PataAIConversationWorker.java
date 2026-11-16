@@ -59,7 +59,7 @@ public class PataAIConversationWorker extends Worker {
                 String reply = body.optString("reply", "").trim();
                 if (reply.isEmpty()) reply = "Je suis là. Peux-tu préciser ta demande ?";
                 PataQuickCaptureReceiver.removeAI(context, id);
-                PataQuickCapturePlugin.showAIConversationReplyNotification(context, "Mč · Pata", reply);
+                PataQuickCapturePlugin.showAIConversationReplyNotification(context, "Mč · Pata", reply, "/dashboard");
                 PataQuickCapturePlugin.showPersistentNotification(context, null);
                 return Result.success();
             }
