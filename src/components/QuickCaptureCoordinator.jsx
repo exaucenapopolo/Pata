@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { App } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
-import { ReceiptText, X, Check, ArrowDownLeft, ArrowUpRight, LoaderCircle } from 'lucide-react';
+import { ReceiptText, X, Check, ArrowDownLeft, ArrowUpRight, LoaderCircle, HandCoins } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
 import { Modal } from '@/components/ui/Modal';
@@ -32,6 +32,9 @@ export function QuickCaptureCoordinator() {
   const [working, setWorking] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  const [captureOptions, setCaptureOptions] = useState({ incomes: [], debts: [] });
+  const [optionsLoading, setOptionsLoading] = useState(false);
+  const [optionsError, setOptionsError] = useState('');
   const syncInProgressRef = useRef(false);
   const expenseCategories = useMemo(() => EXPENSE_CATEGORIES.filter((item) => !['loan_given', 'debt_repayment'].includes(item.id)), []);
   const incomeCategories = useMemo(() => INCOME_CATEGORIES.filter((item) => !['debt_borrowed', 'debt_repayment_received'].includes(item.id)), []);
@@ -50,6 +53,10 @@ export function QuickCaptureCoordinator() {
       categoryId: extracted?.suggestedCategory || parsed.categoryId || (type === 'income' ? 'other_income' : 'other'),
       date: extracted?.invoiceDate || parsed.date || today(),
       source: parsed.source || (extracted?.merchantName ? String(extracted.merchantName).slice(0, 100) : ''),
+      person: parsed.person || '',
+      incomeSourceName: parsed.incomeSourceName || '',
+      incomeSourceId: parsed.incomeSourceName ? '' : 'all',
+      repaymentDebtId: '',
       note: extracted
         ? [extracted.merchantName, extracted.description, extracted.invoiceNumber ? 'Facture ' + extracted.invoiceNumber : ''].filter(Boolean).join(' · ').slice(0, 250)
         : parsed.note || '',
@@ -224,7 +231,60 @@ export function QuickCaptureCoordinator() {
     };
   }, [user, draft, syncNativeInputs]);
 
-  const categories = draft?.type === 'income' ? incomeCategories : expenseCategories;
+  const categories = draft?.type === 'income'
+    ? incomeCategories
+    : draft?.type === 'debt_repayment'
+      ? [{ id: 'debt_repayment', label: 'Remboursement de dette' }]
+      : expenseCategories;
+
+  useEffect(() => {
+    if (!user || !draft || !premium || !['expense', 'debt_repayment'].includes(draft.type)) {
+      setCaptureOptions({ incomes: [], debts: [] });
+      setOptionsError('');
+      setOptionsLoading(false);
+      return undefined;
+    }
+    let active = true;
+    setOptionsLoading(true);
+    setOptionsError('');
+    (async () => {
+      try {
+        const token = await user.getIdToken();
+        const response = await fetch('/api/quick-capture/options', {
+          headers: { Authorization: 'Bearer ' + token },
+          cache: 'no-store',
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de charger les revenus et dettes.');
+        if (!active) return;
+        const incomes = Array.isArray(result.incomes) ? result.incomes : [];
+        const debts = Array.isArray(result.debts) ? result.debts : [];
+        setCaptureOptions({ incomes, debts });
+        setDraft((current) => {
+          if (!current || current.id !== draft.id) return current;
+          const normalize = (value) => String(value || '').normalize('NFD')
+            .replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+          const sourceMatches = current.incomeSourceName
+            ? incomes.filter((income) => normalize(income.source) === normalize(current.incomeSourceName))
+            : [];
+          const debtMatches = current.person
+            ? debts.filter((debt) => normalize(debt.person) === normalize(current.person))
+            : [];
+          return {
+            ...current,
+            ...(current.incomeSourceName && sourceMatches.length === 1 ? { incomeSourceId: sourceMatches[0].id } : {}),
+            ...(current.person && debtMatches.length === 1 ? { repaymentDebtId: debtMatches[0].id } : {}),
+          };
+        });
+      } catch (loadError) {
+        if (active) setOptionsError(loadError?.message || 'Impossible de charger les choix disponibles.');
+      } finally {
+        if (active) setOptionsLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, [user, premium, draft?.id, draft?.type, draft?.incomeSourceName, draft?.person]);
+
   const closeDraft = async () => {
     if (draft?.nativeCaptureId) await PataQuickCapture.clearPendingCapture({ id: draft.nativeCaptureId }).catch(() => {});
     if (draft?.origin === 'image' || draft?.origin === 'pdf' || draft?.origin === 'share') {
@@ -262,6 +322,10 @@ export function QuickCaptureCoordinator() {
       setError('Indique le nom de cette facture.');
       return;
     }
+    if (draft.type === 'debt_repayment' && !String(draft.repaymentDebtId || '').trim()) {
+      setError('Choisis la dette à rembourser avant de continuer.');
+      return;
+    }
     setWorking(true);
     setError('');
     try {
@@ -280,6 +344,10 @@ export function QuickCaptureCoordinator() {
           frequency: draft.frequency, isVariable: draft.isVariable || amount === null,
           expenseCategoryId: draft.expenseCategoryId, providerName: draft.providerName,
           accountReference: draft.accountReference, imageUrl,
+          person: draft.person,
+          repaymentDebtId: draft.repaymentDebtId || '',
+          incomeSourceId: draft.incomeSourceId || 'all',
+          incomeSourceName: draft.incomeSourceName || '',
           idempotencyKey: draft.id,
           confirmBudgetOverrun: draft.confirmationRequired === true,
         }),
@@ -304,7 +372,11 @@ export function QuickCaptureCoordinator() {
         }).catch(() => {});
         window.dispatchEvent(new Event('pata:income-balances-refresh'));
       }
-      setNotice(draft.type === 'income' ? 'Revenu enregistré dans Pata.' : draft.type === 'bill' ? 'Facture enregistrée dans Pata avec son justificatif.' : 'Dépense enregistrée dans Pata.');
+      setNotice(draft.type === 'income' ? 'Revenu enregistré dans Pata.'
+        : draft.type === 'bill' ? 'Facture enregistrée dans Pata avec son justificatif.'
+          : draft.type === 'debt_repayment'
+            ? (result.repaymentCompleted ? 'Dette entièrement remboursée : elle est maintenant soldée.' : 'Remboursement enregistré. Solde restant : ' + Number(result.remaining || 0).toLocaleString('fr-FR') + ' FCFA.')
+            : 'Dépense enregistrée dans Pata.');
       setDraft(null);
     } catch (saveError) {
       setError(saveError?.message || 'Impossible d’enregistrer cette opération.');
@@ -322,10 +394,11 @@ export function QuickCaptureCoordinator() {
       <Modal open={!!draft} onClose={closeDraft} title="Pata Quick Capture" className="max-w-lg">
         <form onSubmit={save} className="space-y-3">
           <p className="text-xs leading-5 text-slate-500">{draft.rawText ? 'Saisie reçue : « ' + draft.rawText + ' »' : 'Complète uniquement ce qui manque. La date est déterminée automatiquement à partir de ta phrase.'}</p>
-          <div className="grid grid-cols-3 gap-2">
-            <button type="button" onClick={() => setDraft((current) => ({ ...current, type: 'expense', categoryId: current.type === 'income' || current.type === 'bill' ? 'other' : current.categoryId }))} className={'flex items-center justify-center gap-1.5 rounded-xl border px-2 py-3 text-xs font-semibold ' + (draft.type === 'expense' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><ArrowUpRight size={15}/> Dépense</button>
-            <button type="button" onClick={() => setDraft((current) => ({ ...current, type: 'income', categoryId: current.type !== 'income' ? 'other_income' : current.categoryId }))} className={'flex items-center justify-center gap-1.5 rounded-xl border px-2 py-3 text-xs font-semibold ' + (draft.type === 'income' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><ArrowDownLeft size={15}/> Revenu</button>
-            <button type="button" onClick={() => setDraft((current) => ({ ...current, type: 'bill', categoryId: current.type === 'bill' ? current.categoryId : current.expenseCategoryId || 'other' }))} className={'flex items-center justify-center gap-1.5 rounded-xl border px-2 py-3 text-xs font-semibold ' + (draft.type === 'bill' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><ReceiptText size={15}/> Facture</button>
+          <div className="grid grid-cols-4 gap-1.5">
+            <button type="button" onClick={() => setDraft((current) => ({ ...current, type: 'expense', categoryId: current.type === 'income' || current.type === 'bill' || current.type === 'debt_repayment' ? 'other' : current.categoryId }))} className={'flex min-w-0 items-center justify-center gap-1 rounded-xl border px-1.5 py-3 text-[11px] font-semibold ' + (draft.type === 'expense' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><ArrowUpRight size={14}/> Dépense</button>
+            <button type="button" onClick={() => setDraft((current) => ({ ...current, type: 'income', categoryId: current.type !== 'income' ? 'other_income' : current.categoryId }))} className={'flex min-w-0 items-center justify-center gap-1 rounded-xl border px-1.5 py-3 text-[11px] font-semibold ' + (draft.type === 'income' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><ArrowDownLeft size={14}/> Revenu</button>
+            <button type="button" onClick={() => setDraft((current) => ({ ...current, type: 'bill', categoryId: current.type === 'bill' ? current.categoryId : current.expenseCategoryId || 'other' }))} className={'flex min-w-0 items-center justify-center gap-1 rounded-xl border px-1.5 py-3 text-[11px] font-semibold ' + (draft.type === 'bill' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><ReceiptText size={14}/> Facture</button>
+            <button type="button" onClick={() => setDraft((current) => ({ ...current, type: 'debt_repayment', categoryId: 'debt_repayment' }))} className={'flex min-w-0 items-center justify-center gap-1 rounded-xl border px-1.5 py-3 text-[10px] font-semibold ' + (draft.type === 'debt_repayment' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><HandCoins size={14}/> Rembourser</button>
           </div>
           {draft.type === 'bill' && <label className="block text-xs font-semibold text-slate-700">Nom de la facture
             <input required maxLength={100} value={draft.billName || ''} onChange={(event) => setDraft((current) => ({ ...current, billName: event.target.value }))} placeholder="Ex. Facture ENEO" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm font-normal"/>
@@ -333,7 +406,24 @@ export function QuickCaptureCoordinator() {
           <label className="block text-xs font-semibold text-slate-700">{draft.type === 'bill' ? 'Montant estimé (FCFA, facultatif)' : 'Montant (FCFA)'}
             <input type="number" inputMode="numeric" min="0" max="1000000000" step="1" required={draft.type !== 'bill'} value={draft.amount} onChange={(event) => setDraft((current) => ({ ...current, amount: event.target.value, isVariable: event.target.value === '' }))} className="mt-1.5 h-12 w-full rounded-xl border border-slate-200 px-3 text-base font-semibold text-slate-900 outline-none focus:border-emerald-600"/>
           </label>
-          <label className="block text-xs font-semibold text-slate-700">Catégorie
+          {draft.type === 'debt_repayment' && <label className="block text-xs font-semibold text-slate-700">Dette à rembourser
+            <select value={draft.repaymentDebtId || ''} onChange={(event) => setDraft((current) => ({ ...current, repaymentDebtId: event.target.value }))} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal">
+              <option value="">Choisir la dette de {draft.person || 'la personne'}</option>
+              {captureOptions.debts.map((debt) => <option key={debt.id} value={debt.id}>{debt.person || 'Créancier'} · reste {Number(debt.remaining || 0).toLocaleString('fr-FR')} FCFA{debt.dueDate ? ' · échéance ' + debt.dueDate : ''}</option>)}
+            </select>
+          </label>}
+          {(draft.type === 'expense' || draft.type === 'debt_repayment') && <label className="block text-xs font-semibold text-slate-700">Source du montant (facultatif)
+            <select value={draft.incomeSourceId || 'all'} onChange={(event) => setDraft((current) => ({ ...current, incomeSourceId: event.target.value, incomeSourceName: '' }))} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal">
+              <option value="all">Répartir sur mes revenus disponibles</option>
+              <option value="external">Solde externe / revenu non suivi</option>
+              {captureOptions.incomes.map((income) => <option key={income.id} value={income.id}>{income.source} · {income.date || 'Date inconnue'} · {Number(income.amount || 0).toLocaleString('fr-FR')} FCFA initialement</option>)}
+            </select>
+            {draft.incomeSourceName && <span className="mt-1 block text-[10px] font-normal text-emerald-700">Source reconnue dans ta phrase : {draft.incomeSourceName}. Vérifie le revenu sélectionné.</span>}
+            <span className="mt-1 block text-[10px] font-normal text-slate-500">Tu peux relier cette sortie à un revenu précis. Le solde est vérifié au moment de l’enregistrement.</span>
+          </label>}
+          {optionsLoading && <p className="text-[10px] text-slate-500">Chargement des sources et dettes actives…</p>}
+          {optionsError && <p role="alert" className="rounded-lg bg-amber-50 p-2 text-[10px] text-amber-800">{optionsError}</p>}
+                    <label className="block text-xs font-semibold text-slate-700">Catégorie
             <select value={draft.categoryId} onChange={(event) => setDraft((current) => ({ ...current, categoryId: event.target.value }))} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal">
               {categories.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}
             </select>
