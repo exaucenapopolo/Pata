@@ -39,3 +39,20 @@ test('le build Android recopie le worker conversation natif', () => {
   const prepare = read('native/android/prepare-android.mjs');
   assert.match(prepare, /'PataAIConversationWorker\.java'/);
 });
+
+test('le composeur vocal peut afficher la réponse Mč dans une notification Android', () => {
+  const plugin = read('native/android/com/pata/app/PataQuickCapturePlugin.java');
+  const coordinator = read('src/components/QuickCaptureCoordinator.jsx');
+  assert.match(plugin, /public void showAIConversationReply\(PluginCall call\)/);
+  assert.match(plugin, /showAIConversationReplyNotification\(getContext\(\), title, message, "\/dashboard"\)/);
+  assert.match(coordinator, /PataQuickCapture\.showAIConversationReply\(/);
+  assert.match(coordinator, /notificationMode: true/);
+});
+
+test('la saisie vocale garde Saisie comme option principale devant Mč', () => {
+  const coordinator = read('src/components/QuickCaptureCoordinator.jsx');
+  const saisie = coordinator.indexOf('<strong className="block text-sm">Saisie</strong>');
+  const ai = coordinator.indexOf('<strong className="block text-sm">Causer avec Mč</strong>');
+  assert.ok(saisie >= 0 && ai > saisie);
+  assert.match(coordinator, /startVoiceCapture\(\)/);
+});

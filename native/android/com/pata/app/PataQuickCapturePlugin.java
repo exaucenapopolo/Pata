@@ -231,6 +231,22 @@ public class PataQuickCapturePlugin extends Plugin {
         manager.notify(NOTIFICATION_ID, notification);
     }
 
+    @PluginMethod
+    public void showAIConversationReply(PluginCall call) {
+        String message = call.getString("message", "");
+        String title = call.getString("title", "Mč · Pata");
+        if (message == null || message.trim().isEmpty()) {
+            call.reject("Le message de réponse de Mč est vide.");
+            return;
+        }
+        if (!notificationsAllowed(getContext())) {
+            call.resolve(new JSObject().put("shown", false).put("reason", "permission_denied"));
+            return;
+        }
+        showAIConversationReplyNotification(getContext(), title, message, "/dashboard");
+        call.resolve(new JSObject().put("shown", true));
+    }
+
     static void showAIConversationReplyNotification(Context context, String message) {
         showAIConversationReplyNotification(context, "Mč", message, "/dashboard");
     }
