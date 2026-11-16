@@ -83,6 +83,19 @@ test('reconnaît un prêt accordé avec échéance explicite', () => {
   assert.equal(result.date, '2026-11-15');
   assert.equal(result.dueDate, '2026-11-22');
 });
+test('reconnaît un emprunt reçu sans employer le mot dette', () => {
+  const result = parseQuickCapture("On m'a prêté 25 000 FCFA chez Phinéas", now);
+  assert.equal(result.type, "debt_borrowed");
+  assert.equal(result.amount, 25000);
+  assert.equal(result.person, "Phinéas");
+});
+
+test('reconnaît un prêt pris auprès d’une banque comme une dette contractée', () => {
+  const result = parseQuickCapture("J'ai pris un prêt de 100 000 FCFA auprès de la banque", now);
+  assert.equal(result.type, "debt_borrowed");
+  assert.equal(result.amount, 100000);
+});
+
 test('reconnaît une dette contractée sans échéance', () => {
   const result = parseQuickCapture('dette 300 Exauce', now);
   assert.equal(result.type, 'debt_borrowed');
