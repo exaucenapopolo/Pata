@@ -32,6 +32,10 @@ test('le résumé de notification reste stocké séparément de l’historique A
   assert.match(api, /notificationMode/);
   assert.match(api, /isPremiumAccount\(/);
   assert.match(api, /notificationSessionRef\.set\(/);
+  assert.match(api, /notificationChatRef/);
+  assert.match(api, /source: 'notification'/);
+  assert.match(api, /processedRequestIds/);
+  assert.match(api, /sanitizeNotificationReply\(reply, 420\)/);
   assert.match(worker, /notificationMode", true/);
 });
 
