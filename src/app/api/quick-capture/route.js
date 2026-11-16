@@ -79,7 +79,7 @@ export async function POST(request) {
         );
       }
     }
-    const type = parsed?.type || (['income', 'expense', 'loan_given', 'debt_borrowed', 'bill'].includes(body.type) ? body.type : '');
+    const type = parsed?.type || (['income', 'expense', 'loan_given', 'debt_borrowed', 'debt_repayment', 'bill'].includes(body.type) ? body.type : '');
     const amountValue = parsed?.amount ?? body.amount;
     const amount = amountValue == null || amountValue === '' ? null : Number(amountValue);
     const categoryId = String(parsed?.categoryId ?? body.categoryId ?? '').trim();
@@ -184,6 +184,82 @@ export async function POST(request) {
       });
     }
 
+    if (type === 'debt_repayment') {
+      const person = cleanText(parsed?.person || body.person || '', 100);
+      const requestedDebtId = cleanText(body.repaymentDebtId || '', 150);
+      if (requestedDebtId.includes('/')) return errorResponse('Identifiant de dette invalide.', 400);
+      const debtsSnap = await userRef.collection('debts').orderBy('createdAt', 'desc').limit(100).get();
+      const activeDebts = debtsSnap.docs
+        .map((document) => ({ id: document.id, ...document.data() }))
+        .filter((debt) => debt.type === 'i_owe'
+          && ['active', 'partial', 'late'].includes(debt.status)
+          && Number(debt.remaining) > 0);
+      let matchedDebt = requestedDebtId ? activeDebts.find((debt) => debt.id === requestedDebtId) : null;
+      if (requestedDebtId && !matchedDebt) {
+        return errorResponse('La dette sélectionnée n’est plus active. Actualise la fenêtre puis choisis une autre dette.', 409);
+      }
+      if (!matchedDebt && person) {
+        const normalizedPerson = person.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+        const matches = activeDebts.filter((debt) => {
+          const name = String(debt.person || debt.bankName || '').normalize('NFD')
+            .replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+          return name === normalizedPerson;
+        });
+        if (matches.length > 1) {
+          return errorResponse('Plusieurs dettes correspondent à « ' + person + ' ». Choisis précisément celle à rembourser.', 422, {
+            needsReview: true,
+            debts: matches.map((debt) => ({ id: debt.id, person: debt.person || debt.bankName || '', remaining: Number(debt.remaining) || 0, dueDate: debt.dueDate || '' })),
+          });
+        }
+        matchedDebt = matches[0] || null;
+      }
+      if (!matchedDebt) {
+        return errorResponse(
+          person ? 'Je ne trouve pas de dette active enregistrée au nom de « ' + person + ' ». Vérifie le nom ou sélectionne la dette dans la liste.' : 'Choisis la dette à rembourser avant de continuer.',
+          422,
+          { needsReview: true }
+        );
+      }
+      const selectedIncomeId = cleanText(body.incomeSourceId || 'all', 150) || 'all';
+      const selectedIncomeName = cleanText(parsed?.incomeSourceName || body.incomeSourceName || '', 100);
+      if (selectedIncomeId.includes('/')) return errorResponse('Source de revenu invalide.', 400);
+      const externalFunding = selectedIncomeId === 'external';
+      const result = await createExpenseForUser(uid, {
+        amount,
+        categoryId: 'debt_repayment',
+        flowType: 'repayment',
+        repaymentDebtId: matchedDebt.id,
+        person: matchedDebt.person || matchedDebt.bankName || person,
+        note: note || 'Remboursement de dette · ' + (matchedDebt.person || matchedDebt.bankName || person),
+        date,
+        expenseType: 'consumption',
+        incomeSourceId: externalFunding ? 'all' : selectedIncomeId,
+        incomeSourceName: externalFunding ? '' : selectedIncomeName,
+        externalFundingLabel: 'Fonds externes',
+        time: new Intl.DateTimeFormat('fr-FR', { timeZone: 'Africa/Douala', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date()),
+      }, {
+        idempotencyKey: 'quick_capture_' + idempotencyKey,
+        premiumOnly: true,
+        externalFunding,
+        skipBudgetConfirmation: body.confirmBudgetOverrun === true,
+      });
+      if (result?.confirmationRequired) {
+        return NextResponse.json({ success: false, ...result, recognized: parsed }, { status: 409 });
+      }
+      return NextResponse.json({
+        success: true,
+        ...result,
+        debtStatus: result.flowType === 'repayment' ? (result.repaymentCompleted ? 'paid' : 'partial') : undefined,
+        recognized: makeRecognized(parsed || { type, amount, categoryId: 'debt_repayment', date, person }, {
+          type, amount, categoryId: 'debt_repayment', source: matchedDebt.person || matchedDebt.bankName || person,
+          person: matchedDebt.person || matchedDebt.bankName || person,
+          repaymentDebtId: matchedDebt.id,
+          repaymentCompleted: result.repaymentCompleted === true,
+          remaining: result.remaining,
+        }),
+      });
+    }
+
     if (type === 'loan_given') {
       const person = cleanText(parsed?.person || body.person || '', 100);
       if (!person) return errorResponse('Il me manque le nom de la personne à qui tu as prêté cet argent.', 422, { needsReview: true, recognized: parsed });
@@ -207,16 +283,23 @@ export async function POST(request) {
 
     if (type === 'expense') {
       if (!EXPENSE_CATEGORIES.has(categoryId)) return errorResponse('La catégorie de dépense est invalide. Choisis « Autre » pour cette opération.', 400);
+      const selectedIncomeId = cleanText(body.incomeSourceId || 'all', 150) || 'all';
+      const selectedIncomeName = cleanText(parsed?.incomeSourceName || body.incomeSourceName || '', 100);
+      if (selectedIncomeId.includes('/')) return errorResponse('Source de revenu invalide.', 400);
+      const externalFunding = selectedIncomeId === 'external';
       const result = await createExpenseForUser(uid, {
         amount, categoryId, note, date,
         expenseType: ['savings', 'investment'].includes(body.expenseType)
           ? body.expenseType
           : categoryId === 'savings' ? 'savings' : categoryId === 'investment' ? 'investment' : 'consumption',
-        incomeSourceId: 'all', incomeSourceName: 'Tous les revenus',
+        incomeSourceId: externalFunding ? 'all' : selectedIncomeId,
+        incomeSourceName: externalFunding ? '' : selectedIncomeName,
+        externalFundingLabel: 'Fonds externes',
         time: new Intl.DateTimeFormat('fr-FR', { timeZone: 'Africa/Douala', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date()),
       }, {
         idempotencyKey: 'quick_capture_' + idempotencyKey,
         premiumOnly: true,
+        externalFunding,
         skipBudgetConfirmation: body.confirmBudgetOverrun === true,
       });
       if (result?.confirmationRequired) {
