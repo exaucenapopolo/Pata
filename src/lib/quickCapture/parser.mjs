@@ -225,7 +225,7 @@ function cleanNote(text, categoryAliases = [], beforeAmountOnly = false) {
     .replace(/\b(j'ai|jai|je|nous|on|a|aujourd'hui|demain|hier|dépensé|depense|depenses|paye|payer|achete|achat|acheté|reçu|recu|gagné|gagne|encaisse|encaissement|versé|verse|pour|de|du|des|un|une|la|le|les|mon|ma|mes|revenu|recette|facture|factures|factu|pret|prêt|dette|dettes|emprunt|echeance|échéance|date|limite|rendre|avant|a|le|du)\b/gi, " ")
     .replace(/\b\d{1,2}\s+(?:janvier|janv|fevrier|fevr|fev|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)\b/gi, " ")
     .replace(/\b(?:janvier|janv|fevrier|fevr|fev|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)\s+\d{1,2}\b/gi, " ")
-    .replace(/[,:;.!?]/g, " ").replace(/\s+/g, " ").trim().slice(0, 180);
+    .replace(/[,:;.!?]/g, " ").replace(/\b(au)\s+\1\b/gi, "$1").replace(/\s+/g, " ").trim().slice(0, 180);
 }
 function extractIncomeSource(raw, categoryId, incomeMatch) {
   let value = String(raw || "");
