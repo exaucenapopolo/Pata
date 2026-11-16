@@ -228,7 +228,7 @@ function extractCounterparty(text, type) {
     .replace(/(?:echeance|échéance|date limite|à rendre|a rendre|avant le|a payer le|à payer le|pour le)\s*(?:le|du)?\s*[:]?(20\d{2}-\d{2}-\d{2}|demain|hier|apres[- ]demain)?/gi, " ");
   value = normalize(value)
     .replace(/\b(j'ai|jai|je|nous|on|ai|contracte|contracter|pris|prends|dois|doit|pret|prets|prete|preter|dette|dettes|emprunt|emprunte|emprunter|rembours\w*|regle|regler|payer|paye|argent|fcfa|echeance|date|limite|rendre|avant|demain|hier|apres|aujourd'hui)\b/gi, " ")
-    .replace(/\b(une|un|de|du|des|chez|aupres|a|pour|la|le|les|mon|ma|mes|moi|lui|elle|il|me|te|se|son|sa|ses)\b/gi, " ")
+    .replace(/\b(une|un|de|du|des|chez|aupres|a|pour|la|le|les|mon|ma|mes|moi|lui|elle|il|me|m|te|se|son|sa|ses)\b/gi, " ")
     .replace(/[^a-z0-9' -]/g, " ").replace(/\s+/g, " ").trim();
   if (!value) return "";
   const normalizedName = value.split(" ").filter(Boolean).slice(-4);
