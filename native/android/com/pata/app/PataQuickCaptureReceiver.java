@@ -27,6 +27,7 @@ public class PataQuickCaptureReceiver extends BroadcastReceiver {
     static final String AI_REMOTE_KEY = "pata_ai_notification_reply";
     static final String AI_QUEUE = "pending_ai_notification_replies";
     static final String AI_ACTIVE_CONVERSATION = "active_ai_notification_conversation_id";
+    static final String AI_ACTIVE_CONVERSATION_OWNER = "active_ai_notification_conversation_owner_uid";
     static final String ACTION_RESTORE = "com.pata.app.QUICK_CAPTURE_RESTORE";
 
     @Override
@@ -101,18 +102,25 @@ public class PataQuickCaptureReceiver extends BroadcastReceiver {
         return id;
     }
 
-    static String resolveAIConversationId(Context context, String requestedId) {
+    static String resolveAIConversationId(Context context, String requestedId, String ownerUid) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         synchronized (PataQuickCaptureReceiver.class) {
-            String conversationId = requestedId == null ? "" : requestedId.trim();
+            String owner = ownerUid == null ? "" : ownerUid.trim();
+            String storedOwner = prefs.getString(AI_ACTIVE_CONVERSATION_OWNER, "");
+            boolean accountChanged = !owner.isEmpty() && !owner.equals(storedOwner);
+
+            String conversationId = accountChanged ? "" : (requestedId == null ? "" : requestedId.trim());
             conversationId = conversationId.replaceAll("[^a-zA-Z0-9_-]", "");
-            if (conversationId.isEmpty()) {
+            if (conversationId.isEmpty() && !accountChanged) {
                 conversationId = prefs.getString(AI_ACTIVE_CONVERSATION, "");
             }
             if (conversationId == null || conversationId.trim().isEmpty()) {
                 conversationId = UUID.randomUUID().toString().replace("-", "");
             }
-            prefs.edit().putString(AI_ACTIVE_CONVERSATION, conversationId).apply();
+
+            SharedPreferences.Editor editor = prefs.edit().putString(AI_ACTIVE_CONVERSATION, conversationId);
+            if (!owner.isEmpty()) editor.putString(AI_ACTIVE_CONVERSATION_OWNER, owner);
+            editor.apply();
             return conversationId;
         }
     }
@@ -125,7 +133,7 @@ public class PataQuickCaptureReceiver extends BroadcastReceiver {
             return "";
         }
         String id = UUID.randomUUID().toString().replace("-", "");
-        String resolvedConversationId = resolveAIConversationId(context, conversationId);
+        String resolvedConversationId = resolveAIConversationId(context, conversationId, ownerUid);
         synchronized (PataQuickCaptureReceiver.class) {
             SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
             JSONArray queue;
@@ -209,7 +217,8 @@ public class PataQuickCaptureReceiver extends BroadcastReceiver {
 
     static void clearPendingAI(Context context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .remove(AI_QUEUE).remove(AI_ACTIVE_CONVERSATION).apply();
+            .remove(AI_QUEUE).remove(AI_ACTIVE_CONVERSATION)
+            .remove(AI_ACTIVE_CONVERSATION_OWNER).apply();
         WorkManager.getInstance(context).cancelUniqueWork("pata_ai_notification_conversation");
     }
 
