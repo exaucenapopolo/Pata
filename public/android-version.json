@@ -1,7 +1,7 @@
 {
-  "version": "1.2.0",
-  "versionCode": 21,
-  "downloadAvailable": true,
+  "version": "1.2.1",
+  "versionCode": 22,
+  "downloadAvailable": false,
   "apkUrl": "https://github.com/exaucenapopolo/Pata/releases/latest/download/Pata-Android.apk",
-  "releaseNotes": "Pata 1.2.0 : conversation avec Mč directement depuis les notifications Android ; saisie vocale avec choix principal Saisie et option Causer avec Mč ; Quick Capture comprend les remboursements, les dettes contractées et les remboursements reçus ; dépenses associables à un revenu précis ; import d’un paiement Mobile Money comme dépense et facture avec rappels ; amélioration du widget Finances et des imports partagés."
+  "releaseNotes": "Pata 1.2.1 : détection des remboursements et emprunts formulés naturellement ; historique séparé et épinglage des conversations Mč par notification ; réponses courtes sans tableaux dans les notifications ; sauvegarde locale des opérations hors connexion puis synchronisation ; widget financier Android actualisé en arrière-plan et isolé par compte Premium."
 }
