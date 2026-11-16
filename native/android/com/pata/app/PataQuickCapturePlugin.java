@@ -83,6 +83,15 @@ public class PataQuickCapturePlugin extends Plugin {
             PataQuickCaptureReceiver.schedulePending(getContext(), uid);
             PataQuickCaptureReceiver.schedulePendingAI(getContext(), uid);
             PataCotisationWidgetWorker.schedule(getContext());
+            SharedPreferences financePrefs = getContext().getSharedPreferences("PataFinanceWidget", Context.MODE_PRIVATE);
+            String widgetOwner = financePrefs.getString("owner_uid", "");
+            if (!uid.equals(widgetOwner)) {
+                financePrefs.edit().putBoolean("premium_enabled", false).putString("owner_uid", uid).apply();
+                PataQuickCaptureWidgetProvider.updateFinanceSummary(getContext(), 0L, 0L, 0L, 0L, "");
+                androidx.work.WorkManager.getInstance(getContext()).cancelUniqueWork("pata_finance_widget_refresh");
+            } else {
+                PataFinanceWidgetWorker.schedule(getContext());
+            }
             call.resolve(new JSObject().put("saved", true));
         } catch (Exception error) {
             call.reject(error.getMessage() == null ? "Impossible de sécuriser la session Pata." : error.getMessage(), error);
@@ -97,6 +106,10 @@ public class PataQuickCapturePlugin extends Plugin {
             .remove("quick_capture_uid").apply();
         PataQuickCaptureAuthStore.clear(getContext());
         PataQuickCaptureReceiver.clearPendingAI(getContext());
+        SharedPreferences financePrefs = getContext().getSharedPreferences("PataFinanceWidget", Context.MODE_PRIVATE);
+        financePrefs.edit().putBoolean("premium_enabled", false).remove("owner_uid").apply();
+        PataQuickCaptureWidgetProvider.updateFinanceSummary(getContext(), 0L, 0L, 0L, 0L, "");
+        androidx.work.WorkManager.getInstance(getContext()).cancelUniqueWork("pata_finance_widget_refresh");
         NotificationManager manager = (NotificationManager) getContext().getSystemService(Context.NOTIFICATION_SERVICE);
         if (manager != null) manager.cancel(NOTIFICATION_ID);
         PataCotisationWidgetProvider.updateData(getContext(), new JSONArray(), "");
@@ -530,12 +543,24 @@ public class PataQuickCapturePlugin extends Plugin {
         long receivable = Math.max(0L, Math.min(1000000000000L, call.getLong("receivableTotal", 0L)));
         long payable = Math.max(0L, Math.min(1000000000000L, call.getLong("payableTotal", 0L)));
         String monthKey = call.getString("monthKey", "");
+        String uid = call.getString("uid", "");
+        PataQuickCaptureAuthStore.Session session = PataQuickCaptureAuthStore.read(getContext());
+        if (uid.isEmpty() || session == null || !uid.equals(session.uid)) {
+            call.resolve(new JSObject().put("updated", false).put("reason", "account_session_mismatch"));
+            return;
+        }
+        SharedPreferences financePrefs = getContext().getSharedPreferences("PataFinanceWidget", Context.MODE_PRIVATE);
+        financePrefs.edit().putBoolean("premium_enabled", true).putString("owner_uid", uid).apply();
         PataQuickCaptureWidgetProvider.updateFinanceSummary(getContext(), income, expense, receivable, payable, monthKey);
+        PataFinanceWidgetWorker.schedule(getContext());
         call.resolve(new JSObject().put("updated", true));
     }
 
     @PluginMethod
     public void clearFinanceWidget(PluginCall call) {
+        SharedPreferences financePrefs = getContext().getSharedPreferences("PataFinanceWidget", Context.MODE_PRIVATE);
+        financePrefs.edit().putBoolean("premium_enabled", false).apply();
+        androidx.work.WorkManager.getInstance(getContext()).cancelUniqueWork("pata_finance_widget_refresh");
         PataQuickCaptureWidgetProvider.updateFinanceSummary(getContext(), 0L, 0L, 0L, 0L, "");
         call.resolve(new JSObject().put("updated", true));
     }
