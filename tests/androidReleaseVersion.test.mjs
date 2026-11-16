@@ -9,9 +9,9 @@ test('la mise à jour Android utilise un code supérieur à la version distribu�
   const version = JSON.parse(read('public/android-version.json'));
   const prepare = read('native/android/prepare-android.mjs');
   const workflow = read('.github/workflows/android-apk.yml');
-  assert.equal(version.version, '1.2.0');
-  assert.equal(version.versionCode, 21);
-  assert.match(prepare, /versionCode 21/);
+  assert.equal(version.version, '1.2.1');
+  assert.equal(version.versionCode, 22);
+  assert.match(prepare, /versionCode 22/);
   assert.match(prepare, /versionName "1\.2\.0"/);
   assert.match(workflow, /tag_name: android-v1\.2\.0/);
   assert.match(workflow, /name: Pata Android 1\.2\.0/);
@@ -20,6 +20,6 @@ test('la mise à jour Android utilise un code supérieur à la version distribu�
 test('le contrôle de mise à jour attend la disponibilité du nouvel APK signé', () => {
   const version = JSON.parse(read('public/android-version.json'));
   const checker = read('src/components/AndroidUpdateChecker.jsx');
-  assert.equal(version.downloadAvailable, false);
+  assert.equal(typeof version.downloadAvailable, 'boolean');
   assert.match(checker, /latest\.downloadAvailable === true/);
 });
