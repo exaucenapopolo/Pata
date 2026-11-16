@@ -341,7 +341,8 @@ export function QuickCaptureCoordinator() {
           : 'Indique la personne auprès de qui tu as contracté cette dette.');
         return;
       }
-      if (!validDate(draft.incomeDueDate)) {
+      if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(String(draft.incomeDueDate || ''))
+        || new Date(String(draft.incomeDueDate) + 'T00:00:00.000Z').toISOString().slice(0, 10) !== String(draft.incomeDueDate)) {
         setError('Indique la date d’échéance de cette dette.');
         return;
       }

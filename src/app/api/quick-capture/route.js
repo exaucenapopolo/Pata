@@ -333,7 +333,7 @@ export async function POST(request) {
         headers: { 'Content-Type': 'application/json', Authorization: authorization },
         body: JSON.stringify({
           amount,
-          source: incomeFlowType === 'debt_borrowed' ? (bankName || person) : source,
+          source: incomeFlowType === 'debt_borrowed' ? (bankName || person) : cleanText(parsed?.source || body.source || '', 100),
           categoryId: flowCategory,
           flowType: incomeFlowType,
           person,

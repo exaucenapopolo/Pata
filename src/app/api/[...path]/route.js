@@ -3513,11 +3513,14 @@ async function handleCreateIncome(request) {
       if (newDebtRef && !premiumAccount && activeDebtCount >= 2) throw new Error('Le compte gratuit est limité à 2 dettes ou prêts actifs. Passe à Premium pour en suivre davantage.');
       let repaymentDebt = null;
       let repaymentCompleted = false;
+      let repaymentRemaining = null;
       if (repaymentDebtRef) {
         if (!repaymentDebtSnap?.exists) throw new Error('Cette créance n’existe plus. Actualise la liste puis réessaie.');
         repaymentDebt = repaymentDebtSnap.data() || {};
         if (repaymentDebt.type !== 'owed_to_me' || !['active', 'partial', 'late'].includes(repaymentDebt.status)) throw new Error('Cette créance ne peut pas recevoir de remboursement.');
         if (amount > (Number(repaymentDebt.remaining) || 0)) throw new Error('Le remboursement dépasse le montant qui reste à recevoir.');
+        repaymentRemaining = Math.max(0, (Number(repaymentDebt.remaining) || 0) - amount);
+        repaymentCompleted = repaymentRemaining <= 0;
       }
       let projectName = '';
       if (projectId) {
@@ -3538,7 +3541,9 @@ async function handleCreateIncome(request) {
         amount, source: finalSource || 'Revenu', categoryId, month, date, note,
         flowType, neutralFlow,
         ...(flowType === 'debt_borrowed' ? { person, counterpartyType, ...(bankName ? { bankName } : {}), phone: phone || null, dueDate, debtId: newDebtRef.id } : {}),
-        ...(flowType === 'repayment_received' ? { repaymentDebtId } : {}),
+        ...(flowType === 'repayment_received' ? {
+          repaymentDebtId, repaymentCompleted, remaining: repaymentRemaining,
+        } : {}),
         ...(projectId ? { projectId, projectName } : {}),
         ...(smsImportId ? { smsImportId } : {}),
         ...(quickCaptureId ? { quickCaptureId } : {}),
@@ -3553,12 +3558,10 @@ async function handleCreateIncome(request) {
           note, transactionId: incomeRef.id,
         });
       } else if (repaymentDebtRef) {
-        const remaining = Math.max(0, (Number(repaymentDebt.remaining) || 0) - amount);
-        const status = remaining <= 0 ? 'paid' : repaymentDebt.dueDate && repaymentDebt.dueDate < today ? 'late' : 'partial';
-        repaymentCompleted = remaining <= 0;
+        const status = repaymentRemaining <= 0 ? 'paid' : repaymentDebt.dueDate && repaymentDebt.dueDate < today ? 'late' : 'partial';
         const repaymentRef = repaymentDebtRef.collection('repayments').doc();
         transaction.create(repaymentRef, { date, amount, transactionId: incomeRef.id, source: smsImportId ? 'sms' : 'manual' });
-        transaction.update(repaymentDebtRef, { remaining, status, updatedAt: FieldValue.serverTimestamp() });
+        transaction.update(repaymentDebtRef, { remaining: repaymentRemaining, status, updatedAt: FieldValue.serverTimestamp() });
       }
 
       if (newDebtRef) {
