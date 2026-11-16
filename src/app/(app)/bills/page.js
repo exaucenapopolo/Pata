@@ -9,6 +9,8 @@ import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { subscribeBills, createBill, updateBill, deactivateBill, payBill } from '@/lib/firestore/bills';
+import { CloudinaryImageField } from '@/components/ui/CloudinaryImageField';
+import { uploadBillImage } from '@/lib/bills/uploadBillImage.mjs';
 
 const BILL_TYPES = [
   ['electricity', 'Électricité'],
@@ -62,7 +64,7 @@ function makeEmptyBill() {
   return {
     id: '', name: '', billType: 'electricity', amount: '', isVariable: false,
     frequency: 'monthly', nextDueDate: todayIso(), reminderDaysBefore: 3,
-    expenseCategoryId: 'housing', providerName: '', accountReference: '', note: '',
+    expenseCategoryId: 'housing', providerName: '', accountReference: '', note: '', imageUrl: '',
   };
 }
 
@@ -97,6 +99,7 @@ export default function BillsPage() {
   const [showEditor, setShowEditor] = useState(false);
   const [form, setForm] = useState(makeEmptyBill);
   const [payingBill, setPayingBill] = useState(null);
+  const [viewingBill, setViewingBill] = useState(null);
   const [paymentForm, setPaymentForm] = useState({ amount: '', paidDate: todayIso(), paymentSource: 'cash' });
   const [scanningInvoice, setScanningInvoice] = useState(false);
   const [scanFeedback, setScanFeedback] = useState('');
@@ -161,6 +164,7 @@ export default function BillsPage() {
       providerName: bill.providerName || '',
       accountReference: bill.accountReference || '',
       note: bill.note || '',
+      imageUrl: bill.imageUrl || '',
     });
     setShowEditor(true);
   };
@@ -216,6 +220,13 @@ export default function BillsPage() {
       const result = await response.json().catch(() => ({}));
       if (!response.ok || !result.success) throw new Error(result.error || 'La lecture de la facture a échoué.');
       const data = result.extracted || {};
+      let imageUrl = '';
+      let photoWarning = '';
+      try {
+        imageUrl = await uploadBillImage(file);
+      } catch (uploadError) {
+        photoWarning = uploadError?.message || 'La photo n’a pas pu être conservée. Tu peux réessayer dans le champ photo.';
+      }
       const noteParts = [
         data.description,
         data.invoiceDate ? 'Date du document : ' + data.invoiceDate : '',
@@ -233,15 +244,17 @@ export default function BillsPage() {
         expenseCategoryId: data.suggestedCategory || current.expenseCategoryId,
         providerName: data.merchantName || current.providerName,
         accountReference: data.accountReference || data.invoiceNumber || current.accountReference,
+        imageUrl: imageUrl || current.imageUrl || '',
         note: [...new Set([current.note, ...noteParts].filter(Boolean))].join(' · ').slice(0, 250),
       }));
       const missing = [
         data.totalAmount == null ? (isEnglish ? 'amount' : 'montant') : '',
         !data.dueDate ? (isEnglish ? 'due date' : 'date d’échéance') : '',
       ].filter(Boolean);
-      setScanFeedback(missing.length
+      const scanMessage = missing.length
         ? (isEnglish ? 'Some fields could not be read (' + missing.join(', ') + '). Check and complete them before saving.' : 'Lecture terminée. Vérifie ou complète : ' + missing.join(', ') + ' avant l’enregistrement.')
-        : (isEnglish ? 'Invoice read. Review the extracted information before saving.' : 'Facture lue. Vérifie les informations détectées avant de les enregistrer.'));
+        : (isEnglish ? 'Invoice read. Review the extracted information before saving.' : 'Facture lue. Vérifie les informations détectées avant de les enregistrer.');
+      setScanFeedback(scanMessage + (photoWarning ? ' ' + photoWarning : imageUrl ? (isEnglish ? ' The invoice photo has also been saved.' : ' La photo de la facture a également été enregistrée.') : ''));
       setScanError(false);
     } catch (error) {
       setScanFeedback(error.message || (isEnglish ? 'Could not read this invoice.' : 'Impossible de lire cette facture.'));
@@ -264,6 +277,7 @@ export default function BillsPage() {
         dueDay: Number(String(form.nextDueDate).slice(8, 10)),
         reminderDaysBefore: Number(form.reminderDaysBefore),
         expenseCategoryId: form.expenseCategoryId,
+        imageUrl: form.imageUrl || '',
         providerName: form.providerName.trim(),
         accountReference: form.accountReference.trim(),
         note: form.note.trim(),
@@ -388,21 +402,26 @@ export default function BillsPage() {
             const statusClass = !hasDueDate || bill.pendingDetails === true ? 'bg-amber-50 text-amber-800' : remainingDays < 0 ? 'bg-red-50 text-red-700' : remainingDays <= 7 ? 'bg-amber-50 text-amber-800' : 'bg-slate-100 text-slate-600';
             const billTypeLabel = BILL_TYPES.find(([id]) => id === bill.billType)?.[1] || 'Autre facture';
             return (
-              <article key={bill.id} className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="text-sm font-bold text-slate-900">{bill.name}</h2>
-                      <span className={'rounded-full px-2.5 py-1 text-[10px] font-semibold ' + statusClass}>{statusLabel}</span>
-                    </div>
-                    <p className="mt-1 text-xs text-slate-500">{billTypeLabel}{bill.providerName ? ' · ' + bill.providerName : ''}</p>
-                    <p className="mt-2 text-sm font-semibold text-slate-800">{bill.isVariable ? 'Montant variable' : formatCurrency(Number(bill.amount) || 0)} <span className="font-normal text-slate-500">· {frequencyLabel(bill.frequency)}</span></p>
-                    <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-500"><Clock3 size={13}/> Prochaine échéance : {hasDueDate ? formatDate(bill.nextDueDate) : 'À préciser'}</p>
-                    {bill.accountReference && <p className="mt-1 text-[11px] text-slate-500">Référence : {bill.accountReference}</p>}
-                    {bill.lastPaidAt && <p className="mt-1 text-[11px] text-emerald-700">Dernier paiement enregistré : {formatDate(String(bill.lastPaidAt).slice(0, 10))}</p>}
-                    <p className="mt-1 text-[10px] text-slate-400">Rappel {Number(bill.reminderDaysBefore) === 0 ? 'le jour de l’échéance' : Number(bill.reminderDaysBefore) + ' jour(s) avant'}</p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
+              <article key={bill.id} className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-slate-300 sm:p-4">
+                <div className="flex flex-wrap items-center gap-3">
+                  <button type="button" onClick={() => setViewingBill(bill)} className="flex min-w-0 flex-1 items-start gap-3 rounded-xl text-left outline-none focus-visible:ring-2 focus-visible:ring-emerald-600">
+                    <span className="flex h-[68px] w-[68px] shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 text-emerald-800">
+                      {bill.imageUrl
+                        ? <img src={bill.imageUrl} alt={'Photo de ' + bill.name} className="h-full w-full object-cover" loading="lazy" referrerPolicy="no-referrer"/>
+                        : <span className="flex h-full w-full flex-col items-center justify-center gap-1 bg-gradient-to-br from-slate-50 to-emerald-50"><Receipt size={24}/><span className="text-[8px] font-bold tracking-wide text-slate-500">FACTURE</span></span>}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span className="truncate text-sm font-bold text-slate-900">{bill.name}</span>
+                        <span className={'rounded-full px-2.5 py-1 text-[10px] font-semibold ' + statusClass}>{statusLabel}</span>
+                      </span>
+                      <span className="mt-1 block truncate text-xs text-slate-500">{billTypeLabel}{bill.providerName ? ' · ' + bill.providerName : ''}</span>
+                      <span className="mt-2 block text-sm font-semibold text-slate-800">{bill.isVariable ? 'Montant variable' : formatCurrency(Number(bill.amount) || 0)} <span className="font-normal text-slate-500">· {frequencyLabel(bill.frequency)}</span></span>
+                      <span className="mt-1 flex items-center gap-1.5 text-xs text-slate-500"><Clock3 size={13}/> Prochaine échéance : {hasDueDate ? formatDate(bill.nextDueDate) : 'À préciser'}</span>
+                      <span className="mt-2 inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-800">Voir les détails <span aria-hidden="true">→</span></span>
+                    </span>
+                  </button>
+                  <div className="flex w-full flex-wrap gap-2 border-t border-slate-100 pt-3 sm:w-auto sm:border-0 sm:pt-0">
                     {hasDueDate && bill.pendingDetails !== true && <Button size="sm" onClick={() => startPayment(bill)}><Check size={14}/> Marquer payée</Button>}
                     <Button size="sm" variant="outline" onClick={() => openEdit(bill)}><Pencil size={14}/> Modifier</Button>
                     <Button size="sm" variant="ghost" onClick={() => disableBill(bill)} disabled={saving}><Trash2 size={14}/> Désactiver</Button>
@@ -413,6 +432,29 @@ export default function BillsPage() {
           })}
         </div>
       )}
+
+      <Modal open={!!viewingBill} onClose={() => setViewingBill(null)} title={viewingBill?.name || 'Détail de la facture'} className="max-w-lg">
+        {viewingBill && <div className="space-y-4">
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+            {viewingBill.imageUrl
+              ? <img src={viewingBill.imageUrl} alt={'Photo de la facture ' + viewingBill.name} className="max-h-72 w-full object-contain bg-slate-100" referrerPolicy="no-referrer"/>
+              : <div className="flex h-44 flex-col items-center justify-center gap-2 bg-gradient-to-br from-slate-50 to-emerald-50 text-emerald-800"><Receipt size={42}/><span className="text-xs font-bold tracking-[0.2em] text-slate-500">DOCUMENT DE FACTURE</span></div>}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] text-slate-500">Montant estimé</p><p className="mt-1 text-sm font-bold text-slate-900">{viewingBill.isVariable ? 'Variable' : formatCurrency(Number(viewingBill.amount) || 0)}</p></div>
+            <div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] text-slate-500">Prochaine échéance</p><p className="mt-1 text-sm font-bold text-slate-900">{viewingBill.nextDueDate ? formatDate(viewingBill.nextDueDate) : 'À préciser'}</p></div>
+            <div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] text-slate-500">Type</p><p className="mt-1 text-sm font-semibold text-slate-900">{BILL_TYPES.find(([id]) => id === viewingBill.billType)?.[1] || 'Autre facture'}</p></div>
+            <div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] text-slate-500">Fréquence</p><p className="mt-1 text-sm font-semibold text-slate-900">{frequencyLabel(viewingBill.frequency)}</p></div>
+          </div>
+          {viewingBill.providerName && <p className="text-sm text-slate-700"><span className="font-semibold">Fournisseur :</span> {viewingBill.providerName}</p>}
+          {viewingBill.accountReference && <p className="text-sm text-slate-700"><span className="font-semibold">Référence :</span> {viewingBill.accountReference}</p>}
+          {viewingBill.note && <div className="rounded-xl border border-slate-200 p-3"><p className="text-[10px] font-semibold text-slate-500">NOTE</p><p className="mt-1 whitespace-pre-wrap text-sm leading-5 text-slate-700">{viewingBill.note}</p></div>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setViewingBill(null)}>Fermer</Button>
+            <Button type="button" onClick={() => { const bill = viewingBill; setViewingBill(null); openEdit(bill); }}><Pencil size={14}/> Modifier</Button>
+          </div>
+        </div>}
+      </Modal>
 
       <Modal open={showEditor} onClose={() => setShowEditor(false)} title={form.id ? 'Modifier la facture' : 'Ajouter une facture'}>
         <form onSubmit={saveBill} className="space-y-3">
@@ -425,6 +467,7 @@ export default function BillsPage() {
             {scanningInvoice && <p className="mt-2 text-xs text-slate-600">{isEnglish ? 'Analyzing the photo…' : 'Analyse de la photo en cours…'}</p>}
             {scanFeedback && <p role="status" className={'mt-2 rounded-lg p-2 text-xs leading-5 ' + (scanError ? 'bg-amber-100 text-amber-900' : 'bg-emerald-100 text-emerald-900')}>{scanFeedback}</p>}
           </section>
+          <CloudinaryImageField value={form.imageUrl || ''} onChange={(imageUrl) => setForm((current) => ({ ...current, imageUrl }))} folder="pata/bills" language={language} label="Photo de la facture (facultatif)"/>
           <label className="block text-sm font-medium text-slate-700">Nom de la facture
             <input required maxLength={100} value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Ex. Facture ENEO, loyer, Canal…" className="mt-1 h-11 w-full rounded-xl border border-slate-300 px-3 text-sm"/>
           </label>
@@ -450,7 +493,7 @@ export default function BillsPage() {
           </label>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="block text-sm font-medium text-slate-700">Prochaine date de paiement
-              <input type="date" required value={form.nextDueDate} onChange={(event) => setForm({ ...form, nextDueDate: event.target.value })} className="mt-1 h-11 w-full rounded-xl border border-slate-300 px-3 text-sm"/>
+              <input type="date" value={form.nextDueDate} onChange={(event) => setForm({ ...form, nextDueDate: event.target.value })} className="mt-1 h-11 w-full rounded-xl border border-slate-300 px-3 text-sm"/>
             </label>
             <label className="block text-sm font-medium text-slate-700">Rappel
               <select value={form.reminderDaysBefore} onChange={(event) => setForm({ ...form, reminderDaysBefore: Number(event.target.value) })} className="mt-1 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm">
