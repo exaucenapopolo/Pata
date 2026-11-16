@@ -52,6 +52,8 @@ public class PataAIConversationWorker extends Worker {
             request.put("language", "fr");
             request.put("notificationMode", true);
             request.put("clientRequestId", id);
+            String conversationId = queued.optString("conversationId", id);
+            request.put("notificationConversationId", conversationId);
             HttpResult response = postJson(API_URL, request, idToken);
             JSONObject body = response.body;
 
@@ -59,7 +61,7 @@ public class PataAIConversationWorker extends Worker {
                 String reply = body.optString("reply", "").trim();
                 if (reply.isEmpty()) reply = "Je suis là. Peux-tu préciser ta demande ?";
                 PataQuickCaptureReceiver.removeAI(context, id);
-                PataQuickCapturePlugin.showAIConversationReplyNotification(context, "Mč · Pata", reply, "/dashboard");
+                PataQuickCapturePlugin.showAIConversationReplyNotification(context, "Mč · Pata", reply, "/dashboard", conversationId);
                 PataQuickCapturePlugin.showPersistentNotification(context, null);
                 return Result.success();
             }
