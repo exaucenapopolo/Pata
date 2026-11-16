@@ -64,26 +64,6 @@ export function buildDailySpendingFacts({ today, expenses = [], budgets = [], ca
     };
   });
   const todayTotal = todayRows.reduce((sum, item) => sum + numericAmount(item.amount), 0);
-  const monthConsumptionRows = monthlyRows.filter(isOrdinaryExpense);
-  const todayConsumptionRows = todayRows.filter(isOrdinaryExpense);
-  const todayByType = todayRows.reduce((totals, item) => {
-    totals[typeOf(item)] += numericAmount(item.amount);
-    return totals;
-  }, { consumption: 0, project: 0, savings: 0, investment: 0 });
-  const todayOperations = todayRows.map((item) => {
-    const category = categories.find((candidate) => candidate.id === item.categoryId);
-    const categoryName = category?.name || item.categoryName || item.categoryId || 'Catégorie non précisée';
-    const typeLabels = {
-      consumption: 'Consommation', project: 'Projet', savings: 'Épargne', investment: 'Investissement',
-    };
-    return {
-      amount: numericAmount(item.amount),
-      category: String(categoryName).slice(0, 50),
-      type: typeLabels[typeOf(item)],
-      note: String(item.note || '').slice(0, 100),
-    };
-  });
-  const todayTotal = todayRows.reduce((sum, item) => sum + numericAmount(item.amount), 0);
   const daysInMonth = todayDate
     ? new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate()
     : 0;
