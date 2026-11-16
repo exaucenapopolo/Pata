@@ -307,6 +307,10 @@ export function parseQuickCapture(input, now = new Date()) {
       && normalized.search(repaymentVerb) < normalized.search(debtWord))
     || (debtWord.test(normalized) && repaymentVerb.test(normalized)
       && normalized.search(debtWord) < normalized.search(repaymentVerb)));
+  const borrowedIntent = /\b(emprunt\w*|emprunte\w*|contracte\w*)\b/.test(normalized)
+    || /\b(?:on|il|elle|ils|elles|la banque|ma banque|mon ami|mon amie) m a prete\b/.test(normalized)
+    || /\b(?:j ai|jai|je viens de) pris?\b.{0,35}\b(?:chez|aupres de|de la part de)\b/.test(normalized)
+    || /\bpris?\b.{0,24}\b(?:un pret|une avance|de l argent)\b/.test(normalized);
   const hasLoan = /\bpret\b|\bprets\b|\bprete\b|\bpretee\b|\bpretes\b|\bavance d'argent\b|\bavance a\b/.test(normalized);
   const hasDebt = /\bdette\b|\bdettes\b|\bemprunt\b|\bemprunte\b|\bemprunter\b|\bargent emprunte\b/.test(normalized);
   const explicitDateLabels = /(?:date de (?:transaction|l'operation|operation|paiement|l'achat|achat|facture)|date (?:de )?(?:transaction|paiement|achat)|effectue le|operation du|transaction du)/.test(normalized);
@@ -318,6 +322,7 @@ export function parseQuickCapture(input, now = new Date()) {
   let type = null;
   if (hasBill) type = "bill";
   else if (hasRepayment) type = "debt_repayment";
+  else if (borrowedIntent) type = "debt_borrowed";
   else if (hasLoan) type = "loan_given";
   else if (hasDebt) type = "debt_borrowed";
   else if (expense && (expenseVerb || incomeSourceName)) type = "expense";
