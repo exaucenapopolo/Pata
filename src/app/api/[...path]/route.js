@@ -4978,7 +4978,7 @@ async function handleAIChat(request) {
     const incomingMessages = Array.isArray(body.messages) ? body.messages : [];
     if (!incomingMessages.length) return errorResponse('Messages requis.', 400);
 
-    const history = incomingMessages.slice(-6).map((message, index, list) => {
+    const history = incomingMessages.slice(-10).map((message, index, list) => {
       const content = String(message.content || '');
       const isLast = index === list.length - 1;
       const legalDocument = content.includes('CONTENU DU DOCUMENT :');
@@ -5046,6 +5046,9 @@ async function handleAIChat(request) {
       needsReports: latestIntent.needsReports || inheritedIntent.needsReports,
       needsActivityLog: latestIntent.needsActivityLog || inheritedIntent.needsActivityLog,
       cotisations: latestIntent.cotisations || inheritedIntent.cotisations,
+      dailySpending: latestIntent.dailySpending || inheritedIntent.dailySpending,
+      spendingCapacity: latestIntent.spendingCapacity || inheritedIntent.spendingCapacity,
+      spendingDecision: latestIntent.spendingDecision || inheritedIntent.spendingDecision,
     };
     // Ne jamais réactiver une action financière à partir d’un ancien tour :
     // les outils de mutation sont sélectionnés uniquement avec le message actuel.
@@ -5184,6 +5187,8 @@ async function handleAIChat(request) {
     const periodExpenseTotal = periodExpenseRows.reduce((sum, document) => sum + (Number(document.data()?.amount) || 0), 0);
     const userData = {
       profile: userDoc.exists ? userDoc.data() : {},
+      today: getDoualaToday(),
+      latestUserText,
       reportPeriod,
       financeSummary: {
         startDate: reportPeriod.startDate,
@@ -5220,6 +5225,8 @@ Be natural, patient and clear; never sound rushed. For a simple question, answer
 
 Pata helps users track income, expenses, debts and loans, budgets, savings, goals, group contributions, projects, wallet balances and reports. Borrowed money is a neutral cash inflow linked to a debt to repay; it is never earned income. Users can record a debt, identify an individual or bank lender, assign borrowing to a project and track monthly goals. Financial reference amounts are stored in XAF; the profile currency changes display only. The Pata wallet is an internal balance, not a bank account.
 
+SPENDING CAPACITY: When asked what remains spendable or whether a proposed purchase is affordable, use the exact current-month category envelopes and today's transaction facts provided below. A monthly envelope is a category cap, not a user-defined daily limit. The "daily pace available today" is only a recommendation calculated by spreading that category's remaining monthly budget evenly over the remaining days of this month, including today; it is not a saved daily limit. Compare a proposed amount with both the current daily pace and the monthly envelope. If it exceeds today's pace but remains inside the monthly envelope, explain that it uses part of the allowance for later days. If the category is unknown, do not approve it globally: ask which category applies. Never record an intended purchase unless the user clearly asks you to record it.
+
 FINANCIAL RULES: distinguish everyday consumption, project outflows, savings and investments. Savings and investments are not consumption. Cash balance calculations include all outflows. For an expense, use the exact source ID specified by the user; if no source is specified, use only the available permitted allocation. Recorded income cannot be edited: it may only be supplemented with another entry or deleted when explicitly requested. A budget is never income. Funds reserved for a project must remain assigned to that project. A financial action is successful only after a tool confirms success; never guess an amount, ID or result. Ask for clarification when an operation is ambiguous. An existing income entry cannot be edited: offer a new entry or deletion only when explicitly requested. For a dated savings goal, a late fee is calculated only on the amount actually unpaid at the due date, never on the full target; flexible savings pots are excluded. For group contributions, distinguish principal, the 5% service fee and payments actually confirmed.
 
 PATA RULES TO PRESERVE: a dated goal may incur a 7% late fee calculated on the amount actually unpaid at the due date, never on the full target; flexible savings pots are exempt. The separate early-cancellation fee for a dated goal is 10% of the amount already saved. For group contributions, distinguish principal, any late fees and the 5% service fee per payment; only payments confirmed by the provider count as paid. Premium costs XAF 2,500 for 30 days; an eligible referral offer may reduce the first month to XAF 1,250. For analysis, lead with the key number; do not create a report for a short question.
@@ -5237,6 +5244,8 @@ ${userContext}`
 Réponds naturellement, avec patience et clarté, sans donner l’impression d’être pressée. RÈGLE DE PÉRIODE FINANCIÈRE : utilise uniquement la période mentionnée dans la dernière question de l’utilisateur et les totaux exacts fournis ci-dessous. Si aucune autre période n’est précisée, prends le mois civil en cours, du premier jour du mois jusqu’à aujourd’hui, selon l’heure de Douala. Les dates de début et de fin sont incluses. N’ajoute jamais les opérations des mois précédents et n’utilise pas les compteurs historiques du profil pour calculer un bilan de période. Les listes d’opérations fournies ne sont que des exemples de cette période : utilise les totaux exacts agrégés par Firestore et ne recalcule pas la somme en additionnant ces extraits. Pour une question simple, donne quelques phrases faciles à comprendre et explique les termes importants en mots courants. Pour un bilan, une comparaison ou un conseil financier, commence par un résumé d’une phrase sous **En bref**, puis explique les chiffres importants et ce qu’ils signifient. Lorsque plusieurs chiffres doivent être comparés, utilise un petit tableau Markdown (8 lignes et 5 colonnes maximum), puis explique ce qu’il faut en retenir. Adapte la longueur à la demande, évite les répétitions et propose jusqu’à trois actions concrètes seulement lorsqu’elles sont utiles. N’invente jamais une donnée manquante et ne présente pas un extrait récent comme un historique complet. N’écris pas de HTML brut : utilise les tableaux Markdown.
 
 Pata aide à suivre les revenus, dépenses, dettes et prêts, budgets, épargne, objectifs, cotisations, projets, portefeuille et rapports. Un emprunt est une entrée de trésorerie neutre avec une dette à rembourser : ce n’est jamais un revenu gagné. Tu peux enregistrer une dette, préciser s’il s’agit d’une personne ou d’une banque, affecter l’emprunt à un projet et suivre tes objectifs mensuels. Les montants financiers de référence sont en FCFA; la devise du profil ne change que l’affichage. Le portefeuille Pata est un solde interne, pas un compte bancaire.
+
+CONSEIL AVANT UNE DÉPENSE : quand l’utilisateur demande ce qu’il peut encore dépenser ou si un achat est raisonnable, utilise les enveloppes exactes du mois et les opérations du jour fournies ci-dessous. Une enveloppe mensuelle est un plafond par catégorie, pas une limite quotidienne définie par l’utilisateur. Le « rythme indicatif disponible aujourd’hui » est seulement une recommandation calculée en répartissant le reste de l’enveloppe mensuelle de façon régulière sur les jours restants du mois, aujourd’hui compris ; ce n’est pas un plafond journalier enregistré. Compare le montant envisagé au rythme du jour et au reste mensuel. S’il dépasse le rythme du jour mais reste dans l’enveloppe mensuelle, explique qu’il réduit la marge des jours suivants. Si la catégorie n’est pas connue, ne valide pas globalement la dépense : demande à quelle catégorie elle appartient. N’enregistre jamais une dépense simplement envisagée ; attends une demande claire d’enregistrement.
 
 RÈGLES FINANCIÈRES : distingue consommation quotidienne, sortie liée à un projet, épargne et investissement. L’épargne et les investissements ne sont pas de la consommation. Le solde de trésorerie tient compte de toutes les sorties. Pour une dépense, utilise l’ID exact de la source mentionnée; si la source n’est pas précisée, utilise la répartition disponible autorisée. Les revenus enregistrés ne peuvent pas être modifiés : on peut en ajouter un autre ou supprimer une entrée uniquement sur demande claire. Un budget n’est jamais un revenu. Les fonds réservés à un projet restent affectés à ce projet. Une action financière n’est réussie qu’après le résultat positif de l’outil; ne devine jamais un montant, un ID ou un résultat. Pour une opération ambiguë, demande une précision. Un revenu déjà enregistré ne peut pas être modifié : propose seulement une nouvelle entrée ou la suppression si elle est explicitement demandée. Pour un objectif daté, la majoration est calculée uniquement sur le montant resté impayé à l’échéance, jamais sur toute la cible; les caisses et tirelires libres ne sont pas concernées. Pour une cotisation, distingue le principal, les frais de service de 5 % et les contributions effectivement confirmées.
 

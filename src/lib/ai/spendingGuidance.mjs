@@ -1,4 +1,4 @@
-const normalize = (value = '') => String(value).normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase().trim();
+const normalize = (value = '') => String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 const numericAmount = (value) => {
   const amount = Number(value);
   return Number.isFinite(amount) && amount > 0 ? Math.round(amount) : 0;
@@ -10,10 +10,10 @@ const isoDate = (value) => {
 };
 const moneyAmountInText = (value = '') => {
   const text = normalize(value);
-  const match = text.match(/(?:depenser|depense|achat|acheter|payer)[^0-9]{0,35}([0-9][0-9\\s.,]*)/)
-    || text.match(/([0-9][0-9\\s.,]*)\\s*(?:fcfa|xaf|francs?|frs)\\b/);
+  const match = text.match(/(?:depenser|depense|achat|acheter|payer)[^0-9]{0,35}([0-9][0-9\s.,]*)/)
+    || text.match(/([0-9][0-9\s.,]*)\s*(?:fcfa|xaf|francs?|frs)\b/);
   if (!match) return null;
-  const digits = match[1].replace(/\\D/g, '');
+  const digits = match[1].replace(/\D/g, '');
   const amount = Number(digits);
   return Number.isSafeInteger(amount) && amount > 0 ? amount : null;
 };

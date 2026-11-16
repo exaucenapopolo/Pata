@@ -24,13 +24,13 @@ export function classifyAIRequest(message = '') {
   const dailySpending = /aujourd'hui|aujourd hui|ce jour|today/.test(text)
     && /depens|depense|achat|sortie|paiement|combien|reste|budget/.test(text);
   const spendingCapacity = /combien.{0,60}(peux|puis|reste|encore).{0,45}(depens|sortir|utilis|payer)|(?:peux|puis).{0,35}depens.{0,35}(aujourd|jour|budget)|reste.{0,35}(a depenser|pour depenser)/.test(text);
-  const spendingDecision = /(envie|compte|voudrais|souhaite|possible|peux).{0,55}(depens|achat|acheter|payer)|(depens|achat|acheter|payer).{0,35}\\d/.test(text);
+  const spendingDecision = /(envie|compte|voudrais|souhaite|possible|peux).{0,55}(depens|achat|acheter|payer)|(depens|achat|acheter|payer).{0,35}\d/.test(text);
   const update = /modifi|corrig|change|mettre a jour/.test(text);
   const remove = /supprim|effac|retir|delete|remove/.test(text);
   const reports = /rapport|report|hebdom|weekly|bilan de la semaine|resume de la semaine/.test(text);
   const needsActivityLog = /supprim|effac|deleted|removed|deletion|suppression|what did i delete|what have i deleted/.test(text);
   return {
-    action, expense, income, borrowedDebt, loanGiven, financialTargets, budgets, goals, automations, premium, cotisations, projects, forecast, vital, memory, overview, update, remove, reports, needsActivityLog,
+    action, expense, income, borrowedDebt, loanGiven, financialTargets, budgets, goals, automations, premium, cotisations, projects, forecast, vital, memory, overview, update, remove, reports, needsActivityLog, dailySpending, spendingCapacity, spendingDecision,
     needsDebts: borrowedDebt || loanGiven || /dette|emprunt|pret|creance/.test(text) || overview,
     needsFinancialTargets: financialTargets || borrowedDebt || overview || spendingCapacity || spendingDecision,
     needsIncomes: income || expense || budgets || borrowedDebt || overview || spendingCapacity || spendingDecision,
