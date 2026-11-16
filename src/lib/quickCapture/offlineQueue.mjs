@@ -36,6 +36,11 @@ export async function enqueueOfflineCapture({ uid, payload, nativeCaptureId = ''
   const database = await openQueueDatabase();
   try {
     const transaction = database.transaction(STORE_NAME, 'readwrite');
+    const committed = new Promise((resolve, reject) => {
+      transaction.oncomplete = resolve;
+      transaction.onerror = () => reject(transaction.error || new Error('La saisie n’a pas été conservée sur cet appareil.'));
+      transaction.onabort = () => reject(transaction.error || new Error('La sauvegarde locale a été interrompue.'));
+    });
     const record = {
       id: String(payload.idempotencyKey),
       uid: String(uid),
@@ -46,11 +51,7 @@ export async function enqueueOfflineCapture({ uid, payload, nativeCaptureId = ''
       attempts: 0,
     };
     await requestResult(transaction.objectStore(STORE_NAME).put(record));
-    await new Promise((resolve, reject) => {
-      transaction.oncomplete = resolve;
-      transaction.onerror = () => reject(transaction.error || new Error('La saisie n’a pas été conservée sur cet appareil.'));
-      transaction.onabort = () => reject(transaction.error || new Error('La sauvegarde locale a été interrompue.'));
-    });
+    await committed;
     return record;
   } finally {
     database.close();
