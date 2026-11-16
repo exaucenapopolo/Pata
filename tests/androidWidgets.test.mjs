@@ -49,3 +49,13 @@ test('le fournisseur financier et ses deux actions Capacitor restent déclarés'
   assert.match(plugin, /public void isFinanceWidgetInstalled\(/);
   assert.match(plugin, /public void updateFinanceWidget\(/);
 });
+
+test('les mises à jour de Quick Capture alimentent le même cache que le widget financier', () => {
+  const provider = read('native/android/com/pata/app/PataQuickCaptureWidgetProvider.java');
+  const plugin = read('native/android/com/pata/app/PataQuickCapturePlugin.java');
+  const coordinator = read('src/components/QuickCaptureCoordinator.jsx');
+  assert.match(provider, /getSharedPreferences\(PREFS, Context\.MODE_PRIVATE\)/);
+  assert.match(provider, /private static final String PREFS = "PataFinanceWidget"/);
+  assert.match(plugin, /PataQuickCaptureWidgetProvider\.adjustMonthlyTotal\(getContext\(\), type, amount, date\)/);
+  assert.match(coordinator, /type: draft\.type === 'income' \? 'income' : 'expense'/);
+});
