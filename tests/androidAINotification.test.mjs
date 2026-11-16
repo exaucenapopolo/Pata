@@ -43,6 +43,7 @@ test('le build Android recopie le worker conversation natif', () => {
 test('le composeur vocal peut afficher la réponse Mč dans une notification Android', () => {
   const plugin = read('native/android/com/pata/app/PataQuickCapturePlugin.java');
   const coordinator = read('src/components/QuickCaptureCoordinator.jsx');
+  const worker = read('native/android/com/pata/app/PataAIConversationWorker.java');
   assert.match(plugin, /public void showAIConversationReply\(PluginCall call\)/);
   assert.match(plugin, /showAIConversationReplyNotification\(getContext\(\), title, message, "\/dashboard", conversationId\)/);
   assert.match(coordinator, /notificationConversationId: voiceChatConversationId/);
