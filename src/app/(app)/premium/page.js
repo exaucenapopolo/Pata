@@ -182,29 +182,29 @@ export default function PremiumPage() {
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-emerald-700"><Sparkles size={18}/></span>
             <div className="min-w-0">
               <h2 className="text-sm font-bold text-emerald-950">Ce que Premium change concrètement</h2>
-              <p className="mt-1 text-xs leading-5 text-emerald-900/80">Tu conserves les mêmes outils, avec plus de capacité pour les utiliser et organiser tes finances.</p>
+              <p className="mt-1 text-xs leading-5 text-emerald-900/80">Automatise tes opérations, conserve tes saisies même sans réseau et retrouve tes échanges importants avec Mč.</p>
             </div>
           </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-xl bg-white/85 p-3">
               <Check size={16} className="text-emerald-700"/>
-              <p className="mt-2 text-xs font-semibold text-slate-800">Plus de capacité</p>
-              <p className="mt-1 text-[11px] leading-4 text-slate-500">Davantage de dépenses, revenus, budgets et objectifs à gérer.</p>
+              <p className="mt-2 text-xs font-semibold text-slate-800">Détection automatique des SMS</p>
+              <p className="mt-1 text-[11px] leading-4 text-slate-500">Les mouvements Mobile Money entrants et sortants sont identifiés et préparés pour ton suivi.</p>
             </div>
             <div className="rounded-xl bg-white/85 p-3">
               <Check size={16} className="text-emerald-700"/>
-              <p className="mt-2 text-xs font-semibold text-slate-800">Mč, plus disponible</p>
-              <p className="mt-1 text-[11px] leading-4 text-slate-500">Une utilisation élargie de l’assistante pour tes questions et analyses.</p>
+              <p className="mt-1 text-xs font-semibold text-slate-800">Saisie rapide hors connexion</p>
+              <p className="mt-1 text-[11px] leading-4 text-slate-500">Utilise la notification permanente et conserve tes opérations jusqu’au retour du réseau.</p>
             </div>
             <div className="rounded-xl bg-white/85 p-3">
               <Check size={16} className="text-emerald-700"/>
-              <p className="mt-2 text-xs font-semibold text-slate-800">Gestion de projets</p>
-              <p className="mt-1 text-[11px] leading-4 text-slate-500">Crée des projets, réserve des revenus et suis les dépenses associées.</p>
+              <p className="mt-1 text-xs font-semibold text-slate-800">Dettes et remboursements reconnus</p>
+              <p className="mt-1 text-[11px] leading-4 text-slate-500">Décris un emprunt ou un remboursement avec tes propres mots pour le classer au bon endroit.</p>
             </div>
             <div className="rounded-xl bg-white/85 p-3">
               <Check size={16} className="text-emerald-700"/>
-              <p className="mt-2 text-xs font-semibold text-slate-800">Mobile Money automatique</p>
-              <p className="mt-1 text-[11px] leading-4 text-slate-500">Avec l’application Android, les confirmations sont détectées et les opérations ajoutées à ton suivi sans ressaisie.</p>
+              <p className="mt-1 text-xs font-semibold text-slate-800">Mč et widget financier</p>
+              <p className="mt-1 text-[11px] leading-4 text-slate-500">Retrouve les conversations envoyées par notification, épingle-les et consulte tes soldes depuis Android.</p>
             </div>
           </div>
         </section>
