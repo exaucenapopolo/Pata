@@ -288,6 +288,7 @@ export function QuickCaptureCoordinator() {
       try {
         if (!premium) {
           await PataQuickCapture.setPersistentNotification({ enabled: false, uid: user.uid });
+          await PataQuickCapture.clearFinanceWidget().catch(() => {});
           return;
         }
         await user.getIdToken(true);
