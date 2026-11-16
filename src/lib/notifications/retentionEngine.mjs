@@ -220,7 +220,8 @@ export function claimDailyRetentionSlot(state = {}, dateKey, notificationKey, li
 
 
 /**
- * Shared daily limit for all non-essential retention and discovery messages.
+ * Separate daytime quota: up to three retention/discovery/weekend messages.
+ * The two financial evening reminders use claimDailyRetentionSlot instead.
  * Transactional/operational alerts and cotisation messages must not call this.
  */
 export function claimDailyNonEssentialSlot(
