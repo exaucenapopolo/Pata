@@ -285,6 +285,7 @@ export default function DashboardPage() {
           receivableTotal: Math.round(widgetDebtBalances.receivable),
           payableTotal: Math.round(widgetDebtBalances.payable),
           monthKey,
+          uid: user.uid,
         });
       } catch (error) {
         console.warn('[PATA FINANCE WIDGET]', error?.message || error);
