@@ -16,6 +16,8 @@ export async function createChat(uid, firstMessage) {
   return addDoc(col(uid), {
     title,
     messages: [],
+    source: 'assistant',
+    pinned: false,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
@@ -24,6 +26,13 @@ export async function createChat(uid, firstMessage) {
 export async function updateChatTitle(uid, chatId, newTitle) {
   await updateDoc(doc(db, 'users', uid, 'ai_chats', chatId), {
     title: newTitle.trim().slice(0, 50),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function updateChatPinned(uid, chatId, pinned) {
+  await updateDoc(doc(db, 'users', uid, 'ai_chats', chatId), {
+    pinned: pinned === true,
     updatedAt: serverTimestamp(),
   });
 }
