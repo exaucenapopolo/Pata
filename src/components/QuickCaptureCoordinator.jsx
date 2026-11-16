@@ -14,6 +14,46 @@ import { PataQuickCapture } from '@/lib/quickCapture/nativePlugin';
 import { uploadBillImage } from '@/lib/bills/uploadBillImage.mjs';
 import { enqueueOfflineCapture, listOfflineCaptures, removeOfflineCapture } from '@/lib/quickCapture/offlineQueue.mjs';
 
+function restoreOfflineCaptureDraft(item, confirmationMessage = '') {
+  const payload = item?.payload || {};
+  return {
+    id: String(item?.id || payload.idempotencyKey || makeId()),
+    nativeCaptureId: String(item?.nativeCaptureId || ''),
+    origin: 'offline',
+    rawText: '',
+    type: String(payload.type || 'expense'),
+    amount: payload.amount == null ? '' : String(payload.amount),
+    categoryId: String(payload.categoryId || ''),
+    date: String(payload.date || item?.capturedAt || today()).slice(0, 10),
+    source: String(payload.source || ''),
+    person: String(payload.person || ''),
+    note: String(payload.note || ''),
+    incomeSourceName: String(payload.incomeSourceName || ''),
+    incomeSourceId: String(payload.incomeSourceId || 'all'),
+    repaymentDebtId: String(payload.repaymentDebtId || ''),
+    incomeFlowType: String(payload.incomeFlowType || 'normal'),
+    incomeCounterpartyType: String(payload.incomeCounterpartyType || 'person'),
+    incomePerson: String(payload.incomePerson || ''),
+    incomeBankName: String(payload.incomeBankName || ''),
+    incomePhone: String(payload.incomePhone || ''),
+    incomeDueDate: String(payload.incomeDueDate || ''),
+    billName: String(payload.name || ''),
+    billType: String(payload.billType || 'other'),
+    dueDate: String(payload.dueDate || ''),
+    frequency: String(payload.frequency || 'once'),
+    expenseCategoryId: String(payload.expenseCategoryId || payload.categoryId || 'other'),
+    providerName: String(payload.providerName || ''),
+    accountReference: String(payload.accountReference || ''),
+    sharedImageData: String(item?.sharedImageData || ''),
+    imageUrl: String(payload.imageUrl || ''),
+    isVariable: payload.isVariable === true,
+    confirmationRequired: Boolean(confirmationMessage),
+    confirmationMessage: confirmationMessage || '',
+    sourceMimeType: '',
+    analysisWarning: 'Cette opération avait été saisie hors connexion. Vérifie les informations avant de confirmer.',
+  };
+}
+
 function premiumActive(profile) {
   const raw = profile?.premiumUntil;
   const date = raw?.toDate ? raw.toDate() : new Date(raw || 0);
@@ -68,9 +108,15 @@ export function QuickCaptureCoordinator() {
           const result = await response.json().catch(() => ({}));
           if (!response.ok || !result.success) {
             if (result.confirmationRequired) {
-              setNotice('Une opération hors connexion attend ta confirmation dans Pata avant synchronisation.');
-            } else if (response.status >= 400 && response.status < 500) {
-              setNotice(result.error || 'Une opération sauvegardée hors connexion doit être vérifiée.');
+              setDraft(restoreOfflineCaptureDraft(item,
+                result.message || 'Cette opération dépasse une enveloppe budgétaire. Confirme-la pour terminer la synchronisation.'));
+              setNotice('Une opération hors connexion attend ta confirmation. Vérifie la fenêtre ouverte puis confirme-la.');
+            } else if (response.status >= 400 && response.status < 500 && response.status !== 401 && response.status !== 403) {
+              setDraft(restoreOfflineCaptureDraft(item));
+              setError(result.error || 'Une précision est nécessaire pour terminer cette opération sauvegardée hors connexion.');
+              setNotice('Une opération conservée hors connexion a besoin d’une vérification avant son enregistrement.');
+            } else if (response.status === 401 || response.status === 403) {
+              setNotice(result.error || 'Reconnecte-toi ou vérifie ton accès Premium pour synchroniser les opérations en attente.');
             }
             break;
           }
@@ -485,6 +531,7 @@ export function QuickCaptureCoordinator() {
       }
       if (!response.ok || !result.success) throw new Error(result.error || 'L’opération n’a pas été enregistrée.');
       if (draft.nativeCaptureId) await PataQuickCapture.clearPendingCapture({ id: draft.nativeCaptureId }).catch(() => {});
+      if (draft.origin === 'offline') await removeOfflineCapture(draft.id).catch(() => {});
       if (draft.origin === 'image' || draft.origin === 'pdf' || draft.origin === 'share') {
         await PataQuickCapture.clearSharedContent().catch(() => {});
       }
