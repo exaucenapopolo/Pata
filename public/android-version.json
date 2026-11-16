@@ -1,7 +1,7 @@
 {
   "version": "1.2.1",
   "versionCode": 22,
-  "downloadAvailable": false,
+  "downloadAvailable": true,
   "apkUrl": "https://github.com/exaucenapopolo/Pata/releases/latest/download/Pata-Android.apk",
   "releaseNotes": "Pata 1.2.1 : détection des remboursements et emprunts formulés naturellement ; historique séparé et épinglage des conversations Mč par notification ; réponses courtes sans tableaux dans les notifications ; sauvegarde locale des opérations hors connexion puis synchronisation ; widget financier Android actualisé en arrière-plan et isolé par compte Premium."
 }
