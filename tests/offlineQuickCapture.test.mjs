@@ -30,7 +30,7 @@ test('une saisie locale est considérée enregistrée seulement après validatio
 test('les saisies en attente sont triées chronologiquement et supprimables après synchronisation', () => {
   const queue = read('src/lib/quickCapture/offlineQueue.mjs');
   assert.match(queue, /index\('uid'\)\.getAll\(String\(uid\)\)/);
-  assert.match(queue, /localeCompare\(b\.capturedAt\)/);
+  assert.ok(queue.includes('String(a.capturedAt).localeCompare(String(b.capturedAt))'));
   assert.match(queue, /objectStore\(STORE_NAME\)\.delete\(String\(id\)\)/);
 });
 
