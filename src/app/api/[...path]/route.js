@@ -9154,7 +9154,7 @@ async function handleDebtRepayments(request) {
 
 /* ═══════════════════ FACTURES RÉCURRENTES ═══════════════════ */
 
-const PATA_BILL_TYPES = new Set(['electricity', 'water', 'rent', 'television', 'internet', 'telephone', 'taxes', 'insurance', 'school', 'other']);
+const PATA_BILL_TYPES = new Set(['electricity', 'water', 'rent', 'television', 'internet', 'telephone', 'taxes', 'insurance', 'school', 'subscription', 'other']);
 const PATA_BILL_FREQUENCIES = new Set(['weekly', 'monthly', 'quarterly', 'yearly', 'once']);
 const PATA_BILL_REMINDERS = new Set([0, 1, 3, 7, 14]);
 const PATA_BILL_EXPENSE_CATEGORIES = new Set(['food', 'transport', 'housing', 'internet', 'health', 'leisure', 'gift_donation', 'contribution', 'other']);

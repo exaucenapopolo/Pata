@@ -22,6 +22,7 @@ const BILL_TYPES = [
   ['taxes', 'Impôts et taxes'],
   ['insurance', 'Assurance'],
   ['school', 'Scolarité'],
+  ['subscription', 'Abonnement'],
   ['other', 'Autre facture'],
 ];
 const FREQUENCIES = [
@@ -274,6 +275,7 @@ export default function BillsPage() {
         frequency: form.frequency,
         frequencyPending: false,
         nextDueDate: form.nextDueDate,
+        allowIncomplete: !form.nextDueDate,
         dueDay: Number(String(form.nextDueDate).slice(8, 10)),
         reminderDaysBefore: Number(form.reminderDaysBefore),
         expenseCategoryId: form.expenseCategoryId,
