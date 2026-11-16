@@ -5084,7 +5084,7 @@ async function handleAIChat(request) {
       intent.needsDebts ? userRef.collection('debts').orderBy('createdAt', 'desc').limit(25).get() : Promise.resolve(emptySnapshot),
       intent.needsFinancialTargets ? userRef.collection('financialTargets').doc(getDoualaMonthKey()).get() : Promise.resolve(null),
       intent.needsGoals ? userRef.collection('goals').limit(15).get() : Promise.resolve(emptySnapshot),
-      intent.needsBudgets ? userRef.collection('budgets').limit(25).get() : Promise.resolve(emptySnapshot),
+      intent.needsBudgets ? userRef.collection('budgets').where('month', '==', getDoualaMonthKey()).limit(100).get() : Promise.resolve(emptySnapshot),
       intent.needsAutomations ? userRef.collection('automations').limit(15).get() : Promise.resolve(emptySnapshot),
       intent.memory ? userRef.collection('ai_memory').doc('profile').get() : Promise.resolve(null),
       intent.needsCategories ? userRef.collection('categories').limit(40).get() : Promise.resolve(emptySnapshot),

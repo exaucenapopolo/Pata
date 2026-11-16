@@ -90,7 +90,7 @@ export function buildDailySpendingFacts({ today, expenses = [], budgets = [], ca
     .map((budget) => {
       const category = categories.find((candidate) => candidate.id === budget.categoryId);
       const categoryName = String(category?.name || budget.categoryName || budget.categoryId).slice(0, 50);
-      const matchesBudget = (expense) => typeOf(expense) === 'consumption'
+      const matchesBudget = (expense) => isOrdinaryExpense(expense)
         && expense.categoryId === budget.categoryId
         && (!budget.incomeSourceId || budget.incomeSourceId === 'all'
           || expense.incomeSourceId === budget.incomeSourceId);

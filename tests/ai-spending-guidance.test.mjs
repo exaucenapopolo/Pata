@@ -6,6 +6,7 @@ const sample = {
   today: '2026-11-16',
   expenses: [
     { date: '2026-11-10', amount: 10000, categoryId: 'transport', expenseType: 'consumption' },
+    { date: '2026-11-11', amount: 3000, categoryId: 'transport', expenseType: 'consumption', neutralFlow: true, flowType: 'repayment' },
     { date: '2026-11-16', amount: 500, categoryId: 'transport', expenseType: 'consumption', note: 'Taxi' },
     { date: '2026-11-16', amount: 2000, categoryId: 'phone', expenseType: 'project', note: 'Accessoire' },
     { date: '2026-11-15', amount: 1000, categoryId: 'food', expenseType: 'consumption' },
@@ -35,15 +36,13 @@ test('évalue une dépense envisagée avec sa catégorie sans la confondre avec 
     ...sample,
     proposedSpendText: "J'ai envie de dépenser 500 FCFA pour le transport",
   });
-  assert.deepEqual(facts.proposedSpend, {
-    amount: 500,
-    category: 'Transport',
-    dailyRemaining: 833,
-    monthlyRemaining: 19500,
-    dailyAfter: 333,
-    monthlyAfter: 19000,
-    status: 'within-daily-pace',
-  });
+  assert.equal(facts.proposedSpend.amount, 500);
+  assert.equal(facts.proposedSpend.category, 'Transport');
+  assert.equal(facts.proposedSpend.dailyRemaining, 833);
+  assert.equal(facts.proposedSpend.monthlyRemaining, 19500);
+  assert.equal(facts.proposedSpend.dailyAfter, 333);
+  assert.equal(facts.proposedSpend.monthlyAfter, 19000);
+  assert.equal(facts.proposedSpend.status, 'within-daily-pace');
 });
 
 test('ne valide pas une dépense si sa catégorie ne peut pas être déterminée', () => {
@@ -76,10 +75,10 @@ test('tient compte du plafond global mensuel défini par l’utilisateur pour le
     financialTargets: { expenseLimit: 50000 },
   });
   assert.equal(facts.hasGlobalMonthlyLimit, true);
-  assert.equal(facts.globalMonthlySpent, 10500);
-  assert.equal(facts.globalMonthlyRemaining, 39500);
-  assert.equal(facts.globalDailyPlan, 2666);
-  assert.equal(facts.globalDailyRemaining, 2166);
+  assert.equal(facts.globalMonthlySpent, 11500);
+  assert.equal(facts.globalMonthlyRemaining, 38500);
+  assert.equal(facts.globalDailyPlan, 2600);
+  assert.equal(facts.globalDailyRemaining, 2100);
 });
 
 test('évalue un montant sans catégorie par rapport au plafond global, sans prétendre connaître son enveloppe', () => {
@@ -90,8 +89,8 @@ test('évalue un montant sans catégorie par rapport au plafond global, sans pr�
   });
   assert.equal(facts.proposedSpend.status, 'global-target-only');
   assert.equal(facts.proposedSpend.categoryRequired, true);
-  assert.equal(facts.proposedSpend.globalMonthlyAfter, 39000);
-  assert.equal(facts.proposedSpend.globalDailyAfter, 1666);
+  assert.equal(facts.proposedSpend.globalMonthlyAfter, 38000);
+  assert.equal(facts.proposedSpend.globalDailyAfter, 1600);
 });
 
 test('respecte aussi un plafond global de dépenses défini à zéro', () => {
@@ -103,4 +102,11 @@ test('respecte aussi un plafond global de dépenses défini à zéro', () => {
   assert.equal(facts.hasGlobalMonthlyLimit, true);
   assert.equal(facts.globalMonthlyRemaining, 0);
   assert.equal(facts.proposedSpend.globalStatus, 'over-global-monthly-limit');
+});
+
+test('les remboursements et flux neutres ne consomment pas une enveloppe de dépenses courantes', () => {
+  const facts = buildDailySpendingFacts(sample);
+  assert.equal(facts.budgets[0].spentBeforeToday, 10000);
+  assert.equal(facts.budgets[0].monthlyRemaining, 19500);
+  assert.equal(facts.globalMonthlySpent, 11500);
 });
