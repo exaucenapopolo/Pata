@@ -50,7 +50,8 @@ public class PataQuickCaptureReceiver extends BroadcastReceiver {
             String text = reply == null ? "" : reply.toString().trim();
             if (text.isEmpty()) return;
             PataQuickCaptureAuthStore.Session session = PataQuickCaptureAuthStore.read(context);
-            enqueueAIReply(context, text, session == null ? "" : session.uid);
+            enqueueAIReply(context, text, session == null ? "" : session.uid,
+                intent.getStringExtra("pata_ai_conversation_id"));
             return;
         }
         if (!ACTION_REPLY.equals(action)) return;
@@ -88,6 +89,7 @@ public class PataQuickCaptureReceiver extends BroadcastReceiver {
                 item.put("id", id);
                 item.put("text", text.trim().substring(0, Math.min(500, text.trim().length())));
                 item.put("ownerUid", ownerUid);
+                item.put("conversationId", conversationId == null ? "" : conversationId);
                 item.put("createdAt", System.currentTimeMillis());
                 item.put("status", "pending");
                 queue.put(item);
@@ -99,7 +101,7 @@ public class PataQuickCaptureReceiver extends BroadcastReceiver {
         return id;
     }
 
-    static String enqueueAIReply(Context context, String text, String ownerUid) {
+    static String enqueueAIReply(Context context, String text, String ownerUid, String conversationId) {
         if (text == null || text.trim().isEmpty()) return "";
         if (ownerUid == null || ownerUid.trim().isEmpty()) {
             PataQuickCapturePlugin.showAIConversationReplyNotification(context,
