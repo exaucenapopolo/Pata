@@ -3640,21 +3640,54 @@ async function handleCreateIncome(request) {
             return true;
           });
           if (shouldCreate) {
+            const profileSnapshot = await userRef.get().catch(() => null);
+            const notificationProfile = profileSnapshot?.exists ? profileSnapshot.data() || {} : {};
             const pushResult = await sendPataPushToUser(userRef, {
               title: reminder.title,
               body: reminder.body,
               url: reminder.target,
               tag: 'pata-income-priority-' + reminderDate,
               source: reminder.source,
-            }, getPataAppUrl(request));
-            await notificationRef.update({ delivered: pushResult.fcmSent + pushResult.webPushSent }).catch(() => {});
+            }, getPataAppUrl(request), notificationProfile).catch((pushError) => {
+              console.warn('[PATA INCOME PRIORITY PUSH]', uid, pushError.message || pushError);
+              return { fcmSent: 0, webPushSent: 0, attempted: 0 };
+            });
+            const pushSent = pushResult.fcmSent + pushResult.webPushSent;
+            let emailSent = false;
+            const recipientEmail = String(notificationProfile.email || '').trim();
+            if (pushSent === 0 && notificationProfile.emailRemindersEnabled !== false && recipientEmail.includes('@')) {
+              emailSent = await sendRetentionEmailFallback({
+                userData: notificationProfile,
+                title: reminder.title,
+                body: reminder.body,
+                target: reminder.target,
+                category: 'Priorités après réception d’un revenu',
+                idempotencyKey: 'pata-income-priority-' + uid + '-' + result.id,
+              });
+            }
+            await notificationRef.update({ delivered: pushSent, emailSent }).catch(() => {});
           }
         }
       } catch (priorityError) {
         console.warn('[PATA INCOME PRIORITIES]', priorityError.message || priorityError);
       }
     }
-    return NextResponse.json({ success: true, ...result, ...(linkedDebt ? { linkedDebt } : {}) });
+    const budgetRecommendation = !result.duplicate && flowType === 'normal'
+      ? buildIncomeBudgetRecommendation({
+        incomeId: result.id,
+        amount,
+        source: result.source || source,
+        categoryId,
+        date,
+        flowType,
+      })
+      : null;
+    return NextResponse.json({
+      success: true,
+      ...result,
+      ...(linkedDebt ? { linkedDebt } : {}),
+      ...(budgetRecommendation ? { budgetRecommendation } : {}),
+    });
   } catch (error) {
     const message = error.message || 'Impossible d’enregistrer ce revenu.';
     const status = /atteint|introuvable|invalide|obligatoire|limit|dépasse|depasse|créance|creance|remboursement/i.test(message) ? 400 : 500;
