@@ -210,6 +210,15 @@ test('reconnaît une phrase normale de remboursement de dette avec le nom du cr�
   assert.equal(result.needsReview, false);
   assert.equal(result.dueDate, null);
 });
+test('reconnaît un remboursement sans le mot dette : les 500 de Phinéas', () => {
+  const result = parseQuickCapture("J'ai remboursé les 500 de Phinéas", now);
+  assert.equal(result.type, "debt_repayment");
+  assert.equal(result.amount, 500);
+  assert.equal(result.categoryId, "debt_repayment");
+  assert.equal(result.person, "Phinéas");
+  assert.equal(result.needsReview, false);
+});
+
 test('reconnaît aussi un remboursement formulé avec le verbe régler', () => {
   const result = parseQuickCapture("J'ai réglé 2 000 francs de ma dette auprès de Paul", now);
   assert.equal(result.type, "debt_repayment");
