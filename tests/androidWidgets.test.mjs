@@ -85,3 +85,11 @@ test('le widget est vidé et son rafraîchissement annulé à la déconnexion ou
   assert.ok(plugin.includes('cancelUniqueWork("pata_finance_widget_refresh")'));
   assert.ok(plugin.includes('public void clearFinanceWidget'));
 });
+
+test('le layout financier n’utilise que des composants compatibles avec RemoteViews', () => {
+  const layout = read('native/android/res/layout/pata_quick_capture_widget.xml');
+  assert.doesNotMatch(layout, /<\\s*View(?:\\s|\\/?>)/i, 'plain View is not supported by RemoteViews');
+  assert.doesNotMatch(layout, /<\\s*(?:Space|WebView|Fragment)(?:\\s|\\/?>)/i);
+  assert.match(layout, /<LinearLayout/);
+  assert.match(layout, /<TextView/);
+});
