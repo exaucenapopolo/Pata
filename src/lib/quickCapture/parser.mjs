@@ -164,7 +164,8 @@ function removeAliasFromText(value, target) {
   const match = exact.exec(normalized);
   if (match) {
     const start = match.index + match[1].length;
-    return value.slice(0, start) + " " + value.slice(start + target.length);
+    const prefix = value.slice(0, start).replace(/\\b(?:au|aux|a|de|du|des|la|le|les|chez|pour)\\s*$/i, "");
+    return prefix + " " + value.slice(start + target.length);
   }
   if (!target.includes(" ") && target.length >= 6) {
     const words = /[a-z0-9]+/g;
