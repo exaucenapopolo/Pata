@@ -62,6 +62,7 @@ for (const file of [
   'PataAIConversationWorker.java',
   'PataQuickCaptureReceiver.java',
   'PataQuickCaptureWidgetProvider.java',
+  'PataFinanceWidgetWorker.java',
   'PataCotisationWidgetProvider.java',
   'PataCotisationWidgetWorker.java',
   'PataQuickCaptureTileService.java',
