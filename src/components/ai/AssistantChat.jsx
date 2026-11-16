@@ -5,12 +5,12 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { 
   Send, X, BrainCircuit, Loader2, Plus, MessageSquare, 
   Image as ImageIcon, Volume2, Trash2, Menu, Edit2, Check, Download,
-  Sparkles, Copy, CheckCheck
+  Sparkles, Copy, CheckCheck, Pin
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/context/LanguageContext';
 import { getDateLocale } from '@/lib/i18n/dateLocale.mjs';
-import { subscribeChats, createChat, updateChatMessages, deleteChat, updateChatTitle } from '@/lib/firestore/ai_chats';
+import { subscribeChats, createChat, updateChatMessages, deleteChat, updateChatTitle, updateChatPinned } from '@/lib/firestore/ai_chats';
 
 const SUGGESTIONS = {
   fr: [
@@ -344,7 +344,14 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
   const [imageModal, setImageModal] = useState(null);
   const [editingTitleId, setEditingTitleId] = useState(null);
   const [titleInput, setTitleInput] = useState('');
-  const groupedChats = useMemo(() => groupChatsByDate(chats, language), [chats, language]);
+  const [chatSourceFilter, setChatSourceFilter] = useState('assistant');
+  const visibleChats = useMemo(() => chats
+    .filter((chat) => chatSourceFilter === 'notifications' ? chat.source === 'notification' : chat.source !== 'notification')
+    .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))
+      || (new Date(b.updatedAt?.toDate?.() || b.updatedAt || b.createdAt?.toDate?.() || b.createdAt || 0).getTime()
+        - new Date(a.updatedAt?.toDate?.() || a.updatedAt || a.createdAt?.toDate?.() || a.createdAt || 0).getTime())),
+  [chats, chatSourceFilter]);
+  const groupedChats = useMemo(() => groupChatsByDate(visibleChats, language), [visibleChats, language]);
   
   const [showMentions, setShowMentions] = useState(false);
   const textareaRef = useRef(null);
@@ -400,6 +407,15 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
     if (confirm(language === 'en' ? 'Delete this conversation?' : 'Supprimer cette conversation ?')) {
       await deleteChat(user.uid, chatId);
       if (activeChatId === chatId) startNewChat();
+    }
+  };
+
+  const toggleChatPinned = async (event, chat) => {
+    event.stopPropagation();
+    try {
+      await updateChatPinned(user.uid, chat.id, !chat.pinned);
+    } catch (error) {
+      alert(error?.message || (language === 'en' ? 'Could not update this conversation.' : 'Impossible de modifier cette discussion.'));
     }
   };
 
@@ -609,6 +625,14 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
             <button onClick={() => setShowSidebar(false)} className="md:hidden p-1 rounded hover:bg-slate-200"><X size={18} /></button>
           </div>
           
+          <div className="grid grid-cols-2 gap-1.5 px-3 pt-3">
+            <button type="button" onClick={() => setChatSourceFilter('assistant')} className={'min-h-9 rounded-lg px-2 text-[11px] font-semibold ' + (chatSourceFilter === 'assistant' ? 'bg-brand-100 text-brand-800' : 'bg-slate-100 text-slate-600')}>
+              Dans l’application
+            </button>
+            <button type="button" onClick={() => setChatSourceFilter('notifications')} className={'min-h-9 rounded-lg px-2 text-[11px] font-semibold ' + (chatSourceFilter === 'notifications' ? 'bg-brand-100 text-brand-800' : 'bg-slate-100 text-slate-600')}>
+              Par notification
+            </button>
+          </div>
           <div className="p-3 shrink-0">
             <button onClick={startNewChat} className="flex w-full items-center justify-center gap-2 rounded-xl border border-brand-200 bg-brand-50 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-100 transition-colors">
               <Plus size={16} /> Nouvelle discussion
@@ -617,7 +641,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
 
           <div className="flex-1 overflow-y-auto px-3 pb-3">
             {groupedChats.length === 0 ? (
-              <p className="px-2 py-4 text-xs leading-5 text-slate-500">Tes conversations enregistrées apparaîtront ici, classées par date.</p>
+              <p className="px-2 py-4 text-xs leading-5 text-slate-500">{chatSourceFilter === 'notifications' ? 'Les échanges commencés depuis une notification apparaîtront ici.' : 'Tes conversations enregistrées apparaîtront ici, classées par date.'}</p>
             ) : groupedChats.map((group) => (
               <section key={group.key} className="mb-4">
                 <h3 className="sticky top-0 z-10 mb-1.5 bg-slate-50 px-2 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">{group.label}</h3>
@@ -636,6 +660,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
                             <span className="mt-0.5 block text-[10px] text-slate-400">{formatConversationTime(c.updatedAt || c.createdAt, language)}</span>
                           </button>
                           <div className="flex shrink-0 items-center pr-1 sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100">
+                            <button type="button" onClick={(event) => toggleChatPinned(event, c)} className={'rounded-lg p-1.5 hover:bg-white ' + (c.pinned ? 'text-amber-600' : 'text-slate-400 hover:text-brand-600')} aria-label={c.pinned ? 'Désépingler la conversation' : 'Épingler la conversation'} title={c.pinned ? 'Désépingler' : 'Épingler'}><Pin size={12} /></button>
                             <button type="button" onClick={() => { setEditingTitleId(c.id); setTitleInput(c.title || ''); }} className="rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-brand-600" aria-label="Renommer la conversation"><Edit2 size={12} /></button>
                             <button type="button" onClick={(e) => handleDeleteChat(e, c.id)} className="rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-red-600" aria-label="Supprimer la conversation"><Trash2 size={12} /></button>
                           </div>
