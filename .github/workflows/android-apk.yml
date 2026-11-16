@@ -70,6 +70,8 @@ jobs:
         run: npm run test:android-widgets
       - name: Vérifier la conversation Mč depuis les notifications Android
         run: npm run test:android-ai-notification
+      - name: Vérifier le format court des réponses Mč dans les notifications
+        run: npm run test:notification-format
       - name: Vérifier la version Android et la préparation de la release
         run: npm run test:android-release-version
 
