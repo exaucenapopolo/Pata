@@ -279,7 +279,7 @@ export function SmsImportCoordinator() {
             const categories = repaymentOptions.length > 0
               ? [...baseCategories, { id: repaymentCategoryId, label: incoming ? 'Remboursement reçu' : 'Remboursement de dette' }]
               : baseCategories;
-            const selectedCategoryId = choice.categoryId || (incoming ? 'other_income' : item.suggestedCategoryId || 'other');
+            const selectedCategoryId = choice.categoryId || (suggestedDebtId ? repaymentCategoryId : incoming ? 'other_income' : item.suggestedCategoryId || 'other');
             const selectedDebtRepayment = !incoming && selectedCategoryId === 'debt_repayment';
             const incomeSourceOptions = incomes
               .filter((income) => income.neutralFlow !== true && income.cashPocket !== true
