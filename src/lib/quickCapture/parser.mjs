@@ -203,14 +203,15 @@ function stripAliasTerms(text, aliases = [], beforeAmountOnly = false) {
   return value;
 }
 function extractIncomeSourceName(text) {
-  const raw = String(text || "");
-  const match = raw.match(/(?:\\bavec\\s+(?:(?:mon|ma|le|la|un|une)\\s+)?(?:(?:revenu|source|salaire)\\s+(?:de\\s+)?)?|\\bsur\\s+(?:(?:mon|ma|le|la)\\s+)?(?:(?:revenu|source|salaire)\\s+(?:de\\s+)?)?|\\bdepuis\\s+(?:(?:mon|ma|le|la)\\s+)?(?:(?:revenu|source|salaire)\\s+(?:de\\s+)?)?|\\bpreleve(?:e)?\\s+(?:sur|de)\\s+(?:(?:mon|ma|le|la)\\s+)?(?:(?:revenu|source|salaire)\\s+(?:de\\s+)?)?)([a-zA-ZÀ-ÿ0-9][a-zA-ZÀ-ÿ0-9'’._ -]{1,90})$/i);
+  const normalized = normalize(text);
+  const marker = /(?:\bavec\s+(?:(?:mon|ma|le|la|un|une)\s+)?(?:revenu|source|salaire)\s+(?:de\s+)?|\bsur\s+(?:(?:mon|ma|le|la)\s+)?(?:revenu|source|salaire)\s+(?:de\s+)?|\bdepuis\s+(?:(?:mon|ma|le|la)\s+)?(?:revenu|source|salaire)\s+(?:de\s+)?|\bpreleve(?:e)?\s+(?:sur|de)\s+(?:(?:mon|ma|le|la)\s+)?(?:revenu|source|salaire)\s+(?:de\s+)?)(.+)$/i;
+  const match = normalized.match(marker);
   if (!match) return "";
-  let value = match[1].trim()
-    .replace(/\\b(?:fcfa|xaf|cfa|eru|euros?|francs?)\\b/gi, " ")
-    .replace(/\\b\\d{1,3}(?:[ .,'’]\\d{3})+\\b|\\b\\d{1,10}\\b/g, " ")
+  const value = match[1]
+    .replace(/\b(?:fcfa|f\s*cfa|xaf|cfa|eru|euros?|francs?|frs?)\b/gi, " ")
+    .replace(/\b\d{1,3}(?:[ .,'’]\d{3})+\b|\b\d{1,10}\b/g, " ")
     .replace(/[,:;.!?]+$/g, "")
-    .replace(/\\s+/g, " ").trim();
+    .replace(/\s+/g, " ").trim();
   if (!value || /^(tous|toutes|aucun|aucune)$/i.test(value)) return "";
   return value.slice(0, 100);
 }
@@ -219,7 +220,6 @@ function extractCounterparty(text, type) {
   value = value
     .replace(/\b20\d{2}-\d{1,2}-\d{1,2}\b/g, " ")
     .replace(/\b[0-3]?\d[/.-][01]?\d(?:[/.-]20\d{2})?\b/g, " ")
-    // Remove natural-language dates before removing their numeric day.
     .replace(/\b\d{1,2}(?:er)?\s+(?:janvier|janv|fevrier|fevr|fev|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)(?:\s+20\d{2})?\b/gi, " ")
     .replace(/\b(?:janvier|janv|fevrier|fevr|fev|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)\s+\d{1,2}(?:\s+20\d{2})?\b/gi, " ")
     .replace(/\b(demain|apres[- ]demain|hier|aujourd'hui)\b/gi, " ")
@@ -227,7 +227,7 @@ function extractCounterparty(text, type) {
     .replace(/\b(fcfa|xaf|cfa|eru|euros?|francs?|frs?)\b/gi, " ")
     .replace(/(?:echeance|échéance|date limite|à rendre|a rendre|avant le|a payer le|à payer le|pour le)\s*(?:le|du)?\s*[:]?(20\d{2}-\d{2}-\d{2}|demain|hier|apres[- ]demain)?/gi, " ");
   value = normalize(value)
-    .replace(/\b(j'ai|jai|je|nous|on|ai|contracte|contracter|pris|prends|dois|doit|pret|prets|prete|preter|dette|dettes|emprunt|emprunte|emprunter|argent|fcfa|echeance|date|limite|rendre|avant|payer|demain|hier|apres|aujourd'hui)\b/gi, " ")
+    .replace(/\b(j'ai|jai|je|nous|on|ai|contracte|contracter|pris|prends|dois|doit|pret|prets|prete|preter|dette|dettes|emprunt|emprunte|emprunter|rembours\w*|regle|regler|payer|paye|argent|fcfa|echeance|date|limite|rendre|avant|demain|hier|apres|aujourd'hui)\b/gi, " ")
     .replace(/\b(une|un|de|du|des|chez|aupres|a|pour|la|le|les|mon|ma|mes|moi|lui|elle|il|me|te|se|son|sa|ses)\b/gi, " ")
     .replace(/[^a-z0-9' -]/g, " ").replace(/\s+/g, " ").trim();
   if (!value) return "";
