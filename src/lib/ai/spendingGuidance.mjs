@@ -23,13 +23,23 @@ const moneyAmountInText = (value = '') => {
   return Number.isSafeInteger(amount) && amount > 0 ? amount : null;
 };
 
-export function buildDailySpendingFacts({ today, expenses = [], budgets = [], categories = [], proposedSpendText = '' } = {}) {
+export function buildDailySpendingFacts({ today, expenses = [], budgets = [], categories = [], financialTargets = null, proposedSpendText = '' } = {}) {
   const todayDate = isoDate(today);
   const month = todayDate.slice(0, 7);
   const todayRows = expenses.filter((item) => isoDate(item.date) === todayDate);
   const monthlyRows = expenses.filter((item) => isoDate(item.date).slice(0, 7) === month);
   const typeOf = (item) => ['consumption', 'project', 'savings', 'investment'].includes(item.expenseType)
     ? item.expenseType : 'consumption';
+  // Reproduit exactement les exclusions du contrôle financier Pata pour expenseLimit.
+  const isOrdinaryExpense = (item) => !(
+    item.neutralFlow === true
+    || item.flowType === 'loan_given'
+    || item.flowType === 'repayment'
+    || ['loan_given', 'debt_repayment'].includes(item.categoryId)
+    || (item.expenseType && item.expenseType !== 'consumption')
+  );
+  const monthConsumptionRows = monthlyRows.filter(isOrdinaryExpense);
+  const todayConsumptionRows = todayRows.filter(isOrdinaryExpense);
   const todayByType = todayRows.reduce((totals, item) => {
     totals[typeOf(item)] += numericAmount(item.amount);
     return totals;
@@ -53,6 +63,27 @@ export function buildDailySpendingFacts({ today, expenses = [], budgets = [], ca
     : 0;
   const dayOfMonth = todayDate ? Number(todayDate.slice(8, 10)) : 0;
   const daysRemaining = Math.max(1, daysInMonth - dayOfMonth + 1);
+  const globalMonthlyLimitValue = financialTargets?.expenseLimit;
+  const hasGlobalMonthlyLimit = globalMonthlyLimitValue !== undefined
+    && globalMonthlyLimitValue !== null
+    && Number.isFinite(Number(globalMonthlyLimitValue))
+    && Number(globalMonthlyLimitValue) >= 0;
+  const globalMonthlyLimit = hasGlobalMonthlyLimit ? Math.round(Number(globalMonthlyLimitValue)) : null;
+  const globalMonthlySpentBeforeToday = monthConsumptionRows
+    .filter((item) => isoDate(item.date) < todayDate)
+    .reduce((sum, item) => sum + numericAmount(item.amount), 0);
+  const globalMonthlySpent = monthConsumptionRows
+    .reduce((sum, item) => sum + numericAmount(item.amount), 0);
+  const globalMonthlyRemaining = hasGlobalMonthlyLimit
+    ? Math.max(0, globalMonthlyLimit - globalMonthlySpent)
+    : null;
+  const globalDailyPlan = hasGlobalMonthlyLimit
+    ? Math.floor(Math.max(0, globalMonthlyLimit - globalMonthlySpentBeforeToday) / daysRemaining)
+    : null;
+  const globalDailyRemaining = hasGlobalMonthlyLimit
+    ? Math.max(0, globalDailyPlan - todayConsumptionRows.reduce((sum, item) => sum + numericAmount(item.amount), 0))
+    : null;
+
   const monthBeforeToday = monthlyRows.filter((item) => isoDate(item.date) < todayDate);
   const budgetFacts = budgets
     .filter((budget) => budget.month === month && numericAmount(budget.amount) > 0 && budget.categoryId)
@@ -95,8 +126,28 @@ export function buildDailySpendingFacts({ today, expenses = [], budgets = [], ca
       return (category.length > 2 && normalizedText.includes(category))
         || (categoryId.length > 2 && normalizedText.includes(categoryId));
     });
+    const globalMonthlyAfter = hasGlobalMonthlyLimit
+      ? globalMonthlyRemaining - amount : null;
+    const globalDailyAfter = hasGlobalMonthlyLimit
+      ? globalDailyRemaining - amount : null;
+    const globalStatus = !hasGlobalMonthlyLimit ? 'no-global-limit'
+      : globalMonthlyAfter < 0 ? 'over-global-monthly-limit'
+        : globalDailyAfter < 0 ? 'above-global-daily-pace' : 'within-global-daily-pace';
     if (!matchingBudget) {
-      proposedSpend = { amount, status: 'category-required' };
+      proposedSpend = hasGlobalMonthlyLimit
+        ? {
+            amount,
+            status: 'global-target-only',
+            categoryRequired: true,
+            globalMonthlyLimit,
+            globalMonthlySpent,
+            globalMonthlyRemaining,
+            globalMonthlyAfter: Math.max(0, globalMonthlyAfter),
+            globalDailyRemaining,
+            globalDailyAfter: Math.max(0, globalDailyAfter),
+            globalStatus,
+          }
+        : { amount, status: 'category-required' };
     } else {
       const dailyAfter = matchingBudget.dailyRemaining - amount;
       const monthlyAfter = matchingBudget.monthlyRemaining - amount;
@@ -107,8 +158,16 @@ export function buildDailySpendingFacts({ today, expenses = [], budgets = [], ca
         monthlyRemaining: matchingBudget.monthlyRemaining,
         dailyAfter: Math.max(0, dailyAfter),
         monthlyAfter: Math.max(0, monthlyAfter),
-        status: monthlyAfter < 0 ? 'over-monthly-envelope'
-          : dailyAfter < 0 ? 'above-daily-pace-within-monthly-envelope' : 'within-daily-pace',
+        globalMonthlyLimit,
+        globalMonthlyRemaining,
+        globalMonthlyAfter: hasGlobalMonthlyLimit ? Math.max(0, globalMonthlyAfter) : null,
+        globalDailyRemaining,
+        globalDailyAfter: hasGlobalMonthlyLimit ? Math.max(0, globalDailyAfter) : null,
+        globalStatus,
+        status: monthlyAfter < 0 || globalStatus === 'over-global-monthly-limit'
+          ? 'over-monthly-envelope'
+          : dailyAfter < 0 || globalStatus === 'above-global-daily-pace'
+            ? 'above-daily-pace-within-monthly-envelope' : 'within-daily-pace',
       };
     }
   }
@@ -119,6 +178,12 @@ export function buildDailySpendingFacts({ today, expenses = [], budgets = [], ca
     todayByType,
     todayOperations: todayOperations.slice(0, 35),
     budgets: budgetFacts,
+    hasGlobalMonthlyLimit,
+    globalMonthlyLimit,
+    globalMonthlySpent,
+    globalMonthlyRemaining,
+    globalDailyPlan,
+    globalDailyRemaining,
     proposedSpend,
   };
 }

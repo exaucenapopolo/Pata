@@ -69,3 +69,38 @@ test('une intention d’achat ne crée jamais une dépense sans demande explicit
   assert.equal(isExplicitSpendRecordingRequest("Enregistre cette dépense de 500 FCFA"), true);
   assert.equal(isExplicitSpendRecordingRequest("Ajoute un achat de 500 FCFA"), true);
 });
+
+test('tient compte du plafond global mensuel défini par l’utilisateur pour le rythme et le reste disponibles', () => {
+  const facts = buildDailySpendingFacts({
+    ...sample,
+    financialTargets: { expenseLimit: 50000 },
+  });
+  assert.equal(facts.hasGlobalMonthlyLimit, true);
+  assert.equal(facts.globalMonthlySpent, 10500);
+  assert.equal(facts.globalMonthlyRemaining, 39500);
+  assert.equal(facts.globalDailyPlan, 2666);
+  assert.equal(facts.globalDailyRemaining, 2166);
+});
+
+test('évalue un montant sans catégorie par rapport au plafond global, sans prétendre connaître son enveloppe', () => {
+  const facts = buildDailySpendingFacts({
+    ...sample,
+    financialTargets: { expenseLimit: 50000 },
+    proposedSpendText: "J'ai envie de dépenser 500 FCFA",
+  });
+  assert.equal(facts.proposedSpend.status, 'global-target-only');
+  assert.equal(facts.proposedSpend.categoryRequired, true);
+  assert.equal(facts.proposedSpend.globalMonthlyAfter, 39000);
+  assert.equal(facts.proposedSpend.globalDailyAfter, 1666);
+});
+
+test('respecte aussi un plafond global de dépenses défini à zéro', () => {
+  const facts = buildDailySpendingFacts({
+    ...sample,
+    financialTargets: { expenseLimit: 0 },
+    proposedSpendText: "Je voudrais dépenser 500 FCFA",
+  });
+  assert.equal(facts.hasGlobalMonthlyLimit, true);
+  assert.equal(facts.globalMonthlyRemaining, 0);
+  assert.equal(facts.proposedSpend.globalStatus, 'over-global-monthly-limit');
+});

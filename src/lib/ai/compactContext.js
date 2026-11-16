@@ -124,12 +124,21 @@ export function buildCompactAIContext(data = {}, intent = {}) {
     lines.push('DÉPENSES DE LA PÉRIODE (extrait des opérations filtrées par date, pas l’historique complet):');
     lines.push(...expenses.slice(0, 18).map((item) => `ID ${item.id} | ${dateLabel(item.date)} | ${money(item.amount)} FCFA | catégorie ${item.categoryId || 'non précisée'} | ${String(item.note || '').slice(0, 70)} | source ${item.incomeSourceId || 'all'}`));
   }
+  if (intent.spendingCapacity || intent.spendingDecision) {
+    const targetLimit = data.financialTargets?.expenseLimit;
+    if (targetLimit !== undefined && targetLimit !== null && Number.isFinite(Number(targetLimit)) && Number(targetLimit) >= 0) {
+      lines.push(`PLAFOND GLOBAL MENSUEL DE DÉPENSES COURANTES (objectif défini par l’utilisateur): ${money(targetLimit)} FCFA.`);
+    } else {
+      lines.push('Aucun plafond global mensuel de dépenses courantes n’est enregistré. Ne prétends pas qu’un plafond global existe.');
+    }
+  }
   if (intent.dailySpending || intent.spendingCapacity || intent.spendingDecision) {
     const dailyFacts = buildDailySpendingFacts({
       today: data.today,
       expenses,
       budgets: data.budgets,
       categories: data.categories,
+      financialTargets: data.financialTargets,
       proposedSpendText: data.latestUserText,
     });
     lines.push('DÉPENSES ENREGISTRÉES AUJOURD’HUI (date locale Africa/Douala, toutes les opérations trouvées):');
@@ -141,14 +150,21 @@ export function buildCompactAIContext(data = {}, intent = {}) {
     }
     if (intent.spendingCapacity || intent.spendingDecision) {
       lines.push('ENVELOPPES DU MOIS ET RYTHME CONSEILLÉ — calcul déterministe à partir des budgets et dépenses enregistrés:');
+      if (dailyFacts.hasGlobalMonthlyLimit) {
+        lines.push(`Plafond global mensuel défini ${money(dailyFacts.globalMonthlyLimit)} FCFA | consommation prise en compte ce mois ${money(dailyFacts.globalMonthlySpent)} FCFA | reste mensuel global ${money(dailyFacts.globalMonthlyRemaining)} FCFA | rythme indicatif disponible aujourd’hui ${money(dailyFacts.globalDailyRemaining)} FCFA`);
+      } else {
+        lines.push('Aucun plafond global mensuel de dépenses courantes n’est défini.');
+      }
       lines.push(...dailyFacts.budgets.map((item) => `${item.category} | budget mensuel ${money(item.budget)} FCFA | consommé avant aujourd’hui ${money(item.spentBeforeToday)} FCFA | consommé aujourd’hui ${money(item.spentToday)} FCFA | rythme indicatif disponible aujourd’hui ${money(item.dailyRemaining)} FCFA | reste mensuel ${money(item.monthlyRemaining)} FCFA | jours restants (aujourd’hui inclus) ${item.daysRemaining}`));
       if (!dailyFacts.budgets.length) lines.push('Aucun budget mensuel par catégorie trouvé pour le mois en cours. Ne prétends pas qu’une enveloppe existe.');
       if (dailyFacts.proposedSpend) {
         const p = dailyFacts.proposedSpend;
         if (p.status === 'category-required') {
-          lines.push(`DÉPENSE ENVISAGÉE: ${money(p.amount)} FCFA. Catégorie non identifiée dans le message: ne confirme pas que la dépense respecte une enveloppe précise; demande la catégorie.`);
+          lines.push(`DÉPENSE ENVISAGÉE: ${money(p.amount)} FCFA. Catégorie non identifiée et aucun plafond global enregistré: ne confirme pas que la dépense est possible; demande la catégorie.`);
+        } else if (p.status === 'global-target-only') {
+          lines.push(`DÉPENSE ENVISAGÉE: ${money(p.amount)} FCFA. La catégorie reste à préciser. Par rapport au plafond global, reste mensuel avant achat ${money(p.globalMonthlyRemaining)} FCFA, après achat ${money(p.globalMonthlyAfter)} FCFA, rythme indicatif restant aujourd’hui avant achat ${money(p.globalDailyRemaining)} FCFA, après achat ${money(p.globalDailyAfter)} FCFA, résultat ${p.globalStatus}. Demande la catégorie avant de confirmer le respect d’une enveloppe.`);
         } else {
-          lines.push(`ÉVALUATION DE LA DÉPENSE ENVISAGÉE: ${money(p.amount)} FCFA pour ${p.category} | reste indicatif aujourd’hui avant achat ${money(p.dailyRemaining)} FCFA | reste mensuel avant achat ${money(p.monthlyRemaining)} FCFA | après achat, rythme du jour ${money(p.dailyAfter)} FCFA | après achat, reste mensuel ${money(p.monthlyAfter)} FCFA | résultat ${p.status}`);
+          lines.push(`ÉVALUATION DE LA DÉPENSE ENVISAGÉE: ${money(p.amount)} FCFA pour ${p.category} | reste indicatif de la catégorie aujourd’hui avant achat ${money(p.dailyRemaining)} FCFA | reste mensuel de la catégorie avant achat ${money(p.monthlyRemaining)} FCFA | après achat, rythme catégorie restant aujourd’hui ${money(p.dailyAfter)} FCFA | après achat, reste mensuel catégorie ${money(p.monthlyAfter)} FCFA | plafond global mensuel restant avant achat ${p.globalMonthlyRemaining === null ? 'non défini' : money(p.globalMonthlyRemaining) + ' FCFA'} | plafond global restant après achat ${p.globalMonthlyAfter === null ? 'non défini' : money(p.globalMonthlyAfter) + ' FCFA'} | résultat catégorie ${p.status} | résultat global ${p.globalStatus}`);
         }
       }
     }
