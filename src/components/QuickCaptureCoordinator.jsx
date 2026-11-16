@@ -11,6 +11,7 @@ import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '@/lib/constants';
 import { parseQuickCapture } from '@/lib/quickCapture/parser.mjs';
 import { parseMobileMoneySms } from '@/lib/sms/parseMobileMoneySms.mjs';
 import { PataQuickCapture } from '@/lib/quickCapture/nativePlugin';
+import { uploadBillImage } from '@/lib/bills/uploadBillImage.mjs';
 
 function premiumActive(profile) {
   const raw = profile?.premiumUntil;
@@ -35,7 +36,7 @@ export function QuickCaptureCoordinator() {
   const expenseCategories = useMemo(() => EXPENSE_CATEGORIES.filter((item) => !['loan_given', 'debt_repayment'].includes(item.id)), []);
   const incomeCategories = useMemo(() => INCOME_CATEGORIES.filter((item) => !['debt_borrowed', 'debt_repayment_received'].includes(item.id)), []);
 
-  const openDraft = useCallback((rawText = '', forcedType = '', nativeCaptureId = '', origin = 'manual', extracted = null) => {
+  const openDraft = useCallback((rawText = '', forcedType = '', nativeCaptureId = '', origin = 'manual', extracted = null, sharedImageData = '') => {
     const parsed = parseQuickCapture(rawText);
     const type = forcedType || parsed.type || 'expense';
     setError('');
@@ -52,6 +53,15 @@ export function QuickCaptureCoordinator() {
       note: extracted
         ? [extracted.merchantName, extracted.description, extracted.invoiceNumber ? 'Facture ' + extracted.invoiceNumber : ''].filter(Boolean).join(' · ').slice(0, 250)
         : parsed.note || '',
+      billName: extracted?.merchantName ? 'Facture ' + String(extracted.merchantName).slice(0, 80) : parsed.billName || '',
+      billType: extracted?.suggestedBillType || parsed.billType || 'other',
+      dueDate: extracted?.dueDate || parsed.dueDate || '',
+      frequency: parsed.frequency || 'once',
+      expenseCategoryId: extracted?.suggestedCategory || parsed.expenseCategoryId || parsed.categoryId || 'other',
+      providerName: extracted?.merchantName || '',
+      accountReference: extracted?.accountReference || extracted?.invoiceNumber || '',
+      sharedImageData: sharedImageData || '',
+      isVariable: type === 'bill' && (extracted?.totalAmount == null && parsed.amount == null),
       confirmationRequired: false,
       confirmationMessage: '',
       sourceMimeType: origin === 'pdf' ? 'application/pdf' : '',
@@ -66,10 +76,11 @@ export function QuickCaptureCoordinator() {
       return;
     }
     const token = await user.getIdToken();
+    const imageData = 'data:image/jpeg;base64,' + shared.fileBase64;
     const response = await fetch('/api/quick-capture/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-      body: JSON.stringify({ imageData: 'data:image/jpeg;base64,' + shared.fileBase64, language: 'fr' }),
+      body: JSON.stringify({ imageData, language: 'fr' }),
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok || !result.success || !result.extracted) {
@@ -89,7 +100,13 @@ export function QuickCaptureCoordinator() {
       totalAmount: amountIsXaf ? result.extracted.totalAmount : null,
       analysisWarning,
     };
-    openDraft(shared.text || '', 'expense', '', shared.sourceMimeType === 'application/pdf' ? 'pdf' : 'image', extractedData);
+    const documentType = String(result.extracted.documentType || '').toLowerCase();
+    const isBillDocument = /invoice|bill|facture|quittance|utility/.test(documentType)
+      || Boolean(result.extracted.dueDate)
+      || Boolean(result.extracted.invoiceNumber);
+    openDraft(shared.text || '', isBillDocument ? 'bill' : 'expense', '',
+      shared.sourceMimeType === 'application/pdf' ? 'pdf' : 'image',
+      extractedData, isBillDocument ? imageData : '');
     await PataQuickCapture.clearSharedContent();
   }, [user, premium, openDraft]);
 
@@ -224,9 +241,13 @@ export function QuickCaptureCoordinator() {
       setNotice('Cette fonction est incluse dans Pata Premium.');
       return;
     }
-    const amount = Number(draft.amount);
-    if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 1000000000) {
+    const amount = draft.amount === '' && draft.type === 'bill' ? null : Number(draft.amount);
+    if (draft.type !== 'bill' && (!Number.isSafeInteger(amount) || amount <= 0 || amount > 1000000000)) {
       setError('Vérifie le montant en FCFA avant de continuer.');
+      return;
+    }
+    if (draft.type === 'bill' && amount !== null && (!Number.isSafeInteger(amount) || amount < 0 || amount > 1000000000)) {
+      setError('Vérifie le montant estimé de la facture.');
       return;
     }
     if (!draft.categoryId) {
@@ -237,16 +258,28 @@ export function QuickCaptureCoordinator() {
       setError('Indique la source de ce revenu.');
       return;
     }
+    if (draft.type === 'bill' && !String(draft.billName || '').trim()) {
+      setError('Indique le nom de cette facture.');
+      return;
+    }
     setWorking(true);
     setError('');
     try {
       const token = await user.getIdToken();
+      let imageUrl = draft.imageUrl || '';
+      if (draft.type === 'bill' && draft.sharedImageData) {
+        imageUrl = await uploadBillImage(draft.sharedImageData);
+      }
       const response = await fetch('/api/quick-capture', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
         body: JSON.stringify({
           type: draft.type, amount, categoryId: draft.categoryId,
           date: draft.date, source: draft.source, note: draft.note,
+          name: draft.billName, billType: draft.billType, dueDate: draft.dueDate,
+          frequency: draft.frequency, isVariable: draft.isVariable || amount === null,
+          expenseCategoryId: draft.expenseCategoryId, providerName: draft.providerName,
+          accountReference: draft.accountReference, imageUrl,
           idempotencyKey: draft.id,
           confirmBudgetOverrun: draft.confirmationRequired === true,
         }),
@@ -265,11 +298,13 @@ export function QuickCaptureCoordinator() {
       if (draft.origin === 'image' || draft.origin === 'pdf' || draft.origin === 'share') {
         await PataQuickCapture.clearSharedContent().catch(() => {});
       }
-      await PataQuickCapture.adjustWidgetBalance({
-        delta: draft.type === 'income' ? amount : -amount,
-      }).catch(() => {});
-      window.dispatchEvent(new Event('pata:income-balances-refresh'));
-      setNotice(draft.type === 'income' ? 'Revenu enregistré dans Pata.' : 'Dépense enregistrée dans Pata.');
+      if (draft.type !== 'bill') {
+        await PataQuickCapture.adjustWidgetBalance({
+          delta: draft.type === 'income' ? amount : -amount,
+        }).catch(() => {});
+        window.dispatchEvent(new Event('pata:income-balances-refresh'));
+      }
+      setNotice(draft.type === 'income' ? 'Revenu enregistré dans Pata.' : draft.type === 'bill' ? 'Facture enregistrée dans Pata avec son justificatif.' : 'Dépense enregistrée dans Pata.');
       setDraft(null);
     } catch (saveError) {
       setError(saveError?.message || 'Impossible d’enregistrer cette opération.');
@@ -287,12 +322,16 @@ export function QuickCaptureCoordinator() {
       <Modal open={!!draft} onClose={closeDraft} title="Pata Quick Capture" className="max-w-lg">
         <form onSubmit={save} className="space-y-3">
           <p className="text-xs leading-5 text-slate-500">{draft.rawText ? 'Saisie reçue : « ' + draft.rawText + ' »' : 'Complète uniquement ce qui manque. La date est déterminée automatiquement à partir de ta phrase.'}</p>
-          <div className="grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => setDraft((current) => ({ ...current, type: 'expense', categoryId: current.type === 'income' ? 'other' : current.categoryId }))} className={'flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-semibold ' + (draft.type === 'expense' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><ArrowUpRight size={16}/> Dépense</button>
-            <button type="button" onClick={() => setDraft((current) => ({ ...current, type: 'income', categoryId: current.type === 'expense' ? 'other_income' : current.categoryId }))} className={'flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-semibold ' + (draft.type === 'income' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><ArrowDownLeft size={16}/> Revenu</button>
+          <div className="grid grid-cols-3 gap-2">
+            <button type="button" onClick={() => setDraft((current) => ({ ...current, type: 'expense', categoryId: current.type === 'income' || current.type === 'bill' ? 'other' : current.categoryId }))} className={'flex items-center justify-center gap-1.5 rounded-xl border px-2 py-3 text-xs font-semibold ' + (draft.type === 'expense' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><ArrowUpRight size={15}/> Dépense</button>
+            <button type="button" onClick={() => setDraft((current) => ({ ...current, type: 'income', categoryId: current.type !== 'income' ? 'other_income' : current.categoryId }))} className={'flex items-center justify-center gap-1.5 rounded-xl border px-2 py-3 text-xs font-semibold ' + (draft.type === 'income' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><ArrowDownLeft size={15}/> Revenu</button>
+            <button type="button" onClick={() => setDraft((current) => ({ ...current, type: 'bill', categoryId: current.type === 'bill' ? current.categoryId : current.expenseCategoryId || 'other' }))} className={'flex items-center justify-center gap-1.5 rounded-xl border px-2 py-3 text-xs font-semibold ' + (draft.type === 'bill' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><ReceiptText size={15}/> Facture</button>
           </div>
-          <label className="block text-xs font-semibold text-slate-700">Montant (FCFA)
-            <input type="number" inputMode="numeric" min="1" max="1000000000" step="1" required value={draft.amount} onChange={(event) => setDraft((current) => ({ ...current, amount: event.target.value }))} className="mt-1.5 h-12 w-full rounded-xl border border-slate-200 px-3 text-base font-semibold text-slate-900 outline-none focus:border-emerald-600"/>
+          {draft.type === 'bill' && <label className="block text-xs font-semibold text-slate-700">Nom de la facture
+            <input required maxLength={100} value={draft.billName || ''} onChange={(event) => setDraft((current) => ({ ...current, billName: event.target.value }))} placeholder="Ex. Facture ENEO" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm font-normal"/>
+          </label>}
+          <label className="block text-xs font-semibold text-slate-700">{draft.type === 'bill' ? 'Montant estimé (FCFA, facultatif)' : 'Montant (FCFA)'}
+            <input type="number" inputMode="numeric" min="0" max="1000000000" step="1" required={draft.type !== 'bill'} value={draft.amount} onChange={(event) => setDraft((current) => ({ ...current, amount: event.target.value, isVariable: event.target.value === '' }))} className="mt-1.5 h-12 w-full rounded-xl border border-slate-200 px-3 text-base font-semibold text-slate-900 outline-none focus:border-emerald-600"/>
           </label>
           <label className="block text-xs font-semibold text-slate-700">Catégorie
             <select value={draft.categoryId} onChange={(event) => setDraft((current) => ({ ...current, categoryId: event.target.value }))} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal">
@@ -302,6 +341,28 @@ export function QuickCaptureCoordinator() {
           {draft.type === 'income' && <label className="block text-xs font-semibold text-slate-700">Source du revenu
             <input value={draft.source} onChange={(event) => setDraft((current) => ({ ...current, source: event.target.value }))} placeholder="Ex. Salaire, vente, activité…" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm font-normal"/>
           </label>}
+          {draft.type === 'bill' && <>
+            <label className="block text-xs font-semibold text-slate-700">Type de facture
+              <select value={draft.billType || 'other'} onChange={(event) => setDraft((current) => ({ ...current, billType: event.target.value }))} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal">
+                <option value="electricity">Électricité</option><option value="water">Eau</option><option value="rent">Loyer</option><option value="television">Télévision</option><option value="internet">Internet</option><option value="telephone">Téléphone</option><option value="taxes">Impôts et taxes</option><option value="insurance">Assurance</option><option value="school">Scolarité</option><option value="subscription">Abonnement</option><option value="other">Autre facture</option>
+              </select>
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block text-xs font-semibold text-slate-700">Date d’échéance
+                <input type="date" value={draft.dueDate || ''} onChange={(event) => setDraft((current) => ({ ...current, dueDate: event.target.value }))} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm font-normal"/>
+              </label>
+              <label className="block text-xs font-semibold text-slate-700">Fréquence
+                <select value={draft.frequency || 'once'} onChange={(event) => setDraft((current) => ({ ...current, frequency: event.target.value }))} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal">
+                  <option value="once">Une seule fois</option><option value="weekly">Chaque semaine</option><option value="monthly">Chaque mois</option><option value="quarterly">Tous les 3 mois</option><option value="yearly">Chaque année</option>
+                </select>
+              </label>
+            </div>
+            {draft.sharedImageData && <div className="flex items-center gap-3 rounded-xl border border-slate-200 p-2.5">
+              <img src={draft.sharedImageData} alt="Justificatif partagé" className="h-16 w-16 rounded-lg border border-slate-200 object-cover"/>
+              <span className="min-w-0 text-xs leading-5 text-slate-600">Le justificatif sera enregistré avec cette facture lors de la confirmation.</span>
+            </div>}
+            {draft.type === 'bill' && draft.imageUrl && <p className="text-[10px] text-emerald-700">Photo de facture déjà associée.</p>}
+          </>}
           <label className="block text-xs font-semibold text-slate-700">Détail (facultatif)
             <input value={draft.note} onChange={(event) => setDraft((current) => ({ ...current, note: event.target.value }))} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm font-normal"/>
           </label>
