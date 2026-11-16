@@ -203,9 +203,9 @@ function stripAliasTerms(text, aliases = [], beforeAmountOnly = false) {
   return value;
 }
 function extractIncomeSourceName(text) {
-  const normalized = normalize(text);
+  const raw = String(text || "");
   const marker = /(?:\bavec\s+(?:(?:mon|ma|le|la|un|une)\s+)?(?:revenu|source|salaire)\s+(?:de\s+)?|\bsur\s+(?:(?:mon|ma|le|la)\s+)?(?:revenu|source|salaire)\s+(?:de\s+)?|\bdepuis\s+(?:(?:mon|ma|le|la)\s+)?(?:revenu|source|salaire)\s+(?:de\s+)?|\bpreleve(?:e)?\s+(?:sur|de)\s+(?:(?:mon|ma|le|la)\s+)?(?:revenu|source|salaire)\s+(?:de\s+)?)(.+)$/i;
-  const match = normalized.match(marker);
+  const match = raw.match(marker);
   if (!match) return "";
   const value = match[1]
     .replace(/\b(?:fcfa|f\s*cfa|xaf|cfa|eru|euros?|francs?|frs?)\b/gi, " ")
