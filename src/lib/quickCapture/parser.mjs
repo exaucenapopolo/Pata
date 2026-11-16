@@ -157,6 +157,26 @@ function matchesRules(text, rule) {
   const [, pattern, aliases] = rule;
   return pattern.test(text) || (aliases || []).some((alias) => hasAlias(text, alias));
 }
+function removeAliasFromText(value, target) {
+  const normalized = normalize(value);
+  const escaped = target.replace(/[.*+?^$()|[\]{}\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+  const exact = new RegExp("(^|[^a-z0-9])" + escaped + "($|[^a-z0-9])", "i");
+  const match = exact.exec(normalized);
+  if (match) {
+    const start = match.index + match[1].length;
+    return value.slice(0, start) + " " + value.slice(start + target.length);
+  }
+  if (!target.includes(" ") && target.length >= 6) {
+    const words = /[a-z0-9]+/g;
+    let word;
+    while ((word = words.exec(normalized)) !== null) {
+      if (editDistanceAtMostOne(word[0], target)) {
+        return value.slice(0, word.index) + " " + value.slice(word.index + word[0].length);
+      }
+    }
+  }
+  return value;
+}
 function stripAliasTerms(text, aliases = [], beforeAmountOnly = false) {
   const original = String(text || "");
   const amountMatch = /(?:^|\D)(\d{1,3}(?:[ .,'’]\d{3})+|\d{1,10})/.exec(original);
@@ -167,29 +187,13 @@ function stripAliasTerms(text, aliases = [], beforeAmountOnly = false) {
   const after = original.slice(amountStart);
   for (const alias of aliases) {
     const target = normalize(alias);
-    if (!target || !hasAlias(before, target)) continue;
-    const escaped = target.replace(/[.*+?^$()|[\]{}\\]/g, '\\$&').replace(/\s+/g, '\\s+');
-    const exact = new RegExp("(^|[^a-z0-9])" + escaped + "($|[^a-z0-9])", "i");
-    if (exact.test(before)) {
-      before = before.replace(exact, " ");
-      continue;
-    }
-    if (!target.includes(" ") && target.length >= 6) {
-      const words = before.match(/[a-z0-9]+/gi) || [];
-      const misspelling = words.find((word) => editDistanceAtMostOne(normalize(word), target));
-      if (misspelling) {
-        const safeWord = misspelling.replace(/[.*+?^$()|[\]{}\\]/g, '\\$&');
-        before = before.replace(new RegExp("(^|[^a-z0-9])" + safeWord + "($|[^a-z0-9])", "i"), " ");
-      }
-    }
+    if (target && hasAlias(before, target)) before = removeAliasFromText(before, target);
   }
   if (beforeAmountOnly) return before + after;
   let value = before + after;
   for (const alias of aliases) {
     const target = normalize(alias);
-    if (!target || !hasAlias(value, target)) continue;
-    const escaped = target.replace(/[.*+?^$()|[\]{}\\]/g, '\\$&').replace(/\s+/g, '\\s+');
-    value = value.replace(new RegExp("(^|[^a-z0-9])" + escaped + "($|[^a-z0-9])", "gi"), " ");
+    if (target && hasAlias(value, target)) value = removeAliasFromText(value, target);
   }
   return value;
 }
