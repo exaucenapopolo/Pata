@@ -90,7 +90,10 @@ public class PataQuickCapturePlugin extends Plugin {
             if (ownerChanged) {
                 PataQuickCaptureWidgetProvider.updateFinanceSummary(getContext(), 0L, 0L, 0L, 0L, "");
             }
-            financePrefs.edit().putBoolean("premium_enabled", premiumEnabled).putString("owner_uid", uid).apply();
+            financePrefs.edit().putBoolean("premium_enabled", premiumEnabled).putString("owner_uid", uid)
+                .putLong("last_refresh_requested_at", ownerChanged ? 0L : financePrefs.getLong("last_refresh_requested_at", 0L))
+                .putLong("last_refresh_succeeded_at", ownerChanged ? 0L : financePrefs.getLong("last_refresh_succeeded_at", 0L))
+                .apply();
             if (premiumEnabled) PataFinanceWidgetWorker.schedule(getContext());
             else {
                 androidx.work.WorkManager.getInstance(getContext()).cancelUniqueWork("pata_finance_widget_refresh");
