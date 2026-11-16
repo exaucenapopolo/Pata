@@ -5033,7 +5033,7 @@ async function handleAIChat(request) {
     const [
       userDoc, incomesSnap, expensesSnap, debtsSnap, financialTargetSnap, goalsSnap, budgetsSnap, automationsSnap,
       memorySnap, categoriesSnap, projectsSnap, cotisationMembershipsSnap, activityLogSnap, weeklyReportsSnap,
-      notificationSessionSnap, notificationChatSnap,
+      notificationSessionSnap,
     ] = await Promise.all([
       userRef.get(),
       includeIncomeContext ? incomePeriodQuery.orderBy('date', 'desc').get() : Promise.resolve(emptySnapshot),
@@ -5050,7 +5050,6 @@ async function handleAIChat(request) {
       intent.needsActivityLog ? userRef.collection('activity_log').orderBy('deletedAt', 'desc').limit(15).get() : Promise.resolve(emptySnapshot),
       intent.needsReports ? userRef.collection('weekly_reports').orderBy('weekStart', 'desc').limit(4).get() : Promise.resolve(emptySnapshot),
       notificationSessionRef ? notificationSessionRef.get() : Promise.resolve(null),
-      notificationChatRef ? notificationChatRef.get() : Promise.resolve(null),
     ]);
 
     const goalsWithDeposits = intent.needsGoals
