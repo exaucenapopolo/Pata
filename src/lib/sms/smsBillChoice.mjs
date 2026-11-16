@@ -36,7 +36,8 @@ export function resolveSmsBillChoice(item = {}, choice = {}) {
   const inferredType = inferSmsBillType(item.counterparty);
   const requestedType = String(choice.billType || inferredType);
   const billType = BILL_TYPES.has(requestedType) ? requestedType : 'other';
-  const requestedCategory = String(choice.billExpenseCategoryId || choice.categoryId || '');
+  // Ignore categoryId from the previous expense classification; a bill has its own category.
+  const requestedCategory = String(choice.billExpenseCategoryId || '');
   const billExpenseCategoryId = BILL_CATEGORIES.has(requestedCategory)
     ? requestedCategory
     : smsBillCategory(billType);
