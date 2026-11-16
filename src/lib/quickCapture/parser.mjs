@@ -157,7 +157,18 @@ function matchesRules(text, rule) {
   const [, pattern, aliases] = rule;
   return pattern.test(text) || (aliases || []).some((alias) => hasAlias(text, alias));
 }
-function stripAliasTerms(text, aliases = []) {
+function stripAliasTerms(text, aliases = [], beforeAmountOnly = false) {
+  const original = String(text || "");
+  const amountMatch = /(?:^|\D)(\d{1,3}(?:[ .,'’]\d{3})+|\d{1,10})/.exec(original);
+  const amountStart = amountMatch
+    ? amountMatch.index + amountMatch[0].length - amountMatch[1].length
+    : original.length;
+  let before = original.slice(0, amountStart);
+  let after = original.slice(amountStart);
+  for (const alias of aliases) {
+    const target = normalize(alias);
+    if (!target || !hasAlias(before, target)) continue;
+    const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, "\\function stripAliasTerms(text, aliases = []) {
   let value = String(text || "");
   for (const alias of aliases) {
     const target = normalize(alias);
@@ -166,12 +177,45 @@ function stripAliasTerms(text, aliases = []) {
     value = value.replace(new RegExp("(^|[^a-z0-9])" + escaped + "($|[^a-z0-9])", "gi"), " ");
   }
   return value;
+}").replace(/\s+/g, "\\s+");
+    const exact = new RegExp("(^|[^a-z0-9])" + escaped + "($|[^a-z0-9])", "i");
+    if (exact.test(before)) {
+      before = before.replace(exact, " ");
+      continue;
+    }
+    if (!target.includes(" ") && target.length >= 6) {
+      const words = before.match(/[a-z0-9]+/gi) || [];
+      const misspelling = words.find((word) => editDistanceAtMostOne(normalize(word), target));
+      if (misspelling) before = before.replace(new RegExp("(^|[^a-z0-9])" + misspelling + "($|[^a-z0-9])", "i"), " ");
+    }
+  }
+  if (beforeAmountOnly) return before + after;
+  let value = before + after;
+  for (const alias of aliases) {
+    const target = normalize(alias);
+    if (!target || !hasAlias(value, target)) continue;
+    const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, "\\function stripAliasTerms(text, aliases = []) {
+  let value = String(text || "");
+  for (const alias of aliases) {
+    const target = normalize(alias);
+    if (!target || !hasAlias(value, target)) continue;
+    const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+    value = value.replace(new RegExp("(^|[^a-z0-9])" + escaped + "($|[^a-z0-9])", "gi"), " ");
+  }
+  return value;
+}").replace(/\s+/g, "\\s+");
+    value = value.replace(new RegExp("(^|[^a-z0-9])" + escaped + "($|[^a-z0-9])", "gi"), " ");
+  }
+  return value;
 }
 function extractCounterparty(text, type) {
   let value = String(text || "");
   value = value
     .replace(/\b20\d{2}-\d{1,2}-\d{1,2}\b/g, " ")
+    .replace(/\b[0-3]?\d[/.\-][01]?\d(?:[/.\-]20\d{2})?\b/g, " ")
     .replace(/\b\d{1,3}(?:[ .,'’]\d{3})+\b|\b\d{1,10}\b/g, " ")
+    .replace(/\b\d{1,2}\s+(?:janvier|janv|fevrier|fevr|fev|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)(?:\s+20\d{2})?\b/gi, " ")
+    .replace(/\b(?:janvier|janv|fevrier|fevr|fev|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)\s+\d{1,2}(?:\s+20\d{2})?\b/gi, " ")
     .replace(/(?:echeance|échéance|date limite|à rendre|a rendre|avant le|a payer le|à payer le|pour le)\s*(?:le|du)?\s*[:]?(20\d{2}-\d{2}-\d{2}|demain|hier|apres[- ]demain)?/gi, " ");
   value = normalize(value)
     .replace(/\b(j'ai|jai|je|nous|on|ai|contracte|contracter|pris|prends|dois|doit|pret|prets|prete|preter|dette|dettes|emprunt|emprunte|emprunter|argent|fcfa|echeance|date|limite|rendre|avant|payer|demain|hier|apres|aujourd'hui)\b/gi, " ")
@@ -182,8 +226,8 @@ function extractCounterparty(text, type) {
   const name = tokens.slice(-4).join(" ").slice(0, 100);
   return name ? name.charAt(0).toLocaleUpperCase("fr-FR") + name.slice(1) : "";
 }
-function cleanNote(text, categoryAliases = []) {
-  return stripAliasTerms(String(text || ""), categoryAliases)
+function cleanNote(text, categoryAliases = [], beforeAmountOnly = false) {
+  return stripAliasTerms(String(text || ""), categoryAliases, beforeAmountOnly)
     .replace(/\b20\d{2}-\d{1,2}-\d{1,2}\b/g, " ")
     .replace(/\b[0-3]?\d[/.\-][01]?\d(?:[/.\-]20\d{2})?\b/g, " ")
     .replace(/\b\d{1,3}(?:[ .,'’]\d{3})+\b|\b\d{1,10}\b/g, " ")
@@ -255,7 +299,7 @@ export function parseQuickCapture(input, now = new Date()) {
       : type === "debt_borrowed" ? "debt_borrowed" : null;
   const person = type === "loan_given" || type === "debt_borrowed"
     ? extractCounterparty(raw, type) : "";
-  const note = cleanNote(raw, type === "expense" ? expense?.[2] || [] : type === "bill" ? bill?.categoryAliases || [] : []);
+  const note = cleanNote(raw, type === "expense" ? expense?.[2] || [] : type === "bill" ? bill?.categoryAliases || [] : [], type === "expense");
   const source = type === "income" ? extractIncomeSource(raw, categoryId, income?.[1]) : "";
   const dueDate = extractDueDate(raw, now, hasBill, hasLoan, hasDebt);
   const confidence = Math.min(0.99, (amount ? 0.55 : 0) + (type ? 0.25 : 0) + (categoryId ? 0.18 : 0));
