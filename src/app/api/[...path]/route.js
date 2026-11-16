@@ -4974,6 +4974,16 @@ async function handleAIChat(request) {
 
     const reportPeriod = resolveAIReportPeriod(latestUserText, getDoualaToday());
     const userRef = adminDb.collection('users').doc(uid);
+    const notificationMode = body.notificationMode === true;
+    const notificationSessionRef = notificationMode
+      ? userRef.collection('ai_notification_sessions').doc('active')
+      : null;
+    const notificationProfileSnap = notificationMode ? await userRef.get() : null;
+    if (notificationMode && !isPremiumAccount(notificationProfileSnap?.data() || {})) {
+      return errorResponse(requestedLanguage === 'en'
+        ? 'The Mč notification conversation is a Premium feature. Activate Premium in Pata to continue.'
+        : 'La conversation Mč depuis les notifications est réservée à Pata Premium. Active Premium pour continuer.', 403);
+    }
     const emptySnapshot = { docs: [] };
     const includeIncomeContext = intent.needsIncomes || intent.overview;
     const includeExpenseContext = intent.needsExpenses || intent.overview;
@@ -4984,8 +4994,9 @@ async function handleAIChat(request) {
     const [
       userDoc, incomesSnap, expensesSnap, debtsSnap, financialTargetSnap, goalsSnap, budgetsSnap, automationsSnap,
       memorySnap, categoriesSnap, projectsSnap, cotisationMembershipsSnap, activityLogSnap, weeklyReportsSnap,
+      notificationSessionSnap,
     ] = await Promise.all([
-      userRef.get(),
+      notificationProfileSnap ? Promise.resolve(notificationProfileSnap) : userRef.get(),
       includeIncomeContext ? incomePeriodQuery.orderBy('date', 'desc').get() : Promise.resolve(emptySnapshot),
       includeExpenseContext ? expensePeriodQuery.orderBy('date', 'desc').get() : Promise.resolve(emptySnapshot),
       intent.needsDebts ? userRef.collection('debts').orderBy('createdAt', 'desc').limit(25).get() : Promise.resolve(emptySnapshot),
@@ -4999,6 +5010,7 @@ async function handleAIChat(request) {
       intent.cotisations ? userRef.collection('cotisationMemberships').limit(12).get() : Promise.resolve(emptySnapshot),
       intent.needsActivityLog ? userRef.collection('activity_log').orderBy('deletedAt', 'desc').limit(15).get() : Promise.resolve(emptySnapshot),
       intent.needsReports ? userRef.collection('weekly_reports').orderBy('weekStart', 'desc').limit(4).get() : Promise.resolve(emptySnapshot),
+      notificationSessionRef ? notificationSessionRef.get() : Promise.resolve(null),
     ]);
 
     const goalsWithDeposits = intent.needsGoals
@@ -5159,8 +5171,17 @@ ${helpKnowledge || 'Aucune réponse du centre d’aide ne correspond exactement 
 Données utiles à cette demande uniquement :
 ${userContext}`;
 
+    const notificationSummary = notificationMode && notificationSessionSnap?.exists
+      ? String(notificationSessionSnap.data()?.summary || '').slice(-1000)
+      : '';
+    const notificationInstructions = notificationMode
+      ? (isEnglish
+        ? '\\n\\nNOTIFICATION CONVERSATION: This is a short, separate Mč conversation started from the persistent Android notification. Use the compact prior context below only to understand follow-ups. Answer in 1–3 short sentences, ideally under 420 characters. Do not mention or modify the full AssistantChat history.'
+        : '\\n\\nCONVERSATION PAR NOTIFICATION : Cette discussion Mč est courte et séparée de la conversation complète AssistantChat. Utilise uniquement le contexte résumé ci-dessous pour comprendre les relances. Réponds en 1 à 3 phrases courtes, idéalement moins de 420 caractères. Ne prétends pas avoir chargé l’historique complet.')
+        + (notificationSummary ? (isEnglish ? '\\nPrevious notification context: ' : '\\nRésumé de la conversation via notification : ') + notificationSummary : '')
+      : '';
     let modelMessages = [
-      { role: 'system', content: systemPrompt },
+      { role: 'system', content: systemPrompt + notificationInstructions },
       ...history,
     ];
     const userMessages = history.filter((message) => message.role === 'user').map((message) => message.content);
@@ -5261,6 +5282,28 @@ ${userContext}`;
     if (!reply) {
       const lastResult = toolResults[toolResults.length - 1]?.result;
       reply = lastResult?.message || lastResult?.error || (isEnglish ? 'I finished processing, but could not generate a summary. Check the data saved in Pata.' : 'J’ai terminé le traitement, mais je n’ai pas pu générer le récapitulatif. Consulte les données enregistrées dans Pata.');
+    }
+
+    if (notificationMode) {
+      const notificationReply = String(reply || '').trim().slice(0, 520);
+      const nextSummary = [
+        notificationSummary,
+        'Utilisateur: ' + latestUserText.slice(-320),
+        'Mč: ' + notificationReply.slice(-480),
+      ].filter(Boolean).join('\\n').slice(-1200);
+      await notificationSessionRef.set({
+        summary: nextSummary,
+        lastQuestion: latestUserText.slice(-320),
+        lastReply: notificationReply,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      return NextResponse.json({
+        success: true,
+        reply: notificationReply,
+        notificationMode: true,
+        quickActions,
+        quota: { remaining: quota.remaining, isPremium: quota.isPremium },
+      });
     }
 
     if (mode === 'audio') {
