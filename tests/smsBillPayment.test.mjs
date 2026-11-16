@@ -92,6 +92,18 @@ test('une sortie Mobile Money classée comme facture est ponctuelle par défaut'
   assert.equal(bill.nextDueDate, '2026-11-16');
 });
 
+test('la catégorie de la dépense précédente ne remplace pas la catégorie propre à la facture', () => {
+  const choice = resolveSmsBillChoice({
+    direction: 'expense',
+    eventType: 'send',
+    counterparty: 'ENEO',
+  }, { categoryId: 'transport' });
+
+  assert.equal(choice.billType, 'electricity');
+  assert.equal(choice.billExpenseCategoryId, 'housing');
+  assert.equal(choice.billFrequency, 'once');
+});
+
 test('une sortie SMS peut toujours être transformée en facture récurrente explicitement choisie', () => {
   const choice = resolveSmsBillChoice({
     direction: 'expense',
