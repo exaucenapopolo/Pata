@@ -2,6 +2,7 @@ package com.pata.app;
 
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.net.Uri;
 import android.appwidget.AppWidgetManager;
 
@@ -47,8 +48,14 @@ public class PataCotisationWidgetWorker extends Worker {
         }
 
         // Pas de rafraîchissement réseau périodique : une mise à jour ponctuelle
-        // à l'installation, puis lorsque Pata est réellement réouvert.
+        // à l'installation, puis au retour dans Pata, avec un délai minimal de 30 min.
         workManager.cancelUniquePeriodicWork(UNIQUE_PERIODIC);
+        if (PataQuickCaptureAuthStore.read(context) == null) return;
+        SharedPreferences prefs = context.getSharedPreferences("PataCotisationWidget", Context.MODE_PRIVATE);
+        long now = System.currentTimeMillis();
+        long lastRefreshRequestedAt = prefs.getLong("last_refresh_requested_at", 0L);
+        if (lastRefreshRequestedAt > 0L && now - lastRefreshRequestedAt < TimeUnit.MINUTES.toMillis(30)) return;
+        prefs.edit().putLong("last_refresh_requested_at", now).apply();
         Constraints constraints = new Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED).build();
         OneTimeWorkRequest immediate = new OneTimeWorkRequest.Builder(PataCotisationWidgetWorker.class)
