@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { App } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
 import { PataSms } from '@/lib/sms/nativePlugin';
@@ -45,6 +46,7 @@ async function hashTransaction(provider, transactionId) {
 }
 
 export function SmsImportCoordinator() {
+  const router = useRouter();
   const { user } = useAuth();
   const { debts } = useDebts();
   const { incomes } = useIncomes();
@@ -55,6 +57,7 @@ export function SmsImportCoordinator() {
   const [warnings, setWarnings] = useState({});
   const [workingId, setWorkingId] = useState('');
   const [notice, setNotice] = useState('');
+  const [budgetPrompt, setBudgetPrompt] = useState(null);
   const [modalOpen, setModalOpen] = useState(false);
   const needsProjectOptions = pending.some((item) => choices[item.id]?.expenseType === 'project');
 
@@ -243,9 +246,14 @@ export function SmsImportCoordinator() {
         await PataSms.clearLocalHints({ transactionHash: item.id }).catch(() => {});
       }
       setWarnings((current) => { const next = { ...current }; delete next[item.id]; return next; });
-      setNotice(result.billId
-        ? 'Paiement enregistré comme dépense et facture. Le rappel de la prochaine échéance est maintenant configuré.'
-        : 'Opération enregistrée dans Pata.');
+      if (result.budgetRecommendation) setBudgetPrompt(result.budgetRecommendation);
+      setNotice(result.budgetRecommendation
+        ? (result.budgetRecommendation.isSalary
+          ? 'Revenu Mobile Money enregistré. Pata te recommande fortement de créer des budgets pour organiser ce salaire.'
+          : 'Revenu Mobile Money enregistré. Pense à le répartir en budgets pour protéger tes priorités.')
+        : result.billId
+          ? 'Paiement enregistré comme dépense et facture. Le rappel de la prochaine échéance est maintenant configuré.'
+          : 'Opération enregistrée dans Pata.');
     } catch (error) {
       setNotice(error.message || 'Confirmation impossible.');
     } finally {
@@ -471,7 +479,15 @@ export function SmsImportCoordinator() {
         <MessageSquareText size={15}/> {pending.length} import{pending.length > 1 ? 's' : ''} à confirmer
       </button>}
       {notice && pending.length === 0 && <div role="status" className="fixed bottom-24 left-3 right-3 z-[80] flex items-start gap-2 rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-700 shadow-lg lg:bottom-6 lg:left-auto lg:max-w-sm">
-        <AlertTriangle size={15} className="mt-0.5 shrink-0 text-brand-700"/><span className="flex-1">{notice}</span><button type="button" onClick={() => setNotice('')} aria-label="Fermer"><X size={14}/></button>
+        <AlertTriangle size={15} className="mt-0.5 shrink-0 text-brand-700"/>
+        <div className="min-w-0 flex-1 space-y-2">
+          <p>{notice}</p>
+          {budgetPrompt && <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => { const target = budgetPrompt.target; setBudgetPrompt(null); if (target) router.push(target); }} className="rounded-lg bg-[#075b43] px-3 py-2 text-[11px] font-semibold text-white">Créer un budget lié</button>
+            <button type="button" onClick={() => setBudgetPrompt(null)} className="px-2 py-2 text-[11px] font-semibold text-slate-500 underline">Plus tard</button>
+          </div>}
+        </div>
+        <button type="button" onClick={() => { setNotice(''); setBudgetPrompt(null); }} aria-label="Fermer"><X size={14}/></button>
       </div>}
     </>
   );
