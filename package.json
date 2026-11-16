@@ -20,7 +20,8 @@
     "test:quick-capture": "node --test tests/quickCaptureParser.test.mjs",
     "test:premium-reminder": "node --test tests/premiumReminderPolicy.test.mjs",
     "test:android-widgets": "node --test tests/androidWidgets.test.mjs",
-    "test:android-ai-notification": "node --test tests/androidAINotification.test.mjs"
+    "test:android-ai-notification": "node --test tests/androidAINotification.test.mjs",
+    "test:sms-bill-payment": "node --test tests/smsBillPayment.test.mjs"
   },
   "dependencies": {
     "@capacitor-firebase/authentication": "6.3.1",

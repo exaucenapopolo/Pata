@@ -3,6 +3,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { adminAuth, adminDb, adminMessaging } from '@/lib/firebase/admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { createExpenseForUser } from '@/lib/ai/financialTools';
+import { normalizeSmsBillPayment } from '@/lib/bills/smsBillPayment.mjs';
 import { sendPataEmail, renderPataEmail, escapeEmailHtml } from '@/lib/email/resend';
 import { sendPataWebPush } from '@/lib/notifications/webPush.mjs';
 import { dispatchPushNotification } from '@/lib/notifications/dispatcher.mjs';
@@ -68,6 +69,85 @@ async function getUserAndPremium(uid) {
   if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
   const profile = userSnap.data() || {};
   return { userRef, profile, premium: isPremium(profile), expiry: premiumExpiry(profile) };
+}
+
+async function createBillRecordFromSms(uid, transactionHash, billDetails, item, providerName, expenseId) {
+  const userRef = adminDb.collection('users').doc(uid);
+  const billId = 'sms_' + transactionHash;
+  const billRef = userRef.collection('bills').doc(billId);
+  const paymentRef = billRef.collection('payments').doc('sms_' + transactionHash);
+  await adminDb.runTransaction(async (transaction) => {
+    const [userSnap, billSnap, paymentSnap] = await Promise.all([
+      transaction.get(userRef),
+      transaction.get(billRef),
+      transaction.get(paymentRef),
+    ]);
+    if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
+    const profile = userSnap.data() || {};
+    if (!billSnap.exists) {
+      let nextActiveCount = Number(profile.activeBillCount) || 0;
+      if (billDetails.active) {
+        if (profile.activeBillCountInitialized === true
+          && typeof profile.activeBillCount === 'number'
+          && Number.isInteger(profile.activeBillCount)
+          && profile.activeBillCount >= 0) {
+          nextActiveCount = profile.activeBillCount + 1;
+        } else {
+          const existingBills = await transaction.get(userRef.collection('bills'));
+          nextActiveCount = existingBills.docs.filter((document) => document.data()?.active !== false).length + 1;
+        }
+      }
+      transaction.create(billRef, {
+        name: billDetails.name,
+        billType: billDetails.billType,
+        amount: item.amount,
+        isVariable: false,
+        frequency: billDetails.frequency,
+        nextDueDate: billDetails.nextDueDate,
+        dueDay: billDetails.dueDay,
+        pendingDetails: false,
+        frequencyPending: false,
+        reminderDaysBefore: billDetails.reminderDaysBefore,
+        expenseCategoryId: billDetails.expenseCategoryId,
+        providerName: item.counterparty || providerName,
+        accountReference: '',
+        imageUrl: '',
+        note: 'Facture payée via ' + providerName + ' · import SMS',
+        active: billDetails.active,
+        lastPaidDueDate: item.date,
+        lastPaidAmount: item.amount,
+        lastPaidAt: FieldValue.serverTimestamp(),
+        lastReminderKey: null,
+        smsImportId: transactionHash,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      if (billDetails.active) {
+        transaction.set(userRef, {
+          activeBillCount: nextActiveCount,
+          activeBillCountInitialized: true,
+        }, { merge: true });
+      } else if (profile.activeBillCountInitialized !== true) {
+        const existingBills = await transaction.get(userRef.collection('bills'));
+        transaction.set(userRef, {
+          activeBillCount: existingBills.docs.filter((document) => document.data()?.active !== false).length,
+          activeBillCountInitialized: true,
+        }, { merge: true });
+      }
+    }
+    if (!paymentSnap.exists) {
+      transaction.create(paymentRef, {
+        amount: item.amount,
+        paidDate: item.date,
+        dueDate: item.date,
+        paymentSource: item.provider,
+        expenseId: expenseId || null,
+        smsImportId: transactionHash,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+    }
+  });
+  return billId;
 }
 
 function deviceTokenMatches(deviceToken, storedHash) {
@@ -706,9 +786,16 @@ export async function POST(request) {
       const expenseType = String(body.expenseType || '').trim();
       const projectId = String(body.projectId || '').trim().slice(0, 150);
       const confirmBudgetOverrun = body.confirmBudgetOverrun === true;
+      const recordBill = body.recordBill === true;
+      const billName = String(body.billName || '').trim().slice(0, 100);
+      const billType = String(body.billType || 'other').trim();
+      const billFrequency = String(body.billFrequency || 'once').trim();
+      const billNextDueDate = String(body.billNextDueDate || '').trim();
+      const billExpenseCategoryId = String(body.billExpenseCategoryId || categoryId || 'other').trim();
       const confirmWithdrawal = body.confirmWithdrawal === true;
       const withdrawalSourceIncomeId = String(body.withdrawalSourceIncomeId || 'external').trim().slice(0, 150);
       if (!['income', 'expense'].includes(operationType)) return responseError('Type d’opération invalide.', 400);
+      if (recordBill && (operationType !== 'expense' || !billName)) return responseError('Indique le nom de la facture payée avant de continuer.', 400);
       if (repaymentDebtId && repaymentDebtId.includes('/')) return responseError('Identifiant de dette invalide.', 400);
       if (withdrawalSourceIncomeId.includes('/') || incomeSourceId.includes('/')) return responseError('Source de fonds invalide.', 400);
       if (!['external', 'all'].includes(incomeSourceId) && !incomeSourceId) return responseError('Source de revenu invalide.', 400);
@@ -744,19 +831,28 @@ export async function POST(request) {
         }
         if (item.direction === 'income' && operationType !== 'income') throw new Error('Cette transaction est une réception : elle doit être enregistrée comme revenu.');
         if (item.direction !== 'income' && operationType !== 'expense') throw new Error('Cette transaction est une sortie : elle doit être enregistrée comme dépense.');
+        if (recordBill && (item.direction !== 'expense' || item.eventType === 'withdrawal' || repaymentDebtId)) {
+          throw new Error('Seul un paiement sortant ordinaire peut être enregistré comme facture. Les retraits et remboursements de dette restent séparés.');
+        }
+        const billDetails = recordBill ? normalizeSmsBillPayment({
+          name: billName, billType, frequency: billFrequency,
+          nextDueDate: billNextDueDate, expenseCategoryId: billExpenseCategoryId,
+        }, item.date) : null;
         if (item.eventType === 'withdrawal' && !confirmWithdrawal) throw new Error('Confirme explicitement que tu souhaites transférer ce retrait vers les espèces.');
         if (item.eventType === 'withdrawal' && repaymentDebtId) throw new Error('Un retrait ne peut pas être classé comme remboursement de dette.');
+        const effectiveCategoryId = billDetails?.expenseCategoryId || categoryId;
         transaction.update(ref, {
           status: 'PROCESSING',
-          categoryId,
+          categoryId: effectiveCategoryId,
           operationType,
-          ...(operationType === 'expense' ? { expenseType, projectId: expenseType === 'project' ? projectId : null } : {}),
+          ...(billDetails ? { billPayment: true, billName: billDetails.name, billType: billDetails.billType, billFrequency: billDetails.frequency, billNextDueDate: billDetails.nextDueDate } : {}),
+          ...(operationType === 'expense' ? { expenseType: billDetails ? 'consumption' : expenseType, projectId: billDetails ? null : expenseType === 'project' ? projectId : null } : {}),
           ...(repaymentDebtId ? { repaymentDebtId, flowType: operationType === 'income' ? 'repayment_received' : 'repayment' } : {}),
           ...(item.eventType === 'withdrawal' ? { withdrawalSourceIncomeId, cashWithdrawalProvider: item.provider, flowType: 'cash_withdrawal' } : {}),
           ...(operationType === 'expense' && item.eventType !== 'withdrawal' ? { incomeSourceId } : {}),
           processingAt: FieldValue.serverTimestamp(),
         });
-        return { duplicate: false, item, profile };
+        return { duplicate: false, item, profile, billDetails, categoryId: effectiveCategoryId };
       });
 
       if (claim.duplicate) return NextResponse.json({ success: true, duplicate: true, operationId: claim.item.operationId || null });
@@ -767,8 +863,13 @@ export async function POST(request) {
       const eventLabel = item.eventType === 'receive' ? 'Réception'
         : item.eventType === 'withdrawal' ? 'Retrait vers espèces'
           : item.eventType === 'payment' ? 'Paiement' : 'Transfert';
-      const note = eventLabel + ' ' + providerName + (item.counterparty ? ' · ' + item.counterparty : '');
+      const billDetails = claim.billDetails || null;
+      if (billDetails) categoryId = billDetails.expenseCategoryId;
+      const note = billDetails
+        ? ('Paiement facture : ' + billDetails.name + ' · ' + providerName + (item.counterparty ? ' · ' + item.counterparty : '')).slice(0, 250)
+        : eventLabel + ' ' + providerName + (item.counterparty ? ' · ' + item.counterparty : '');
       const isExpense = operationType === 'expense';
+      const effectiveExpenseType = billDetails ? 'consumption' : expenseType;
       const isCashWithdrawal = item.eventType === 'withdrawal';
       const categoryLabels = {
         salary: 'Salaire', business: 'Business / Freelance', sales: 'Ventes', commission: 'Commission / Prime', rental: 'Loyer / Location reçue', pension: 'Pension / Allocation', gift: 'Don / Cadeau', debt_repayment_received: 'Remboursement reçu', other_income: 'Autres revenus',
@@ -780,14 +881,14 @@ export async function POST(request) {
         ? {
             amount: item.amount,
             categoryId,
-            expenseType,
-            projectId: expenseType === 'project' ? projectId : '',
+            expenseType: effectiveExpenseType,
+            projectId: effectiveExpenseType === 'project' ? projectId : '',
             date: item.date,
             time: item.time,
             note: isCashWithdrawal ? note + ' (retrait d’espèces)' : note,
             paymentMethod: item.provider,
             incomeSourceId: isCashWithdrawal ? (item.withdrawalSourceIncomeId || 'external') : incomeSourceId,
-            incomeSourceName: isCashWithdrawal ? '' : '',
+            incomeSourceName: '',
             details: item.counterparty || '',
             smsImportId,
             flowType: isCashWithdrawal ? 'cash_withdrawal' : repaymentDebtId ? 'repayment' : 'normal',
@@ -872,10 +973,24 @@ export async function POST(request) {
         await ref.update({ status: 'PENDING', processingAt: FieldValue.delete(), lastError: 'MISSING_OPERATION_ID' });
         return responseError('Pata n’a pas retourné l’identifiant de l’opération. Actualise et réessaie.', 500);
       }
-      const target = (isExpense ? '/expenses?highlight=' : '/income?highlight=') + encodeURIComponent(operationId);
+      let billId = '';
+      if (billDetails) {
+        try {
+          billId = await createBillRecordFromSms(uid, ref.id, billDetails, item, providerName, operationId);
+        } catch (billError) {
+          await ref.update({
+            status: 'PENDING',
+            lastError: String(billError.message || 'BILL_WRITE_FAILED').slice(0, 180),
+            processingAt: FieldValue.delete(),
+          });
+          return responseError('La sortie a été enregistrée de façon sécurisée, mais le rappel de facture doit être finalisé : ' + (billError.message || 'réessaie la confirmation.'), 503);
+        }
+      }
+      const target = billId ? '/bills' : (isExpense ? '/expenses?highlight=' : '/income?highlight=') + encodeURIComponent(operationId);
       await ref.update({
         status: 'CONFIRMED', operationType, categoryId, operationId, target,
-        ...(isExpense ? { expenseType, projectId: expenseType === 'project' ? projectId : null } : {}),
+        ...(billId ? { billPayment: true, billId } : {}),
+        ...(isExpense ? { expenseType: effectiveExpenseType, projectId: effectiveExpenseType === 'project' ? projectId : null } : {}),
         confirmedAt: FieldValue.serverTimestamp(), lastError: FieldValue.delete(),
       });
 
@@ -898,7 +1013,7 @@ export async function POST(request) {
         return { inAppSent: false, notificationError: String(error.message || 'NOTIFICATION_FAILED').slice(0, 120) };
       });
       await ref.set({ notificationStatus: notificationResult, notificationUpdatedAt: FieldValue.serverTimestamp() }, { merge: true });
-      return NextResponse.json({ success: true, operationId, target, notifications: notificationResult });
+      return NextResponse.json({ success: true, operationId, target, ...(billId ? { billId } : {}), notifications: notificationResult });
     }
 
     return responseError('Action d’import SMS inconnue.', 400);

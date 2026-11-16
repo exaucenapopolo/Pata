@@ -61,6 +61,8 @@ jobs:
 
       - name: Tester les parseurs SMS
         run: npm run test:sms
+      - name: Tester la création des rappels de factures depuis les paiements Mobile Money
+        run: npm run test:sms-bill-payment
 
       - name: Vérifier les raccourcis PWA et Android
         run: npm run test:android-shortcuts
