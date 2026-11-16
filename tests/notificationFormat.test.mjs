@@ -14,6 +14,7 @@ test('retire les puces décoratives et conserve les accents', () => {
   const result = sanitizeNotificationReply('✅ **Attention** : tes dépenses augmentent.\n- Vérifie ton budget.');
   assert.equal(result.includes('✅'), false);
   assert.equal(result.includes('**'), false);
+  assert.doesNotMatch(result, /(^|\\s)-\\s/);
   assert.match(result, /Attention/);
   assert.match(result, /Vérifie ton budget/);
 });
