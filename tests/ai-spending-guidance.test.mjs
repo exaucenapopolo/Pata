@@ -110,3 +110,34 @@ test('les remboursements et flux neutres ne consomment pas une enveloppe de dép
   assert.equal(facts.budgets[0].monthlyRemaining, 19500);
   assert.equal(facts.globalMonthlySpent, 11500);
 });
+
+test('ne choisit pas arbitrairement entre plusieurs enveloppes de sources différentes', () => {
+  const facts = buildDailySpendingFacts({
+    ...sample,
+    budgets: [
+      { month: '2026-11', categoryId: 'transport', amount: 30000, incomeSourceId: 'salary' },
+      { month: '2026-11', categoryId: 'transport', amount: 12000, incomeSourceId: 'business' },
+    ],
+    incomes: [
+      { id: 'salary', source: 'Salaire' },
+      { id: 'business', source: 'Activité' },
+    ],
+    proposedSpendText: "J'ai envie de dépenser 500 FCFA pour le transport",
+  });
+  assert.equal(facts.proposedSpend.status, 'source-required');
+  assert.deepEqual(facts.proposedSpend.availableSources, ['Salaire', 'Activité']);
+});
+
+test('utilise l’enveloppe générale quand elle existe, sans la confondre avec les enveloppes propres aux revenus', () => {
+  const facts = buildDailySpendingFacts({
+    ...sample,
+    budgets: [
+      { month: '2026-11', categoryId: 'transport', amount: 30000, incomeSourceId: 'all' },
+      { month: '2026-11', categoryId: 'transport', amount: 12000, incomeSourceId: 'salary' },
+    ],
+    incomes: [{ id: 'salary', source: 'Salaire' }],
+    proposedSpendText: "J'ai envie de dépenser 500 FCFA pour le transport",
+  });
+  assert.equal(facts.proposedSpend.status, 'within-daily-pace');
+  assert.equal(facts.proposedSpend.monthlyRemaining, 19500);
+});

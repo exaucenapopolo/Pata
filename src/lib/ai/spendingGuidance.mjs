@@ -23,7 +23,7 @@ const moneyAmountInText = (value = '') => {
   return Number.isSafeInteger(amount) && amount > 0 ? amount : null;
 };
 
-export function buildDailySpendingFacts({ today, expenses = [], budgets = [], categories = [], financialTargets = null, proposedSpendText = '' } = {}) {
+export function buildDailySpendingFacts({ today, expenses = [], budgets = [], categories = [], incomes = [], financialTargets = null, proposedSpendText = '' } = {}) {
   const todayDate = isoDate(today);
   const month = todayDate.slice(0, 7);
   const todayRows = expenses.filter((item) => isoDate(item.date) === todayDate);
@@ -103,9 +103,14 @@ export function buildDailySpendingFacts({ today, expenses = [], budgets = [], ca
       const dailyPlan = Math.floor(remainingBeforeToday / daysRemaining);
       const dailyRemaining = Math.max(0, dailyPlan - spentToday);
       const monthlyRemaining = Math.max(0, budgetAmount - spentBeforeToday - spentToday);
+      const incomeSource = incomes.find((item) => item.id === budget.incomeSourceId);
+      const sourceLabel = !budget.incomeSourceId || budget.incomeSourceId === 'all'
+        ? 'Toutes les sources'
+        : String(incomeSource?.source || incomeSource?.name || budget.incomeSourceId).slice(0, 60);
       return {
         category: categoryName,
         categoryId: String(budget.categoryId),
+        sourceLabel,
         budget: budgetAmount,
         spentBeforeToday,
         spentToday,
@@ -120,12 +125,24 @@ export function buildDailySpendingFacts({ today, expenses = [], budgets = [], ca
   let proposedSpend = null;
   if (amount !== null) {
     const normalizedText = normalize(proposedSpendText);
-    const matchingBudget = budgetFacts.find((budget) => {
+    const matchingBudgets = budgetFacts.filter((budget) => {
       const category = normalize(budget.category);
       const categoryId = normalize(budget.categoryId);
       return (category.length > 2 && normalizedText.includes(category))
         || (categoryId.length > 2 && normalizedText.includes(categoryId));
     });
+    const explicitSourceBudget = matchingBudgets.find((budget) => {
+      if (budget.incomeSourceId === 'all') return false;
+      const sourceLabel = normalize(budget.sourceLabel);
+      const sourceId = normalize(budget.incomeSourceId);
+      return (sourceLabel.length > 2 && normalizedText.includes(sourceLabel))
+        || (sourceId.length > 2 && normalizedText.includes(sourceId));
+    });
+    const generalBudget = matchingBudgets.find((budget) => budget.incomeSourceId === 'all');
+    const selectedBudgets = explicitSourceBudget
+      ? [explicitSourceBudget]
+      : generalBudget ? [generalBudget] : matchingBudgets;
+    const matchingBudget = selectedBudgets.length === 1 ? selectedBudgets[0] : null;
     const globalMonthlyAfter = hasGlobalMonthlyLimit
       ? globalMonthlyRemaining - amount : null;
     const globalDailyAfter = hasGlobalMonthlyLimit
@@ -133,7 +150,14 @@ export function buildDailySpendingFacts({ today, expenses = [], budgets = [], ca
     const globalStatus = !hasGlobalMonthlyLimit ? 'no-global-limit'
       : globalMonthlyAfter < 0 ? 'over-global-monthly-limit'
         : globalDailyAfter < 0 ? 'above-global-daily-pace' : 'within-global-daily-pace';
-    if (!matchingBudget) {
+    if (matchingBudgets.length > 1 && !explicitSourceBudget && !generalBudget) {
+      proposedSpend = {
+        amount,
+        category: matchingBudgets[0].category,
+        status: 'source-required',
+        availableSources: matchingBudgets.map((budget) => budget.sourceLabel),
+      };
+    } else if (!matchingBudget) {
       proposedSpend = hasGlobalMonthlyLimit
         ? {
             amount,

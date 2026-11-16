@@ -138,6 +138,7 @@ export function buildCompactAIContext(data = {}, intent = {}) {
       expenses,
       budgets: data.budgets,
       categories: data.categories,
+      incomes,
       financialTargets: data.financialTargets,
       proposedSpendText: data.latestUserText,
     });
@@ -161,6 +162,8 @@ export function buildCompactAIContext(data = {}, intent = {}) {
         const p = dailyFacts.proposedSpend;
         if (p.status === 'category-required') {
           lines.push(`DÉPENSE ENVISAGÉE: ${money(p.amount)} FCFA. Catégorie non identifiée et aucun plafond global enregistré: ne confirme pas que la dépense est possible; demande la catégorie.`);
+        } else if (p.status === 'source-required') {
+          lines.push(`DÉPENSE ENVISAGÉE: ${money(p.amount)} FCFA pour ${p.category}. Plusieurs enveloppes distinctes existent pour cette catégorie (${p.availableSources.join(', ')}). Demande à l’utilisateur quelle source de revenu il compte utiliser avant de calculer ou valider le reste disponible.`);
         } else if (p.status === 'global-target-only') {
           lines.push(`DÉPENSE ENVISAGÉE: ${money(p.amount)} FCFA. La catégorie reste à préciser. Par rapport au plafond global, reste mensuel avant achat ${money(p.globalMonthlyRemaining)} FCFA, après achat ${money(p.globalMonthlyAfter)} FCFA, rythme indicatif restant aujourd’hui avant achat ${money(p.globalDailyRemaining)} FCFA, après achat ${money(p.globalDailyAfter)} FCFA, résultat ${p.globalStatus}. Demande la catégorie avant de confirmer le respect d’une enveloppe.`);
         } else {
