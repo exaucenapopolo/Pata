@@ -85,12 +85,16 @@ public class PataQuickCapturePlugin extends Plugin {
             PataCotisationWidgetWorker.schedule(getContext());
             SharedPreferences financePrefs = getContext().getSharedPreferences("PataFinanceWidget", Context.MODE_PRIVATE);
             String widgetOwner = financePrefs.getString("owner_uid", "");
-            if (!uid.equals(widgetOwner)) {
-                financePrefs.edit().putBoolean("premium_enabled", false).putString("owner_uid", uid).apply();
+            boolean ownerChanged = !uid.equals(widgetOwner);
+            boolean premiumEnabled = call.getBoolean("premium", false);
+            if (ownerChanged) {
                 PataQuickCaptureWidgetProvider.updateFinanceSummary(getContext(), 0L, 0L, 0L, 0L, "");
+            }
+            financePrefs.edit().putBoolean("premium_enabled", premiumEnabled).putString("owner_uid", uid).apply();
+            if (premiumEnabled) PataFinanceWidgetWorker.schedule(getContext());
+            else {
                 androidx.work.WorkManager.getInstance(getContext()).cancelUniqueWork("pata_finance_widget_refresh");
-            } else {
-                PataFinanceWidgetWorker.schedule(getContext());
+                PataQuickCaptureWidgetProvider.updateFinanceSummary(getContext(), 0L, 0L, 0L, 0L, "");
             }
             call.resolve(new JSObject().put("saved", true));
         } catch (Exception error) {
