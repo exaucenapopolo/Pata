@@ -728,7 +728,7 @@ export function QuickCaptureCoordinator() {
           <label className="block text-xs font-semibold text-slate-700">{draft.type === 'bill' ? 'Montant estimé (FCFA, facultatif)' : 'Montant (FCFA)'}
             <input type="number" inputMode="numeric" min="0" max="1000000000" step="1" required={draft.type !== 'bill'} value={draft.amount} onChange={(event) => setDraft((current) => ({ ...current, amount: event.target.value, isVariable: event.target.value === '' }))} className="mt-1.5 h-12 w-full rounded-xl border border-slate-200 px-3 text-base font-semibold text-slate-900 outline-none focus:border-emerald-600"/>
           </label>
-          {{draft.type === 'debt_borrowed' && <>
+          {draft.type === 'debt_borrowed' && <>
              <label className="block text-xs font-semibold text-slate-700">Personne ou organisme qui t’a prêté
                <input required maxLength={100} value={draft.person || ''} onChange={(event) => setDraft((current) => ({ ...current, person: event.target.value }))} placeholder="Ex. Phinéas ou une banque" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm font-normal"/>
              </label>
@@ -737,7 +737,7 @@ export function QuickCaptureCoordinator() {
              </label>
              <p className="rounded-xl bg-slate-50 p-3 text-[11px] leading-5 text-slate-600">Cette somme sera enregistrée comme une dette à rembourser, jamais comme un revenu gagné.</p>
            </>}
-           draft.type === 'debt_repayment' && <label className="block text-xs font-semibold text-slate-700">Dette à rembourser
+           {draft.type === 'debt_repayment' && <label className="block text-xs font-semibold text-slate-700">Dette à rembourser
             <select value={draft.repaymentDebtId || ''} onChange={(event) => setDraft((current) => ({ ...current, repaymentDebtId: event.target.value }))} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal">
               <option value="">Choisir la dette de {draft.person || 'la personne'}</option>
               {captureOptions.debts.map((debt) => <option key={debt.id} value={debt.id}>{debt.person || 'Créancier'} · reste {Number(debt.remaining || 0).toLocaleString('fr-FR')} FCFA{debt.dueDate ? ' · échéance ' + debt.dueDate : ''}</option>)}
