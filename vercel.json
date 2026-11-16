@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/notifications/scheduler",
-      "schedule": "30 19 * * *"
+      "schedule": "30 16 * * *"
     },
     {
       "path": "/api/notifications/weekend-scheduler",
