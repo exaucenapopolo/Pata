@@ -169,7 +169,7 @@ public class PataCotisationWidgetProvider extends AppWidgetProvider {
     }
 
     private static String statusLabel(String status, int progress) {
-        String normalized = String.valueOf(status || "").toUpperCase(Locale.ROOT);
+        String normalized = String.valueOf(status == null ? "" : status).toUpperCase(Locale.ROOT);
         if ("NOT_STARTED".equals(normalized)) return "PAS ENCORE DÉMARRÉE";
         if ("COMPLETE".equals(normalized) || "COMPLETED".equals(normalized) || progress >= 100) return "OBJECTIF ATTEINT";
         if ("CLOSED".equals(normalized) || "CANCELLED".equals(normalized)) return "TERMINÉE";
