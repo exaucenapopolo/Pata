@@ -1,6 +1,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb } from '@/lib/firebase/admin';
 import { incomeMatchesMobileMoneyProvider } from '@/lib/finance/cashWithdrawal.mjs';
+import { buildRecurringExpensePatterns } from '@/lib/notifications/recurringExpenses.mjs';
 
 const EXPENSE_CATEGORIES = [
   'food', 'transport', 'housing', 'internet', 'health', 'leisure', 'gift_donation',
@@ -482,6 +483,39 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
       transaction.set(userRef, { lifetimeExpenseAmount: FieldValue.increment(amount), lifetimeExpenseCount: FieldValue.increment(1), ...(countQuota && !isPremium(userData) ? { monthlyStats: nextStats } : {}), ...(repaymentCompleted ? { activeDebtCount: FieldValue.increment(-1) } : {}) }, { merge: true });
     } else if (newDebtRef) {
       transaction.set(userRef, { activeDebtCount: activeDebtCount + 1 }, { merge: true });
+    }
+
+    // Apprend les paiements mensuels à partir de l'historique déjà chargé
+    // dans cette transaction : aucune lecture Firestore supplémentaire.
+    if (!cashWithdrawal && flowType === 'normal' && expenseType === 'consumption') {
+      const recentHistory = expensesSnap.docs.map((document) => ({
+        id: document.id,
+        ...(document.data() || {}),
+      }));
+      recentHistory.push({
+        amount,
+        categoryId,
+        date,
+        note,
+        details: cleanText(input.details, 180),
+        providerName: cleanText(input.providerName, 80),
+        expenseType,
+        flowType,
+        neutralFlow: false,
+      });
+      const patterns = buildRecurringExpensePatterns(recentHistory, { referenceDate: todayDouala() });
+      if (patterns.length) {
+        for (const pattern of patterns) {
+          transaction.set(userRef.collection('recurringExpenses').doc(pattern.id), {
+            ...pattern,
+            updatedAt: FieldValue.serverTimestamp(),
+          }, { merge: true });
+        }
+        transaction.set(userRef, {
+          hasRecurringExpensePatterns: true,
+          recurringExpensePatternsUpdatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+      }
     }
 
     const result = {
