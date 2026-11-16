@@ -43,13 +43,13 @@ public class PataCotisationWidgetWorker extends Worker {
         int[] widgetIds = manager.getAppWidgetIds(new ComponentName(context, PataCotisationWidgetProvider.class));
         if (widgetIds.length == 0) {
             workManager.cancelUniqueWork("pata_cotisations_widget_refresh_now");
-            workManager.cancelUniquePeriodicWork(UNIQUE_PERIODIC);
+            workManager.cancelUniqueWork(UNIQUE_PERIODIC);
             return;
         }
 
         // Pas de rafraîchissement réseau périodique : une mise à jour ponctuelle
         // à l'installation, puis au retour dans Pata, avec un délai minimal de 30 min.
-        workManager.cancelUniquePeriodicWork(UNIQUE_PERIODIC);
+        workManager.cancelUniqueWork(UNIQUE_PERIODIC);
         if (PataQuickCaptureAuthStore.read(context) == null) return;
         SharedPreferences prefs = context.getSharedPreferences("PataCotisationWidget", Context.MODE_PRIVATE);
         long now = System.currentTimeMillis();
