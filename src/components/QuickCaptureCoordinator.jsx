@@ -411,9 +411,15 @@ export function QuickCaptureCoordinator() {
         await PataQuickCapture.clearSharedContent().catch(() => {});
       }
       if (draft.type !== 'bill') {
-        await PataQuickCapture.adjustWidgetBalance({
-          delta: draft.type === 'income' ? amount : -amount,
-        }).catch(() => {});
+        if (draft.type === 'income' && draft.incomeFlowType !== 'normal') {
+          // Les emprunts et remboursements sont des flux de dette, pas des revenus gagnés.
+        } else {
+          await PataQuickCapture.adjustWidgetBalance({
+            type: draft.type === 'income' ? 'income' : 'expense',
+            amount,
+            date: draft.date || today(),
+          }).catch(() => {});
+        }
         window.dispatchEvent(new Event('pata:income-balances-refresh'));
       }
       setNotice(draft.type === 'income'
