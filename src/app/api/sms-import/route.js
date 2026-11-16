@@ -85,16 +85,19 @@ async function createBillRecordFromSms(uid, transactionHash, billDetails, item, 
     if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
     const profile = userSnap.data() || {};
     if (!billSnap.exists) {
+      const needsBillCountInitialization = profile.activeBillCountInitialized !== true;
+      const existingBills = needsBillCountInitialization
+        ? await transaction.get(userRef.collection('bills'))
+        : null;
       let nextActiveCount = Number(profile.activeBillCount) || 0;
       if (billDetails.active) {
-        if (profile.activeBillCountInitialized === true
+        if (!needsBillCountInitialization
           && typeof profile.activeBillCount === 'number'
           && Number.isInteger(profile.activeBillCount)
           && profile.activeBillCount >= 0) {
           nextActiveCount = profile.activeBillCount + 1;
         } else {
-          const existingBills = await transaction.get(userRef.collection('bills'));
-          nextActiveCount = existingBills.docs.filter((document) => document.data()?.active !== false).length + 1;
+          nextActiveCount = (existingBills?.docs || []).filter((document) => document.data()?.active !== false).length + 1;
         }
       }
       transaction.create(billRef, {
@@ -127,10 +130,9 @@ async function createBillRecordFromSms(uid, transactionHash, billDetails, item, 
           activeBillCount: nextActiveCount,
           activeBillCountInitialized: true,
         }, { merge: true });
-      } else if (profile.activeBillCountInitialized !== true) {
-        const existingBills = await transaction.get(userRef.collection('bills'));
+      } else if (needsBillCountInitialization) {
         transaction.set(userRef, {
-          activeBillCount: existingBills.docs.filter((document) => document.data()?.active !== false).length,
+          activeBillCount: (existingBills?.docs || []).filter((document) => document.data()?.active !== false).length,
           activeBillCountInitialized: true,
         }, { merge: true });
       }
