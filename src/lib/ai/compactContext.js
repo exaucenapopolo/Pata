@@ -1,3 +1,5 @@
+import { buildDailySpendingFacts } from './spendingGuidance.mjs';
+
 const normalize = (value = '') => String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
 export function classifyAIRequest(message = '') {
@@ -19,6 +21,10 @@ export function classifyAIRequest(message = '') {
   const forecast = /prevision.*capital|duree.*capital|capital.*combien.*jour/.test(text);
   const memory = /souviens|memorise|rappelle-toi/.test(text);
   const overview = /bilan|solde|portefeuille|argent disponible|combien.*(reste|gagne|depense|revenu)|reste.*argent|ou part|ou.*depense|mes finances|situation financiere|analyse.*financ|revenus.*depenses|depenses.*revenus|mon compte|mes informations|mon historique|historique financier|financial summary|my account|my balance|my finances|account overview/.test(text);
+  const dailySpending = /aujourd'hui|aujourd hui|ce jour|today/.test(text)
+    && /depens|depense|achat|sortie|paiement|combien|reste|budget/.test(text);
+  const spendingCapacity = /combien.{0,60}(peux|puis|reste|encore).{0,45}(depens|sortir|utilis|payer)|(?:peux|puis).{0,35}depens.{0,35}(aujourd|jour|budget)|reste.{0,35}(a depenser|pour depenser)/.test(text);
+  const spendingDecision = /(envie|compte|voudrais|souhaite|possible|peux).{0,55}(depens|achat|acheter|payer)|(depens|achat|acheter|payer).{0,35}\\d/.test(text);
   const update = /modifi|corrig|change|mettre a jour/.test(text);
   const remove = /supprim|effac|retir|delete|remove/.test(text);
   const reports = /rapport|report|hebdom|weekly|bilan de la semaine|resume de la semaine/.test(text);
@@ -26,13 +32,13 @@ export function classifyAIRequest(message = '') {
   return {
     action, expense, income, borrowedDebt, loanGiven, financialTargets, budgets, goals, automations, premium, cotisations, projects, forecast, vital, memory, overview, update, remove, reports, needsActivityLog,
     needsDebts: borrowedDebt || loanGiven || /dette|emprunt|pret|creance/.test(text) || overview,
-    needsFinancialTargets: financialTargets || borrowedDebt || overview,
-    needsIncomes: income || expense || budgets || borrowedDebt || overview,
-    needsExpenses: expense || budgets || overview,
+    needsFinancialTargets: financialTargets || borrowedDebt || overview || spendingCapacity || spendingDecision,
+    needsIncomes: income || expense || budgets || borrowedDebt || overview || spendingCapacity || spendingDecision,
+    needsExpenses: expense || budgets || overview || dailySpending || spendingCapacity || spendingDecision,
     needsGoals: goals,
-    needsBudgets: budgets,
+    needsBudgets: budgets || spendingCapacity || spendingDecision,
     needsAutomations: automations,
-    needsCategories: expense || budgets,
+    needsCategories: expense || budgets || spendingCapacity || spendingDecision,
     needsProjects: projects,
     needsVital: vital,
     needsReports: reports,
@@ -117,6 +123,35 @@ export function buildCompactAIContext(data = {}, intent = {}) {
   if (intent.needsExpenses) {
     lines.push('DÉPENSES DE LA PÉRIODE (extrait des opérations filtrées par date, pas l’historique complet):');
     lines.push(...expenses.slice(0, 18).map((item) => `ID ${item.id} | ${dateLabel(item.date)} | ${money(item.amount)} FCFA | catégorie ${item.categoryId || 'non précisée'} | ${String(item.note || '').slice(0, 70)} | source ${item.incomeSourceId || 'all'}`));
+  }
+  if (intent.dailySpending || intent.spendingCapacity || intent.spendingDecision) {
+    const dailyFacts = buildDailySpendingFacts({
+      today: data.today,
+      expenses,
+      budgets: data.budgets,
+      categories: data.categories,
+      proposedSpendText: data.latestUserText,
+    });
+    lines.push('DÉPENSES ENREGISTRÉES AUJOURD’HUI (date locale Africa/Douala, toutes les opérations trouvées):');
+    lines.push(`Date ${dailyFacts.today} | total des sorties ${money(dailyFacts.todayTotal)} FCFA | ${dailyFacts.todayCount} opération(s) | consommation ${money(dailyFacts.todayByType.consumption)} FCFA | projets ${money(dailyFacts.todayByType.project)} FCFA | épargne ${money(dailyFacts.todayByType.savings)} FCFA | investissements ${money(dailyFacts.todayByType.investment)} FCFA`);
+    if (dailyFacts.todayOperations.length) {
+      lines.push(...dailyFacts.todayOperations.map((item) => `Aujourd’hui: ${money(item.amount)} FCFA | ${item.category} | ${item.type} | ${item.note || 'Sans note'}`));
+    } else {
+      lines.push('Aucune dépense ou sortie enregistrée pour aujourd’hui.');
+    }
+    if (intent.spendingCapacity || intent.spendingDecision) {
+      lines.push('ENVELOPPES DU MOIS ET RYTHME CONSEILLÉ — calcul déterministe à partir des budgets et dépenses enregistrés:');
+      lines.push(...dailyFacts.budgets.map((item) => `${item.category} | budget mensuel ${money(item.budget)} FCFA | consommé avant aujourd’hui ${money(item.spentBeforeToday)} FCFA | consommé aujourd’hui ${money(item.spentToday)} FCFA | rythme indicatif disponible aujourd’hui ${money(item.dailyRemaining)} FCFA | reste mensuel ${money(item.monthlyRemaining)} FCFA | jours restants (aujourd’hui inclus) ${item.daysRemaining}`));
+      if (!dailyFacts.budgets.length) lines.push('Aucun budget mensuel par catégorie trouvé pour le mois en cours. Ne prétends pas qu’une enveloppe existe.');
+      if (dailyFacts.proposedSpend) {
+        const p = dailyFacts.proposedSpend;
+        if (p.status === 'category-required') {
+          lines.push(`DÉPENSE ENVISAGÉE: ${money(p.amount)} FCFA. Catégorie non identifiée dans le message: ne confirme pas que la dépense respecte une enveloppe précise; demande la catégorie.`);
+        } else {
+          lines.push(`ÉVALUATION DE LA DÉPENSE ENVISAGÉE: ${money(p.amount)} FCFA pour ${p.category} | reste indicatif aujourd’hui avant achat ${money(p.dailyRemaining)} FCFA | reste mensuel avant achat ${money(p.monthlyRemaining)} FCFA | après achat, rythme du jour ${money(p.dailyAfter)} FCFA | après achat, reste mensuel ${money(p.monthlyAfter)} FCFA | résultat ${p.status}`);
+        }
+      }
+    }
   }
   if (intent.needsDebts) {
     lines.push('DETTES ET PRÊTS (les emprunts sont des flux neutres, pas des revenus gagnés):');
