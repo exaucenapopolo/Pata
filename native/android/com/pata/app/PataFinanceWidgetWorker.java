@@ -146,7 +146,7 @@ public class PataFinanceWidgetWorker extends Worker {
         return format.format(new Date());
     }
 
-    private static JSONObject getJson(String address, String token) throws IOException {
+    private static JSONObject getJson(String address, String token) throws IOException, AuthUnavailableException {
         HttpURLConnection connection = null;
         try {
             connection = (HttpURLConnection) new URL(address).openConnection();
