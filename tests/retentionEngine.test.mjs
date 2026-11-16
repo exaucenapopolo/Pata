@@ -41,18 +41,24 @@ test('reserves at most two daily retention slots and blocks duplicate keys', () 
 });
 
 
-test('keeps special non-essential slots separate from the two retention slots', () => {
+test('allows three daytime messages and two independent evening financial reminders', () => {
   const date = '2026-11-14';
-  const special = claimDailyNonEssentialSlot({}, date, 'feature-discovery', 3, 1000000);
-  const firstRetention = claimDailyRetentionSlot({}, date, 'debt-reminder');
-  const secondRetention = claimDailyRetentionSlot(firstRetention.state, date, 'bill-reminder');
-  const thirdRetention = claimDailyRetentionSlot(secondRetention.state, date, 'daily-summary');
+  const firstDaytime = claimDailyNonEssentialSlot({}, date, 'feature-discovery', 3, 1000000);
+  const secondDaytime = claimDailyNonEssentialSlot(firstDaytime.state, date, 'weekend-message', 3, 1000000 + MIN_NON_ESSENTIAL_GAP_MS);
+  const thirdDaytime = claimDailyNonEssentialSlot(secondDaytime.state, date, 'premium-discovery', 3, 1000000 + 2 * MIN_NON_ESSENTIAL_GAP_MS);
+  const fourthDaytime = claimDailyNonEssentialSlot(thirdDaytime.state, date, 'another-message', 3, 1000000 + 3 * MIN_NON_ESSENTIAL_GAP_MS);
+  const firstEvening = claimDailyRetentionSlot({}, date, 'debt-reminder');
+  const secondEvening = claimDailyRetentionSlot(firstEvening.state, date, 'bill-reminder');
+  const thirdEvening = claimDailyRetentionSlot(secondEvening.state, date, 'daily-summary');
 
-  assert.equal(special.allowed, true);
-  assert.equal(firstRetention.allowed, true);
-  assert.equal(secondRetention.allowed, true);
-  assert.equal(thirdRetention.allowed, false);
-  assert.equal(thirdRetention.reason, 'daily_limit');
+  assert.equal(firstDaytime.allowed, true);
+  assert.equal(secondDaytime.allowed, true);
+  assert.equal(thirdDaytime.allowed, true);
+  assert.equal(fourthDaytime.allowed, false);
+  assert.equal(firstEvening.allowed, true);
+  assert.equal(secondEvening.allowed, true);
+  assert.equal(thirdEvening.allowed, false);
+  assert.equal(thirdEvening.reason, 'daily_limit');
 });
 
 test('resets the retention counter on the next Cameroon calendar date', () => {
