@@ -38,6 +38,7 @@ export function QuickCaptureCoordinator() {
   const [voiceOptionsOpen, setVoiceOptionsOpen] = useState(false);
   const [voiceChatOpen, setVoiceChatOpen] = useState(false);
   const [voiceChatText, setVoiceChatText] = useState('');
+  const [voiceChatConversationId, setVoiceChatConversationId] = useState('');
   const [voiceChatWorking, setVoiceChatWorking] = useState(false);
   const [voiceChatError, setVoiceChatError] = useState('');
   const syncInProgressRef = useRef(false);
@@ -453,6 +454,7 @@ export function QuickCaptureCoordinator() {
   const openVoiceAssistant = () => {
     setVoiceOptionsOpen(false);
     setVoiceChatError('');
+    setVoiceChatConversationId(makeId());
     setVoiceChatOpen(true);
   };
 
@@ -476,6 +478,7 @@ export function QuickCaptureCoordinator() {
           mode: 'text',
           language: 'fr',
           notificationMode: true,
+          notificationConversationId: voiceChatConversationId || makeId(),
           clientRequestId: makeId(),
         }),
       });
@@ -485,12 +488,14 @@ export function QuickCaptureCoordinator() {
       const notification = await PataQuickCapture.showAIConversationReply({
         title: 'Mč · Pata',
         message: reply,
+        conversationId: voiceChatConversationId,
       });
       if (notification?.shown === false) {
         throw new Error('La réponse est prête, mais les notifications Pata ne sont pas autorisées sur cet appareil.');
       }
       setVoiceChatOpen(false);
       setVoiceChatText('');
+      setVoiceChatConversationId('');
       setNotice('Mč a répondu dans tes notifications. Tu peux continuer la conversation directement depuis la notification Pata.');
     } catch (sendError) {
       setVoiceChatError(sendError?.message || 'Impossible d’envoyer ce message à Mč.');
