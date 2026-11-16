@@ -4992,9 +4992,6 @@ async function handleAIChat(request) {
       return errorResponse('Le dernier message utilisateur est manquant.', 400);
     }
     const latestUserText = history[history.length - 1].content;
-    const intent = classifyAIRequest(latestUserText);
-    const requestTools = selectAIToolsForIntent(AI_TOOLS, intent, latestUserText);
-
     const notificationMode = body.notificationMode === true;
     const notificationConversationId = notificationMode
       ? String(body.notificationConversationId || body.clientRequestId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 100)
@@ -5002,7 +4999,57 @@ async function handleAIChat(request) {
     if (notificationMode && !notificationConversationId) {
       return errorResponse('Identifiant de conversation par notification manquant.', 400);
     }
-    const quota = await reserveDailyAIQuota(uid, { premiumOnly: notificationMode });
+
+    const userRef = adminDb.collection('users').doc(uid);
+    const notificationSessionRef = notificationMode
+      ? userRef.collection('ai_notification_sessions').doc(notificationConversationId)
+      : null;
+    const notificationChatRef = notificationMode
+      ? userRef.collection('ai_chats').doc(notificationConversationId)
+      : null;
+    const [quota, notificationChatSnap] = await Promise.all([
+      reserveDailyAIQuota(uid, { premiumOnly: notificationMode }),
+      notificationChatRef ? notificationChatRef.get() : Promise.resolve(null),
+    ]);
+    const previousNotificationMessages = notificationMode && notificationChatSnap?.exists
+      ? (Array.isArray(notificationChatSnap.data()?.messages) ? notificationChatSnap.data().messages : [])
+          .slice(-10)
+          .map((message) => ({
+            role: message?.role === 'assistant' ? 'assistant' : 'user',
+            content: String(message?.content || '').slice(-900),
+          }))
+          .filter((message) => message.content.trim())
+      : [];
+    const latestIntent = classifyAIRequest(latestUserText);
+    const isContextualFollowUp = notificationMode
+      && previousNotificationMessages.length > 0
+      && (latestUserText.trim().split(/\s+/).filter(Boolean).length <= 8
+        || /^(et|alors|dans ce cas|pourquoi|combien|quelle|quelles|quel|quels|aujourd'hui|demain|hier|et si|cela|ca|ce montant)\b/i.test(latestUserText.trim()));
+    const inheritedIntent = isContextualFollowUp
+      ? classifyAIRequest([
+          ...previousNotificationMessages.filter((message) => message.role === 'user').slice(-2).map((message) => message.content),
+          latestUserText,
+        ].join(' '))
+      : latestIntent;
+    const intent = {
+      ...latestIntent,
+      needsDebts: latestIntent.needsDebts || inheritedIntent.needsDebts,
+      needsFinancialTargets: latestIntent.needsFinancialTargets || inheritedIntent.needsFinancialTargets,
+      needsIncomes: latestIntent.needsIncomes || inheritedIntent.needsIncomes,
+      needsExpenses: latestIntent.needsExpenses || inheritedIntent.needsExpenses,
+      needsGoals: latestIntent.needsGoals || inheritedIntent.needsGoals,
+      needsBudgets: latestIntent.needsBudgets || inheritedIntent.needsBudgets,
+      needsAutomations: latestIntent.needsAutomations || inheritedIntent.needsAutomations,
+      needsCategories: latestIntent.needsCategories || inheritedIntent.needsCategories,
+      needsProjects: latestIntent.needsProjects || inheritedIntent.needsProjects,
+      needsVital: latestIntent.needsVital || inheritedIntent.needsVital,
+      needsReports: latestIntent.needsReports || inheritedIntent.needsReports,
+      needsActivityLog: latestIntent.needsActivityLog || inheritedIntent.needsActivityLog,
+      cotisations: latestIntent.cotisations || inheritedIntent.cotisations,
+    };
+    // Ne jamais réactiver une action financière à partir d’un ancien tour :
+    // les outils de mutation sont sélectionnés uniquement avec le message actuel.
+    const requestTools = selectAIToolsForIntent(AI_TOOLS, latestIntent, latestUserText);
     if (!quota.allowed) {
       const message = quota.premiumRequired
         ? (requestedLanguage === 'en'
@@ -5016,13 +5063,6 @@ async function handleAIChat(request) {
     if (quota.reserved) reservedQuota = quota.date;
 
     const reportPeriod = resolveAIReportPeriod(latestUserText, getDoualaToday());
-    const userRef = adminDb.collection('users').doc(uid);
-    const notificationSessionRef = notificationMode
-      ? userRef.collection('ai_notification_sessions').doc(notificationConversationId)
-      : null;
-    const notificationChatRef = notificationMode
-      ? userRef.collection('ai_chats').doc(notificationConversationId)
-      : null;
     const emptySnapshot = { docs: [] };
     const includeIncomeContext = intent.needsIncomes || intent.overview;
     const includeExpenseContext = intent.needsExpenses || intent.overview;
@@ -5219,11 +5259,14 @@ ${userContext}`;
         : '\\n\\nCONVERSATION PAR NOTIFICATION : Réponds en 1 à 3 phrases simples, moins de 420 caractères. Aucun tableau, aucune liste, aucune puce, aucun titre Markdown, aucun astérisque, aucun bloc de code ni symbole décoratif. Donne uniquement l’information utile. Cette conversation reste séparée de l’historique de l’assistant ouvert dans l’application.')
         + (notificationSummary ? (isEnglish ? '\\nPrevious notification context: ' : '\\nRésumé de la conversation via notification : ') + notificationSummary : '')
       : '';
+    const modelHistory = notificationMode
+      ? [...previousNotificationMessages, ...history].slice(-12)
+      : history;
     let modelMessages = [
       { role: 'system', content: systemPrompt + notificationInstructions },
-      ...history,
+      ...modelHistory,
     ];
-    const userMessages = history.filter((message) => message.role === 'user').map((message) => message.content);
+    const userMessages = modelHistory.filter((message) => message.role === 'user').map((message) => message.content);
     const toolResults = [];
     let reply = '';
     let quickActions = [];

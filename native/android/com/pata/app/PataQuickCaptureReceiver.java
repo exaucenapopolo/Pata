@@ -26,6 +26,7 @@ public class PataQuickCaptureReceiver extends BroadcastReceiver {
     static final String ACTION_AI_REPLY = "com.pata.app.AI_NOTIFICATION_REPLY";
     static final String AI_REMOTE_KEY = "pata_ai_notification_reply";
     static final String AI_QUEUE = "pending_ai_notification_replies";
+    static final String AI_ACTIVE_CONVERSATION = "active_ai_notification_conversation_id";
     static final String ACTION_RESTORE = "com.pata.app.QUICK_CAPTURE_RESTORE";
 
     @Override
@@ -100,6 +101,22 @@ public class PataQuickCaptureReceiver extends BroadcastReceiver {
         return id;
     }
 
+    static String resolveAIConversationId(Context context, String requestedId) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        synchronized (PataQuickCaptureReceiver.class) {
+            String conversationId = requestedId == null ? "" : requestedId.trim();
+            conversationId = conversationId.replaceAll("[^a-zA-Z0-9_-]", "");
+            if (conversationId.isEmpty()) {
+                conversationId = prefs.getString(AI_ACTIVE_CONVERSATION, "");
+            }
+            if (conversationId == null || conversationId.trim().isEmpty()) {
+                conversationId = UUID.randomUUID().toString().replace("-", "");
+            }
+            prefs.edit().putString(AI_ACTIVE_CONVERSATION, conversationId).apply();
+            return conversationId;
+        }
+    }
+
     static String enqueueAIReply(Context context, String text, String ownerUid, String conversationId) {
         if (text == null || text.trim().isEmpty()) return "";
         if (ownerUid == null || ownerUid.trim().isEmpty()) {
@@ -108,6 +125,7 @@ public class PataQuickCaptureReceiver extends BroadcastReceiver {
             return "";
         }
         String id = UUID.randomUUID().toString().replace("-", "");
+        String resolvedConversationId = resolveAIConversationId(context, conversationId);
         synchronized (PataQuickCaptureReceiver.class) {
             SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
             JSONArray queue;
@@ -126,7 +144,7 @@ public class PataQuickCaptureReceiver extends BroadcastReceiver {
                 item.put("id", id);
                 item.put("text", text.trim().substring(0, Math.min(1200, text.trim().length())));
                 item.put("ownerUid", ownerUid);
-                item.put("conversationId", conversationId == null ? "" : conversationId);
+                item.put("conversationId", resolvedConversationId);
                 item.put("createdAt", System.currentTimeMillis());
                 queue.put(item);
                 prefs.edit().putString(AI_QUEUE, queue.toString()).apply();
@@ -190,7 +208,8 @@ public class PataQuickCaptureReceiver extends BroadcastReceiver {
     }
 
     static void clearPendingAI(Context context) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(AI_QUEUE).apply();
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .remove(AI_QUEUE).remove(AI_ACTIVE_CONVERSATION).apply();
         WorkManager.getInstance(context).cancelUniqueWork("pata_ai_notification_conversation");
     }
 

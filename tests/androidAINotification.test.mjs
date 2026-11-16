@@ -65,3 +65,22 @@ test('la saisie vocale garde Saisie comme option principale devant Mč', () => {
   assert.ok(saisie >= 0 && ai > saisie);
   assert.match(coordinator, /startVoiceCapture\(\)/);
 });
+
+test('les réponses depuis la notification permanente réutilisent une conversation Mč stable', () => {
+  const receiver = read('native/android/com/pata/app/PataQuickCaptureReceiver.java');
+  const worker = read('native/android/com/pata/app/PataAIConversationWorker.java');
+  assert.match(receiver, /AI_ACTIVE_CONVERSATION\\s*=\\s*"active_ai_notification_conversation_id"/);
+  assert.match(receiver, /resolveAIConversationId\\(Context context, String requestedId\\)/);
+  assert.match(receiver, /item\\.put\\("conversationId", resolvedConversationId\\)/);
+  assert.match(receiver, /remove\\(AI_QUEUE\\)\\.remove\\(AI_ACTIVE_CONVERSATION\\)/);
+  assert.match(worker, /resolveAIConversationId\\(/);
+});
+
+test('Mč recharge les derniers messages de la conversation de notification avant de répondre', () => {
+  const api = read('src/app/api/[...path]/route.js');
+  assert.match(api, /notificationChatRef \\? notificationChatRef\\.get\\(\\)/);
+  assert.match(api, /previousNotificationMessages/);
+  assert.match(api, /\\.\\.\\.previousNotificationMessages, \\.\\.\\.history/);
+  assert.match(api, /isContextualFollowUp/);
+  assert.match(api, /selectAIToolsForIntent\\(AI_TOOLS, latestIntent, latestUserText\\)/);
+});

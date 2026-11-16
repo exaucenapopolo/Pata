@@ -52,7 +52,8 @@ public class PataAIConversationWorker extends Worker {
             request.put("language", "fr");
             request.put("notificationMode", true);
             request.put("clientRequestId", id);
-            String conversationId = queued.optString("conversationId", id);
+            String conversationId = PataQuickCaptureReceiver.resolveAIConversationId(
+                context, queued.optString("conversationId", ""));
             request.put("notificationConversationId", conversationId);
             HttpResult response = postJson(API_URL, request, idToken);
             JSONObject body = response.body;
