@@ -298,11 +298,15 @@ export function parseQuickCapture(input, now = new Date()) {
   const amount = extractAmount(raw);
   const hasBill = /\bfacture\w*\b|\bquittance\b|\bavis d.?echeance\b|\bnote d.?echeance\b/.test(normalized);
   const repaymentVerb = /\b(rembours\w*|regle|regler|paye|payer)\b/;
+  const explicitRepaymentVerb = /\brembours\w*\b/;
   const debtWord = /\b(dette|dettes|emprunt|emprunts|pret|prets)\b/;
-  const hasRepayment = (repaymentVerb.test(normalized) && debtWord.test(normalized)
+  // "J'ai remboursé les 500 de Phinéas" est déjà une action de dette explicite.
+  // Exiger le mot "dette" faisait classer cette phrase comme dépense ordinaire.
+  const hasRepayment = explicitRepaymentVerb.test(normalized)
+    || ((repaymentVerb.test(normalized) && debtWord.test(normalized)
       && normalized.search(repaymentVerb) < normalized.search(debtWord))
     || (debtWord.test(normalized) && repaymentVerb.test(normalized)
-      && normalized.search(debtWord) < normalized.search(repaymentVerb));
+      && normalized.search(debtWord) < normalized.search(repaymentVerb)));
   const hasLoan = /\bpret\b|\bprets\b|\bprete\b|\bpretee\b|\bpretes\b|\bavance d'argent\b|\bavance a\b/.test(normalized);
   const hasDebt = /\bdette\b|\bdettes\b|\bemprunt\b|\bemprunte\b|\bemprunter\b|\bargent emprunte\b/.test(normalized);
   const explicitDateLabels = /(?:date de (?:transaction|l'operation|operation|paiement|l'achat|achat|facture)|date (?:de )?(?:transaction|paiement|achat)|effectue le|operation du|transaction du)/.test(normalized);
