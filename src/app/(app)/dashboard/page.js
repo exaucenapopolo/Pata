@@ -244,6 +244,12 @@ export default function DashboardPage() {
   const totalIncome = periodIncomeTotal;
   const totalExpense = periodExpenseTotal;
   const globalBalance = totalIncome - totalExpense;
+  const widgetDebtBalances = useMemo(() => debts.reduce((totals, debt) => {
+    if (!['active', 'partial', 'late'].includes(debt.status) || Number(debt.remaining) <= 0) return totals;
+    if (debt.type === 'owed_to_me') totals.receivable += Number(debt.remaining) || 0;
+    if (debt.type === 'i_owe') totals.payable += Number(debt.remaining) || 0;
+    return totals;
+  }, { receivable: 0, payable: 0 }), [debts]);
   useEffect(() => {
     if (!Capacitor.isNativePlatform() || incomesLoading || expensesLoading || !balancesReady) return undefined;
     let active = true;
@@ -274,6 +280,8 @@ export default function DashboardPage() {
         await PataQuickCapture.updateFinanceWidget({
           incomeTotal: Math.round(incomeTotal),
           expenseTotal: Math.round(expenseTotal),
+          receivableTotal: Math.round(widgetDebtBalances.receivable),
+          payableTotal: Math.round(widgetDebtBalances.payable),
           monthKey,
         });
       } catch (error) {
@@ -282,7 +290,7 @@ export default function DashboardPage() {
     };
     void updateMonthWidget();
     return () => { active = false; };
-  }, [totalIncome, totalExpense, startDate, endDate, incomesLoading, expensesLoading, balancesReady, profile?.premiumUntil, user]);
+  }, [totalIncome, totalExpense, widgetDebtBalances, startDate, endDate, incomesLoading, expensesLoading, balancesReady, profile?.premiumUntil, user]);
   const periodTypeTotals = periodExpenses.filter((expense) => !expense.neutralFlow).reduce((totals, expense) => {
     totals[getDashboardExpenseType(expense)] += Number(expense.amount) || 0;
     return totals;

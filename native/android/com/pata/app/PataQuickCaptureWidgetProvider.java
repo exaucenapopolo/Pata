@@ -36,6 +36,8 @@ public class PataQuickCaptureWidgetProvider extends AppWidgetProvider {
         long income = current ? Math.max(0L, prefs.getLong("income_total", 0L)) : 0L;
         long expense = current ? Math.max(0L, prefs.getLong("expense_total", 0L)) : 0L;
         long balance = income - expense;
+        long receivable = Math.max(0L, prefs.getLong("receivable_total", 0L));
+        long payable = Math.max(0L, prefs.getLong("payable_total", 0L));
 
         for (int id : ids) {
             Bundle options = manager.getAppWidgetOptions(id);
@@ -46,9 +48,14 @@ public class PataQuickCaptureWidgetProvider extends AppWidgetProvider {
             views.setTextViewText(R.id.pata_widget_income, formatMoney(income, compact));
             views.setTextViewText(R.id.pata_widget_expense, formatMoney(expense, compact));
             views.setTextViewText(R.id.pata_widget_balance, formatMoney(balance, compact));
-            views.setTextViewTextSize(R.id.pata_widget_income, TypedValue.COMPLEX_UNIT_SP, compact ? 13 : 16);
-            views.setTextViewTextSize(R.id.pata_widget_expense, TypedValue.COMPLEX_UNIT_SP, compact ? 13 : 16);
-            views.setTextViewTextSize(R.id.pata_widget_balance, TypedValue.COMPLEX_UNIT_SP, compact ? 13 : 16);
+            views.setTextViewText(R.id.pata_widget_receivable, formatMoney(receivable, compact));
+            views.setTextViewText(R.id.pata_widget_payable, formatMoney(payable, compact));
+            int amountSize = compact ? 11 : 13;
+            views.setTextViewTextSize(R.id.pata_widget_income, TypedValue.COMPLEX_UNIT_SP, amountSize);
+            views.setTextViewTextSize(R.id.pata_widget_expense, TypedValue.COMPLEX_UNIT_SP, amountSize);
+            views.setTextViewTextSize(R.id.pata_widget_balance, TypedValue.COMPLEX_UNIT_SP, amountSize);
+            views.setTextViewTextSize(R.id.pata_widget_receivable, TypedValue.COMPLEX_UNIT_SP, amountSize);
+            views.setTextViewTextSize(R.id.pata_widget_payable, TypedValue.COMPLEX_UNIT_SP, amountSize);
 
             Intent intent = new Intent(context, MainActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -60,10 +67,12 @@ public class PataQuickCaptureWidgetProvider extends AppWidgetProvider {
         }
     }
 
-    static void updateFinanceSummary(Context context, long income, long expense, String monthKey) {
+    static void updateFinanceSummary(Context context, long income, long expense, long receivable, long payable, String monthKey) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         prefs.edit().putLong("income_total", Math.max(0L, income))
             .putLong("expense_total", Math.max(0L, expense))
+            .putLong("receivable_total", Math.max(0L, receivable))
+            .putLong("payable_total", Math.max(0L, payable))
             .putString("month_key", monthKey == null ? currentDoualaMonth() : monthKey)
             .putLong("updated_at", System.currentTimeMillis())
             .apply();
@@ -83,7 +92,9 @@ public class PataQuickCaptureWidgetProvider extends AppWidgetProvider {
         long expense = Math.max(0L, prefs.getLong("expense_total", 0L));
         if ("income".equals(type)) income += amount;
         else expense += amount;
-        updateFinanceSummary(context, income, expense, operationMonth);
+        long receivable = Math.max(0L, prefs.getLong("receivable_total", 0L));
+        long payable = Math.max(0L, prefs.getLong("payable_total", 0L));
+        updateFinanceSummary(context, income, expense, receivable, payable, operationMonth);
     }
 
     private static String formatMoney(long value, boolean compact) {

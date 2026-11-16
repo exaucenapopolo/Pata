@@ -119,6 +119,7 @@ fs.copyFileSync(path.join(root, 'public/android-chrome-192x192.png'), path.join(
 for (const [source, destination] of [
   ['native/android/res/layout/pata_quick_capture_widget.xml', 'android/app/src/main/res/layout/pata_quick_capture_widget.xml'],
   ['native/android/res/drawable/pata_widget_background.xml', 'android/app/src/main/res/drawable/pata_widget_background.xml'],
+  ['native/android/res/drawable/pata_widget_card.xml', 'android/app/src/main/res/drawable/pata_widget_card.xml'],
   ['native/android/res/drawable/ic_pata_widget_mic.xml', 'android/app/src/main/res/drawable/ic_pata_widget_mic.xml'],
   ['native/android/res/xml/pata_quick_widget_info.xml', 'android/app/src/main/res/xml/pata_quick_widget_info.xml'],
   ['native/android/res/layout/pata_cotisation_widget.xml', 'android/app/src/main/res/layout/pata_cotisation_widget.xml'],

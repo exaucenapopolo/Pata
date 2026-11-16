@@ -5,8 +5,8 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:gravity="center_vertical"
-    android:paddingStart="12dp"
-    android:paddingEnd="12dp"
+    android:paddingStart="10dp"
+    android:paddingEnd="10dp"
     android:paddingTop="9dp"
     android:paddingBottom="9dp"
     android:background="@drawable/pata_widget_background">
@@ -15,11 +15,11 @@
         android:id="@+id/pata_widget_period"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="CE MOIS · FCFA"
+        android:text="SITUATION FINANCIÈRE · FCFA"
         android:textColor="#D7EEE6"
         android:textSize="9sp"
         android:textStyle="bold"
-        android:letterSpacing="0.09"/>
+        android:letterSpacing="0.08"/>
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -29,40 +29,84 @@
         android:orientation="horizontal"
         android:gravity="center_vertical">
 
-        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical">
+        <LinearLayout
+            android:layout_width="0dp" android:layout_height="match_parent"
+            android:layout_weight="1" android:orientation="vertical"
+            android:gravity="center_vertical" android:padding="6dp"
+            android:background="@drawable/pata_widget_card">
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="REVENUS" android:textColor="#D7EEE6" android:textSize="9sp" android:maxLines="1"/>
-            <TextView android:id="@+id/pata_widget_income"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:layout_marginTop="2dp" android:text="0" android:textColor="#FFFFFF"
-                android:textSize="16sp" android:textStyle="bold" android:maxLines="1" android:ellipsize="end"/>
+                android:text="REVENUS" android:textColor="#D7EEE6" android:textSize="8sp" android:maxLines="1"/>
+            <TextView android:id="@+id/pata_widget_income" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="3dp"
+                android:text="0" android:textColor="#FFFFFF" android:textSize="13sp"
+                android:textStyle="bold" android:maxLines="1" android:ellipsize="end"/>
         </LinearLayout>
 
-        <View android:layout_width="1dp" android:layout_height="30dp"
-            android:layout_marginStart="5dp" android:layout_marginEnd="5dp" android:background="#548A79"/>
+        <View android:layout_width="5dp" android:layout_height="1dp"/>
 
-        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical">
+        <LinearLayout
+            android:layout_width="0dp" android:layout_height="match_parent"
+            android:layout_weight="1" android:orientation="vertical"
+            android:gravity="center_vertical" android:padding="6dp"
+            android:background="@drawable/pata_widget_card">
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="DÉPENSES" android:textColor="#D7EEE6" android:textSize="9sp" android:maxLines="1"/>
-            <TextView android:id="@+id/pata_widget_expense"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:layout_marginTop="2dp" android:text="0" android:textColor="#FFFFFF"
-                android:textSize="16sp" android:textStyle="bold" android:maxLines="1" android:ellipsize="end"/>
+                android:text="DÉPENSES" android:textColor="#D7EEE6" android:textSize="8sp" android:maxLines="1"/>
+            <TextView android:id="@+id/pata_widget_expense" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="3dp"
+                android:text="0" android:textColor="#FFFFFF" android:textSize="13sp"
+                android:textStyle="bold" android:maxLines="1" android:ellipsize="end"/>
         </LinearLayout>
 
-        <View android:layout_width="1dp" android:layout_height="30dp"
-            android:layout_marginStart="5dp" android:layout_marginEnd="5dp" android:background="#548A79"/>
+        <View android:layout_width="5dp" android:layout_height="1dp"/>
 
-        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:orientation="vertical" android:gravity="center_vertical">
+        <LinearLayout
+            android:layout_width="0dp" android:layout_height="match_parent"
+            android:layout_weight="1" android:orientation="vertical"
+            android:gravity="center_vertical" android:padding="6dp"
+            android:background="@drawable/pata_widget_card">
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="DISPONIBLE" android:textColor="#D7EEE6" android:textSize="9sp" android:maxLines="1"/>
-            <TextView android:id="@+id/pata_widget_balance"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:layout_marginTop="2dp" android:text="0" android:textColor="#FFFFFF"
-                android:textSize="16sp" android:textStyle="bold" android:maxLines="1" android:ellipsize="end"/>
+                android:text="DISPONIBLE" android:textColor="#D7EEE6" android:textSize="8sp" android:maxLines="1"/>
+            <TextView android:id="@+id/pata_widget_balance" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="3dp"
+                android:text="0" android:textColor="#FFFFFF" android:textSize="13sp"
+                android:textStyle="bold" android:maxLines="1" android:ellipsize="end"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="5dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <LinearLayout
+            android:layout_width="0dp" android:layout_height="match_parent"
+            android:layout_weight="1" android:orientation="vertical"
+            android:gravity="center_vertical" android:padding="6dp"
+            android:background="@drawable/pata_widget_card">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="ON ME DOIT" android:textColor="#D7EEE6" android:textSize="8sp" android:maxLines="1"/>
+            <TextView android:id="@+id/pata_widget_receivable" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="3dp"
+                android:text="0" android:textColor="#B8F2D4" android:textSize="13sp"
+                android:textStyle="bold" android:maxLines="1" android:ellipsize="end"/>
+        </LinearLayout>
+
+        <View android:layout_width="5dp" android:layout_height="1dp"/>
+
+        <LinearLayout
+            android:layout_width="0dp" android:layout_height="match_parent"
+            android:layout_weight="1" android:orientation="vertical"
+            android:gravity="center_vertical" android:padding="6dp"
+            android:background="@drawable/pata_widget_card">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="JE DOIS" android:textColor="#D7EEE6" android:textSize="8sp" android:maxLines="1"/>
+            <TextView android:id="@+id/pata_widget_payable" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:layout_marginTop="3dp"
+                android:text="0" android:textColor="#FFD8B2" android:textSize="13sp"
+                android:textStyle="bold" android:maxLines="1" android:ellipsize="end"/>
         </LinearLayout>
     </LinearLayout>
 </LinearLayout>
