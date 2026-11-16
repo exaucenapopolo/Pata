@@ -476,20 +476,19 @@ public class PataQuickCapturePlugin extends Plugin {
 
     @PluginMethod
     public void adjustWidgetBalance(PluginCall call) {
-        SharedPreferences prefs = getContext().getSharedPreferences("PataQuickWidget", Context.MODE_PRIVATE);
-        long updatedAt = prefs.getLong("updated_at", 0L);
-        if (updatedAt <= 0L) {
-            call.resolve(new JSObject().put("updated", false).put("reason", "not_initialized"));
+        String type = call.getString("type", "");
+        String date = call.getString("date", "");
+        long delta = call.getLong("delta", 0L);
+        long amount = call.getLong("amount", Math.abs(delta));
+        if (type.isEmpty()) type = delta >= 0L ? "income" : "expense";
+        if (amount <= 0L || (!"income".equals(type) && !"expense".equals(type))) {
+            call.resolve(new JSObject().put("updated", false).put("reason", "invalid_adjustment"));
             return;
         }
-        long delta = call.getLong("delta", 0L);
-        long current = Math.max(0L, prefs.getLong("available_amount", 0L));
-        long next = Math.max(0L, Math.min(1000000000L, current + delta));
-        prefs.edit().putLong("available_amount", next).putLong("updated_at", System.currentTimeMillis()).apply();
-        AppWidgetManager manager = AppWidgetManager.getInstance(getContext());
-        int[] ids = manager.getAppWidgetIds(new ComponentName(getContext(), PataQuickCaptureWidgetProvider.class));
-        PataQuickCaptureWidgetProvider.updateWidgets(getContext(), manager, ids);
-        call.resolve(new JSObject().put("updated", true).put("availableAmount", next));
+        // Écrire dans le cache PataFinanceWidget effectivement lu par le widget du tableau de bord.
+        // L'ancien code utilisait PataQuickWidget, un stockage distinct et obsolète.
+        PataQuickCaptureWidgetProvider.adjustMonthlyTotal(getContext(), type, amount, date);
+        call.resolve(new JSObject().put("updated", true));
     }
 
     @PluginMethod
