@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { App } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
-import { ReceiptText, X, Check, ArrowDownLeft, ArrowUpRight, LoaderCircle, HandCoins } from 'lucide-react';
+import { ReceiptText, X, Check, ArrowDownLeft, ArrowUpRight, LoaderCircle, HandCoins, Mic, MessageCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
 import { Modal } from '@/components/ui/Modal';
@@ -35,6 +35,11 @@ export function QuickCaptureCoordinator() {
   const [captureOptions, setCaptureOptions] = useState({ incomes: [], debts: [] });
   const [optionsLoading, setOptionsLoading] = useState(false);
   const [optionsError, setOptionsError] = useState('');
+  const [voiceOptionsOpen, setVoiceOptionsOpen] = useState(false);
+  const [voiceChatOpen, setVoiceChatOpen] = useState(false);
+  const [voiceChatText, setVoiceChatText] = useState('');
+  const [voiceChatWorking, setVoiceChatWorking] = useState(false);
+  const [voiceChatError, setVoiceChatError] = useState('');
   const syncInProgressRef = useRef(false);
   const expenseCategories = useMemo(() => EXPENSE_CATEGORIES.filter((item) => !['loan_given', 'debt_repayment'].includes(item.id)), []);
   const incomeCategories = useMemo(() => INCOME_CATEGORIES.filter((item) => !['debt_borrowed', 'debt_repayment_received'].includes(item.id)), []);
@@ -125,12 +130,7 @@ export function QuickCaptureCoordinator() {
       if (launch?.type) {
         if (!premium) setNotice('Pata Quick Capture est réservé à Premium. Consulte la page Premium pour activer cette fonction.');
         else if (launch.type === 'voice') {
-          try {
-            const spoken = await PataQuickCapture.startVoiceCapture();
-            if (spoken?.text) openDraft(spoken.text, '', '', 'voice');
-          } catch (voiceError) {
-            setNotice(voiceError?.message || 'La saisie vocale n’est pas disponible sur cet appareil.');
-          }
+          setVoiceOptionsOpen(true);
         } else {
           openDraft('', launch.type === 'income' ? 'income' : 'expense', '', 'native');
         }
@@ -385,12 +385,118 @@ export function QuickCaptureCoordinator() {
     }
   };
 
+  const startVoiceEntry = async () => {
+    setVoiceOptionsOpen(false);
+    try {
+      const spoken = await PataQuickCapture.startVoiceCapture();
+      if (spoken?.text) openDraft(spoken.text, '', '', 'voice');
+      else setNotice('Aucune parole n’a été reconnue. Tu peux réessayer ou saisir ton opération manuellement.');
+    } catch (voiceError) {
+      setNotice(voiceError?.message || 'La saisie vocale n’est pas disponible sur cet appareil.');
+    }
+  };
+
+  const openVoiceAssistant = () => {
+    setVoiceOptionsOpen(false);
+    setVoiceChatError('');
+    setVoiceChatOpen(true);
+  };
+
+  const sendVoiceAssistantMessage = async (event) => {
+    event.preventDefault();
+    const message = String(voiceChatText || '').trim();
+    if (!message || voiceChatWorking) return;
+    if (!user || !premium) {
+      setVoiceChatError('La conversation Mč depuis les notifications est réservée à Pata Premium.');
+      return;
+    }
+    setVoiceChatWorking(true);
+    setVoiceChatError('');
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: message.slice(0, 1800) }],
+          mode: 'text',
+          language: 'fr',
+          notificationMode: true,
+          clientRequestId: makeId(),
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) throw new Error(result.error || 'Mč n’a pas pu traiter ton message.');
+      const reply = String(result.reply || 'Je suis là. Peux-tu préciser ta demande ?').trim();
+      const notification = await PataQuickCapture.showAIConversationReply({
+        title: 'Mč · Pata',
+        message: reply,
+      });
+      if (notification?.shown === false) {
+        throw new Error('La réponse est prête, mais les notifications Pata ne sont pas autorisées sur cet appareil.');
+      }
+      setVoiceChatOpen(false);
+      setVoiceChatText('');
+      setNotice('Mč a répondu dans tes notifications. Tu peux continuer la conversation directement depuis la notification Pata.');
+    } catch (sendError) {
+      setVoiceChatError(sendError?.message || 'Impossible d’envoyer ce message à Mč.');
+    } finally {
+      setVoiceChatWorking(false);
+    }
+  };
+
+  const voiceDialogs = (
+    <>
+      <Modal open={voiceOptionsOpen} onClose={() => setVoiceOptionsOpen(false)} title="Saisie vocale" className="max-w-md">
+        <div className="space-y-3">
+          <p className="text-xs leading-5 text-slate-600">Choisis ce que tu veux faire. La saisie de tes dépenses et de tes revenus reste l’action principale.</p>
+          <button type="button" onClick={startVoiceEntry} className="flex min-h-[58px] w-full items-center gap-3 rounded-2xl bg-[#075b43] px-4 py-3 text-left text-white shadow-sm transition active:scale-[0.99]">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15"><Mic size={20}/></span>
+            <span className="min-w-0 flex-1"><strong className="block text-sm">Saisie</strong><span className="mt-0.5 block text-[11px] leading-4 text-white/80">Dicte une dépense, un revenu ou un remboursement à enregistrer</span></span>
+          </button>
+          <button type="button" onClick={openVoiceAssistant} className="flex min-h-[58px] w-full items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-slate-800 transition hover:bg-slate-50 active:scale-[0.99]">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-700"><MessageCircle size={19}/></span>
+            <span className="min-w-0 flex-1"><strong className="block text-sm">Causer avec Mč</strong><span className="mt-0.5 block text-[11px] leading-4 text-slate-500">Pose une question et poursuis ensuite depuis les notifications</span></span>
+          </button>
+          <button type="button" onClick={() => setVoiceOptionsOpen(false)} className="min-h-10 w-full rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-600">Fermer</button>
+        </div>
+      </Modal>
+
+      <Modal open={voiceChatOpen} onClose={() => { if (!voiceChatWorking) setVoiceChatOpen(false); }} title="Causer avec Mč" className="max-w-md">
+        <form onSubmit={sendVoiceAssistantMessage} className="space-y-3">
+          <p className="text-xs leading-5 text-slate-600">Écris ton message normalement. Mč te répondra dans une notification, où tu pourras continuer sans ouvrir la conversation complète.</p>
+          <textarea
+            autoFocus
+            maxLength={1800}
+            rows={5}
+            value={voiceChatText}
+            onChange={(event) => setVoiceChatText(event.target.value)}
+            placeholder="Ex. Aide-moi à savoir combien je peux encore dépenser cette semaine…"
+            className="w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm leading-6 text-slate-800 outline-none focus:border-emerald-700"
+          />
+          <p className="text-[10px] text-slate-500">Cette conversation est séparée de ton historique complet AssistantChat. Elle est réservée à Premium.</p>
+          {voiceChatError && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-xs leading-5 text-rose-700">{voiceChatError}</p>}
+          <div className="flex gap-2">
+            <button type="button" disabled={voiceChatWorking} onClick={() => setVoiceChatOpen(false)} className="min-h-11 flex-1 rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-700 disabled:opacity-50">Annuler</button>
+            <button type="submit" disabled={voiceChatWorking || !voiceChatText.trim()} className="min-h-11 flex-1 rounded-xl bg-[#075b43] px-3 text-xs font-semibold text-white disabled:opacity-50">{voiceChatWorking ? 'Envoi à Mč…' : 'Envoyer à Mč'}</button>
+          </div>
+        </form>
+      </Modal>
+    </>
+  );
+
   if (!draft) {
-    return notice ? <div role="status" className="fixed bottom-24 left-3 right-3 z-[95] mx-auto flex max-w-md items-start gap-3 rounded-2xl border border-slate-200 bg-white p-3 text-xs leading-5 text-slate-700 shadow-lg"><ReceiptText size={16} className="mt-0.5 shrink-0 text-emerald-700"/><span className="flex-1">{notice}</span><button type="button" onClick={() => setNotice('')} aria-label="Fermer"><X size={14}/></button></div> : null;
+    return (
+      <>
+        {voiceDialogs}
+        {notice && <div role="status" className="fixed bottom-24 left-3 right-3 z-[95] mx-auto flex max-w-md items-start gap-3 rounded-2xl border border-slate-200 bg-white p-3 text-xs leading-5 text-slate-700 shadow-lg"><ReceiptText size={16} className="mt-0.5 shrink-0 text-emerald-700"/><span className="flex-1">{notice}</span><button type="button" onClick={() => setNotice('')} aria-label="Fermer"><X size={14}/></button></div>}
+      </>
+    );
   }
 
   return (
     <>
+      {voiceDialogs}
       <Modal open={!!draft} onClose={closeDraft} title="Pata Quick Capture" className="max-w-lg">
         <form onSubmit={save} className="space-y-3">
           <p className="text-xs leading-5 text-slate-500">{draft.rawText ? 'Saisie reçue : « ' + draft.rawText + ' »' : 'Complète uniquement ce qui manque. La date est déterminée automatiquement à partir de ta phrase.'}</p>
