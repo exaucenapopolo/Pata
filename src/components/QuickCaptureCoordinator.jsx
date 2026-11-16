@@ -355,9 +355,11 @@ export function QuickCaptureCoordinator() {
       : draft.incomeFlowType === 'repayment_received'
         ? [{ id: 'debt_repayment_received', label: 'Remboursement reçu' }]
         : incomeCategories
-    : draft?.type === 'debt_repayment'
-      ? [{ id: 'debt_repayment', label: 'Remboursement de dette' }]
-      : expenseCategories;
+    : draft?.type === 'debt_borrowed'
+      ? [{ id: 'debt_borrowed', label: 'Dette contractée' }]
+      : draft?.type === 'debt_repayment'
+        ? [{ id: 'debt_repayment', label: 'Remboursement de dette' }]
+        : expenseCategories;
 
   useEffect(() => {
     const needsIncomeOptions = draft?.type === 'income' && draft?.incomeFlowType === 'repayment_received';
@@ -472,6 +474,10 @@ export function QuickCaptureCoordinator() {
       setError('Indique le nom de cette facture.');
       return;
     }
+    if (draft.type === 'debt_borrowed' && !String(draft.person || '').trim()) {
+      setError('Indique la personne ou l’organisme qui t’a prêté cet argent.');
+      return;
+    }
     if (draft.type === 'debt_repayment' && !String(draft.repaymentDebtId || '').trim()) {
       setError('Choisis la dette à rembourser avant de continuer.');
       return;
@@ -537,7 +543,7 @@ export function QuickCaptureCoordinator() {
         await PataQuickCapture.clearSharedContent().catch(() => {});
       }
       if (draft.type !== 'bill') {
-        if (draft.type === 'debt_repayment' || (draft.type === 'income' && draft.incomeFlowType !== 'normal')) {
+        if (draft.type === 'debt_borrowed' || draft.type === 'debt_repayment' || (draft.type === 'income' && draft.incomeFlowType !== 'normal')) {
           // Les emprunts et remboursements sont des flux de dette, pas des revenus gagnés.
         } else {
           await PataQuickCapture.adjustWidgetBalance({
@@ -554,6 +560,7 @@ export function QuickCaptureCoordinator() {
             ? (result.repaymentCompleted ? 'Créance entièrement remboursée : elle est maintenant soldée.' : 'Remboursement reçu enregistré. Reste à recevoir : ' + Number(result.remaining || 0).toLocaleString('fr-FR') + ' FCFA.')
             : 'Revenu enregistré dans Pata.'
         : draft.type === 'bill' ? 'Facture enregistrée dans Pata avec son justificatif.'
+          : draft.type === 'debt_borrowed' ? 'Dette contractée enregistrée dans Pata. Elle reste séparée des revenus gagnés.'
           : draft.type === 'debt_repayment'
             ? (result.repaymentCompleted ? 'Dette entièrement remboursée : elle est maintenant soldée.' : 'Remboursement enregistré. Solde restant : ' + Number(result.remaining || 0).toLocaleString('fr-FR') + ' FCFA.')
             : 'Dépense enregistrée dans Pata.');
@@ -701,7 +708,7 @@ export function QuickCaptureCoordinator() {
       <Modal open={!!draft} onClose={closeDraft} title="Pata Quick Capture" className="max-w-lg">
         <form onSubmit={save} className="space-y-3">
           <p className="text-xs leading-5 text-slate-500">{draft.rawText ? 'Saisie reçue : « ' + draft.rawText + ' »' : 'Complète uniquement ce qui manque. La date est déterminée automatiquement à partir de ta phrase.'}</p>
-          <div className="grid grid-cols-4 gap-1.5">
+          <div className="grid grid-cols-5 gap-1.5">
             <button type="button" onClick={() => setDraft((current) => ({ ...current, type: 'expense', categoryId: current.type === 'income' || current.type === 'bill' || current.type === 'debt_repayment' ? 'other' : current.categoryId }))} className={'flex min-w-0 items-center justify-center gap-1 rounded-xl border px-1.5 py-3 text-[11px] font-semibold ' + (draft.type === 'expense' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><ArrowUpRight size={14}/> Dépense</button>
             <button type="button" onClick={() => setDraft((current) => ({
               ...current,
@@ -711,6 +718,7 @@ export function QuickCaptureCoordinator() {
               incomePerson: current.incomePerson || current.person || '',
               incomeDueDate: current.incomeDueDate || current.dueDate || '',
             }))} className={'flex min-w-0 items-center justify-center gap-1 rounded-xl border px-1.5 py-3 text-[11px] font-semibold ' + (draft.type === 'income' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><ArrowDownLeft size={14}/> Revenu</button>
+            <button type="button" onClick={() => setDraft((current) => ({ ...current, type: 'debt_borrowed', categoryId: 'debt_borrowed', person: current.person || current.incomePerson || '', dueDate: current.incomeDueDate || current.dueDate || '' }))} className={'flex min-w-0 items-center justify-center gap-1 rounded-xl border px-1 py-3 text-[10px] font-semibold ' + (draft.type === 'debt_borrowed' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><HandCoins size={14}/> Emprunt</button>
             <button type="button" onClick={() => setDraft((current) => ({ ...current, type: 'bill', categoryId: current.type === 'bill' ? current.categoryId : current.expenseCategoryId || 'other' }))} className={'flex min-w-0 items-center justify-center gap-1 rounded-xl border px-1.5 py-3 text-[11px] font-semibold ' + (draft.type === 'bill' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><ReceiptText size={14}/> Facture</button>
             <button type="button" onClick={() => setDraft((current) => ({ ...current, type: 'debt_repayment', categoryId: 'debt_repayment' }))} className={'flex min-w-0 items-center justify-center gap-1 rounded-xl border px-1.5 py-3 text-[10px] font-semibold ' + (draft.type === 'debt_repayment' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><HandCoins size={14}/> Rembourser</button>
           </div>
@@ -720,7 +728,16 @@ export function QuickCaptureCoordinator() {
           <label className="block text-xs font-semibold text-slate-700">{draft.type === 'bill' ? 'Montant estimé (FCFA, facultatif)' : 'Montant (FCFA)'}
             <input type="number" inputMode="numeric" min="0" max="1000000000" step="1" required={draft.type !== 'bill'} value={draft.amount} onChange={(event) => setDraft((current) => ({ ...current, amount: event.target.value, isVariable: event.target.value === '' }))} className="mt-1.5 h-12 w-full rounded-xl border border-slate-200 px-3 text-base font-semibold text-slate-900 outline-none focus:border-emerald-600"/>
           </label>
-          {draft.type === 'debt_repayment' && <label className="block text-xs font-semibold text-slate-700">Dette à rembourser
+          {{draft.type === 'debt_borrowed' && <>
+             <label className="block text-xs font-semibold text-slate-700">Personne ou organisme qui t’a prêté
+               <input required maxLength={100} value={draft.person || ''} onChange={(event) => setDraft((current) => ({ ...current, person: event.target.value }))} placeholder="Ex. Phinéas ou une banque" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm font-normal"/>
+             </label>
+             <label className="block text-xs font-semibold text-slate-700">Date d’échéance (facultative)
+               <input type="date" value={draft.dueDate || ''} onChange={(event) => setDraft((current) => ({ ...current, dueDate: event.target.value }))} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm font-normal"/>
+             </label>
+             <p className="rounded-xl bg-slate-50 p-3 text-[11px] leading-5 text-slate-600">Cette somme sera enregistrée comme une dette à rembourser, jamais comme un revenu gagné.</p>
+           </>}
+           draft.type === 'debt_repayment' && <label className="block text-xs font-semibold text-slate-700">Dette à rembourser
             <select value={draft.repaymentDebtId || ''} onChange={(event) => setDraft((current) => ({ ...current, repaymentDebtId: event.target.value }))} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal">
               <option value="">Choisir la dette de {draft.person || 'la personne'}</option>
               {captureOptions.debts.map((debt) => <option key={debt.id} value={debt.id}>{debt.person || 'Créancier'} · reste {Number(debt.remaining || 0).toLocaleString('fr-FR')} FCFA{debt.dueDate ? ' · échéance ' + debt.dueDate : ''}</option>)}
