@@ -202,6 +202,18 @@ function stripAliasTerms(text, aliases = [], beforeAmountOnly = false) {
   }
   return value;
 }
+function extractIncomeSourceName(text) {
+  const raw = String(text || "");
+  const match = raw.match(/(?:\\bavec\\s+(?:(?:mon|ma|le|la|un|une)\\s+)?(?:(?:revenu|source|salaire)\\s+(?:de\\s+)?)?|\\bsur\\s+(?:(?:mon|ma|le|la)\\s+)?(?:(?:revenu|source|salaire)\\s+(?:de\\s+)?)?|\\bdepuis\\s+(?:(?:mon|ma|le|la)\\s+)?(?:(?:revenu|source|salaire)\\s+(?:de\\s+)?)?|\\bpreleve(?:e)?\\s+(?:sur|de)\\s+(?:(?:mon|ma|le|la)\\s+)?(?:(?:revenu|source|salaire)\\s+(?:de\\s+)?)?)([a-zA-ZÀ-ÿ0-9][a-zA-ZÀ-ÿ0-9'’._ -]{1,90})$/i);
+  if (!match) return "";
+  let value = match[1].trim()
+    .replace(/\\b(?:fcfa|xaf|cfa|eru|euros?|francs?)\\b/gi, " ")
+    .replace(/\\b\\d{1,3}(?:[ .,'’]\\d{3})+\\b|\\b\\d{1,10}\\b/g, " ")
+    .replace(/[,:;.!?]+$/g, "")
+    .replace(/\\s+/g, " ").trim();
+  if (!value || /^(tous|toutes|aucun|aucune)$/i.test(value)) return "";
+  return value.slice(0, 100);
+}
 function extractCounterparty(text, type) {
   let value = String(text || "");
   value = value
@@ -281,6 +293,7 @@ export function parseQuickCapture(input, now = new Date()) {
   const expenseVerb = /\b(depense|depens|paye|payer|achete|achat|sorti|sortie|regle|reglement|consomme|consommation|utilise|utilisation|j'ai mange|jai mange)\b/.test(normalized);
   let type = null;
   if (hasBill) type = "bill";
+  else if (hasRepayment) type = "debt_repayment";
   else if (hasLoan) type = "loan_given";
   else if (hasDebt) type = "debt_borrowed";
   else if (income || incomeVerb) type = "income";
@@ -293,21 +306,23 @@ export function parseQuickCapture(input, now = new Date()) {
       ? (expense ? expense[0] : "other")
       : type === "bill" ? bill.expenseCategoryId
       : type === "loan_given" ? "loan_given"
-      : type === "debt_borrowed" ? "debt_borrowed" : null;
-  const person = type === "loan_given" || type === "debt_borrowed"
+      : type === "debt_borrowed" ? "debt_borrowed"
+      : type === "debt_repayment" ? "debt_repayment" : null;
+  const person = type === "loan_given" || type === "debt_borrowed" || type === "debt_repayment"
     ? extractCounterparty(raw, type) : "";
+  const incomeSourceName = type === "expense" ? extractIncomeSourceName(raw) : "";
   const note = cleanNote(raw, type === "expense" ? expense?.[2] || [] : type === "bill" ? bill?.categoryAliases || [] : [], type === "expense");
   const source = type === "income" ? extractIncomeSource(raw, categoryId, income?.[1]) : "";
-  const dueDate = extractDueDate(raw, now, hasBill, hasLoan, hasDebt);
+  const dueDate = hasRepayment ? null : extractDueDate(raw, now, hasBill, hasLoan, hasDebt);
   const confidence = Math.min(0.99, (amount ? 0.55 : 0) + (type ? 0.25 : 0) + (categoryId ? 0.18 : 0));
-  const missingRequiredDetail = (type === "loan_given" || type === "debt_borrowed") && !person;
+  const missingRequiredDetail = (type === "loan_given" || type === "debt_borrowed" || type === "debt_repayment") && !person;
   const needsReview = (type !== "bill" && (!amount || !type || !categoryId || missingRequiredDetail))
     || (!type && !amount);
   return {
     raw, amount, type, categoryId,
     date: (hasBill || hasLoan || hasDebt) && dueDate ? (now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-" + pad(now.getDate())) : extractDate(raw, now),
     dueDate,
-    note, source, person, confidence,
+    note, source, person, incomeSourceName, confidence,
     billName: bill?.billName || "", billType: bill?.billType || "",
     expenseCategoryId: bill?.expenseCategoryId || "",
     frequency: bill?.frequency || null,

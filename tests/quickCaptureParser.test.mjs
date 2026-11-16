@@ -200,3 +200,25 @@ test('reconnaît une dette lorsque la date précède le montant', () => {
   assert.equal(result.person, "Paul");
   assert.equal(result.dueDate, "2026-11-20");
 });
+
+test('reconnaît une phrase normale de remboursement de dette avec le nom du créancier', () => {
+  const result = parseQuickCapture("J'ai remboursé ma dette de 500 FCFA chez Phinéas", now);
+  assert.equal(result.type, "debt_repayment");
+  assert.equal(result.amount, 500);
+  assert.equal(result.categoryId, "debt_repayment");
+  assert.equal(result.person, "Phinéas");
+  assert.equal(result.needsReview, false);
+  assert.equal(result.dueDate, null);
+});
+test('reconnaît aussi un remboursement formulé avec le verbe régler', () => {
+  const result = parseQuickCapture("J'ai réglé 2 000 francs de ma dette auprès de Paul", now);
+  assert.equal(result.type, "debt_repayment");
+  assert.equal(result.amount, 2000);
+  assert.equal(result.person, "Paul");
+});
+test('détecte la source de revenu explicitement nommée dans une dépense', () => {
+  const result = parseQuickCapture("Nourriture 500 FCFA payé avec mon revenu KDO Informatique", now);
+  assert.equal(result.type, "expense");
+  assert.equal(result.categoryId, "food");
+  assert.equal(result.incomeSourceName, "KDO Informatique");
+});
