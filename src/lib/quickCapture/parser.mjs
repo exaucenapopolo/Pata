@@ -206,10 +206,13 @@ function extractCounterparty(text, type) {
   let value = String(text || "");
   value = value
     .replace(/\b20\d{2}-\d{1,2}-\d{1,2}\b/g, " ")
-    .replace(/\b[0-3]?\d[/.\-][01]?\d(?:[/.\-]20\d{2})?\b/g, " ")
-    .replace(/\b\d{1,3}(?:[ .,'’]\d{3})+\b|\b\d{1,10}\b/g, " ")
-    .replace(/\b\d{1,2}\s+(?:janvier|janv|fevrier|fevr|fev|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)(?:\s+20\d{2})?\b/gi, " ")
+    .replace(/\b[0-3]?\d[/.-][01]?\d(?:[/.-]20\d{2})?\b/g, " ")
+    // Remove natural-language dates before removing their numeric day.
+    .replace(/\b\d{1,2}(?:er)?\s+(?:janvier|janv|fevrier|fevr|fev|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)(?:\s+20\d{2})?\b/gi, " ")
     .replace(/\b(?:janvier|janv|fevrier|fevr|fev|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)\s+\d{1,2}(?:\s+20\d{2})?\b/gi, " ")
+    .replace(/\b(demain|apres[- ]demain|hier|aujourd'hui)\b/gi, " ")
+    .replace(/\b\d{1,3}(?:[ .,'’]\d{3})+\b|\b\d{1,10}\b/g, " ")
+    .replace(/\b(fcfa|xaf|cfa|eru|euros?|francs?|frs?)\b/gi, " ")
     .replace(/(?:echeance|échéance|date limite|à rendre|a rendre|avant le|a payer le|à payer le|pour le)\s*(?:le|du)?\s*[:]?(20\d{2}-\d{2}-\d{2}|demain|hier|apres[- ]demain)?/gi, " ");
   value = normalize(value)
     .replace(/\b(j'ai|jai|je|nous|on|ai|contracte|contracter|pris|prends|dois|doit|pret|prets|prete|preter|dette|dettes|emprunt|emprunte|emprunter|argent|fcfa|echeance|date|limite|rendre|avant|payer|demain|hier|apres|aujourd'hui)\b/gi, " ")
@@ -225,7 +228,7 @@ function cleanNote(text, categoryAliases = [], beforeAmountOnly = false) {
     .replace(/\b20\d{2}-\d{1,2}-\d{1,2}\b/g, " ")
     .replace(/\b[0-3]?\d[/.\-][01]?\d(?:[/.\-]20\d{2})?\b/g, " ")
     .replace(/\b\d{1,3}(?:[ .,'’]\d{3})+\b|\b\d{1,10}\b/g, " ")
-    .replace(/\b(fcfa|xaf|cfa|francs?)\b/gi, " ")
+    .replace(/\b(fcfa|f\s*cfa|xaf|cfa|eru|euros?|francs?|frs?)\b/gi, " ")
     .replace(/\b(j'ai|jai|je|nous|on|a|aujourd'hui|demain|hier|dépensé|depense|depenses|paye|payer|achete|achat|acheté|reçu|recu|gagné|gagne|encaisse|encaissement|versé|verse|pour|de|du|des|un|une|la|le|les|mon|ma|mes|revenu|recette|facture|factures|factu|pret|prêt|dette|dettes|emprunt|echeance|échéance|date|limite|rendre|avant|a|le|du)\b/gi, " ")
     .replace(/\b\d{1,2}\s+(?:janvier|janv|fevrier|fevr|fev|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)\b/gi, " ")
     .replace(/\b(?:janvier|janv|fevrier|fevr|fev|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)\s+\d{1,2}\b/gi, " ")
