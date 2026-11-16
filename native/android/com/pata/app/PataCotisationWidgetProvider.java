@@ -8,6 +8,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.view.View;
 import android.widget.RemoteViews;
 
 import org.json.JSONArray;
@@ -18,6 +19,7 @@ import java.util.Locale;
 
 public class PataCotisationWidgetProvider extends AppWidgetProvider {
     private static final String PREFS = "PataCotisationWidget";
+    private static final int MAX_GROUPS = 3;
 
     @Override
     public void onEnabled(Context context) {
@@ -56,43 +58,106 @@ public class PataCotisationWidgetProvider extends AppWidgetProvider {
     static void updateWidgets(Context context, AppWidgetManager manager, int[] ids) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         JSONArray groups;
-        try { groups = new JSONArray(prefs.getString("groups_json", "[]")); }
-        catch (Exception ignored) { groups = new JSONArray(); }
+        try {
+            groups = new JSONArray(prefs.getString("groups_json", "[]"));
+        } catch (Exception ignored) {
+            groups = new JSONArray();
+        }
 
         for (int id : ids) {
             Bundle options = manager.getAppWidgetOptions(id);
-            int minHeight = options == null ? 150 : options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 150);
-            int maxRows = minHeight < 135 ? 2 : minHeight < 190 ? 3 : 5;
-            StringBuilder summary = new StringBuilder();
-            int shown = Math.min(groups.length(), maxRows);
-            for (int i = 0; i < shown; i++) {
-                JSONObject group = groups.optJSONObject(i);
-                if (group == null) continue;
-                if (summary.length() > 0) summary.append("\n");
-                String name = group.optString("name", "Cotisation");
-                long collected = group.optLong("totalCollected", 0L);
-                long target = group.optLong("targetAmount", 0L);
-                summary.append(name).append(" · ")
-                    .append(formatMoney(collected)).append(" / ").append(formatMoney(target));
-                JSONObject payment = group.optJSONObject("latestPayment");
-                if (payment != null) {
-                    summary.append("\n↳ Versement : ")
-                        .append(payment.optString("displayName", "Membre"))
-                        .append(" · ").append(formatMoney(payment.optLong("amount", 0L)));
-                }
-                JSONObject message = group.optJSONObject("latestMessage");
-                if (message != null) {
-                    summary.append("\n↳ ")
-                        .append(message.optString("authorName", "Membre"))
-                        .append(" : ").append(message.optString("text", ""));
-                }
-            }
-            if (groups.length() == 0) summary.append("Aucun groupe de cotisation pour le moment.");
-            else if (groups.length() > shown) summary.append("\n+ ").append(groups.length() - shown).append(" autre(s) groupe(s)");
+            int minHeight = options == null
+                ? 205
+                : options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 205);
+            int maxRows = minHeight < 145 ? 1 : minHeight < 205 ? 2 : MAX_GROUPS;
 
             RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.pata_cotisation_widget);
-            views.setTextViewText(R.id.pata_cotisation_widget_groups, summary.toString());
-            views.setTextViewText(R.id.pata_cotisation_widget_count, groups.length() + " groupe(s)");
+            views.setTextViewText(R.id.pata_cotisation_widget_count,
+                groups.length() + (groups.length() > 1 ? " groupes" : " groupe"));
+
+            int shown = Math.min(groups.length(), maxRows);
+            int[] rowIds = {
+                R.id.pata_cotisation_group_row_1,
+                R.id.pata_cotisation_group_row_2,
+                R.id.pata_cotisation_group_row_3
+            };
+            int[] nameIds = {
+                R.id.pata_cotisation_group_name_1,
+                R.id.pata_cotisation_group_name_2,
+                R.id.pata_cotisation_group_name_3
+            };
+            int[] statusIds = {
+                R.id.pata_cotisation_group_status_1,
+                R.id.pata_cotisation_group_status_2,
+                R.id.pata_cotisation_group_status_3
+            };
+            int[] progressIds = {
+                R.id.pata_cotisation_group_progress_1,
+                R.id.pata_cotisation_group_progress_2,
+                R.id.pata_cotisation_group_progress_3
+            };
+            int[] amountIds = {
+                R.id.pata_cotisation_group_amount_1,
+                R.id.pata_cotisation_group_amount_2,
+                R.id.pata_cotisation_group_amount_3
+            };
+            int[] activityIds = {
+                R.id.pata_cotisation_group_activity_1,
+                R.id.pata_cotisation_group_activity_2,
+                R.id.pata_cotisation_group_activity_3
+            };
+
+            for (int index = 0; index < MAX_GROUPS; index++) {
+                boolean visible = index < shown;
+                views.setViewVisibility(rowIds[index], visible ? View.VISIBLE : View.GONE);
+                if (!visible) continue;
+
+                JSONObject group = groups.optJSONObject(index);
+                if (group == null) {
+                    views.setTextViewText(nameIds[index], "Cotisation");
+                    views.setTextViewText(statusIds[index], "À actualiser");
+                    views.setTextViewText(amountIds[index], "—");
+                    views.setTextViewText(activityIds[index], "");
+                    views.setProgressBar(progressIds[index], 100, 0, false);
+                    continue;
+                }
+
+                String name = safeText(group.optString("name", "Cotisation"), 42);
+                long collected = Math.max(0L, group.optLong("totalCollected", 0L));
+                long target = Math.max(0L, group.optLong("targetAmount", 0L));
+                int progress = target > 0
+                    ? (int) Math.min(100L, Math.round((double) collected * 100d / (double) target))
+                    : collected > 0 ? 100 : 0;
+
+                views.setTextViewText(nameIds[index], name);
+                views.setTextViewText(statusIds[index], statusLabel(group.optString("status", "OPEN"), progress));
+                views.setProgressBar(progressIds[index], 100, progress, false);
+                views.setTextViewText(amountIds[index],
+                    formatMoney(collected) + " / " + (target > 0 ? formatMoney(target) : "Objectif à définir"));
+
+                JSONObject payment = group.optJSONObject("latestPayment");
+                JSONObject message = group.optJSONObject("latestMessage");
+                StringBuilder activity = new StringBuilder();
+                if (payment != null) {
+                    activity.append("Versement · ")
+                        .append(safeText(payment.optString("displayName", "Membre"), 22))
+                        .append(" · ")
+                        .append(formatMoney(Math.max(0L, payment.optLong("amount", 0L))));
+                }
+                if (message != null) {
+                    if (activity.length() > 0) activity.append("\n");
+                    activity.append(safeText(message.optString("authorName", "Membre"), 18))
+                        .append(" · ")
+                        .append(safeText(message.optString("text", ""), 64));
+                }
+                if (activity.length() == 0) activity.append("Aucune activité récente");
+                views.setTextViewText(activityIds[index], activity.toString());
+            }
+
+            int remaining = Math.max(0, groups.length() - shown);
+            views.setTextViewText(R.id.pata_cotisation_widget_more,
+                remaining > 0 ? "+ " + remaining + " autre(s) groupe(s)" : "Appuie pour ouvrir tes cotisations");
+
             Intent open = new Intent(context, MainActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 .putExtra("pata_notification_target", "/cotisations");
@@ -101,6 +166,19 @@ public class PataCotisationWidgetProvider extends AppWidgetProvider {
             views.setOnClickPendingIntent(R.id.pata_cotisation_widget_root, pending);
             manager.updateAppWidget(id, views);
         }
+    }
+
+    private static String statusLabel(String status, int progress) {
+        String normalized = String.valueOf(status || "").toUpperCase(Locale.ROOT);
+        if ("NOT_STARTED".equals(normalized)) return "PAS ENCORE DÉMARRÉE";
+        if ("COMPLETE".equals(normalized) || "COMPLETED".equals(normalized) || progress >= 100) return "OBJECTIF ATTEINT";
+        if ("CLOSED".equals(normalized) || "CANCELLED".equals(normalized)) return "TERMINÉE";
+        return "EN COURS · " + progress + "%";
+    }
+
+    private static String safeText(String value, int maxLength) {
+        String clean = String.valueOf(value == null ? "" : value).replaceAll("\\s+", " ").trim();
+        return clean.length() > maxLength ? clean.substring(0, maxLength - 1) + "…" : clean;
     }
 
     private static String formatMoney(long amount) {

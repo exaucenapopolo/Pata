@@ -4,13 +4,14 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="12dp"
+    android:padding="10dp"
     android:background="@drawable/pata_widget_background">
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
         <TextView
             android:layout_width="0dp"
             android:layout_height="wrap_content"
@@ -24,20 +25,75 @@
             android:id="@+id/pata_cotisation_widget_count"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="0 groupe(s)"
+            android:text="0 groupe"
             android:textColor="#D7EEE6"
             android:textSize="9sp"/>
     </LinearLayout>
-    <TextView
-        android:id="@+id/pata_cotisation_widget_groups"
+
+    <LinearLayout
+        android:id="@+id/pata_cotisation_group_row_1"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:layout_marginTop="8dp"
-        android:text="Tes groupes, derniers versements et messages apparaîtront ici."
-        android:textColor="#FFFFFF"
-        android:textSize="11sp"
-        android:lineSpacingExtra="2dp"
-        android:maxLines="18"
-        android:ellipsize="end"/>
+        android:layout_marginTop="7dp"
+        android:orientation="vertical"
+        android:padding="8dp"
+        android:background="@drawable/pata_widget_card">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+            <TextView android:id="@+id/pata_cotisation_group_name_1" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Groupe" android:textColor="#FFFFFF" android:textStyle="bold" android:textSize="11sp" android:maxLines="1" android:ellipsize="end"/>
+            <TextView android:id="@+id/pata_cotisation_group_status_1" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="EN COURS" android:textColor="#B8F2D4" android:textStyle="bold" android:textSize="8sp"/>
+        </LinearLayout>
+        <ProgressBar android:id="@+id/pata_cotisation_group_progress_1" style="?android:attr/progressBarStyleHorizontal" android:layout_width="match_parent" android:layout_height="4dp" android:layout_marginTop="5dp" android:max="100" android:progress="0" android:progressTint="#85D8B1" android:progressBackgroundTint="#477E6C"/>
+        <TextView android:id="@+id/pata_cotisation_group_amount_1" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="0 F / 0 F" android:textColor="#FFFFFF" android:textSize="9sp" android:textStyle="bold" android:maxLines="1"/>
+        <TextView android:id="@+id/pata_cotisation_group_activity_1" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:text="Aucune activité récente" android:textColor="#D7EEE6" android:textSize="8sp" android:maxLines="2" android:ellipsize="end"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/pata_cotisation_group_row_2"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="5dp"
+        android:orientation="vertical"
+        android:padding="8dp"
+        android:background="@drawable/pata_widget_card"
+        android:visibility="gone">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+            <TextView android:id="@+id/pata_cotisation_group_name_2" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Groupe" android:textColor="#FFFFFF" android:textStyle="bold" android:textSize="11sp" android:maxLines="1" android:ellipsize="end"/>
+            <TextView android:id="@+id/pata_cotisation_group_status_2" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="EN COURS" android:textColor="#B8F2D4" android:textStyle="bold" android:textSize="8sp"/>
+        </LinearLayout>
+        <ProgressBar android:id="@+id/pata_cotisation_group_progress_2" style="?android:attr/progressBarStyleHorizontal" android:layout_width="match_parent" android:layout_height="4dp" android:layout_marginTop="5dp" android:max="100" android:progress="0" android:progressTint="#85D8B1" android:progressBackgroundTint="#477E6C"/>
+        <TextView android:id="@+id/pata_cotisation_group_amount_2" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="0 F / 0 F" android:textColor="#FFFFFF" android:textSize="9sp" android:textStyle="bold" android:maxLines="1"/>
+        <TextView android:id="@+id/pata_cotisation_group_activity_2" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:text="Aucune activité récente" android:textColor="#D7EEE6" android:textSize="8sp" android:maxLines="2" android:ellipsize="end"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/pata_cotisation_group_row_3"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="5dp"
+        android:orientation="vertical"
+        android:padding="8dp"
+        android:background="@drawable/pata_widget_card"
+        android:visibility="gone">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+            <TextView android:id="@+id/pata_cotisation_group_name_3" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Groupe" android:textColor="#FFFFFF" android:textStyle="bold" android:textSize="11sp" android:maxLines="1" android:ellipsize="end"/>
+            <TextView android:id="@+id/pata_cotisation_group_status_3" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="EN COURS" android:textColor="#B8F2D4" android:textStyle="bold" android:textSize="8sp"/>
+        </LinearLayout>
+        <ProgressBar android:id="@+id/pata_cotisation_group_progress_3" style="?android:attr/progressBarStyleHorizontal" android:layout_width="match_parent" android:layout_height="4dp" android:layout_marginTop="5dp" android:max="100" android:progress="0" android:progressTint="#85D8B1" android:progressBackgroundTint="#477E6C"/>
+        <TextView android:id="@+id/pata_cotisation_group_amount_3" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="0 F / 0 F" android:textColor="#FFFFFF" android:textSize="9sp" android:textStyle="bold" android:maxLines="1"/>
+        <TextView android:id="@+id/pata_cotisation_group_activity_3" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:text="Aucune activité récente" android:textColor="#D7EEE6" android:textSize="8sp" android:maxLines="2" android:ellipsize="end"/>
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/pata_cotisation_widget_more"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="5dp"
+        android:text="Appuie pour ouvrir tes cotisations"
+        android:textColor="#D7EEE6"
+        android:textSize="8sp"
+        android:gravity="end"
+        android:maxLines="1"/>
 </LinearLayout>
