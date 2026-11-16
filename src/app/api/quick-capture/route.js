@@ -363,7 +363,7 @@ export async function POST(request) {
         ...incomeResult,
         recognized: makeRecognized(parsed || { type, amount, categoryId: flowCategory, date }, {
           type, amount, categoryId: flowCategory,
-          source: incomeResult.source || source || person || bankName,
+          source: incomeResult.source || cleanText(parsed?.source || body.source || '', 100) || person || bankName,
           person: person || bankName,
           incomeFlowType,
           debtId: incomeResult.debtId || null,

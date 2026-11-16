@@ -341,8 +341,13 @@ export function QuickCaptureCoordinator() {
           : 'Indique la personne auprès de qui tu as contracté cette dette.');
         return;
       }
-      if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(String(draft.incomeDueDate || ''))
-        || new Date(String(draft.incomeDueDate) + 'T00:00:00.000Z').toISOString().slice(0, 10) !== String(draft.incomeDueDate)) {
+      const dueDateValue = String(draft.incomeDueDate || '');
+      const dueDateParts = dueDateValue.split('-');
+      const dueDateParsed = new Date(dueDateValue + 'T00:00:00.000Z');
+      if (dueDateParts.length !== 3 || dueDateParts[0].length !== 4
+        || dueDateParts[1]?.length !== 2 || dueDateParts[2]?.length !== 2
+        || !Number.isFinite(dueDateParsed.getTime())
+        || dueDateParsed.toISOString().slice(0, 10) !== dueDateValue) {
         setError('Indique la date d’échéance de cette dette.');
         return;
       }
@@ -635,7 +640,7 @@ export function QuickCaptureCoordinator() {
             {optionsLoading && <span className="mt-1 block text-[10px] font-normal text-slate-500">Chargement des créances…</span>}
             {!optionsLoading && captureOptions.receivables.length === 0 && <span className="mt-1 block text-[10px] font-normal text-amber-700">Aucune créance active à encaisser.</span>}
           </label>}
-          {(draft.type !== 'income' || draft.incomeFlowType === 'normal') && <label className="block text-xs font-semibold text-slate-700">Catégorie
+          {draft.type !== 'income' && <label className="block text-xs font-semibold text-slate-700">Catégorie
             <select value={draft.categoryId} onChange={(event) => setDraft((current) => ({ ...current, categoryId: event.target.value }))} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal">
               {categories.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}
             </select>
