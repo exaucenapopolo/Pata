@@ -3,14 +3,14 @@ const BILL_FREQUENCIES = new Set(['weekly', 'monthly', 'quarterly', 'yearly', 'o
 const BILL_CATEGORIES = new Set(['food', 'transport', 'housing', 'internet', 'health', 'leisure', 'gift_donation', 'contribution', 'other']);
 
 function isValidDate(value) {
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(String(value || ''))) return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return false;
   const date = new Date(String(value) + 'T00:00:00.000Z');
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
 export function normalizeSmsBillPayment(input = {}, paidDate) {
   if (!isValidDate(paidDate)) throw new Error('La date du paiement de facture est invalide.');
-  const name = String(input.name || '').trim().replace(/\\s+/g, ' ').slice(0, 100);
+  const name = String(input.name || '').trim().replace(/\s+/g, ' ').slice(0, 100);
   const billType = String(input.billType || 'other').trim();
   const frequency = String(input.frequency || 'once').trim();
   const expenseCategoryId = String(input.expenseCategoryId || 'other').trim();
