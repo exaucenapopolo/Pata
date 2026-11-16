@@ -4892,12 +4892,15 @@ async function handleAutomationsScheduler(request) {
 
 /* ═══════════════════ ROUTES IA ═══════════════════ */
 
-async function reserveDailyAIQuota(uid) {
+async function reserveDailyAIQuota(uid, { premiumOnly = false } = {}) {
   const userRef = adminDb.collection('users').doc(uid);
   return adminDb.runTransaction(async (transaction) => {
     const userSnap = await transaction.get(userRef);
     if (!userSnap.exists) throw new Error('Utilisateur introuvable.');
     const userData = userSnap.data();
+    if (premiumOnly && !isPremiumAccount(userData)) {
+      return { allowed: false, premiumRequired: true, isPremium: false, reserved: false };
+    }
     if (isPremiumAccount(userData)) return { allowed: true, isPremium: true, reserved: false };
 
     const today = new Intl.DateTimeFormat('en-CA', {
@@ -4966,24 +4969,25 @@ async function handleAIChat(request) {
     const intent = classifyAIRequest(latestUserText);
     const requestTools = selectAIToolsForIntent(AI_TOOLS, intent, latestUserText);
 
-    const quota = await reserveDailyAIQuota(uid);
+    const notificationMode = body.notificationMode === true;
+    const quota = await reserveDailyAIQuota(uid, { premiumOnly: notificationMode });
     if (!quota.allowed) {
-      return errorResponse(requestedLanguage === 'en' ? 'You have used your 3 free assistant messages for today. You can try again tomorrow or explore Premium.' : "Tu as utilisé tes 3 utilisations gratuites de l’assistante aujourd’hui. Tu pourras recommencer demain ou découvrir Premium.", 403);
+      const message = quota.premiumRequired
+        ? (requestedLanguage === 'en'
+          ? 'The Mč notification conversation is a Premium feature. Activate Premium in Pata to continue.'
+          : 'La conversation Mč depuis les notifications est réservée à Pata Premium. Active Premium pour continuer.')
+        : (requestedLanguage === 'en'
+          ? 'You have used your 3 free assistant messages for today. You can try again tomorrow or explore Premium.'
+          : "Tu as utilisé tes 3 utilisations gratuites de l’assistante aujourd’hui. Tu pourras recommencer demain ou découvrir Premium.");
+      return errorResponse(message, 403);
     }
     if (quota.reserved) reservedQuota = quota.date;
 
     const reportPeriod = resolveAIReportPeriod(latestUserText, getDoualaToday());
     const userRef = adminDb.collection('users').doc(uid);
-    const notificationMode = body.notificationMode === true;
     const notificationSessionRef = notificationMode
       ? userRef.collection('ai_notification_sessions').doc('active')
       : null;
-    const notificationProfileSnap = notificationMode ? await userRef.get() : null;
-    if (notificationMode && !isPremiumAccount(notificationProfileSnap?.data() || {})) {
-      return errorResponse(requestedLanguage === 'en'
-        ? 'The Mč notification conversation is a Premium feature. Activate Premium in Pata to continue.'
-        : 'La conversation Mč depuis les notifications est réservée à Pata Premium. Active Premium pour continuer.', 403);
-    }
     const emptySnapshot = { docs: [] };
     const includeIncomeContext = intent.needsIncomes || intent.overview;
     const includeExpenseContext = intent.needsExpenses || intent.overview;
@@ -4996,7 +5000,7 @@ async function handleAIChat(request) {
       memorySnap, categoriesSnap, projectsSnap, cotisationMembershipsSnap, activityLogSnap, weeklyReportsSnap,
       notificationSessionSnap,
     ] = await Promise.all([
-      notificationProfileSnap ? Promise.resolve(notificationProfileSnap) : userRef.get(),
+      userRef.get(),
       includeIncomeContext ? incomePeriodQuery.orderBy('date', 'desc').get() : Promise.resolve(emptySnapshot),
       includeExpenseContext ? expensePeriodQuery.orderBy('date', 'desc').get() : Promise.resolve(emptySnapshot),
       intent.needsDebts ? userRef.collection('debts').orderBy('createdAt', 'desc').limit(25).get() : Promise.resolve(emptySnapshot),
