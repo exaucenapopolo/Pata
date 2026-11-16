@@ -14,8 +14,6 @@ export function sanitizeNotificationReply(value, maxLength = 420) {
     return true;
   });
   const plain = lines.join(' ')
-    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
-    .replace(/^\s*(?:[-*+]\s+|\d+[.)]\s+)/gm, '')
     .replace(/[*_~`>#|]/g, ' ')
     .replace(/[\u2022\u2023\u25E6\u2043\u2219\u2192\u2190\u2713\u2714\u2726\u2605]/g, ' ')
     .replace(/\p{Extended_Pictographic}/gu, ' ')
