@@ -41,6 +41,8 @@ export async function enqueueOfflineCapture({ uid, payload, nativeCaptureId = ''
       transaction.onerror = () => reject(transaction.error || new Error('La saisie n’a pas été conservée sur cet appareil.'));
       transaction.onabort = () => reject(transaction.error || new Error('La sauvegarde locale a été interrompue.'));
     });
+    // Avoid an unhandled rejection if the individual put request fails first.
+    committed.catch(() => {});
     const record = {
       id: String(payload.idempotencyKey),
       uid: String(uid),
