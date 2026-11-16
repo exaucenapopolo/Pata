@@ -1,4 +1,9 @@
 const normalize = (value = '') => String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+
+export function isExplicitSpendRecordingRequest(value = '') {
+  const text = normalize(value);
+  return /\\b(?:ajout\\w*|enregistr\\w*|sais\\w*|not\\w*|declar\\w*|inscri\\w*|sauvegard\\w*|add|record|save|log)\\b/.test(text);
+}
 const numericAmount = (value) => {
   const amount = Number(value);
   return Number.isFinite(amount) && amount > 0 ? Math.round(amount) : 0;

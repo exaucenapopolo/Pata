@@ -1,4 +1,4 @@
-import { buildDailySpendingFacts } from './spendingGuidance.mjs';
+import { buildDailySpendingFacts, isExplicitSpendRecordingRequest } from './spendingGuidance.mjs';
 
 const normalize = (value = '') => String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
@@ -47,7 +47,7 @@ export function classifyAIRequest(message = '') {
 }
 
 export function selectAIToolsForIntent(allTools, intent, rawMessage = '') {
-  if (!intent.action) return [];
+  if (!intent.action || (intent.spendingDecision && !isExplicitSpendRecordingRequest(rawMessage))) return [];
   const text = normalize(rawMessage);
   const wanted = new Set();
   if (intent.borrowedDebt && !intent.financialTargets && !intent.update && !intent.remove) wanted.add('add_debt');

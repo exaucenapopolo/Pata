@@ -61,3 +61,11 @@ test('signale quand une dépense dépasse le rythme du jour sans dépasser l’e
   });
   assert.equal(facts.proposedSpend.status, 'above-daily-pace-within-monthly-envelope');
 });
+
+test('une intention d’achat ne crée jamais une dépense sans demande explicite', async () => {
+  const { isExplicitSpendRecordingRequest } = await import('../src/lib/ai/spendingGuidance.mjs');
+  assert.equal(isExplicitSpendRecordingRequest("J'ai envie d'acheter un téléphone à 50000 FCFA"), false);
+  assert.equal(isExplicitSpendRecordingRequest("Je peux dépenser 500 FCFA pour le transport ?"), false);
+  assert.equal(isExplicitSpendRecordingRequest("Enregistre cette dépense de 500 FCFA"), true);
+  assert.equal(isExplicitSpendRecordingRequest("Ajoute un achat de 500 FCFA"), true);
+});
