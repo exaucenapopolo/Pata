@@ -36,17 +36,19 @@ Les notifications générales sont envoyées au groupe FCM, sans parcourir les p
 
 ### Plages horaires et quotas
 
-Tous les rappels automatiques planifiés (dettes, factures, bilan quotidien et bilan du week-end) respectent la plage **17 h 30–22 h 30, heure du Cameroun** (fuseau `Africa/Douala`). Le serveur vérifie cette plage à chaque exécution, même si le planificateur démarre avec quelques minutes de décalage.
+Tous les rappels automatiques planifiés (dettes, factures, bilan quotidien et bilan du week-end) respectent la plage **17 h 30–22 h 30, heure du Cameroun** (fuseau `Africa/Douala`). Le serveur vérifie cette plage à chaque exécution. Le plan Hobby peut démarrer le Cron à n'importe quel moment pendant l'heure prévue (±59 minutes) et ne relance pas automatiquement une exécution échouée.
 
 Les déclencheurs Vercel sont exprimés en UTC :
-- Rappel quotidien : 19:30 UTC, soit 20:30 au Cameroun.
+- Rappel financier quotidien : 16:30 UTC, au début de la plage du soir à 17:30 au Cameroun.
 - Bilan du week-end vendredi et dimanche : 17:00 UTC, soit 18:00 au Cameroun.
 - Bilan du samedi : 16:30 UTC, soit 17:30 au Cameroun.
 
 Les compteurs sont distincts et appliqués côté serveur, dans des transactions Firestore :
-- **Rétention quotidienne : 2 notifications maximum par utilisateur et par jour** pour les rappels de dettes, factures et le rappel financier quotidien.
-- **Notifications non essentielles : 3 maximum par utilisateur et par jour**, avec au moins 90 minutes entre deux envois. Ce plafond global inclut les rappels de rétention ainsi que les messages de découverte et les rappels du week-end : il ne s'ajoute donc pas aux deux rappels précédents.
-- **Cotisations et alertes opérationnelles : hors de ces deux compteurs.** Elles suivent leur propre événement et ne sont pas refusées parce que le quota de rétention est atteint.
+- **Rappels financiers du soir : 2 maximum par utilisateur et par jour** pour les dettes, factures, dépenses récurrentes reconnues et le point financier quotidien.
+- **Messages de rétention en journée : 3 maximum par utilisateur et par jour**, avec au moins 90 minutes entre deux envois. Ce compteur couvre la découverte de fonctionnalités et les rappels du week-end ; il est indépendant des deux rappels du soir.
+- **Cotisations et alertes opérationnelles/transactionnelles : hors de ces deux compteurs.** Elles suivent leur propre événement et ne sont pas refusées parce qu'un quota de rétention est atteint.
+
+Sur Hobby, les deux rappels du soir sont sélectionnés pendant l'exécution quotidienne unique ; ils ne sont pas répartis sur deux déclenchements automatiques espacés.
 
 Le relais e-mail automatique est limité séparément à **100 e-mails par jour UTC**. Une nouvelle tentative avec la même clé d'idempotence ne doit pas créer un deuxième e-mail. Les e-mails transactionnels de sécurité et de paiement qui utilisent directement `sendPataEmail` ne sont pas soumis à ce plafond. En revanche, lorsqu'un rappel de cotisation doit être relayé par e-mail, il reste soumis au plafond e-mail distinct de 100/jour ; il n'est pas soumis au quota de deux notifications.
 
