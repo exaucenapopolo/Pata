@@ -183,5 +183,5 @@ test('détecte correctement le montant après une date écrite avec le mois en p
   const result = parseQuickCapture("facture eau novembre 17 750 FCFA", now);
   assert.equal(result.type, "bill");
   assert.equal(result.amount, 750);
-  assert.equal(result.dueDate, null);
+  assert.equal(result.dueDate, "2026-11-17");
 });
