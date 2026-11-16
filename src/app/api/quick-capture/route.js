@@ -3,6 +3,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { createExpenseForUser, executeAITool } from '@/lib/ai/financialTools';
 import { parseQuickCapture } from '@/lib/quickCapture/parser.mjs';
+import { buildIncomeBudgetRecommendation } from '@/lib/finance/incomeBudgetRecommendation.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -403,8 +404,19 @@ export async function POST(request) {
       }, { merge: true });
       return saved;
     });
+    const budgetRecommendation = !result.duplicate
+      ? buildIncomeBudgetRecommendation({
+        incomeId: result.incomeId,
+        amount,
+        source,
+        categoryId,
+        date,
+        flowType: 'normal',
+      })
+      : null;
     return NextResponse.json({
       success: true, ...result,
+      ...(budgetRecommendation ? { budgetRecommendation } : {}),
       recognized: parsed ? makeRecognized(parsed, { type, amount, categoryId, date, source }) : null,
     });
   } catch (caught) {
