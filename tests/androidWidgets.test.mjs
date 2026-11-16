@@ -66,16 +66,16 @@ test('le widget financier se rafraîchit en arrière-plan avec le compte Premium
   const worker = read('native/android/com/pata/app/PataFinanceWidgetWorker.java');
   const plugin = read('native/android/com/pata/app/PataQuickCapturePlugin.java');
   const dashboard = read('src/app/(app)/dashboard/page.js');
-  assert.match(prepare, /'PataFinanceWidgetWorker\\.java'/);
-  assert.match(provider, /PataFinanceWidgetWorker\\.schedule\\(context\\)/);
-  assert.match(worker, /finance\\/global-summary/);
-  assert.match(worker, /debts\\/list/);
-  assert.match(worker, /NetworkType\\.CONNECTED/);
-  assert.match(worker, /premium_enabled/);
-  assert.match(worker, /owner_uid/);
-  assert.match(plugin, /account_session_mismatch/);
-  assert.match(plugin, /PataFinanceWidgetWorker\\.schedule\\(getContext\\(\\)\\)/);
-  assert.match(dashboard, /uid: user\\.uid/);
+  assert.ok(prepare.includes("'PataFinanceWidgetWorker.java'"));
+  assert.ok(provider.includes('PataFinanceWidgetWorker.schedule(context)'));
+  assert.ok(worker.includes('/finance/global-summary'));
+  assert.ok(worker.includes('/debts/list'));
+  assert.ok(worker.includes('NetworkType.CONNECTED'));
+  assert.ok(worker.includes('premium_enabled'));
+  assert.ok(worker.includes('owner_uid'));
+  assert.ok(plugin.includes('account_session_mismatch'));
+  assert.ok(plugin.includes('PataFinanceWidgetWorker.schedule(getContext())'));
+  assert.ok(dashboard.includes('uid: user.uid'));
 });
 
 test('le widget est vidé et son rafraîchissement annulé à la déconnexion ou à la perte Premium', () => {
