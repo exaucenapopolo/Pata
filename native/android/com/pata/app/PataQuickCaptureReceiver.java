@@ -89,7 +89,6 @@ public class PataQuickCaptureReceiver extends BroadcastReceiver {
                 item.put("id", id);
                 item.put("text", text.trim().substring(0, Math.min(500, text.trim().length())));
                 item.put("ownerUid", ownerUid);
-                item.put("conversationId", conversationId == null ? "" : conversationId);
                 item.put("createdAt", System.currentTimeMillis());
                 item.put("status", "pending");
                 queue.put(item);
@@ -127,6 +126,7 @@ public class PataQuickCaptureReceiver extends BroadcastReceiver {
                 item.put("id", id);
                 item.put("text", text.trim().substring(0, Math.min(1200, text.trim().length())));
                 item.put("ownerUid", ownerUid);
+                item.put("conversationId", conversationId == null ? "" : conversationId);
                 item.put("createdAt", System.currentTimeMillis());
                 queue.put(item);
                 prefs.edit().putString(AI_QUEUE, queue.toString()).apply();
