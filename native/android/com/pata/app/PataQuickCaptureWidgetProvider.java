@@ -19,8 +19,15 @@ public class PataQuickCaptureWidgetProvider extends AppWidgetProvider {
     private static final String PREFS = "PataFinanceWidget";
 
     @Override
+    public void onEnabled(Context context) {
+        super.onEnabled(context);
+        PataFinanceWidgetWorker.schedule(context);
+    }
+
+    @Override
     public void onUpdate(Context context, AppWidgetManager manager, int[] ids) {
         updateWidgets(context, manager, ids);
+        PataFinanceWidgetWorker.schedule(context);
     }
 
     @Override
