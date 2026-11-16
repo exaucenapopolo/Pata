@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 
 const EXPENSE_CATEGORIES = new Set(['food', 'transport', 'housing', 'internet', 'gift_donation', 'health', 'leisure', 'investment', 'contribution', 'savings', 'other']);
 const INCOME_CATEGORIES = new Set(['salary', 'business', 'sales', 'commission', 'rental', 'pension', 'gift', 'other_income']);
-const BILL_TYPES = new Set(['electricity', 'water', 'rent', 'television', 'internet', 'telephone', 'taxes', 'insurance', 'school', 'other']);
+const BILL_TYPES = new Set(['electricity', 'water', 'rent', 'television', 'internet', 'telephone', 'taxes', 'insurance', 'school', 'subscription', 'other']);
 const BILL_FREQUENCIES = new Set(['weekly', 'monthly', 'quarterly', 'yearly', 'once']);
 const BILL_CATEGORIES = new Set(['food', 'transport', 'housing', 'internet', 'health', 'leisure', 'gift_donation', 'contribution', 'other']);
 
@@ -35,6 +35,15 @@ function validDate(value) {
 }
 function cleanText(value, max = 100) {
   return String(value || '').trim().replace(/\s+/g, ' ').slice(0, max);
+}
+function isValidBillImageUrl(value) {
+  try {
+    const url = new URL(String(value || ''));
+    return url.protocol === 'https:' && url.hostname === 'res.cloudinary.com'
+      && url.pathname.startsWith('/do83voiqy/image/upload/');
+  } catch {
+    return false;
+  }
 }
 function makeRecognized(parsed, extra = {}) {
   return {
@@ -98,6 +107,8 @@ export async function POST(request) {
       const frequency = frequencyKnown ? frequencyCandidate : 'once';
       const expenseCategory = BILL_CATEGORIES.has(parsed?.expenseCategoryId || body.expenseCategoryId)
         ? (parsed?.expenseCategoryId || body.expenseCategoryId) : 'other';
+      const imageUrl = String(body.imageUrl || '').trim();
+      if (imageUrl && !isValidBillImageUrl(imageUrl)) return errorResponse('La photo de cette facture n’est pas hébergée sur le service sécurisé de Pata.', 400);
       const isVariable = parsed?.isVariable === true || body.isVariable === true || amount == null;
       const billAmount = amount == null ? 0 : Math.round(amount);
       if (!Number.isSafeInteger(billAmount) || billAmount < 0 || billAmount > 1000000000) return errorResponse('Le montant de la facture est invalide.', 400);
@@ -136,7 +147,9 @@ export async function POST(request) {
           frequencyPending: !frequencyKnown,
           ...(pendingDetails ? { lastDetailsReminderAt: FieldValue.serverTimestamp() } : {}),
           providerName: cleanText(parsed?.providerName || body.providerName || '', 100),
-          accountReference: '', note, active: true, pendingDetails,
+          accountReference: cleanText(body.accountReference || '', 100),
+          imageUrl,
+          note, active: true, pendingDetails,
           quickCaptureId: idempotencyKey,
           createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
         });

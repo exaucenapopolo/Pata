@@ -9159,6 +9159,16 @@ const PATA_BILL_FREQUENCIES = new Set(['weekly', 'monthly', 'quarterly', 'yearly
 const PATA_BILL_REMINDERS = new Set([0, 1, 3, 7, 14]);
 const PATA_BILL_EXPENSE_CATEGORIES = new Set(['food', 'transport', 'housing', 'internet', 'health', 'leisure', 'gift_donation', 'contribution', 'other']);
 
+function isValidPataBillImageUrl(value) {
+  try {
+    const url = new URL(String(value || ''));
+    return url.protocol === 'https:' && url.hostname === 'res.cloudinary.com'
+      && url.pathname.startsWith('/do83voiqy/image/upload/');
+  } catch {
+    return false;
+  }
+}
+
 function normalizePataBill(body, previous = {}) {
   const name = String(body.name === undefined ? previous.name || '' : body.name).trim().slice(0, 100);
   const billType = String(body.billType === undefined ? previous.billType || 'other' : body.billType).trim();
@@ -9170,6 +9180,8 @@ function normalizePataBill(body, previous = {}) {
   const dueDay = nextDueDate ? Number(body.dueDay === undefined ? previous.dueDay || nextDueDate.slice(8, 10) : body.dueDay) : null;
   const reminderDaysBefore = Number(body.reminderDaysBefore === undefined ? previous.reminderDaysBefore ?? 3 : body.reminderDaysBefore);
   const expenseCategoryId = String(body.expenseCategoryId === undefined ? previous.expenseCategoryId || 'other' : body.expenseCategoryId).trim();
+  const imageUrl = String(body.imageUrl === undefined ? previous.imageUrl || '' : body.imageUrl).trim();
+  if (imageUrl && !isValidPataBillImageUrl(imageUrl)) throw new Error('La photo de cette facture n’est pas hébergée sur le service sécurisé de Pata.');
   if (!name) throw new Error('Donne un nom à cette facture.');
   if (!PATA_BILL_TYPES.has(billType)) throw new Error('Choisis un type de facture valide.');
   if (!Number.isSafeInteger(amount) || amount < 0 || amount > 1000000000 || (!isVariable && amount <= 0)) {
@@ -9193,6 +9205,7 @@ function normalizePataBill(body, previous = {}) {
     reminderDaysBefore, expenseCategoryId,
     providerName: String(body.providerName === undefined ? previous.providerName || '' : body.providerName).trim().slice(0, 100),
     accountReference: String(body.accountReference === undefined ? previous.accountReference || '' : body.accountReference).trim().slice(0, 100),
+    imageUrl,
     note: String(body.note === undefined ? previous.note || '' : body.note).trim().slice(0, 250),
     active: body.active === undefined ? previous.active !== false : body.active !== false,
   };
