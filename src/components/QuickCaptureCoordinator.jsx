@@ -12,6 +12,7 @@ import { parseQuickCapture } from '@/lib/quickCapture/parser.mjs';
 import { parseMobileMoneySms } from '@/lib/sms/parseMobileMoneySms.mjs';
 import { PataQuickCapture } from '@/lib/quickCapture/nativePlugin';
 import { uploadBillImage } from '@/lib/bills/uploadBillImage.mjs';
+import { enqueueOfflineCapture, listOfflineCaptures, removeOfflineCapture } from '@/lib/quickCapture/offlineQueue.mjs';
 
 function premiumActive(profile) {
   const raw = profile?.premiumUntil;
@@ -42,6 +43,69 @@ export function QuickCaptureCoordinator() {
   const [voiceChatWorking, setVoiceChatWorking] = useState(false);
   const [voiceChatError, setVoiceChatError] = useState('');
   const syncInProgressRef = useRef(false);
+  const offlineSyncInProgressRef = useRef(false);
+  useEffect(() => {
+    if (!user || !premium || typeof window === 'undefined') return undefined;
+    let active = true;
+    const synchronizeOfflineOperations = async () => {
+      if (!active || !navigator.onLine || offlineSyncInProgressRef.current) return;
+      offlineSyncInProgressRef.current = true;
+      let synchronized = 0;
+      try {
+        const queued = await listOfflineCaptures(user.uid);
+        for (const item of queued) {
+          if (!active || !navigator.onLine || item.uid !== user.uid) break;
+          const token = await user.getIdToken();
+          const payload = { ...item.payload };
+          if (item.sharedImageData && !payload.imageUrl && payload.type === 'bill') {
+            payload.imageUrl = await uploadBillImage(item.sharedImageData);
+          }
+          const response = await fetch('/api/quick-capture', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+            body: JSON.stringify(payload),
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok || !result.success) {
+            if (result.confirmationRequired) {
+              setNotice('Une opération hors connexion attend ta confirmation dans Pata avant synchronisation.');
+            } else if (response.status >= 400 && response.status < 500) {
+              setNotice(result.error || 'Une opération sauvegardée hors connexion doit être vérifiée.');
+            }
+            break;
+          }
+          await removeOfflineCapture(item.id);
+          if (item.nativeCaptureId) {
+            await PataQuickCapture.clearPendingCapture({ id: item.nativeCaptureId }).catch(() => {});
+          }
+          synchronized += 1;
+          window.dispatchEvent(new Event('pata:income-balances-refresh'));
+        }
+        if (synchronized > 0 && active) {
+          setNotice(synchronized + ' opération(s) sauvegardée(s) hors connexion synchronisée(s) avec Pata.');
+        }
+      } catch (syncError) {
+        if (active && navigator.onLine) {
+          console.warn('[PATA OFFLINE SYNC]', syncError?.message || syncError);
+        }
+      } finally {
+        offlineSyncInProgressRef.current = false;
+      }
+    };
+    void synchronizeOfflineOperations();
+    const onOnline = () => { void synchronizeOfflineOperations(); };
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void synchronizeOfflineOperations();
+    };
+    window.addEventListener('online', onOnline);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      active = false;
+      window.removeEventListener('online', onOnline);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [user, premium]);
+
   const expenseCategories = useMemo(() => EXPENSE_CATEGORIES.filter((item) => !['loan_given', 'debt_repayment'].includes(item.id)), []);
   const incomeCategories = useMemo(() => INCOME_CATEGORIES.filter((item) => !['debt_borrowed', 'debt_repayment_received'].includes(item.id)), []);
 
@@ -367,35 +431,48 @@ export function QuickCaptureCoordinator() {
     }
     setWorking(true);
     setError('');
+    let offlinePayload = null;
     try {
-      const token = await user.getIdToken();
       let imageUrl = draft.imageUrl || '';
-      if (draft.type === 'bill' && draft.sharedImageData) {
+      offlinePayload = {
+        type: draft.type, amount, categoryId: draft.categoryId,
+        date: draft.date, source: draft.source, note: draft.note,
+        name: draft.billName, billType: draft.billType, dueDate: draft.dueDate,
+        frequency: draft.frequency, isVariable: draft.isVariable || amount === null,
+        expenseCategoryId: draft.expenseCategoryId, providerName: draft.providerName,
+        accountReference: draft.accountReference, imageUrl,
+        person: draft.person,
+        repaymentDebtId: draft.repaymentDebtId || '',
+        incomeFlowType: draft.incomeFlowType || 'normal',
+        incomePerson: draft.incomePerson || '',
+        incomeCounterpartyType: draft.incomeCounterpartyType || 'person',
+        incomeBankName: draft.incomeBankName || '',
+        incomePhone: draft.incomePhone || '',
+        incomeDueDate: draft.incomeDueDate || '',
+        incomeSourceId: draft.incomeSourceId || 'all',
+        incomeSourceName: draft.incomeSourceName || '',
+        idempotencyKey: draft.id,
+        confirmBudgetOverrun: draft.confirmationRequired === true,
+      };
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        await enqueueOfflineCapture({
+          uid: user.uid, payload: offlinePayload, nativeCaptureId: draft.nativeCaptureId,
+          sharedImageData: draft.sharedImageData || '', capturedAt: new Date().toISOString(),
+        });
+        if (draft.nativeCaptureId) await PataQuickCapture.clearPendingCapture({ id: draft.nativeCaptureId }).catch(() => {});
+        setDraft(null);
+        setNotice('Opération conservée sur cet appareil avec sa date. Elle sera synchronisée automatiquement dès le retour de la connexion.');
+        return;
+      }
+      const token = await user.getIdToken();
+      if (draft.type === 'bill' && draft.sharedImageData && !imageUrl) {
         imageUrl = await uploadBillImage(draft.sharedImageData);
+        offlinePayload.imageUrl = imageUrl;
       }
       const response = await fetch('/api/quick-capture', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify({
-          type: draft.type, amount, categoryId: draft.categoryId,
-          date: draft.date, source: draft.source, note: draft.note,
-          name: draft.billName, billType: draft.billType, dueDate: draft.dueDate,
-          frequency: draft.frequency, isVariable: draft.isVariable || amount === null,
-          expenseCategoryId: draft.expenseCategoryId, providerName: draft.providerName,
-          accountReference: draft.accountReference, imageUrl,
-          person: draft.person,
-          repaymentDebtId: draft.repaymentDebtId || '',
-          incomeFlowType: draft.incomeFlowType || 'normal',
-          incomePerson: draft.incomePerson || '',
-          incomeCounterpartyType: draft.incomeCounterpartyType || 'person',
-          incomeBankName: draft.incomeBankName || '',
-          incomePhone: draft.incomePhone || '',
-          incomeDueDate: draft.incomeDueDate || '',
-          incomeSourceId: draft.incomeSourceId || 'all',
-          incomeSourceName: draft.incomeSourceName || '',
-          idempotencyKey: draft.id,
-          confirmBudgetOverrun: draft.confirmationRequired === true,
-        }),
+        body: JSON.stringify(offlinePayload),
       });
       const result = await response.json().catch(() => ({}));
       if (result.confirmationRequired) {
@@ -412,7 +489,7 @@ export function QuickCaptureCoordinator() {
         await PataQuickCapture.clearSharedContent().catch(() => {});
       }
       if (draft.type !== 'bill') {
-        if (draft.type === 'income' && draft.incomeFlowType !== 'normal') {
+        if (draft.type === 'debt_repayment' || (draft.type === 'income' && draft.incomeFlowType !== 'normal')) {
           // Les emprunts et remboursements sont des flux de dette, pas des revenus gagnés.
         } else {
           await PataQuickCapture.adjustWidgetBalance({
@@ -434,7 +511,24 @@ export function QuickCaptureCoordinator() {
             : 'Dépense enregistrée dans Pata.');
       setDraft(null);
     } catch (saveError) {
-      setError(saveError?.message || 'Impossible d’enregistrer cette opération.');
+      const networkFailure = typeof navigator !== 'undefined' && (!navigator.onLine
+        || saveError instanceof TypeError
+        || /network|failed to fetch|fetch failed|connexion/i.test(String(saveError?.message || '')));
+      if (networkFailure && offlinePayload) {
+        try {
+          await enqueueOfflineCapture({
+            uid: user.uid, payload: offlinePayload, nativeCaptureId: draft.nativeCaptureId,
+            sharedImageData: draft.sharedImageData || '', capturedAt: new Date().toISOString(),
+          });
+          if (draft.nativeCaptureId) await PataQuickCapture.clearPendingCapture({ id: draft.nativeCaptureId }).catch(() => {});
+          setDraft(null);
+          setNotice('Connexion interrompue : opération conservée sur cet appareil. Pata la synchronisera dès que le réseau reviendra.');
+        } catch (storageError) {
+          setError(storageError?.message || 'Impossible de conserver cette opération hors connexion.');
+        }
+      } else {
+        setError(saveError?.message || 'Impossible d’enregistrer cette opération.');
+      }
     } finally {
       setWorking(false);
     }
