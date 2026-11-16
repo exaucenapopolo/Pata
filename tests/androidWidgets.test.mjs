@@ -59,3 +59,29 @@ test('les mises à jour de Quick Capture alimentent le même cache que le widget
   assert.match(plugin, /PataQuickCaptureWidgetProvider\.adjustMonthlyTotal\(getContext\(\), type, amount, date\)/);
   assert.match(coordinator, /type: draft\.type === 'income' \? 'income' : 'expense'/);
 });
+
+test('le widget financier se rafraîchit en arrière-plan avec le compte Premium courant', () => {
+  const prepare = read('native/android/prepare-android.mjs');
+  const provider = read('native/android/com/pata/app/PataQuickCaptureWidgetProvider.java');
+  const worker = read('native/android/com/pata/app/PataFinanceWidgetWorker.java');
+  const plugin = read('native/android/com/pata/app/PataQuickCapturePlugin.java');
+  const dashboard = read('src/app/(app)/dashboard/page.js');
+  assert.match(prepare, /'PataFinanceWidgetWorker\\.java'/);
+  assert.match(provider, /PataFinanceWidgetWorker\\.schedule\\(context\\)/);
+  assert.match(worker, /finance\\/global-summary/);
+  assert.match(worker, /debts\\/list/);
+  assert.match(worker, /NetworkType\\.CONNECTED/);
+  assert.match(worker, /premium_enabled/);
+  assert.match(worker, /owner_uid/);
+  assert.match(plugin, /account_session_mismatch/);
+  assert.match(plugin, /PataFinanceWidgetWorker\\.schedule\\(getContext\\(\\)\\)/);
+  assert.match(dashboard, /uid: user\\.uid/);
+});
+
+test('le widget est vidé et son rafraîchissement annulé à la déconnexion ou à la perte Premium', () => {
+  const plugin = read('native/android/com/pata/app/PataQuickCapturePlugin.java');
+  assert.match(plugin, /public void clearAuthSession/);
+  assert.match(plugin, /putBoolean\\("premium_enabled", false\\)/);
+  assert.match(plugin, /cancelUniqueWork\\("pata_finance_widget_refresh"\\)/);
+  assert.match(plugin, /public void clearFinanceWidget/);
+});
