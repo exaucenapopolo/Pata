@@ -10,7 +10,7 @@ test('la mise à jour Android utilise un code supérieur à la version distribu�
   const prepare = read('native/android/prepare-android.mjs');
   const workflow = read('.github/workflows/android-apk.yml');
   assert.equal(version.version, '1.2.2');
-  assert.equal(version.versionCode, 22);
+  assert.equal(version.versionCode, 23);
   assert.match(prepare, /versionCode 23/);
   assert.match(prepare, /versionName "1.2.2"/);
   assert.match(workflow, /tag_name: android-v1.2.2/);
