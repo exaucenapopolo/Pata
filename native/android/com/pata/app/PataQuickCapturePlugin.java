@@ -235,6 +235,7 @@ public class PataQuickCapturePlugin extends Plugin {
     public void showAIConversationReply(PluginCall call) {
         String message = call.getString("message", "");
         String title = call.getString("title", "Mč · Pata");
+        String conversationId = call.getString("conversationId", "");
         if (message == null || message.trim().isEmpty()) {
             call.reject("Le message de réponse de Mč est vide.");
             return;
@@ -243,7 +244,7 @@ public class PataQuickCapturePlugin extends Plugin {
             call.resolve(new JSObject().put("shown", false).put("reason", "permission_denied"));
             return;
         }
-        showAIConversationReplyNotification(getContext(), title, message, "/dashboard");
+        showAIConversationReplyNotification(getContext(), title, message, "/dashboard", conversationId);
         call.resolve(new JSObject().put("shown", true));
     }
 
@@ -252,6 +253,10 @@ public class PataQuickCapturePlugin extends Plugin {
     }
 
     static void showAIConversationReplyNotification(Context context, String title, String message, String targetPath) {
+        showAIConversationReplyNotification(context, title, message, targetPath, "");
+    }
+
+    static void showAIConversationReplyNotification(Context context, String title, String message, String targetPath, String conversationId) {
         if (!notificationsAllowed(context)) return;
         NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         if (manager == null) return;
@@ -265,10 +270,16 @@ public class PataQuickCapturePlugin extends Plugin {
         Intent open = new Intent(context, MainActivity.class)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP)
             .putExtra("pata_notification_target", targetPath == null || targetPath.trim().isEmpty() ? "/dashboard" : targetPath);
+        if (conversationId != null && !conversationId.trim().isEmpty()) {
+            open.putExtra("pata_ai_conversation_id", conversationId);
+        }
         PendingIntent content = PendingIntent.getActivity(context, 74221, open,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         Intent replyIntent = new Intent(context, PataQuickCaptureReceiver.class)
             .setAction(PataQuickCaptureReceiver.ACTION_AI_REPLY);
+        if (conversationId != null && !conversationId.trim().isEmpty()) {
+            replyIntent.putExtra("pata_ai_conversation_id", conversationId);
+        }
         int mutableFlag = Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0;
         PendingIntent replyPending = PendingIntent.getBroadcast(context, 74222, replyIntent,
             PendingIntent.FLAG_UPDATE_CURRENT | mutableFlag);
