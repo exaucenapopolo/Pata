@@ -296,6 +296,7 @@ export function QuickCaptureCoordinator() {
           uid: user.uid,
           refreshToken: user.refreshToken,
           apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+          premium: true,
         });
         const state = await PataQuickCapture.getPersistentNotificationStatus();
         if (state?.userDisabled) return;
