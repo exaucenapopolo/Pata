@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   Plus, Trash2, TrendingUp, CheckCircle2, Save, RotateCcw, Percent,
   PiggyBank, Target, Pencil, AlertTriangle, Calculator, ArrowRight, Clock3, MapPin, Pin
@@ -79,6 +80,7 @@ const getIncomeExpenseFlowLabel = (expense, isEnglish = false) => {
 };
 
 export default function IncomePage() {
+  const router = useRouter();
   const { user } = useAuth();
   const { language } = useLanguage();
   const isEnglish = language === 'en';
@@ -104,6 +106,7 @@ export default function IncomePage() {
   const [incomeMaxAmount, setIncomeMaxAmount] = useState('');
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyIncomeForm());
+  const [incomeBudgetPrompt, setIncomeBudgetPrompt] = useState(null);
   const [selectedIncome, setSelectedIncome] = useState(null);
   const [incomeExpenseDetails, setIncomeExpenseDetails] = useState({ incomeId: null, loading: false, loadingMore: false, totalSpent: 0, expenseCount: 0, expenses: [], nextCursor: null, error: '' });
 
@@ -607,6 +610,7 @@ export default function IncomePage() {
         else await updateIncome(user.uid, form.id, payload);
       } else {
         const result = await createIncome(user.uid, payload);
+        if (result.budgetRecommendation) setIncomeBudgetPrompt(result.budgetRecommendation);
         if (result.linkedDebt?.status === 'quota_reached') {
           window.alert(translateText('Ta dette est bien enregistrée. Le quota gratuit de 2 liaisons de comptes par mois est atteint ; elle reste suivie normalement dans ton compte.', language));
         }
@@ -1343,6 +1347,49 @@ export default function IncomePage() {
           {error && <p className="text-sm text-red-600">{error}</p>}
           <Button type="submit" className="w-full" disabled={saving}>{saving ? 'Enregistrement…' : form.id && form.flowType === 'debt_borrowed' ? 'Enregistrer l’affectation' : form.id ? 'Enregistrer les modifications' : 'Ajouter le revenu'}</Button>
         </form>
+      </Modal>
+
+      <Modal
+        open={Boolean(incomeBudgetPrompt)}
+        onClose={() => setIncomeBudgetPrompt(null)}
+        title={incomeBudgetPrompt?.isSalary ? 'Organise ton salaire avant de dépenser' : 'Prépare ce revenu avec un budget'}
+      >
+        {incomeBudgetPrompt && (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Revenu enregistré</p>
+              <p className="mt-1 text-xl font-bold text-slate-900">{formatCurrency(incomeBudgetPrompt.amount)}</p>
+              <p className="mt-1 text-sm text-slate-600">{incomeBudgetPrompt.source}</p>
+            </div>
+            {incomeBudgetPrompt.isSalary ? (
+              <p className="text-sm leading-6 text-slate-700">
+                Ton salaire doit couvrir tout le mois. En le répartissant maintenant entre le loyer, les factures, la nourriture, le transport et tes autres priorités, tu réduis le risque de le voir disparaître avant la fin du mois. Pata te recommande fortement de créer des budgets liés à ce salaire. Tu peux néanmoins refuser et le faire plus tard.
+              </p>
+            ) : (
+              <p className="text-sm leading-6 text-slate-700">
+                Pour éviter de dépenser ce revenu sans plan, Pata te recommande de le répartir entre tes priorités et de rattacher les budgets à cette source. Tu garderas ainsi une meilleure visibilité sur ce que tu peux dépenser.
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                const target = incomeBudgetPrompt.target;
+                setIncomeBudgetPrompt(null);
+                if (target) router.push(target);
+              }}
+              className="w-full rounded-xl bg-[#075b43] px-4 py-3 text-sm font-semibold text-white"
+            >
+              Créer les budgets liés à ce revenu
+            </button>
+            <button
+              type="button"
+              onClick={() => setIncomeBudgetPrompt(null)}
+              className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-600"
+            >
+              Plus tard, je préfère continuer sans budget
+            </button>
+          </div>
+        )}
       </Modal>
 
       {/* 🟢 MODALE DES PRÉVISIONS AVEC CALCUL EN TEMPS RÉEL */}
