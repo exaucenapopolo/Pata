@@ -90,6 +90,20 @@ test('reconnaît un emprunt reçu sans employer le mot dette', () => {
   assert.equal(result.person, "Phinéas");
 });
 
+test('reconnaît une personne qui prête : Phinéas m’a prêté', () => {
+  const result = parseQuickCapture("Phinéas m'a prêté 5 000 FCFA", now);
+  assert.equal(result.type, "debt_borrowed");
+  assert.equal(result.amount, 5000);
+  assert.equal(result.person, "Phinéas");
+});
+
+test('reconnaît un montant pris chez une personne comme un emprunt', () => {
+  const result = parseQuickCapture("J'ai pris 7 500 FCFA chez Phinéas", now);
+  assert.equal(result.type, "debt_borrowed");
+  assert.equal(result.amount, 7500);
+  assert.equal(result.person, "Phinéas");
+});
+
 test('reconnaît un prêt pris auprès d’une banque comme une dette contractée', () => {
   const result = parseQuickCapture("J'ai pris un prêt de 100 000 FCFA auprès de la banque", now);
   assert.equal(result.type, "debt_borrowed");
