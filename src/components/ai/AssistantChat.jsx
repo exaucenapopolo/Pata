@@ -351,7 +351,11 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
       || (new Date(b.updatedAt?.toDate?.() || b.updatedAt || b.createdAt?.toDate?.() || b.createdAt || 0).getTime()
         - new Date(a.updatedAt?.toDate?.() || a.updatedAt || a.createdAt?.toDate?.() || a.createdAt || 0).getTime())),
   [chats, chatSourceFilter]);
-  const groupedChats = useMemo(() => groupChatsByDate(visibleChats, language), [visibleChats, language]);
+  const pinnedChats = useMemo(() => visibleChats.filter((chat) => chat.pinned), [visibleChats]);
+  const groupedChats = useMemo(
+    () => groupChatsByDate(visibleChats.filter((chat) => !chat.pinned), language),
+    [visibleChats, language]
+  );
   
   const [showMentions, setShowMentions] = useState(false);
   const textareaRef = useRef(null);
@@ -388,6 +392,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
   }, [input]);
 
   const startNewChat = () => {
+    setChatSourceFilter('assistant');
     setActiveChatId(null);
     setMessages([]);
     setInput('');
@@ -640,7 +645,23 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
           </div>
 
           <div className="flex-1 overflow-y-auto px-3 pb-3">
-            {groupedChats.length === 0 ? (
+            {pinnedChats.length > 0 && (
+              <section className="mb-4">
+                <h3 className="sticky top-0 z-10 mb-1.5 bg-slate-50 px-2 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-amber-700">Épinglées</h3>
+                <div className="space-y-1">
+                  {pinnedChats.map((c) => (
+                    <div key={c.id} className={'group relative flex items-center rounded-xl transition-colors ' + (activeChatId === c.id ? 'bg-brand-100' : 'hover:bg-slate-200')}>
+                      <button onClick={() => loadChat(c)} className="min-w-0 flex-1 px-2.5 py-2 text-left">
+                        <span className="block truncate text-xs font-medium text-slate-700">{c.title || 'Sans titre'}</span>
+                        <span className="mt-0.5 block text-[10px] text-slate-400">{formatConversationTime(c.updatedAt || c.createdAt, language)}</span>
+                      </button>
+                      <button type="button" onClick={(event) => toggleChatPinned(event, c)} className="rounded-lg p-1.5 pr-2 text-amber-600 hover:bg-white" aria-label="Désépingler la conversation"><Pin size={12} /></button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+            {groupedChats.length === 0 && pinnedChats.length === 0 ? (
               <p className="px-2 py-4 text-xs leading-5 text-slate-500">{chatSourceFilter === 'notifications' ? 'Les échanges commencés depuis une notification apparaîtront ici.' : 'Tes conversations enregistrées apparaîtront ici, classées par date.'}</p>
             ) : groupedChats.map((group) => (
               <section key={group.key} className="mb-4">
