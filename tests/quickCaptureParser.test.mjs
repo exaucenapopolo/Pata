@@ -130,3 +130,45 @@ test('reconnaît la fréquence même lorsque le type de facture reste à précis
   assert.equal(result.billType, 'other');
   assert.equal(result.frequency, 'monthly');
 });
+
+test('reconnaît une facture et une échéance écrite en toutes lettres sans mot échéance', () => {
+  const result = parseQuickCapture("500 FCFA factures d'électricité 17 novembre", now);
+  assert.equal(result.type, "bill");
+  assert.equal(result.amount, 500);
+  assert.equal(result.billType, "electricity");
+  assert.equal(result.dueDate, "2026-11-17");
+  assert.equal(result.date, "2026-11-15");
+});
+test('accepte la date d’échéance au format jour/mois', () => {
+  const result = parseQuickCapture("facture ENEO 500 17/11/2026", now);
+  assert.equal(result.dueDate, "2026-11-17");
+});
+test('reconnaît une échéance non étiquetée sur une dette', () => {
+  const result = parseQuickCapture("dette 300 à Paul 20 novembre", now);
+  assert.equal(result.type, "debt_borrowed");
+  assert.equal(result.dueDate, "2026-11-20");
+  assert.equal(result.date, "2026-11-15");
+});
+test('reconnaît un repas avec un montant placé au milieu de la phrase', () => {
+  const result = parseQuickCapture("J'ai mangé au déjeuner pour 500 FCFA au snack", now);
+  assert.equal(result.type, "expense");
+  assert.equal(result.amount, 500);
+  assert.equal(result.categoryId, "food");
+  assert.equal(result.note, "au snack");
+});
+test('reconnaît les synonymes alimentation et petite faute de frappe', () => {
+  const result = parseQuickCapture("alimantation 750 FCFA", now);
+  assert.equal(result.type, "expense");
+  assert.equal(result.categoryId, "food");
+});
+test('reconnaît un revenu même sans employer le mot revenu', () => {
+  const result = parseQuickCapture("j'ai touché ma rémunération 80 000 FCFA", now);
+  assert.equal(result.type, "income");
+  assert.equal(result.categoryId, "salary");
+  assert.equal(result.amount, 80000);
+});
+test('une date explicitement décrite comme date de transaction ne devient pas une échéance', () => {
+  const result = parseQuickCapture("facture ENEO 500 date de paiement 10 novembre", now);
+  assert.equal(result.dueDate, null);
+  assert.equal(result.date, "2026-11-10");
+});
