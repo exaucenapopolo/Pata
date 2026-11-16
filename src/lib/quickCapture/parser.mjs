@@ -115,7 +115,11 @@ function extractDueDate(text, now, hasBill, hasLoan, hasDebt) {
   return null;
 }
 function extractAmount(text) {
-  const amountText = String(text || "").replace(/\b20\d{2}-\d{1,2}-\d{1,2}\b/g, " ").replace(/\b[0-3]?\d[/.\-][01]?\d(?:[/.\-]20\d{2})?\b/g, " ");
+  const amountText = String(text || "")
+    .replace(/\b20\d{2}-\d{1,2}-\d{1,2}\b/g, " ")
+    .replace(/\b[0-3]?\d[/.\-][01]?\d(?:[/.\-]20\d{2})?\b/g, " ")
+    .replace(/\b\d{1,2}(?:er)?\s+(?:janvier|janv|fevrier|fevr|fev|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)(?:\s+20\d{2})?\b/gi, " ")
+    .replace(/\b(?:janvier|janv|fevrier|fevr|fev|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)\s+\d{1,2}(?:\s+20\d{2})?\b/gi, " ");
   const match = amountText.match(/(?:^|\D)(\d{1,3}(?:[ .,'’]\d{3})+|\d{1,10})(?:\s*(?:fcfa|xaf|cfa|francs?))?/i);
   if (!match) return null;
   const amount = Number(match[1].replace(/\D/g, ""));
