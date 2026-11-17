@@ -12,13 +12,27 @@ test('recommends a strongly prioritized budget for salary without blocking incom
   assert.equal(result.target, '/budgets?month=2026-11&incomeId=income-123');
 });
 
-test('offers budget planning for every other normal income category', () => {
+test('offers budget planning for standard and custom normal income categories', () => {
   const result = buildIncomeBudgetRecommendation({
     incomeId: 'income-456', amount: 25000, source: 'Ventes', categoryId: 'sales',
     date: '2026-11-12',
   });
+  const custom = buildIncomeBudgetRecommendation({
+    incomeId: 'income-custom', amount: 45000, source: 'Cours particuliers',
+    categoryId: 'custom-education', date: '2026-11-12',
+  });
   assert.equal(result.isSalary, false);
   assert.match(result.target, /income-456/);
+  assert.equal(custom.categoryId, 'custom-education');
+  assert.equal(custom.isSalary, false);
+});
+
+test('recognizes salary by its source label even when categorized as other income', () => {
+  const result = buildIncomeBudgetRecommendation({
+    incomeId: 'income-salary-source', amount: 180000, source: 'Salaire de novembre',
+    categoryId: 'other_income', date: '2026-11-30',
+  });
+  assert.equal(result.isSalary, true);
 });
 
 test('does not suggest budgets for neutral borrowing, repayments, or invalid income data', () => {
