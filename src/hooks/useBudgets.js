@@ -11,6 +11,8 @@ export function useBudgets(month, incomeSourceId = null) {
 
   useEffect(() => {
     if (!user || !month) { setBudgets([]); setLoading(false); return; }
+    setLoading(true);
+    setBudgets([]);
     const unsub = subscribeBudgets(user.uid, month, (items) => {
       setBudgets(items); setLoading(false);
     }, incomeSourceId);

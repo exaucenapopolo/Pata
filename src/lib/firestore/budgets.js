@@ -33,6 +33,21 @@ export async function upsertBudget(uid, { categoryId, amount, month, incomeSourc
   return result.id;
 }
 
+export async function upsertBudgets(uid, { items, month, incomeSourceId }) {
+  const user = auth.currentUser;
+  if (!user || user.uid !== uid) throw new Error('Session expirée. Reconnecte-toi puis réessaie.');
+  if (!Array.isArray(items) || !items.length) throw new Error('Ajoute au moins une catégorie au budget.');
+  const token = await user.getIdToken();
+  const response = await fetch('/api/budgets/upsert-many', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ items, month, incomeSourceId }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.success) throw new Error(result.error || 'Impossible d’enregistrer ce budget.');
+  return result;
+}
+
 export async function deleteBudget(uid, id) {
   await deleteDoc(doc(db, 'users', uid, 'budgets', id));
 }
