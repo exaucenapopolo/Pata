@@ -349,6 +349,7 @@ function extractBillDetails(raw, normalized) {
   const frequency = /hebdomadaire|chaque semaine|par semaine|toutes les semaines/i.test(normalized) ? "weekly"
     : /trimestriel|chaque trimestre|tous les 3 mois/i.test(normalized) ? "quarterly"
     : /annuel|chaque annee|par an|tous les ans/i.test(normalized) ? "yearly"
+    : /mensuel|chaque mois|par mois|tous les mois/i.test(normalized) ? "monthly" : null;
   if (!match) return { billType: "other", expenseCategoryId: "other", billName: "Facture à préciser", frequency };
   return { billType: match[0], expenseCategoryId: match[2], billName: "Facture " + match[3], frequency, categoryAliases: match[4] };
 }
