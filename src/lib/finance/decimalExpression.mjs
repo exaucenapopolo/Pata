@@ -160,3 +160,13 @@ export function evaluateMoneyExpression(source) {
     isRounded: !/^-?\d+$/.test(exactValue),
   };
 }
+
+
+/** Applies a keypad action without confusing action names with entered characters. */
+export function applyMoneyKey(expression, key) {
+  const current = String(expression ?? '');
+  const action = String(key ?? '');
+  if (action === 'clear' || action === 'C') return '';
+  if (action === 'delete' || action === '⌫') return current.slice(0, -1);
+  return current + action;
+}
