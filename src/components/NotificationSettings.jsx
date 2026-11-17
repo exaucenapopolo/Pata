@@ -204,36 +204,6 @@ function WebPushNotificationSettings() {
     refreshStatus().catch((error) => setMessage(friendlyNotificationError(error, 'Impossible de vérifier les notifications. Réessaie dans un instant.')));
   }, [refreshStatus]);
 
-  // Les anciens jetons FCM restent pris en charge pendant que les utilisateurs migrent vers Web Push.
-  useEffect(() => {
-    let unsubscribe = null;
-    let active = true;
-    (async () => {
-      try {
-        if (!user || !(await isSupported()) || !('Notification' in window) || Notification.permission !== 'granted') return;
-        const messaging = getMessaging(app);
-        const { onMessage } = await import('firebase/messaging');
-        unsubscribe = onMessage(messaging, async (payload) => {
-          if (!active || !payload) return;
-          const data = payload.data || {};
-          const notice = payload.notification || {};
-          const registration = await navigator.serviceWorker.getRegistration('/');
-          if (!registration) return;
-          await registration.showNotification(data.title || notice.title || 'Pata', {
-            body: data.body || notice.body || 'Ouvre Pata pour consulter cette information.',
-            icon: '/android-chrome-192x192.png',
-            badge: '/android-chrome-192x192.png',
-            tag: data.tag || 'pata-foreground',
-            data: { url: data.url || '/dashboard' },
-          });
-        });
-      } catch (error) {
-        console.warn('[PATA FOREGROUND PUSH]', error?.message || error);
-      }
-    })();
-    return () => { active = false; if (unsubscribe) unsubscribe(); };
-  }, [user]);
-
   const subscribe = async () => {
     if (!user) return setMessage('Reconnecte-toi pour activer les notifications.');
     const reason = getPushSupportMessage();

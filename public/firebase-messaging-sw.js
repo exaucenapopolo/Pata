@@ -24,11 +24,12 @@ self.addEventListener('push', (event) => {
   if (payload?.source !== 'pata-webpush') return;
   event.waitUntil(self.registration.showNotification(payload.title || 'Pata', {
     body: payload.body || 'Ouvre Pata pour consulter cette information.',
-    icon: payload.icon || '/android-chrome-192x192.png',
-    badge: payload.badge || '/android-chrome-192x192.png',
+    icon: payload.icon || '/pata-notification.svg',
+    badge: payload.badge || '/pata-notification-badge.svg',
     tag: payload.tag || 'pata-notification',
     renotify: false,
     data: { url: payload.url || '/dashboard' },
+    ...(typeof payload.image === 'string' && payload.image.startsWith('https://') ? { image: payload.image } : {}),
   }));
 });
 
@@ -52,11 +53,12 @@ if (firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.messagin
     if (payload.notification) return;
     return self.registration.showNotification(payload.data?.title || 'Pata', {
       body: payload.data?.body || 'Ouvre Pata pour consulter ton suivi financier.',
-      icon: '/android-chrome-192x192.png',
-      badge: '/android-chrome-192x192.png',
+      icon: '/pata-notification.svg',
+      badge: '/pata-notification-badge.svg',
       data: { url: payload.data?.url || '/dashboard' },
       tag: payload.data?.tag || 'pata-notification',
       renotify: false,
+      ...(typeof (payload.data?.imageUrl || payload.data?.image) === 'string' && String(payload.data?.imageUrl || payload.data?.image).startsWith('https://') ? { image: String(payload.data?.imageUrl || payload.data?.image) } : {}),
     });
   });
 }

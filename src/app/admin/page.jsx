@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Activity, ArrowDownLeft, ArrowDownToLine, ArrowUpRight, Bell, CheckCircle2, ChevronRight, CircleDollarSign, Clock3, CreditCard, Database, Download, FileText, Globe, HandCoins, KeyRound, Loader2, LogOut, Mail, MessageCircle, Monitor, PiggyBank, RefreshCw, Search, Send, ShieldCheck, Smartphone, Target, Users, Wallet, XCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/context/LanguageContext';
+import { CloudinaryImageField } from '@/components/ui/CloudinaryImageField';
 
 const money = (value) => value == null || !Number.isFinite(Number(value)) ? '—' : `${Math.round(Number(value)).toLocaleString('fr-FR')} FCFA`;
 const currentMonthKey = () => { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`; };
@@ -612,8 +613,11 @@ export default function AdminPage() {
         </div>}
         <label className="block text-sm font-medium">Titre<input maxLength={80} value={broadcastTitle} onChange={e=>setBroadcastTitle(e.target.value)} className="mt-1 h-11 w-full rounded-lg border border-slate-200 px-3 text-sm" required/></label>
         <label className="mt-3 block text-sm font-medium">Message<textarea maxLength={220} value={broadcastMessage} onChange={e=>setBroadcastMessage(e.target.value)} rows={4} className="mt-1 w-full rounded-lg border border-slate-200 p-3 text-sm" placeholder="Rédige un message clair et utile…" required/></label>
-        <label className="mt-3 block text-sm font-medium">Image facultative (lien HTTPS)<input type="url" value={broadcastImageUrl} onChange={e=>setBroadcastImageUrl(e.target.value)} className="mt-1 h-11 w-full rounded-lg border border-slate-200 px-3 text-sm" placeholder="https://exemple.com/illustration.jpg"/></label>
-        {broadcastImageUrl.trim().startsWith('https://') && <img src={broadcastImageUrl.trim()} alt="Aperçu de la notification" className="mt-2 max-h-44 w-full rounded-xl border border-slate-200 object-cover" />}
+        <div className="mt-3">
+          <CloudinaryImageField value={broadcastImageUrl} onChange={setBroadcastImageUrl} folder="pata/notifications" language={isEnglish ? 'en' : 'fr'} label={isEnglish ? 'Notification image' : 'Image de la notification'}/>
+          {broadcastImageUrl && <p className="mt-2 break-all text-[10px] leading-4 text-slate-500">{isEnglish ? 'Cloudinary image link:' : 'Lien de l’image créé sur Cloudinary :'} {broadcastImageUrl}</p>}
+        </div>
+        {broadcastImageUrl && <img src={broadcastImageUrl} alt="Aperçu de la notification" className="mt-2 max-h-44 w-full rounded-xl border border-slate-200 object-cover" />}
         <label className="mt-3 block text-sm font-medium">Page à ouvrir<input value={broadcastPath} onChange={e=>setBroadcastPath(e.target.value)} className="mt-1 h-11 w-full rounded-lg border border-slate-200 px-3 text-sm" placeholder="/dashboard"/></label>
         {broadcastResult&&<p className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">{broadcastResult}</p>}
         <button disabled={busy||(recipientMode==='selected'&&!selectedRecipientIds.length)} className="mt-4 inline-flex h-11 items-center gap-2 rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white disabled:opacity-50">{busy?<Loader2 className="animate-spin" size={16}/>:<Bell size={16}/>} Envoyer la notification</button>

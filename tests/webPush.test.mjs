@@ -56,3 +56,19 @@ test('génère une identité stable et traite les abonnements expirés', () => {
   assert.equal(isExpiredWebPushError({ statusCode: 404 }), true);
   assert.equal(isExpiredWebPushError({ statusCode: 500 }), false);
 });
+
+test('construit un payload Web Push avec image Cloudinary et icônes Pata', async () => {
+  const { buildPataWebPushPayload } = await import('../src/lib/notifications/webPush.mjs');
+  const imageUrl = 'https://res.cloudinary.com/do83voiqy/image/upload/v1/pata/notifications/info.jpg';
+  const payload = buildPataWebPushPayload({ title: 'Information Pata', body: 'Un nouveau message', url: '/dashboard', imageUrl });
+  assert.equal(payload.source, 'pata-webpush');
+  assert.equal(payload.icon.endsWith('/pata-notification.svg'), true);
+  assert.equal(payload.badge.endsWith('/pata-notification-badge.svg'), true);
+  assert.equal(payload.image, imageUrl);
+});
+
+test('refuse une image non HTTPS dans le payload Web Push', async () => {
+  const { buildPataWebPushPayload } = await import('../src/lib/notifications/webPush.mjs');
+  const payload = buildPataWebPushPayload({ imageUrl: 'http://example.com/photo.jpg' });
+  assert.equal(Object.prototype.hasOwnProperty.call(payload, 'image'), false);
+});

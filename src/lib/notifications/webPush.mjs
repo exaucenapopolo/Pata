@@ -53,6 +53,27 @@ function getSafeImageUrl(value) {
   } catch { return ''; }
 }
 
+export function buildPataWebPushPayload(notification = {}) {
+  const rawUrl = String(notification.url || notification.target || '/dashboard');
+  let safeUrl = '/dashboard';
+  try {
+    const target = new URL(rawUrl, APP_URL);
+    if (target.origin === APP_URL) safeUrl = target.pathname + target.search + target.hash;
+  } catch { /* conserver /dashboard */ }
+  const tag = String(notification.tag || 'pata-notification').replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 32);
+  const image = getSafeImageUrl(notification.imageUrl);
+  return {
+    source: 'pata-webpush',
+    title: String(notification.title || 'Pata').slice(0, 80),
+    body: String(notification.body || 'Ouvre Pata pour consulter cette information.').slice(0, 220),
+    url: safeUrl,
+    tag,
+    icon: APP_URL + '/pata-notification.svg',
+    badge: APP_URL + '/pata-notification-badge.svg',
+    ...(image ? { image } : {}),
+  };
+}
+
 export async function sendPataWebPush(subscriptionInput, notification) {
   const publicKey = process.env.NEXT_PUBLIC_WEB_PUSH_VAPID_KEY;
   const privateKey = process.env.WEB_PUSH_VAPID_PRIVATE_KEY;
@@ -62,24 +83,7 @@ export async function sendPataWebPush(subscriptionInput, notification) {
   const subscription = normalizeWebPushSubscription(subscriptionInput);
   webPush.setVapidDetails(subject, publicKey, privateKey);
 
-  const rawUrl = String(notification.url || notification.target || '/dashboard');
-  let safeUrl = '/dashboard';
-  try {
-    const target = new URL(rawUrl, APP_URL);
-    if (target.origin === APP_URL) safeUrl = target.pathname + target.search + target.hash;
-  } catch { /* conserver /dashboard */ }
-
-  const tag = String(notification.tag || 'pata-notification').replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 32);
-  const payload = {
-    source: 'pata-webpush',
-    title: String(notification.title || 'Pata').slice(0, 80),
-    body: String(notification.body || 'Ouvre Pata pour consulter cette information.').slice(0, 220),
-    url: safeUrl,
-    tag,
-    icon: APP_URL + '/android-chrome-192x192.png',
-    badge: APP_URL + '/android-chrome-192x192.png',
-    ...(getSafeImageUrl(notification.imageUrl) ? { image: getSafeImageUrl(notification.imageUrl) } : {}),
-  };
+  const payload = buildPataWebPushPayload(notification);
 
   return webPush.sendNotification(subscription, JSON.stringify(payload), {
     TTL: 86400,

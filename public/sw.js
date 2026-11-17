@@ -51,8 +51,8 @@ self.addEventListener('push', (event) => {
   if (payload?.source !== 'pata-webpush') return;
   event.waitUntil(self.registration.showNotification(payload.title || 'Pata', {
     body: payload.body || 'Ouvre Pata pour consulter cette information.',
-    icon: payload.icon || '/android-chrome-192x192.png',
-    badge: payload.badge || '/android-chrome-192x192.png',
+    icon: payload.icon || '/pata-notification.svg',
+    badge: payload.badge || '/pata-notification-badge.svg',
     tag: payload.tag || 'pata-notification',
     renotify: false,
     data: { url: payload.url || '/dashboard' },

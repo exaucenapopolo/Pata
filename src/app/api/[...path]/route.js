@@ -82,7 +82,7 @@ async function sendPataPushToUser(userRef,notification,appUrl,knownUserData=null
  if(knownCount>0||profile.notificationsEnabled===true){subscriptionsSnapshot=await userRef.collection('webPushSubscriptions').get();for(const doc of subscriptionsSnapshot.docs){const d=doc.data()||{};if(d.endpoint&&d.keys?.p256dh&&d.keys?.auth)webPushTargets.push({id:doc.id,ref:doc.ref,subscription:{endpoint:d.endpoint,expirationTime:d.expirationTime??null,keys:d.keys}});}}
  const path=String(copy.url||copy.target||'/dashboard'),imageUrl=getSafeNotificationImageUrl(copy.imageUrl),tag=String(copy.tag||'pata-automatic').replace(/[^a-zA-Z0-9_-]/g,'-').slice(0,32);
  const result=await dispatchPushNotification({tokens,subscriptions:webPushTargets,
-  sendFcm:token=>adminMessaging.send({token,notification:{title:copy.title,body:copy.body,...(imageUrl?{imageUrl}:{})},data:{title:copy.title,body:copy.body,url:path,tag,source:String(copy.source||'automatic'),...(imageUrl?{imageUrl}:{})},android:{priority:'high',notification:{channelId:'pata_general',icon:'ic_stat_pata',color:'#0b5c46',...(imageUrl?{imageUrl}:{})}},webpush:{headers:{TTL:'86400',Urgency:'high'},notification:{title:copy.title,body:copy.body,icon:appUrl+'/android-chrome-192x192.png',badge:appUrl+'/android-chrome-192x192.png',tag,renotify:false,...(imageUrl?{image:imageUrl}:{})},fcmOptions:{link:new URL(path,appUrl).toString()}}}),
+  sendFcm:token=>adminMessaging.send({token,notification:{title:copy.title,body:copy.body,...(imageUrl?{imageUrl}:{})},data:{title:copy.title,body:copy.body,url:path,tag,source:String(copy.source||'automatic'),...(imageUrl?{imageUrl}:{})},android:{priority:'high',notification:{channelId:'pata_general',icon:'ic_stat_pata',color:'#0b5c46',...(imageUrl?{imageUrl}:{})}},webpush:{headers:{TTL:'86400',Urgency:'high'},notification:{title:copy.title,body:copy.body,icon:appUrl+'/pata-notification.svg',badge:appUrl+'/pata-notification-badge.svg',tag,renotify:false,...(imageUrl?{image:imageUrl}:{})},fcmOptions:{link:new URL(path,appUrl).toString()}}}),
   sendWebPush:entry=>sendPataWebPush(entry.subscription,{title:copy.title,body:copy.body,url:path,tag,imageUrl})});
  if(result.invalidTokens.length)await userRef.set({pushTokens:FieldValue.arrayRemove(...result.invalidTokens)},{merge:true}).catch(()=>{});
  if(result.expiredSubscriptions.length)await Promise.all(result.expiredSubscriptions.map(x=>x.ref.delete().catch(()=>{})));
@@ -2224,8 +2224,8 @@ async function handleNotificationTest(request) {
         notification: {
           title: 'Pata — test réussi',
           body: 'Les notifications sont bien reliées à cet appareil.',
-          icon: appUrl + '/android-chrome-192x192.png',
-          badge: appUrl + '/android-chrome-192x192.png',
+          icon: appUrl + '/pata-notification.svg',
+          badge: appUrl + '/pata-notification-badge.svg',
           tag,
         },
         fcmOptions: { link: new URL('/settings', appUrl).toString() },
@@ -7326,8 +7326,8 @@ async function handleAdminBroadcast(request) {
           headers: { TTL: '86400', Urgency: 'high' },
           notification: {
             title, body: message,
-            icon: appUrl + '/android-chrome-192x192.png',
-            badge: appUrl + '/android-chrome-192x192.png',
+            icon: appUrl + '/pata-notification.svg',
+            badge: appUrl + '/pata-notification-badge.svg',
             tag, renotify: false, ...(imageUrl ? { image: imageUrl } : {}),
           },
           fcmOptions: { link: new URL(path, appUrl).toString() },
@@ -7370,7 +7370,7 @@ async function handleAdminBroadcast(request) {
     for (let offset = 0; offset < webPushTargets.length; offset += 40) {
       const chunk = webPushTargets.slice(offset, offset + 40);
       const results = await Promise.allSettled(chunk.map((target) => sendPataWebPush(target.subscription, {
-        title, body: message, url: path, tag,
+        title, body: message, url: path, tag, imageUrl,
       })));
       for (let index = 0; index < results.length; index += 1) {
         const result = results[index];

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { getMessaging, isSupported, onMessage } from 'firebase/messaging';
 import app from '@/lib/firebase/client';
 import { useAuth } from '@/hooks/useAuth';
@@ -14,23 +15,25 @@ export function PushMessageListener() {
 
     const start = async () => {
       try {
-        if (!user || typeof window === 'undefined' || !('Notification' in window)) return;
+        if (Capacitor.isNativePlatform() || !user || typeof window === 'undefined' || !('Notification' in window)) return;
         if (Notification.permission !== 'granted' || !(await isSupported())) return;
         const messaging = getMessaging(app);
         unsubscribe = onMessage(messaging, (payload) => {
           if (!active || Notification.permission !== 'granted') return;
           const title = payload.data?.title || payload.notification?.title || 'Pata';
+          const image = payload.data?.imageUrl || payload.notification?.imageUrl || payload.notification?.image;
           const options = {
             body: payload.data?.body || payload.notification?.body || 'Ouvre Pata pour consulter ton suivi.',
-            icon: '/android-chrome-192x192.png',
-            badge: '/android-chrome-192x192.png',
+            icon: '/pata-notification.svg',
+            badge: '/pata-notification-badge.svg',
+            ...(typeof image === 'string' && image.startsWith('https://') ? { image } : {}),
             tag: payload.data?.tag || 'pata-foreground',
             renotify: false,
             data: { url: payload.data?.url || '/dashboard' },
           };
           void (async () => {
             try {
-              const registration = await navigator.serviceWorker.getRegistration('/firebase-messaging/');
+              const registration = await navigator.serviceWorker.getRegistration('/');
               if (registration?.active && typeof registration.showNotification === 'function') {
                 await registration.showNotification(title, options);
               } else if (Notification.permission === 'granted') {
