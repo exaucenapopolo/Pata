@@ -418,16 +418,18 @@ export function parseQuickCapture(input, now = new Date(), options = {}) {
     ...(expense?.[2] || []),
     ...(customExpense ? [customExpense.name || customExpense.label] : []),
   ].filter(Boolean);
+  const source = type === "income" ? extractIncomeSource(raw, categoryId, income?.[1], customIncome) : "";
   const incomeAliases = [
     ...INCOME_INTENT_ALIASES,
+    ...(income?.[2] || []),
     ...(customIncome ? [customIncome.name || customIncome.label] : []),
+    ...(source ? [source] : []),
   ];
   const note = cleanNote(raw,
     type === "expense" ? expenseAliases
       : type === "income" ? incomeAliases
       : type === "bill" ? bill?.categoryAliases || [] : [],
     type === "expense");
-  const source = type === "income" ? extractIncomeSource(raw, categoryId, income?.[1], customIncome) : "";
   const dueDate = hasRepayment ? null : extractDueDate(raw, now, hasBill, hasLoan, hasDebt);
   const confidence = Math.min(0.99, (amount ? 0.55 : 0) + (type ? 0.25 : 0) + (categoryId ? 0.18 : 0));
   const missingRequiredDetail = (type === "loan_given" || type === "debt_borrowed" || type === "debt_repayment") && !person;

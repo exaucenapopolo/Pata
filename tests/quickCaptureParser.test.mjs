@@ -16,6 +16,7 @@ test('reconnaît un revenu de salaire', () => {
   assert.equal(result.amount, 15000);
   assert.equal(result.categoryId, 'salary');
   assert.equal(result.source, 'Salaire');
+  assert.equal(result.note, '');
 });
 test('déduit une dépense depuis une saisie courte', () => {
   const result = parseQuickCapture('2 000 repas', now);
@@ -266,6 +267,7 @@ test('reconnaît revenu, revenue, revenus et une faute de frappe comme revenus o
     assert.equal(result.amount, 5000, phrase);
     assert.equal(result.categoryId, 'other_income', phrase);
     assert.equal(result.source, 'Diane', phrase);
+    assert.equal(result.note, '', phrase);
     assert.equal(result.needsReview, false, phrase);
   }
 });
