@@ -123,10 +123,17 @@ export default function DashboardPage() {
     const refresh = () => {
       try {
         const saved = JSON.parse(localStorage.getItem(storageKey) || '{}');
+        const now = Date.now();
         const next = DASHBOARD_USAGE_LINKS
-          .map((item) => ({ ...item, count: Number(saved[item.href]?.count) || 0, lastVisitedAt: Number(saved[item.href]?.lastVisitedAt) || 0 }))
+          .map((item) => {
+            const count = Math.max(0, Number(saved[item.href]?.count) || 0);
+            const lastVisitedAt = Math.max(0, Number(saved[item.href]?.lastVisitedAt) || 0);
+            const daysSinceVisit = lastVisitedAt ? Math.max(0, (now - lastVisitedAt) / 86400000) : 365;
+            const recencyScore = count / (1 + daysSinceVisit / 21);
+            return { ...item, count, lastVisitedAt, recencyScore };
+          })
           .filter((item) => item.count >= 2)
-          .sort((a, b) => b.count - a.count || b.lastVisitedAt - a.lastVisitedAt)
+          .sort((a, b) => b.recencyScore - a.recencyScore || b.lastVisitedAt - a.lastVisitedAt)
           .slice(0, 3);
         setFrequentPages(next);
       } catch {
@@ -198,6 +205,8 @@ export default function DashboardPage() {
       .slice(0, 2);
     return selected;
   }, [frequentPages]);
+
+  const hasFrequentDestinations = personalizedQuickLinks.some((item) => frequentPages.some((visited) => visited.href === item.href));
 
   const dashboardQuickActions = useMemo(() => [
     {
@@ -503,7 +512,7 @@ export default function DashboardPage() {
         <div className="pointer-events-none absolute -right-12 -top-16 h-56 w-56 rounded-full border-[28px] border-white/5" />
         <div className="pointer-events-none absolute -bottom-20 right-24 h-40 w-40 rounded-full border-[20px] border-white/5" />
         <div className="relative flex flex-wrap items-start justify-between gap-4">
-          <div><p className="text-xs font-semibold tracking-wide text-emerald-100">TON ESPACE FINANCIER</p><h1 className="mt-2 text-xl font-bold tracking-tight sm:text-2xl">Bonjour {userName}</h1><p className="mt-1 max-w-sm text-xs leading-5 text-emerald-100 sm:text-sm">Voici ce qui se passe dans tes finances. Garde une vue claire sur ton argent.</p><p className="mt-2 text-[10px] font-medium text-emerald-100">Période comptée : {formatDate(startDate)} → {formatDate(endDate)}</p></div>
+          <div><p className="text-xs font-semibold tracking-wide text-emerald-100">TON ESPACE FINANCIER</p><h1 className="mt-2 text-xl font-bold tracking-tight sm:text-2xl">Bonjour {userName}</h1><p className="mt-1 max-w-sm text-xs leading-5 text-emerald-100 sm:text-sm">{hasFinancialActivity ? (isEnglish ? 'Your key financial information, clear and easy to find.' : 'Tes repères financiers importants, faciles à retrouver.') : (isEnglish ? 'Start with one operation. Pata will help you organise the next steps.' : 'Commence par une opération. Pata t’aidera à organiser la suite.')}</p><p className="mt-2 text-[10px] font-medium text-emerald-100">Période comptée : {formatDate(startDate)} → {formatDate(endDate)}</p></div>
           <div className="flex flex-wrap items-center gap-2">
             <AssistantShortcut label="Conseil personnalisé" prompt={`Fais un bilan de ma situation financière Pata uniquement pour la période du ${startDate} au ${endDate} inclus. Calcule les revenus et dépenses en ne prenant aucune opération antérieure au ${startDate} ni postérieure au ${endDate}. Explique les points forts, les risques et trois actions prioritaires adaptées à cette période. Ne mélange jamais ce bilan avec les mois précédents et ne modifie aucune donnée.`} promptEn={`Review my Pata financial situation only for the period from ${startDate} through ${endDate}, inclusive. Count no income or expense dated before ${startDate} or after ${endDate}. Explain strengths, risks and three practical priorities for this period. Never mix this with previous months and do not change any data.`} />
             <Link href="/reports" className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-white/20 bg-white/10 px-3 text-xs font-semibold text-white transition hover:bg-white/15">Voir mon bilan <ChevronRight size={14}/></Link>
@@ -527,10 +536,10 @@ export default function DashboardPage() {
       <section data-pata-tour="dashboard-overview">
         <div className="mb-3 flex items-center justify-between gap-2">
           <div>
-            <h2 className="text-sm font-bold text-slate-900">{frequentPages.length > 0 ? (isEnglish ? 'Your usual spaces' : 'Tes espaces habituels') : (hasFinancialActivity ? (isEnglish ? 'Quick actions' : 'Actions rapides') : (isEnglish ? 'Start here' : 'Commencer ici'))}</h2>
-            <p className="mt-0.5 text-[10px] text-slate-400">{frequentPages.length > 0 ? (isEnglish ? 'Shortcuts adapt to the pages you visit most.' : 'Tes raccourcis suivent les rubriques que tu consultes le plus.') : (hasFinancialActivity ? (isEnglish ? 'The essentials, one tap away.' : 'Les actions essentielles, en un toucher.') : (isEnglish ? 'Add your first operation to get started.' : 'Enregistre ta première opération pour commencer.'))}</p>
+            <h2 className="text-sm font-bold text-slate-900">{hasFrequentDestinations ? (isEnglish ? 'Your usual spaces' : 'Tes espaces habituels') : (hasFinancialActivity ? (isEnglish ? 'Quick actions' : 'Actions rapides') : (isEnglish ? 'Start here' : 'Commencer ici'))}</h2>
+            <p className="mt-0.5 text-[10px] text-slate-400">{hasFrequentDestinations ? (isEnglish ? 'Shortcuts adapt to the pages you visit most.' : 'Tes raccourcis suivent les rubriques que tu consultes le plus.') : (hasFinancialActivity ? (isEnglish ? 'The essentials, one tap away.' : 'Les actions essentielles, en un toucher.') : (isEnglish ? 'Add your first operation to get started.' : 'Enregistre ta première opération pour commencer.'))}</p>
           </div>
-          {frequentPages.length > 0 && <span className="shrink-0 rounded-full bg-brand-50 px-2.5 py-1 text-[9px] font-bold text-brand-700">{isEnglish ? 'For you' : 'Pour toi'}</span>}
+          {hasFrequentDestinations && <span className="shrink-0 rounded-full bg-brand-50 px-2.5 py-1 text-[9px] font-bold text-brand-700">{isEnglish ? 'For you' : 'Pour toi'}</span>}
         </div>
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
           {dashboardQuickActions.map((item) => {

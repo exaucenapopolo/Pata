@@ -92,7 +92,7 @@ export function MobileNav() {
         </section>
       )}
       {showMore && (
-        <section id="pata-orbit-menu" role="dialog" aria-modal="true" aria-labelledby="pata-more-title" aria-describedby="pata-more-description" className="pata-orbit-overlay fixed inset-0 z-[70] flex items-center justify-center px-3 pb-[calc(5.4rem+env(safe-area-inset-bottom))] pt-[max(env(safe-area-inset-top),18px)] lg:hidden">
+        <section id="pata-orbit-menu" role="dialog" aria-modal="true" aria-labelledby="pata-more-title" aria-describedby="pata-more-description" className="pata-orbit-overlay fixed inset-0 z-[70] flex items-center justify-center px-3 pb-[calc(5.4rem+env(safe-area-inset-bottom))] pt-[max(env(safe-area-inset-top),18px)] lg:hidden" onClick={() => setShowMore(false)}>
           <div className="pata-orbit-menu w-full" onClick={(event) => event.stopPropagation()}>
             <header className="pata-orbit-header">
               <div>
