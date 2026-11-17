@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb, adminMessaging } from '@/lib/firebase/admin';
+import { sendPataWebPush } from '@/lib/notifications/webPush.mjs';
 import { createExpenseForUser } from '@/lib/ai/financialTools';
 import { addScheduledFrequency, dateKeyInTimeZone, getScheduledOccurrenceId, isValidDateKey } from '@/lib/scheduling/scheduledTransactions.mjs';
 
@@ -27,9 +28,14 @@ async function sendScheduledNotification(userRef, profile, notification) {
     createdAt: FieldValue.serverTimestamp(),
   });
   const tokens = Array.isArray(profile?.pushTokens) ? [...new Set(profile.pushTokens.filter((token) => typeof token === 'string' && token.length > 20))] : [];
+  const webPushEnabled = Number(profile?.webPushDeviceCount || 0) > 0 || profile?.notificationsEnabled === true;
+  const webPushSnapshot = webPushEnabled ? await userRef.collection('webPushSubscriptions').get().catch(() => null) : null;
+  const webTargets = (webPushSnapshot?.docs || []).map((doc) => ({ ref: doc.ref, data: doc.data() || {} }))
+    .filter((item) => item.data.endpoint && item.data.keys?.p256dh && item.data.keys?.auth);
+  const target = clean(notification.target || '/dashboard', 300);
+  const tag = ('pata-scheduled-' + safeId(notification.scheduleId) + '-' + String(notification.date || '').replace(/-/g, '')).slice(0, 32);
   if (tokens.length) {
-    const path = clean(notification.target || '/dashboard', 300);
-    const tag = ('pata-scheduled-' + safeId(notification.scheduleId) + '-' + String(notification.date || '').replace(/-/g, '')).slice(0, 32);
+    const path = target;
     const results = await Promise.allSettled(tokens.map((token) => adminMessaging.send({
       token,
       notification: { title: clean(notification.title, 80), body: clean(notification.body, 220) },
@@ -40,6 +46,17 @@ async function sendScheduledNotification(userRef, profile, notification) {
     const badTokens = results.flatMap((item, index) => item.status === 'rejected'
       && ['messaging/registration-token-not-registered', 'messaging/invalid-registration-token'].includes(String(item.reason?.code || '')) ? [tokens[index]] : []);
     if (badTokens.length) await userRef.set({ pushTokens: FieldValue.arrayRemove(...badTokens) }, { merge: true }).catch(() => {});
+  }
+  if (webTargets.length) {
+    const webResults = await Promise.allSettled(webTargets.map((item) => sendPataWebPush(item.data, {
+      title: clean(notification.title, 80),
+      body: clean(notification.body, 220),
+      url: target,
+      tag,
+    })));
+    const expired = webResults.flatMap((result, index) => result.status === 'rejected'
+      && [404, 410].includes(Number(result.reason?.statusCode || result.reason?.status)) ? [webTargets[index].ref] : []);
+    if (expired.length) await Promise.all(expired.map((ref) => ref.delete().catch(() => {})));
   }
   return true;
 }
