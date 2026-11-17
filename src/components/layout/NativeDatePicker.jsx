@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
 import { getDateLocale, getLocalizedMonthNames } from '@/lib/i18n/dateLocale';
