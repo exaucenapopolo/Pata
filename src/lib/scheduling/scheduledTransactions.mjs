@@ -2,7 +2,7 @@ const FREQUENCIES = new Set(['daily', 'weekly', 'monthly']);
 
 export function isValidDateKey(value) {
   const key = String(value || '').slice(0, 10);
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(key)) return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return false;
   const date = new Date(key + 'T00:00:00.000Z');
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === key;
 }
@@ -43,7 +43,7 @@ export function normalizeScheduledKind(kind) {
 }
 
 export function getScheduledOccurrenceId(scheduleId, dateKey) {
-  const safeId = String(scheduleId || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 100);
+  const safeId = String(scheduleId || '').replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 100);
   if (!safeId || !isValidDateKey(dateKey)) throw new Error('Identifiant d’occurrence invalide.');
   return ('scheduled_' + safeId + '_' + dateKey).slice(0, 140);
 }
