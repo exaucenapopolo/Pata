@@ -229,3 +229,19 @@ html.dark .pata-next-action p { color: #b7c8bc !important; }
 html.dark .pata-next-action .text-emerald-800 { color: #9edbb4 !important; }
 html.dark .pata-next-action label { color: #bdcfc3 !important; }
 html.dark .pata-next-action input { accent-color: #62b987; }
+
+
+/* App-native modal motion and bottom-sheet affordance. */
+.pata-modal-backdrop { animation:pata-modal-backdrop-in .18s ease-out both; }
+.pata-modal-sheet { animation:pata-modal-sheet-in .24s cubic-bezier(.2,.8,.2,1) both; transform-origin:50% 100%; }
+.pata-modal-handle { width:38px; height:4px; flex:none; margin:10px auto 2px; border-radius:999px; background:#d7e1d9; }
+html.dark .pata-modal-handle { background:#405548; }
+@keyframes pata-modal-backdrop-in { from { opacity:0; } to { opacity:1; } }
+@keyframes pata-modal-sheet-in { from { opacity:.72; transform:translateY(16px) scale(.99); } to { opacity:1; transform:translateY(0) scale(1); } }
+@media (min-width:640px) {
+  .pata-modal-sheet { animation:pata-modal-dialog-in .2s ease-out both; transform-origin:50% 55%; }
+}
+@keyframes pata-modal-dialog-in { from { opacity:.7; transform:translateY(7px) scale(.985); } to { opacity:1; transform:translateY(0) scale(1); } }
+@media (prefers-reduced-motion:reduce) {
+  .pata-modal-backdrop, .pata-modal-sheet { animation:none !important; }
+}

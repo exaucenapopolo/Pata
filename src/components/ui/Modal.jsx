@@ -31,7 +31,7 @@ export function Modal({ open, onClose, title, children, className, bodyClassName
   return createPortal(
     <div
       className={cn(
-        'fixed inset-0 z-50 flex bg-slate-950/40 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] backdrop-blur-[2px]',
+        'pata-modal-backdrop fixed inset-0 z-50 flex bg-slate-950/40 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] backdrop-blur-[2px]',
         fullScreen ? 'items-stretch justify-center px-0' : 'items-end justify-center px-0 sm:items-center sm:px-4 sm:py-4'
       )}
       onMouseDown={(event) => { if (event.target === event.currentTarget) onCloseRef.current?.(); }}
@@ -42,12 +42,13 @@ export function Modal({ open, onClose, title, children, className, bodyClassName
         aria-labelledby={title ? 'pata-dialog-title' : undefined}
         aria-label={title || 'Fenêtre de dialogue'}
         className={cn(
-          'flex max-h-[calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-full max-w-md flex-col overflow-hidden rounded-t-[24px] border border-slate-200/90 bg-white shadow-[0_20px_60px_rgba(8,39,70,0.18)] sm:max-h-[90dvh] sm:rounded-3xl',
+          'pata-modal-sheet flex max-h-[calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-full max-w-md flex-col overflow-hidden rounded-t-[26px] border border-slate-200/90 bg-white shadow-[0_20px_60px_rgba(8,39,70,0.18)] sm:max-h-[90dvh] sm:rounded-3xl',
           fullScreen && 'h-full max-h-full max-w-none rounded-none sm:max-h-full sm:rounded-none',
           className
         )}
         onMouseDown={(event) => event.stopPropagation()}
       >
+        {!fullScreen && <div className="pata-modal-handle sm:hidden" aria-hidden="true" />}
         <header className="flex min-h-14 shrink-0 items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-5">
           <h2 id="pata-dialog-title" className="min-w-0 text-sm font-bold tracking-tight text-slate-900 sm:text-base">{title}</h2>
           <button onClick={() => onCloseRef.current?.()} type="button" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-500 transition hover:bg-slate-200 hover:text-slate-800" aria-label="Fermer">

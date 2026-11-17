@@ -73,6 +73,14 @@ export default function ExpensesPage() {
   const [projectFinancials, setProjectFinancials] = useState({});
   const premiumDate = profile?.premiumUntil?.toDate ? profile.premiumUntil.toDate() : new Date(profile?.premiumUntil || 0);
   const isPremium = Number.isFinite(premiumDate.getTime()) && premiumDate > new Date();
+  const expenseMonthKey = getLocalMonth();
+  const expenseMonthlyStats = profile?.monthlyStats || {};
+  const usedExpenseQuota = expenseMonthlyStats.lastResetMonth === expenseMonthKey
+    ? Math.max(0, Number(expenseMonthlyStats.expenses) || 0)
+    : 0;
+  const expenseFreeLimit = 60;
+  const expenseQuotaReached = !isPremium && usedExpenseQuota >= expenseFreeLimit;
+  const showExpenseQuota = !isPremium && usedExpenseQuota >= 48;
   const { incomes, balancesReady } = useIncomes();
   const { debts } = useDebts();
   const activePayableDebts = debts.filter((debt) => debt.type === 'i_owe' && ['active', 'partial', 'late'].includes(debt.status) && Number(debt.remaining) > 0);
@@ -504,6 +512,29 @@ export default function ExpensesPage() {
           </Button>
         </div>
       </div>
+
+      {showExpenseQuota && (
+        <section role="status" className={'rounded-2xl border p-3.5 ' + (expenseQuotaReached ? 'border-amber-200 bg-amber-50/90' : 'border-emerald-100 bg-white/90')}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-xs font-bold text-slate-800">{isEnglish ? 'Free expense entries this month' : 'Dépenses enregistrées ce mois-ci'}</p>
+              <p className="mt-1 text-[11px] leading-4 text-slate-600">
+                {expenseQuotaReached
+                  ? (isEnglish ? 'You have reached the 60 free entries for this month. Your existing expenses remain available.' : 'Tu as atteint les 60 créations gratuites de ce mois. Tes dépenses déjà enregistrées restent accessibles.')
+                  : (isEnglish ? 'You are approaching your free monthly limit. Premium removes the monthly expense creation cap.' : 'Tu approches de ta limite gratuite du mois. Premium supprime le plafond mensuel de créations de dépenses.')}
+              </p>
+            </div>
+            <span className="shrink-0 text-xs font-extrabold tabular-nums text-slate-700">{Math.min(usedExpenseQuota, expenseFreeLimit)}/{expenseFreeLimit}</span>
+          </div>
+          <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-slate-200/80" role="progressbar" aria-label={isEnglish ? 'Monthly free expense entries' : 'Créations de dépenses gratuites du mois'} aria-valuemin={0} aria-valuemax={expenseFreeLimit} aria-valuenow={Math.min(usedExpenseQuota, expenseFreeLimit)}>
+            <div className={'h-full rounded-full transition-all ' + (expenseQuotaReached ? 'bg-amber-500' : 'bg-brand-600')} style={{ width: (Math.min(usedExpenseQuota, expenseFreeLimit) / expenseFreeLimit * 100) + '%' }} />
+          </div>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[10px] leading-4 text-slate-500">{expenseQuotaReached ? (isEnglish ? 'You can still view and edit existing entries.' : 'Tu peux toujours consulter et modifier tes dépenses existantes.') : (isEnglish ? 'Your free plan remains active and useful.' : 'Ton compte gratuit reste actif et continue de fonctionner normalement.')}</p>
+            <Button type="button" size="sm" onClick={() => window.location.assign('/premium')}>{expenseQuotaReached ? (isEnglish ? 'Continue with Premium' : 'Continuer avec Premium') : (isEnglish ? 'Discover Premium' : 'Découvrir Premium')}</Button>
+          </div>
+        </section>
+      )}
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
