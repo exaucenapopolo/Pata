@@ -208,6 +208,7 @@ export function MoneyKeypad() {
               type="button"
               onClick={() => appendKey(key.action || key.label)}
               aria-label={key.aria}
+              data-pata-no-haptic="true"
               className={'pata-money-key h-[52px] rounded-2xl text-lg font-bold transition active:scale-[.96] ' +
                 (key.kind === 'operator' ? 'bg-emerald-100 text-emerald-900' :
                   key.kind === 'utility' ? 'bg-white text-slate-600 shadow-sm' : 'bg-white text-slate-900 shadow-[0_2px_8px_rgba(20,55,35,.06)]')}

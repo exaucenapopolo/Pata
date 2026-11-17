@@ -10,6 +10,9 @@ const INTERACTIVE_SELECTOR = [
   '[role="switch"]',
   'input[type="checkbox"]',
   'input[type="radio"]',
+  'input[type="button"]',
+  'input[type="submit"]',
+  'input[type="reset"]',
 ].join(',');
 
 /**
