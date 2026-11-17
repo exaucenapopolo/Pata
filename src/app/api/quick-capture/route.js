@@ -116,6 +116,61 @@ export async function POST(request) {
     if (!profileSnap.exists) return errorResponse('Profil Pata introuvable.', 404);
     if (!isPremium(profileSnap.data() || {})) return errorResponse('Pata Quick Capture est réservé aux abonnés Premium. Aucune opération n’a été enregistrée.', 403);
 
+    if (parsed?.isScheduled === true || body.isScheduled === true) {
+      if (!['expense', 'income', 'loan_given', 'debt_borrowed'].includes(type)) {
+        return errorResponse('La programmation rapide est disponible pour les dépenses, les revenus, les emprunts et les prêts accordés.', 422, { needsReview: true, recognized: parsed });
+      }
+      if (date <= doualaToday()) return errorResponse('Pour programmer une opération, indique une date future. Aucune opération n’a été enregistrée.', 400, { needsReview: true, recognized: parsed });
+      if (type === 'expense' && !(await isAllowedCategory(userRef, categoryId, 'expense', EXPENSE_CATEGORIES))) {
+        return errorResponse('Cette catégorie de dépense ne fait pas partie de tes catégories enregistrées.', 400);
+      }
+      if (type === 'income' && !(await isAllowedCategory(userRef, categoryId, 'income', INCOME_CATEGORIES))) {
+        return errorResponse('Cette catégorie de revenu ne fait pas partie de tes catégories enregistrées.', 400);
+      }
+      if (['loan_given', 'debt_borrowed'].includes(type) && !String(parsed?.person || '').trim()) {
+        return errorResponse('Indique la personne ou la banque concernée avant de programmer cette opération.', 422, { needsReview: true, recognized: parsed });
+      }
+      if (type === 'debt_borrowed' && !dueDate) {
+        return errorResponse('Indique également la date à laquelle tu dois rembourser cet emprunt.', 422, { needsReview: true, recognized: parsed });
+      }
+      const frequency = parsed?.frequency || body.frequency || (type === 'income' && categoryId === 'salary' ? 'monthly' : null);
+      const recurring = (parsed?.recurrenceEnabled === true || body.recurrenceEnabled === true || (type === 'income' && categoryId === 'salary'))
+        && ['expense', 'income'].includes(type) && ['daily', 'weekly', 'monthly'].includes(frequency);
+      const scheduleRef = userRef.collection('scheduledTransactions').doc();
+      const schedulePayload = {
+        kind: type,
+        amount,
+        categoryId,
+        date,
+        scheduleDate: date,
+        nextRunDate: date,
+        note,
+        source: cleanText(parsed?.source || body.source || '', 100),
+        person: cleanText(parsed?.person || body.person || '', 100),
+        dueDate,
+        status: 'scheduled',
+        active: true,
+        recurrenceEnabled: recurring,
+        frequency: recurring ? frequency : null,
+        anchorDay: Number(date.slice(8, 10)),
+        incomeSourceId: 'all',
+        incomeSourceName: 'Toutes les sources disponibles',
+        flowType: type === 'loan_given' ? 'loan_given' : type === 'debt_borrowed' ? 'debt_borrowed' : 'normal',
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+      await scheduleRef.create(schedulePayload);
+      return NextResponse.json({
+        success: true,
+        scheduled: true,
+        scheduledTransactionId: scheduleRef.id,
+        message: recurring
+          ? 'Ton opération et sa récurrence ont été programmées. Pata les enregistrera à chaque échéance.'
+          : 'Ton opération a été programmée. Elle sera enregistrée à la date prévue.',
+        recognized: { ...parsed, scheduled: true, scheduleDate: date, recurrenceEnabled: recurring, frequency: recurring ? frequency : null },
+      });
+    }
+
     if (type === 'bill') {
       const billName = cleanText(parsed?.billName || body.name || 'Facture à préciser', 100);
       const billType = BILL_TYPES.has(parsed?.billType || body.billType) ? (parsed?.billType || body.billType) : 'other';
