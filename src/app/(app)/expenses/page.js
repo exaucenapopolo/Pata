@@ -18,6 +18,8 @@ import { createProject, updateProject, deleteProject } from '@/lib/firestore/pro
 import { useExpenses } from '@/hooks/useExpenses';
 import { useIncomes } from '@/hooks/useIncomes';
 import { useDebts } from '@/hooks/useDebts';
+import { ScheduledTransactionsPanel } from '@/components/transactions/ScheduledTransactionsPanel';
+import { createScheduledTransaction } from '@/lib/firestore/scheduledTransactions';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { createExpense, updateExpense, deleteExpense } from '@/lib/firestore/expenses';
 import { createAutomation } from '@/lib/firestore/automations';
@@ -57,6 +59,7 @@ const emptyForm = () => ({
   incomeSourceId: 'all',
   incomeSourceName: 'Tous les revenus',
   flowType: 'normal', person: '', phone: '', dueDate: '', repaymentDebtId: '', counterpartyUid: '',
+  scheduleEnabled: false, recurrenceEnabled: false, scheduleFrequency: 'monthly', futureIncomeSourceName: '',
 });
 
 export default function ExpensesPage() {
@@ -279,6 +282,7 @@ export default function ExpensesPage() {
       details: exp.details || '',
       incomeSourceId: exp.incomeSourceId || 'all',
       incomeSourceName: exp.incomeSourceName || 'Tous les revenus',
+      futureIncomeSourceName: exp.pendingIncomeSourceName || '',
       flowType: exp.flowType || 'normal', person: exp.person || '', phone: exp.phone || '', dueDate: exp.dueDate || '', repaymentDebtId: exp.repaymentDebtId || '', counterpartyUid: exp.counterpartyUid || '',
     });
     setError('');
@@ -296,7 +300,7 @@ export default function ExpensesPage() {
     
     setSaving(true);
     try {
-      if (!form.id && form.flowType !== 'repayment' && form.expenseType !== 'project') {
+      if (!form.id && !form.scheduleEnabled && form.flowType !== 'repayment' && form.expenseType !== 'project') {
         const operationType = form.flowType === 'loan_given' ? 'loan_given' : 'expense';
         try {
           const check = await checkFinancialOperation({
@@ -335,6 +339,20 @@ export default function ExpensesPage() {
         details: form.details,
       };
 
+      if (!form.id && form.scheduleEnabled) {
+        const kind = form.flowType === 'loan_given' ? 'loan_given' : form.flowType === 'repayment' ? 'debt_repayment' : 'expense';
+        await createScheduledTransaction(user.uid, {
+          ...payload,
+          kind,
+          scheduleDate: form.date,
+          recurrenceEnabled: form.flowType === 'normal' && form.recurrenceEnabled === true,
+          frequency: form.scheduleFrequency || 'monthly',
+          futureIncomeSourceName: form.futureIncomeSourceName || '',
+        });
+        setOpen(false);
+        setForm(emptyForm());
+        return;
+      }
       if (form.id) {
         let result = await updateExpense(user.uid, form.id, payload);
         if (result.confirmationRequired) {
@@ -501,6 +519,8 @@ export default function ExpensesPage() {
         </> : <p className="mt-4 rounded-xl border border-dashed border-slate-200 px-3 py-4 text-xs text-slate-500">Aucun projet enregistré. Crée un projet Premium pour suivre les dépenses d’une construction, d’un équipement ou d’un achat important.</p>}
       </section>
 
+      <ScheduledTransactionsPanel kinds={['expense', 'loan_given', 'debt_repayment']} isPremium={isPremium} compact />
+
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         {[
           ['Dépenses courantes', typeTotals.consumption],
@@ -659,13 +679,16 @@ export default function ExpensesPage() {
                 setForm({ 
                   ...form, 
                   incomeSourceId: selectedId, 
-                  incomeSourceName: selectedInc ? selectedInc.source : 'Tous les revenus' 
+                  incomeSourceName: selectedInc ? selectedInc.source : selectedId === 'future' ? '' : 'Tous les revenus',
+                  futureIncomeSourceName: selectedId === 'future' ? form.futureIncomeSourceName : '',
                 });
               }}
               className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"
             >
               {/* 🟢 AFFICHAGE DU VRAI SOLDE TOTAL */}
               <option value="all">Toutes les sources disponibles ({balancesReady ? formatCurrency(eligibleIncomesForExpense.reduce((sum, income) => sum + income.remaining, 0)) : 'solde indisponible'})</option>
+              {form.scheduleEnabled && form.flowType === 'normal' && <option value="future">Source de revenu future — à relier ensuite</option>}
+              {String(form.incomeSourceId || '').startsWith('pending_source_') && <option value={form.incomeSourceId} disabled>À relier : {form.futureIncomeSourceName || 'source future'}</option>}
               {eligibleIncomesForExpense.map((inc) => (
                 <option 
                   key={inc.id} 
@@ -677,11 +700,12 @@ export default function ExpensesPage() {
                 </option>
               ))}
             </select>
+            {form.scheduleEnabled && form.incomeSourceId === 'future' && <Input label="Nom de la future source de revenu" value={form.futureIncomeSourceName || ''} onChange={(event) => setForm({ ...form, futureIncomeSourceName: event.target.value })} placeholder="Ex. Salaire de décembre, contrat KDO…" required />}
           </div>
 
           <div className="grid grid-cols-2 gap-2">
             <Input
-              label="Date"
+              label={form.scheduleEnabled ? 'Date prévue de l’opération' : 'Date'}
               type="date"
               required
               value={form.date}
@@ -694,6 +718,21 @@ export default function ExpensesPage() {
             />
           </div>
 
+          <div className="rounded-xl border border-slate-200 p-3">
+            <label className="flex cursor-pointer items-start gap-2 text-sm font-semibold text-slate-800">
+              <input type="checkbox" checked={form.scheduleEnabled === true} disabled={!isPremium} onChange={(event) => setForm({ ...form, scheduleEnabled: event.target.checked, incomeSourceId: !event.target.checked && form.incomeSourceId === 'future' ? 'all' : form.incomeSourceId, incomeSourceName: !event.target.checked && form.incomeSourceId === 'future' ? 'Tous les revenus' : form.incomeSourceName })} className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600"/>
+              <span>Programmer cette opération pour une date future</span>
+            </label>
+            {!isPremium && <p className="mt-2 text-xs leading-5 text-slate-500">Cette fonctionnalité est réservée à Pata Premium. <a href="/premium" className="font-semibold text-brand-700 underline">Découvrir Premium</a></p>}
+            {form.scheduleEnabled && <div className="mt-3 space-y-3 border-t border-slate-100 pt-3">
+              <p className="text-xs leading-5 text-slate-500">La dépense ne sera ajoutée à tes comptes qu’à la date prévue. Tu peux aussi automatiser sa répétition.</p>
+              {form.flowType === 'normal' && <>
+                <label className="flex items-center gap-2 text-xs font-medium text-slate-700"><input type="checkbox" checked={form.recurrenceEnabled === true} onChange={(event) => setForm({ ...form, recurrenceEnabled: event.target.checked })} className="h-4 w-4 rounded border-slate-300 text-brand-600"/>Rendre cette dépense récurrente</label>
+                {form.recurrenceEnabled && <select value={form.scheduleFrequency || 'monthly'} onChange={(event) => setForm({ ...form, scheduleFrequency: event.target.value })} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="daily">Tous les jours</option><option value="weekly">Chaque semaine</option><option value="monthly">Chaque mois</option></select>}
+              </>}
+              {form.flowType !== 'normal' && <p className="text-xs text-slate-500">Les prêts et remboursements programmés sont exécutés une seule fois à la date choisie.</p>}
+            </div>}
+          </div>
           <OptionalTransactionFields value={form} onChange={(next) => setForm(next)} kind="expense" />
           {error && <p className="text-sm text-red-600 bg-red-50 p-2 rounded-lg">{error}</p>}
           <Button type="submit" className="w-full" disabled={saving}>
