@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Capacitor } from '@capacitor/core';
-import { Delete, Equal, X } from 'lucide-react';
+import { Delete } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
 import { evaluateMoneyExpression } from '@/lib/finance/decimalExpression.mjs';
 
@@ -21,10 +22,19 @@ function isMoneyInput(input) {
   if (input.dataset.pataMoney === 'false') return false;
   if (input.dataset.pataMoney === 'true') return true;
   if (!(input instanceof HTMLInputElement)) return false;
-  if (!['number'].includes(input.type) && !['numeric', 'decimal'].includes(input.inputMode)) return false;
+  if (input.type !== 'number' && !['numeric', 'decimal'].includes(input.inputMode)) return false;
   const hint = [input.name, input.id, input.placeholder, input.getAttribute('aria-label'), getInputLabel(input)].filter(Boolean).join(' ');
   if (NON_MONEY_HINTS.test(hint) && !/montant|amount|fcfa|xaf|usd|eur|budget|capital|dépense|depense|revenu|income|versement|cotisation/i.test(hint)) return false;
   return MONEY_HINTS.test(hint);
+}
+
+function setInputValue(input, value) {
+  if (!input || String(input.value) === String(value)) return;
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+  if (setter) setter.call(input, value);
+  else input.value = value;
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
 function formatAmount(value, language) {
@@ -48,22 +58,40 @@ export function MoneyKeypad() {
   const { language } = useLanguage();
   const [activeField, setActiveField] = useState(null);
   const [expression, setExpression] = useState('');
-  const [error, setError] = useState('');
   const activeInputRef = useRef(null);
   const originalAttributesRef = useRef(null);
 
   const result = useMemo(() => {
     if (!expression.trim()) return null;
     try {
-      return { ...evaluateMoneyExpression(expression), error: '' };
-    } catch (calculationError) {
-      return { exactValue: '', roundedValue: '', isRounded: false, error: calculationError.message };
+      return evaluateMoneyExpression(expression);
+    } catch {
+      return null;
     }
   }, [expression]);
 
+  const restoreActiveInput = useCallback(() => {
+    const input = activeInputRef.current;
+    const original = originalAttributesRef.current;
+    if (input && original) {
+      input.readOnly = original.readOnly;
+      if (original.inputMode == null) input.removeAttribute('inputmode');
+      else input.setAttribute('inputmode', original.inputMode);
+      input.blur();
+    }
+    activeInputRef.current = null;
+    originalAttributesRef.current = null;
+  }, []);
+
+  const close = useCallback(() => {
+    restoreActiveInput();
+    setActiveField(null);
+    setExpression('');
+  }, [restoreActiveInput]);
+
   const activate = useCallback((input) => {
     if (!input || activeInputRef.current === input) return;
-    if (activeInputRef.current) return;
+    restoreActiveInput();
     activeInputRef.current = input;
     originalAttributesRef.current = {
       readOnly: input.readOnly,
@@ -75,23 +103,7 @@ export function MoneyKeypad() {
     const label = getInputLabel(input).trim() || (language === 'en' ? 'Amount' : 'Montant');
     setActiveField({ label });
     setExpression(String(input.value || '').replace(/\s/g, ''));
-    setError('');
-  }, [language]);
-
-  const close = useCallback(() => {
-    const input = activeInputRef.current;
-    const original = originalAttributesRef.current;
-    if (input && original) {
-      input.readOnly = original.readOnly;
-      if (original.inputMode == null) input.removeAttribute('inputmode');
-      else input.setAttribute('inputmode', original.inputMode);
-      input.blur();
-    }
-    activeInputRef.current = null;
-    originalAttributesRef.current = null;
-    setActiveField(null);
-    setError('');
-  }, []);
+  }, [language, restoreActiveInput]);
 
   useEffect(() => {
     let androidNative = false;
@@ -104,29 +116,56 @@ export function MoneyKeypad() {
 
     const handlePointerDown = (event) => {
       const target = event.target instanceof Element ? event.target : event.target?.parentElement;
-      const input = target?.closest?.('input');
-      if (!input || !isMoneyInput(input)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      activate(input);
+      if (!target || target.closest('[data-pata-money-keypad]')) return;
+
+      const input = target.closest('input');
+      if (input && input === activeInputRef.current) return;
+
+      if (input && isMoneyInput(input)) {
+        event.preventDefault();
+        event.stopPropagation();
+        activate(input);
+        return;
+      }
+
+      // Touching another field or control dismisses only the calculator.
+      // The original form and the user's next interaction remain untouched.
+      if (activeInputRef.current) close();
     };
 
-    const handleFocus = (event) => {
-      const input = event.target;
-      if (!isMoneyInput(input)) return;
-      activate(input);
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape' && activeInputRef.current) close();
     };
 
     document.addEventListener('pointerdown', handlePointerDown, true);
-    document.addEventListener('focusin', handleFocus, true);
+    document.addEventListener('keydown', handleKeyDown, true);
     return () => {
       document.removeEventListener('pointerdown', handlePointerDown, true);
-      document.removeEventListener('focusin', handleFocus, true);
+      document.removeEventListener('keydown', handleKeyDown, true);
     };
-  }, [activate]);
+  }, [activate, close]);
+
+  // Keep the real form field synchronized while the user types the calculation.
+  // Incomplete expressions (for example "500 +") leave the last valid amount intact.
+  useEffect(() => {
+    const input = activeInputRef.current;
+    if (!input) return;
+    if (!expression.trim()) {
+      setInputValue(input, '');
+      return;
+    }
+    try {
+      const evaluated = evaluateMoneyExpression(expression);
+      const amount = Number(evaluated.roundedValue);
+      if (Number.isFinite(amount) && amount >= 0) {
+        setInputValue(input, evaluated.roundedValue);
+      }
+    } catch {
+      // Keep the last valid amount while an expression is being completed.
+    }
+  }, [expression]);
 
   const appendKey = (key) => {
-    setError('');
     setExpression((current) => {
       if (key === 'C') return '';
       if (key === '⌫') return current.slice(0, -1);
@@ -134,95 +173,26 @@ export function MoneyKeypad() {
     });
   };
 
-  const calculate = () => {
-    if (!expression.trim()) return;
-    if (result?.error) {
-      setError(result.error);
-      return;
-    }
-    setError('');
-  };
+  if (!activeField || typeof document === 'undefined') return null;
 
-  const commit = () => {
-    const input = activeInputRef.current;
-    if (!input) return;
-    if (expression.trim()) {
-      let evaluated;
-      try {
-        evaluated = evaluateMoneyExpression(expression);
-      } catch (calculationError) {
-        setError(calculationError.message);
-        return;
-      }
-      const amount = Number(evaluated.roundedValue);
-      if (!Number.isFinite(amount) || amount < 0) {
-        setError(language === 'en' ? 'An amount cannot be negative.' : 'Un montant ne peut pas être négatif.');
-        return;
-      }
-      const minimum = input.min === '' ? null : Number(input.min);
-      const maximum = input.max === '' ? null : Number(input.max);
-      const step = input.step === '' || input.step === 'any' ? null : Number(input.step);
-      if (minimum !== null && Number.isFinite(minimum) && amount < minimum) {
-        setError((language === 'en' ? 'Minimum allowed: ' : 'Minimum autorisé : ') + minimum);
-        return;
-      }
-      if (maximum !== null && Number.isFinite(maximum) && amount > maximum) {
-        setError((language === 'en' ? 'Maximum allowed: ' : 'Maximum autorisé : ') + maximum);
-        return;
-      }
-      const stepBase = minimum ?? 0;
-      if (step !== null && Number.isFinite(step) && step > 0
-        && Math.abs((amount - stepBase) / step - Math.round((amount - stepBase) / step)) > 1e-8) {
-        setError(language === 'en'
-          ? 'Use an amount that matches the required increment.'
-          : 'Utilise un montant qui respecte le pas autorisé.');
-        return;
-      }
-      const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-      if (nativeSetter) nativeSetter.call(input, evaluated.roundedValue);
-      else input.value = evaluated.roundedValue;
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-    close();
-  };
-
-  const heading = language === 'en' ? 'Calculator' : 'Calculatrice';
-  const done = language === 'en' ? 'Use this amount' : 'Utiliser ce montant';
-
-  if (!activeField) return null;
-
-  return (
-    <div
-      className="pata-money-keypad-backdrop fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/45 sm:items-center sm:p-4"
-      onPointerDown={(event) => { if (event.target === event.currentTarget) close(); }}
-    >
+  return createPortal(
+    <div className="pata-money-keypad-layer pointer-events-none fixed inset-x-0 bottom-0 z-[2147483000] flex justify-center px-2 pb-[env(safe-area-inset-bottom)]">
       <section
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="pata-money-keypad-title"
-        className="pata-money-keypad w-full max-w-md rounded-t-[28px] border border-white/70 bg-[#f7faf8] p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-2xl sm:rounded-[28px]"
+        data-pata-money-keypad="true"
+        role="group"
+        aria-label={language === 'en' ? 'Amount calculator keypad' : 'Clavier de calcul du montant'}
+        className="pata-money-keypad pointer-events-auto w-full max-w-md rounded-t-[24px] border border-white/80 bg-[#f7faf8] p-3 shadow-[0_-12px_44px_rgba(12,39,25,.22)]"
       >
-        <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-slate-300 sm:hidden" />
-        <div className="mb-3 flex items-center justify-between">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-[.16em] text-emerald-700">PATA · FCFA</p>
-            <h2 id="pata-money-keypad-title" className="mt-0.5 text-lg font-extrabold tracking-tight text-slate-900">{heading}</h2>
-            <p className="max-w-[270px] truncate text-xs text-slate-500">{activeField.label}</p>
+        <div className="mx-auto mb-2 h-1 w-9 rounded-full bg-slate-300" />
+        <div className="mb-3 flex min-w-0 items-end justify-between gap-3 px-1">
+          <div className="min-w-0">
+            <p className="truncate text-xs font-semibold text-slate-500">{activeField.label}</p>
+            <p className="mt-0.5 min-h-4 truncate text-sm font-semibold text-slate-700">{expression || ' '}</p>
           </div>
-          <button type="button" onClick={close} aria-label={language === 'en' ? 'Close calculator' : 'Fermer la calculatrice'} className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-slate-500 shadow-sm active:scale-95"><X size={19}/></button>
-        </div>
-
-        <div className="mb-3 rounded-2xl border border-emerald-100 bg-[#eaf3ed] px-4 py-3">
-          <p className="min-h-6 break-all text-right text-sm font-semibold text-slate-600" aria-label={language === 'en' ? 'Calculation' : 'Calcul'}>{expression || '0'}</p>
-          <div className="mt-1 flex items-end justify-between gap-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{language === 'en' ? 'Result' : 'Résultat'}</p>
-            <p className="truncate text-right text-[25px] font-extrabold tracking-tight text-emerald-900 tabular-nums">
-              {result && !result.error ? formatAmount(result.roundedValue, language) : '—'} <span className="text-xs font-bold">FCFA</span>
-            </p>
-          </div>
-          {result?.isRounded && !result.error && <p className="mt-1 text-right text-[10px] text-slate-500">{language === 'en' ? 'Rounded to the nearest whole CFA franc.' : 'Arrondi au franc CFA le plus proche.'}</p>}
-          {error && <p role="alert" className="mt-2 text-right text-xs font-semibold text-red-600">{error}</p>}
+          <p className="shrink-0 text-right text-[22px] font-extrabold tracking-tight text-emerald-900 tabular-nums">
+            {result ? formatAmount(result.roundedValue, language) : '—'}
+            <span className="ml-1 text-[10px] font-bold">FCFA</span>
+          </p>
         </div>
 
         <div className="grid grid-cols-4 gap-2">
@@ -231,25 +201,21 @@ export function MoneyKeypad() {
               key={index}
               type="button"
               onClick={() => appendKey(key.action || key.label)}
-              aria-label={key.aria}
+              aria-label={key.aria || key.label}
               data-pata-no-haptic="true"
-              className={'pata-money-key h-[52px] rounded-2xl text-lg font-bold transition active:scale-[.96] ' +
-                (key.kind === 'operator' ? 'bg-emerald-100 text-emerald-900' :
-                  key.kind === 'utility' ? 'bg-white text-slate-600 shadow-sm' : 'bg-white text-slate-900 shadow-[0_2px_8px_rgba(20,55,35,.06)]')}
+              className={'pata-money-key h-[48px] rounded-xl text-lg font-bold transition active:scale-[.96] ' +
+                (key.kind === 'operator'
+                  ? 'bg-emerald-100 text-emerald-900'
+                  : key.kind === 'utility'
+                    ? 'bg-white text-slate-600 shadow-sm'
+                    : 'bg-white text-slate-900 shadow-[0_2px_8px_rgba(20,55,35,.06)]')}
             >
-              {key.label === '⌫' ? <Delete size={20} className="mx-auto"/> : key.label}
+              {key.label === '⌫' ? <Delete size={20} className="mx-auto" /> : key.label}
             </button>
           ))}
-          <button type="button" onClick={calculate} className="col-span-4 flex h-11 items-center justify-center gap-2 rounded-2xl bg-emerald-800 text-sm font-bold text-white shadow-sm active:scale-[.99]">
-            <Equal size={17}/> {language === 'en' ? 'Calculate' : 'Calculer'}
-          </button>
-        </div>
-
-        <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
-          <button type="button" onClick={commit} disabled={Boolean(result?.error)} className="h-12 rounded-2xl bg-[#075b43] px-4 text-sm font-bold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40 active:scale-[.99]">{done}</button>
-          <button type="button" onClick={close} className="h-12 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-600 active:scale-[.99]">{language === 'en' ? 'Cancel' : 'Annuler'}</button>
         </div>
       </section>
-    </div>
+    </div>,
+    document.body
   );
 }
