@@ -202,8 +202,6 @@ export default function ReportsPage() {
   const savingsRate = totalIncome > 0 ? (net / totalIncome) * 100 : null;
   const periodDayCount = rangeValid ? Math.max(1, Math.round((new Date(`${range.end}T00:00:00`) - new Date(`${range.start}T00:00:00`)) / 86400000) + 1) : 0;
   const averageDailyExpense = periodDayCount ? totalExpense / periodDayCount : 0;
-  const averageWeeklyExpense = periodDayCount ? totalExpense / (periodDayCount / 7) : 0;
-  const averageMonthlyExpense = periodDayCount ? totalExpense / (periodDayCount / 30.4375) : 0;
   const highestSpendingDay = useMemo(() => {
     const days = new Map();
     financialExpenses.forEach((expense) => {
