@@ -32,37 +32,29 @@ export function Header() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const routeStackRef = useRef([]);
-  const pendingPopStateRef = useRef(false);
   const replaceTargetRef = useRef(null);
 
   useEffect(() => {
-    const handlePopState = () => {
-      pendingPopStateRef.current = true;
+    const syncStackAfterHistoryNavigation = () => {
+      const nextPath = window.location.pathname || '/dashboard';
+      const stack = routeStackRef.current;
+      const previousIndex = stack.lastIndexOf(nextPath);
+      routeStackRef.current = previousIndex >= 0
+        ? stack.slice(0, previousIndex + 1)
+        : [...stack, nextPath].slice(-25);
     };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    window.addEventListener('popstate', syncStackAfterHistoryNavigation);
+    return () => window.removeEventListener('popstate', syncStackAfterHistoryNavigation);
   }, []);
 
   useEffect(() => {
     const stack = routeStackRef.current;
-    if (stack[stack.length - 1] === pathname) return;
-
     if (replaceTargetRef.current === pathname) {
       replaceTargetRef.current = null;
       routeStackRef.current = [pathname];
-      pendingPopStateRef.current = false;
       return;
     }
-
-    if (pendingPopStateRef.current) {
-      pendingPopStateRef.current = false;
-      const previousIndex = stack.lastIndexOf(pathname);
-      routeStackRef.current = previousIndex >= 0
-        ? stack.slice(0, previousIndex + 1)
-        : [...stack, pathname].slice(-25);
-      return;
-    }
-
+    if (stack[stack.length - 1] === pathname) return;
     routeStackRef.current = [...stack, pathname].slice(-25);
   }, [pathname]);
 
