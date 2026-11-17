@@ -23,6 +23,9 @@ test('guide contains examples for income, dates, debts and AI notifications', ()
     'avant-hier nourriture 500', 'jeudi 500 transport', 'le 17 transport 500',
     'j’ai emprunté 5 000 chez Paul', 'j’ai prêté 5 000 à Paul',
     'j’ai remboursé 500 de dette à Paul', 'Parler avec Mč', 'Répondre',
+    'voiture', 'gasoil', 'eau à boire', 'repas du soir', 'mise en commun',
+    'dépôt épargne', 'business investi', 'paye mensuelle', 'honoraires',
+    'marchandise', 'pourcentage touché', 'revenu locatif',
   ]) assert.ok(help.includes(phrase), 'Missing help phrase: ' + phrase);
 });
 
