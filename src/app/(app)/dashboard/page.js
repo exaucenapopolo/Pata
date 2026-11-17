@@ -103,7 +103,6 @@ export default function DashboardPage() {
   const [activeFeature, setActiveFeature] = useState(0);
   const [frequentPages, setFrequentPages] = useState([]);
   const [dashboardView, setDashboardView] = useState('all');
-  const [dashboardPreferenceReady, setDashboardPreferenceReady] = useState(false);
   const [financialTarget, setFinancialTarget] = useState(null);
   const [targetPeriodType, setTargetPeriodType] = useState('month');
   const [targetDraft, setTargetDraft] = useState({ incomeTarget: '', expenseLimit: '', debtLimit: '', loanGivenLimit: '', resolutions: [] });
@@ -145,7 +144,6 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!user?.uid) {
-      setDashboardPreferenceReady(true);
       return undefined;
     }
     try {
@@ -154,7 +152,6 @@ export default function DashboardPage() {
     } catch {
       // L'accueil reste utilisable sans stockage local.
     }
-    setDashboardPreferenceReady(true);
   }, [user?.uid]);
 
   useEffect(() => {
@@ -236,8 +233,6 @@ export default function DashboardPage() {
     }
   };
 
-  const hasFinancialActivity = incomes.length > 0 || expenses.length > 0 || goals.length > 0 || debts.length > 0;
-
   const startDate = showCustomPeriod ? customStart : getFirstOfMonth();
   const endDate = showCustomPeriod ? customEnd : todayIso();
 
@@ -260,6 +255,7 @@ export default function DashboardPage() {
   const { goals } = useGoals();
   const { profile } = useProfile();
   const { customCategories } = useCustomCategories('expense');
+  const hasFinancialActivity = incomes.length > 0 || expenses.length > 0 || goals.length > 0 || debts.length > 0;
 
 
 
