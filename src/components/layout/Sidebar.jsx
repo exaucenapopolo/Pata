@@ -24,7 +24,7 @@ export function Sidebar() {
   const pathname = usePathname();
   let lastSection = '';
   return (
-    <aside className="sticky top-0 hidden h-[100dvh] w-[248px] shrink-0 flex-col border-r border-slate-200/90 bg-white lg:flex">
+    <aside className="pata-app-sidebar sticky top-0 hidden h-[100dvh] w-[248px] shrink-0 flex-col border-r border-slate-200/90 bg-white lg:flex">
       <Link href="/dashboard" className="flex h-[72px] items-center gap-3 border-b border-slate-100 px-6">
         <img src="/android-chrome-192x192.png" alt="" className="h-10 w-10 rounded-xl object-cover" />
         <span className="text-[24px] font-bold tracking-[-0.055em] text-[#075b43]">pata</span>

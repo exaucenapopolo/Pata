@@ -22,7 +22,7 @@ export function Header() {
 
   return (
     <>
-      <header className="sticky top-0 z-40 flex h-[64px] shrink-0 items-center justify-between border-b border-slate-200/90 bg-white/95 px-3 backdrop-blur-xl sm:px-6 lg:h-[68px] lg:px-8">
+      <header className="pata-app-header sticky top-0 z-40 flex h-[64px] shrink-0 items-center justify-between border-b border-slate-200/90 bg-white/95 px-3 backdrop-blur-xl sm:px-6 lg:h-[68px] lg:px-8">
         <div className="lg:hidden">
           <Link href="/dashboard" className="flex items-center gap-2" aria-label="Pata, accueil">
             <img src="/android-chrome-192x192.png" alt="Pata" className="h-9 w-9 rounded-xl object-contain" />
