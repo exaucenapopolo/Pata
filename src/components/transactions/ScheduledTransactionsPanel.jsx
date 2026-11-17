@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { CalendarClock, RefreshCw, X } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/context/LanguageContext';
-import { cancelScheduledTransaction, listScheduledTransactions } from '@/lib/firestore/scheduledTransactions';
+import { cancelScheduledTransaction, listScheduledTransactions, retryScheduledTransaction } from '@/lib/firestore/scheduledTransactions';
 import { formatCurrency, formatDate } from '@/lib/utils';
 
 const KIND_LABELS = {
@@ -42,6 +42,14 @@ export function ScheduledTransactionsPanel({ kinds = null, isPremium = true, com
     finally { setBusyId(''); }
   };
 
+  const retry = async (item) => {
+    if (!user?.uid || busyId) return;
+    setBusyId(item.id); setError('');
+    try { await retryScheduledTransaction(user.uid, item.id); await load(); }
+    catch (retryError) { setError(retryError.message || 'Impossible de relancer cette programmation.'); }
+    finally { setBusyId(''); }
+  };
+
   const upcoming = items.filter((item) => item.status === 'scheduled' && item.active !== false);
   const failed = items.filter((item) => item.status === 'failed');
   return (
@@ -59,7 +67,7 @@ export function ScheduledTransactionsPanel({ kinds = null, isPremium = true, com
             <div className="min-w-0"><p className="text-xs font-semibold text-slate-800">{KIND_LABELS[item.kind] || item.kind} · {formatCurrency(Number(item.amount) || 0)}</p><p className="mt-1 truncate text-xs text-slate-600">{item.note || item.source || item.person || item.categoryId}</p><p className="mt-1 text-[11px] text-slate-500">{isEnglish ? 'Next date' : 'Prochaine date'} : {formatDate(item.nextRunDate || item.scheduleDate)}{item.recurrenceEnabled ? ' · ' + (item.frequency === 'daily' ? (isEnglish ? 'Daily' : 'Chaque jour') : item.frequency === 'weekly' ? (isEnglish ? 'Weekly' : 'Chaque semaine') : (isEnglish ? 'Monthly' : 'Chaque mois')) : ''}</p></div>
             <button type="button" onClick={() => cancel(item)} disabled={busyId === item.id} className="inline-flex h-8 shrink-0 items-center gap-1 rounded-lg border border-slate-200 px-2 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"><X size={12}/>{busyId === item.id ? '…' : (isEnglish ? 'Cancel' : 'Annuler')}</button>
           </article>)}
-          {failed.map((item) => <article key={item.id} className="rounded-xl border border-amber-200 bg-amber-50 p-3"><p className="text-xs font-semibold text-amber-900">{isEnglish ? 'Operation needs attention' : 'Opération à vérifier'} · {formatCurrency(Number(item.amount) || 0)}</p><p className="mt-1 text-xs text-amber-800">{item.lastError || (isEnglish ? 'The operation could not be recorded.' : 'Pata n’a pas pu enregistrer cette opération.')}</p></article>)}
+          {failed.map((item) => <article key={item.id} className="flex items-start justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3"><div className="min-w-0"><p className="text-xs font-semibold text-amber-900">{isEnglish ? 'Operation needs attention' : 'Opération à vérifier'} · {formatCurrency(Number(item.amount) || 0)}</p><p className="mt-1 text-xs text-amber-800">{item.lastError || (isEnglish ? 'The operation could not be recorded.' : 'Pata n’a pas pu enregistrer cette opération.')}</p></div><button type="button" onClick={() => retry(item)} disabled={busyId === item.id} className="inline-flex h-8 shrink-0 items-center gap-1 rounded-lg border border-amber-300 bg-white px-2 text-[11px] font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50"><RefreshCw size={12}/>{busyId === item.id ? '…' : (isEnglish ? 'Retry' : 'Réessayer')}</button></article>)}
         </div>}
     </section>
   );
