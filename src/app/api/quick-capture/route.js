@@ -37,6 +37,9 @@ function validDate(value) {
 function cleanText(value, max = 100) {
   return String(value || '').trim().replace(/\s+/g, ' ').slice(0, max);
 }
+function normalizePersonName(value) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('fr-CM').replace(/[^a-z0-9]+/g, ' ').trim();
+}
 async function isAllowedCategory(userRef, categoryId, type, builtIns) {
   const id = String(categoryId || '').trim();
   if (!id || id.includes('/')) return false;
@@ -146,8 +149,7 @@ export async function POST(request) {
         const debtsSnap = await userRef.collection('debts').orderBy('createdAt', 'desc').limit(100).get();
         const activeDebts = debtsSnap.docs.map((document) => ({ id: document.id, ...document.data() }))
           .filter((debt) => debt.type === 'i_owe' && ['active', 'partial', 'late'].includes(debt.status) && Number(debt.remaining) > 0);
-        const normalizePerson = (value) => String(value || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-        const matches = activeDebts.filter((debt) => normalizePerson(debt.person || debt.bankName) === normalizePerson(person));
+        const matches = activeDebts.filter((debt) => normalizePersonName(debt.person || debt.bankName) === normalizePersonName(person));
         if (matches.length !== 1) {
           return errorResponse(matches.length > 1
             ? 'Plusieurs dettes correspondent à « ' + person + ' ». Ouvre le formulaire pour choisir précisément la dette.'
@@ -297,12 +299,8 @@ export async function POST(request) {
         return errorResponse('La dette sélectionnée n’est plus active. Actualise la fenêtre puis choisis une autre dette.', 409);
       }
       if (!matchedDebt && person) {
-        const normalizedPerson = person.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-        const matches = activeDebts.filter((debt) => {
-          const name = String(debt.person || debt.bankName || '').normalize('NFD')
-            .replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-          return name === normalizedPerson;
-        });
+        const normalizedPerson = normalizePersonName(person);
+        const matches = activeDebts.filter((debt) => normalizePersonName(debt.person || debt.bankName) === normalizedPerson);
         if (matches.length > 1) {
           return errorResponse('Plusieurs dettes correspondent à « ' + person + ' ». Choisis précisément celle à rembourser.', 422, {
             needsReview: true,
