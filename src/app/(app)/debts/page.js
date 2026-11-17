@@ -11,6 +11,7 @@ import { formatCurrency, formatDate } from '@/lib/utils';
 import { EmptyState } from '@/components/ui/EmptyState';
 import DebtRequestsPanel from '@/components/debts/DebtRequestsPanel';
 import { ScheduledTransactionsPanel } from '@/components/transactions/ScheduledTransactionsPanel';
+import { ScheduledTransactionsPanel } from '@/components/transactions/ScheduledTransactionsPanel';
 
 const OPEN_STATUSES = ['active', 'partial', 'late'];
 const FILTERS = [
@@ -140,6 +141,8 @@ export default function DebtsPage() {
           <p className="mt-1 text-[11px] text-amber-800">{payablePeopleCount} créancier(s) ou banque(s) à qui tu dois</p>
         </div>
       </section>
+
+      <ScheduledTransactionsPanel kinds={['loan_given', 'debt_borrowed', 'debt_repayment', 'repayment_received']} isPremium={isPremium} />
 
       <DebtRequestsPanel uid={user?.uid} />
 
