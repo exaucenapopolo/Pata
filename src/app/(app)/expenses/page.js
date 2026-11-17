@@ -30,6 +30,7 @@ import { AssistantShortcut } from '@/components/ai/AssistantShortcut';
 import { checkFinancialOperation } from '@/lib/firestore/financialTargets';
 import { translateText } from '@/lib/i18n/translations';
 import { EXPENSE_CATEGORIES } from '@/lib/constants';
+import { NextBestAction } from '@/components/NextBestAction';
 
 const todayIso = () => {
   const d = new Date();
@@ -110,6 +111,7 @@ export default function ExpensesPage() {
   const [recurringFrequency, setRecurringFrequency] = useState('daily');
   const [recurringSaving, setRecurringSaving] = useState(false);
   const [recurringError, setRecurringError] = useState('');
+  const [nextAction, setNextAction] = useState(null);
 
   useEffect(() => {
     const openFromShortcut = () => { setForm(emptyForm()); setError(''); setOpen(true); };
@@ -388,6 +390,7 @@ export default function ExpensesPage() {
         }
       }
       setOpen(false);
+      setNextAction({ sequence: Date.now() });
     } catch (err) {
       setError(err.message || 'Erreur lors de l\u2019enregistrement.');
     } finally {
@@ -483,6 +486,7 @@ export default function ExpensesPage() {
 
   return (
     <div className="space-y-4">
+      {nextAction && <NextBestAction key={nextAction.sequence} actionKey="expense-saved" title={isEnglish ? 'Expense saved' : 'Dépense enregistrée'} description={isEnglish ? 'Check what remains in the budget for this category so you can adjust your next expenses.' : 'Vérifie ce qu’il te reste dans le budget de cette catégorie pour mieux préparer tes prochaines dépenses.'} href="/budgets" cta={isEnglish ? 'View my budgets' : 'Voir mes budgets'} />}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Dépenses</h1>
