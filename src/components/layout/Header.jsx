@@ -48,9 +48,8 @@ export function Header() {
     const stack = routeStackRef.current;
     if (stack.length > 1) {
       stack.pop();
-      const previousPath = stack[stack.length - 1];
       routeStackRef.current = stack;
-      router.push(previousPath);
+      router.back();
       return;
     }
     router.replace('/dashboard');
