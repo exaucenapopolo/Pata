@@ -39,16 +39,17 @@ Les notifications générales sont envoyées au groupe FCM, sans parcourir les p
 Tous les rappels automatiques planifiés (dettes, factures, bilan quotidien et bilan du week-end) respectent la plage **17 h 30–22 h 30, heure du Cameroun** (fuseau `Africa/Douala`). Le serveur vérifie cette plage à chaque exécution. Le plan Hobby peut démarrer le Cron à n'importe quel moment pendant l'heure prévue (±59 minutes) et ne relance pas automatiquement une exécution échouée.
 
 Les déclencheurs Vercel sont exprimés en UTC :
-- Rappel financier quotidien : 16:30 UTC, au début de la plage du soir à 17:30 au Cameroun.
+- Premier rappel financier : 16:30 UTC, exécution possible entre 17 h 30 et 18 h 29 au Cameroun.
+- Second rappel financier : 19:30 UTC, exécution possible entre 20 h 30 et 21 h 29 au Cameroun.
 - Bilan du week-end vendredi et dimanche : 17:00 UTC, soit 18:00 au Cameroun.
 - Bilan du samedi : 16:30 UTC, soit 17:30 au Cameroun.
 
 Les compteurs sont distincts et appliqués côté serveur, dans des transactions Firestore :
-- **Rappels financiers du soir : 2 maximum par utilisateur et par jour** pour les dettes, factures, dépenses récurrentes reconnues et le point financier quotidien.
+- **Rappels financiers du soir : 2 maximum par utilisateur et par jour**, avec au plus un rappel réservé pendant le passage de 17 h 30–18 h 29 et un pendant celui de 20 h 30–21 h 29 (heure du Cameroun). Le second passage peut reprendre un rappel de dette ou de facture qui n'a pas pu être envoyé au premier.
 - **Messages de rétention en journée : 3 maximum par utilisateur et par jour**, avec au moins 90 minutes entre deux envois. Ce compteur couvre la découverte de fonctionnalités et les rappels du week-end ; il est indépendant des deux rappels du soir.
 - **Cotisations et alertes opérationnelles/transactionnelles : hors de ces deux compteurs.** Elles suivent leur propre événement et ne sont pas refusées parce qu'un quota de rétention est atteint.
 
-Sur Hobby, les deux rappels du soir sont sélectionnés pendant l'exécution quotidienne unique ; ils ne sont pas répartis sur deux déclenchements automatiques espacés.
+Sur Hobby, Pata utilise deux tâches Cron distinctes : chacune se déclenche au plus une fois par jour, dans l'heure qui suit l'heure UTC configurée (±59 minutes). Vercel autorise jusqu'à 100 tâches Cron par projet sur tous les plans depuis janvier 2026. Les deux passages sont donc distincts, mais leur minute exacte n'est pas garantie et une exécution en échec n'est pas relancée automatiquement.
 
 Le relais e-mail automatique est limité séparément à **100 e-mails par jour UTC**. Une nouvelle tentative avec la même clé d'idempotence ne doit pas créer un deuxième e-mail. Les e-mails transactionnels de sécurité et de paiement qui utilisent directement `sendPataEmail` ne sont pas soumis à ce plafond. En revanche, lorsqu'un rappel de cotisation doit être relayé par e-mail, il reste soumis au plafond e-mail distinct de 100/jour ; il n'est pas soumis au quota de deux notifications.
 
