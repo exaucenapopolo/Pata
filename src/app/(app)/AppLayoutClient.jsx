@@ -20,6 +20,7 @@ import { AndroidUpdateChecker } from '@/components/AndroidUpdateChecker';
 import { AppFeatureTour } from '@/components/AppFeatureTour';
 import { AppLoadingScreen } from '@/components/layout/AppLoadingScreen';
 import { AppNavigationProgress } from '@/components/layout/AppNavigationProgress';
+import { PageUsageTracker } from '@/components/layout/PageUsageTracker';
 
 export default function AppLayout({ children }) {
   const { loading, user } = useAuthGuard();
@@ -33,6 +34,7 @@ export default function AppLayout({ children }) {
   return (
     <div className="pata-app-shell relative isolate min-h-[100dvh] bg-[#f0f6f1] lg:flex lg:h-[100dvh] lg:overflow-hidden">
       <AppNavigationProgress />
+      <PageUsageTracker uid={user.uid} />
       <Sidebar />
       <div className="flex min-h-[100dvh] min-w-0 flex-1 flex-col lg:h-full lg:overflow-hidden">
         <Header />

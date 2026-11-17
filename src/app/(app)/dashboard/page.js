@@ -79,6 +79,19 @@ const DASHBOARD_FEATURES = [
   },
 ];
 
+const DASHBOARD_USAGE_LINKS = [
+  { href: '/expenses', label: 'Dépenses', english: 'Expenses' },
+  { href: '/income', label: 'Revenus', english: 'Income' },
+  { href: '/budgets', label: 'Budgets', english: 'Budgets' },
+  { href: '/goals', label: 'Épargne', english: 'Savings' },
+  { href: '/debts', label: 'Dettes & prêts', english: 'Debts & loans' },
+  { href: '/bills', label: 'Factures', english: 'Bills' },
+  { href: '/cotisations', label: 'Cotisations', english: 'Contributions' },
+  { href: '/wallet', label: 'Portefeuille', english: 'Wallet' },
+  { href: '/reports', label: 'Rapports', english: 'Reports' },
+  { href: '/premium', label: 'Premium', english: 'Premium' },
+];
+
 const ADVICE_ICONS = { success: CheckCircle2, danger: AlertTriangle, warning: AlertTriangle, tip: Lightbulb, info: Info };
 
 export default function DashboardPage() {
@@ -86,6 +99,7 @@ export default function DashboardPage() {
   const [customEnd, setCustomEnd] = useState(todayIso());
   const [showCustomPeriod, setShowCustomPeriod] = useState(false);
   const [activeFeature, setActiveFeature] = useState(0);
+  const [frequentPages, setFrequentPages] = useState([]);
   const [dashboardView, setDashboardView] = useState('all');
   const [financialTarget, setFinancialTarget] = useState(null);
   const [targetPeriodType, setTargetPeriodType] = useState('month');
@@ -100,6 +114,31 @@ export default function DashboardPage() {
   const isEnglish = language === 'en';
   const targetPeriodKey = getPeriodKey(targetPeriodType, new Date());
   const targetPeriodBounds = getPeriodBounds(targetPeriodType, targetPeriodKey);
+
+  useEffect(() => {
+    if (!user?.uid) { setFrequentPages([]); return undefined; }
+    const storageKey = 'pata-page-visits:' + user.uid;
+    const refresh = () => {
+      try {
+        const saved = JSON.parse(localStorage.getItem(storageKey) || '{}');
+        const next = DASHBOARD_USAGE_LINKS
+          .map((item) => ({ ...item, count: Number(saved[item.href]?.count) || 0, lastVisitedAt: Number(saved[item.href]?.lastVisitedAt) || 0 }))
+          .filter((item) => item.count >= 2)
+          .sort((a, b) => b.count - a.count || b.lastVisitedAt - a.lastVisitedAt)
+          .slice(0, 3);
+        setFrequentPages(next);
+      } catch {
+        setFrequentPages([]);
+      }
+    };
+    refresh();
+    window.addEventListener('pata:page-usage-updated', refresh);
+    window.addEventListener('storage', refresh);
+    return () => {
+      window.removeEventListener('pata:page-usage-updated', refresh);
+      window.removeEventListener('storage', refresh);
+    };
+  }, [user?.uid]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -443,6 +482,21 @@ export default function DashboardPage() {
           <Link href="/budgets" className="group flex min-h-[112px] flex-col justify-between rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md active:scale-[0.98]"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><PiggyBank size={19}/></span><span><strong className="block text-xs text-slate-900">Gérer mes budgets</strong><span className="mt-0.5 block text-[10px] text-slate-500">Prévoir mes dépenses</span></span></Link>
           <Link href="/goals" className="group flex min-h-[112px] flex-col justify-between rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-md active:scale-[0.98]"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-50 text-violet-700"><Plus size={19}/></span><span><strong className="block text-xs text-slate-900">Créer un objectif</strong><span className="mt-0.5 block text-[10px] text-slate-500">Préparer mon épargne</span></span></Link>
         </div>
+        {frequentPages.length > 0 && (
+          <div className="mt-4 border-t border-slate-100 pt-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <p className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-500">{isEnglish ? 'Your frequent spaces' : 'Tes espaces habituels'}</p>
+              <span className="text-[9px] text-slate-400">{isEnglish ? 'Based on your visits' : 'Selon tes visites'}</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {frequentPages.map((item) => (
+                <Link key={item.href} href={item.href} className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-emerald-100 bg-emerald-50/60 px-3 text-[11px] font-semibold text-emerald-900 transition hover:border-emerald-300 hover:bg-emerald-50">
+                  {isEnglish ? item.english : item.label}<ChevronRight size={13}/>
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
       <section className="grid grid-cols-2 gap-3">
         <Link href="/debts" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-emerald-200"><p className="text-xs font-semibold text-slate-500">On me doit</p><p className="mt-1 text-xl font-bold text-emerald-700">{formatCurrency(receivableTotal)}</p><p className="mt-1 text-[11px] text-slate-500">{receivables.length} créance(s) active(s)</p></Link>
