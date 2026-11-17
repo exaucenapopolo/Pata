@@ -4,8 +4,8 @@ import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 
 const TRACKED_PATHS = new Set([
-  '/expenses', '/income', '/budgets', '/goals', '/debts',
-  '/bills', '/cotisations', '/wallet', '/reports', '/premium',
+  '/dashboard', '/expenses', '/income', '/budgets', '/goals', '/debts',
+  '/bills', '/cotisations', '/wallet', '/reports', '/premium', '/settings',
 ]);
 
 export function PageUsageTracker({ uid }) {

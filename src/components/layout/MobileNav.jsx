@@ -3,10 +3,11 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Home, Wallet, TrendingUp, Plus, Menu, X, Banknote, Target, BarChart3, Settings, Crown, LogOut, PiggyBank, ArrowDownLeft, ArrowUpRight, Users, HandCoins, Receipt } from 'lucide-react';
+import { Home, Wallet, TrendingUp, Plus, Menu, X, Banknote, Target, BarChart3, Settings, Crown, LogOut, PiggyBank, Users, HandCoins, Receipt } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { bodyScrollLockManager } from '@/lib/ui/bodyScrollLock.mjs';
+import { rankQuickNavigationPages } from '@/lib/navigation/quickNavigation.mjs';
 
 const MORE_NAV = [
   { href: '/wallet', label: 'Portefeuille', icon: Banknote, description: 'Solde et mouvements', position: 'top-left' },
@@ -19,30 +20,67 @@ const MORE_NAV = [
   { href: '/premium', label: 'Premium', icon: Crown, description: 'Options et abonnement', position: 'center' },
   { href: '/settings', label: 'Paramètres', icon: Settings, description: 'Compte et préférences', position: 'bottom-right' },
 ];
-const QUICK_ACTIONS = [
-  { href: '/expenses?new=1', label: 'Nouvelle dépense', description: 'Enregistrer une sortie', icon: ArrowUpRight, tone: 'text-rose-700 bg-rose-50' },
-  { href: '/income?new=1', label: 'Nouveau revenu', description: 'Ajouter une entrée', icon: ArrowDownLeft, tone: 'text-emerald-700 bg-emerald-50' },
-  { href: '/budgets', label: 'Définir un budget', description: 'Planifier mes dépenses', icon: PiggyBank, tone: 'text-blue-700 bg-blue-50' },
-  { href: '/goals', label: 'Gérer mes objectifs', description: 'Suivre mon épargne', icon: Target, tone: 'text-violet-700 bg-violet-50' },
+const QUICK_NAV_PAGES = [
+  { href: '/expenses', label: 'Dépenses', description: 'Suivre tes sorties', icon: Wallet, tone: 'rose' },
+  { href: '/income', label: 'Revenus', description: 'Suivre tes entrées', icon: TrendingUp, tone: 'emerald' },
+  { href: '/budgets', label: 'Budgets', description: 'Organiser tes dépenses', icon: PiggyBank, tone: 'blue' },
+  { href: '/goals', label: 'Épargne', description: 'Suivre tes objectifs', icon: Target, tone: 'violet' },
+  { href: '/debts', label: 'Dettes & prêts', description: 'Voir tes remboursements', icon: HandCoins, tone: 'amber' },
+  { href: '/bills', label: 'Factures', description: 'Retrouver tes échéances', icon: Receipt, tone: 'sky' },
+  { href: '/cotisations', label: 'Cotisations', description: 'Gérer tes groupes', icon: Users, tone: 'teal' },
+  { href: '/wallet', label: 'Portefeuille', description: 'Consulter ton solde', icon: Banknote, tone: 'lime' },
+  { href: '/reports', label: 'Rapports', description: 'Voir tes analyses', icon: BarChart3, tone: 'purple' },
+  { href: '/premium', label: 'Premium', description: 'Explorer les automatisations', icon: Crown, tone: 'green' },
+  { href: '/settings', label: 'Paramètres', description: 'Gérer tes préférences', icon: Settings, tone: 'slate' },
 ];
 
 export function MobileNav() {
   const pathname = usePathname();
   const router = useRouter();
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
   const [showMore, setShowMore] = useState(false);
   const [showActions, setShowActions] = useState(false);
   const moreMenuCloseRef = useRef(null);
+  const quickMenuCloseRef = useRef(null);
+  const [quickPages, setQuickPages] = useState(() => rankQuickNavigationPages(QUICK_NAV_PAGES, {}, 4));
+  const [hasQuickHistory, setHasQuickHistory] = useState(false);
 
   useEffect(() => {
-    if (!showMore) return undefined;
+    if (!showMore && !showActions) return undefined;
     const handleKeyDown = (event) => {
-      if (event.key === 'Escape') setShowMore(false);
+      if (event.key === 'Escape') {
+        setShowMore(false);
+        setShowActions(false);
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
-    moreMenuCloseRef.current?.focus();
+    if (showMore) moreMenuCloseRef.current?.focus();
+    if (showActions) quickMenuCloseRef.current?.focus();
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showMore]);
+  }, [showMore, showActions]);
+
+  useEffect(() => {
+    const refreshQuickPages = () => {
+      try {
+        const saved = user?.uid
+          ? JSON.parse(localStorage.getItem('pata-page-visits:' + user.uid) || '{}')
+          : {};
+        const hasHistory = Object.values(saved).some((entry) => Number(entry?.count) > 0);
+        setQuickPages(rankQuickNavigationPages(QUICK_NAV_PAGES, saved, 4));
+        setHasQuickHistory(hasHistory);
+      } catch {
+        setQuickPages(rankQuickNavigationPages(QUICK_NAV_PAGES, {}, 4));
+        setHasQuickHistory(false);
+      }
+    };
+    refreshQuickPages();
+    window.addEventListener('pata:page-usage-updated', refreshQuickPages);
+    window.addEventListener('storage', refreshQuickPages);
+    return () => {
+      window.removeEventListener('pata:page-usage-updated', refreshQuickPages);
+      window.removeEventListener('storage', refreshQuickPages);
+    };
+  }, [user?.uid]);
 
   useEffect(() => {
     if (!showMore && !showActions) return undefined;
@@ -62,39 +100,39 @@ export function MobileNav() {
 
   return (
     <>
-      {(showMore || showActions) && <button type="button" aria-label="Fermer le menu" onClick={() => { setShowMore(false); setShowActions(false); }} className={'pata-mobile-backdrop fixed inset-0 z-[60] lg:hidden' + (showMore ? ' is-orbit' : '')} />}
+      {(showMore || showActions) && <button type="button" aria-label="Fermer le menu" onClick={() => { setShowMore(false); setShowActions(false); }} className={'pata-mobile-backdrop fixed inset-0 z-[60] lg:hidden' + (showMore ? ' is-orbit' : showActions ? ' is-quick' : '')} />}
       {showActions && (
-        <section id="pata-quick-actions-panel" role="dialog" aria-modal="true" aria-labelledby="pata-quick-actions-title" aria-describedby="pata-quick-actions-description" className="pata-quick-action-panel fixed bottom-[calc(4.65rem+env(safe-area-inset-bottom))] left-3 right-3 z-[70] lg:hidden">
-          <div className="pata-quick-action-header">
-            <div>
-              <p className="pata-quick-action-eyebrow">ACTION RAPIDE</p>
-              <h2 id="pata-quick-actions-title">Que veux-tu faire ?</h2>
-              <p id="pata-quick-actions-description">Accède directement à l’essentiel.</p>
+        <section id="pata-quick-actions-panel" role="dialog" aria-modal="true" aria-labelledby="pata-quick-actions-title" aria-describedby="pata-quick-actions-description" className="pata-quick-picker fixed bottom-[calc(5.35rem+env(safe-area-inset-bottom))] left-1/2 z-[70] w-[min(92vw,348px)] -translate-x-1/2 lg:hidden">
+          <header className="pata-quick-picker-header">
+            <div className="min-w-0">
+              <p className="pata-quick-picker-eyebrow">{hasQuickHistory ? 'TES HABITUDES' : 'POUR COMMENCER'}</p>
+              <h2 id="pata-quick-actions-title">{hasQuickHistory ? 'Tes 4 espaces les plus consultés' : 'Tes espaces à portée de main'}</h2>
+              <p id="pata-quick-actions-description">{hasQuickHistory ? 'Classés selon tes visites sur cet appareil.' : 'Pata les classera au fil de ton utilisation.'}</p>
             </div>
-            <button type="button" onClick={() => setShowActions(false)} className="pata-quick-action-close" aria-label="Fermer les actions rapides"><X size={17}/></button>
-          </div>
-          <div className="pata-quick-action-grid">
-            {QUICK_ACTIONS.map((item, index) => {
+            <button ref={quickMenuCloseRef} type="button" onClick={() => setShowActions(false)} className="pata-quick-picker-close" aria-label="Fermer les raccourcis"><X size={16}/></button>
+          </header>
+          <div className="pata-quick-picker-grid">
+            {quickPages.map((item, index) => {
               const Icon = item.icon;
-              const target = item.href.split('?')[0];
-              const featured = index === 0;
-              return <Link key={item.href} href={item.href} style={{ '--action-order': index }} onClick={(event) => {
-                if (pathname === target && item.href.includes('new=1')) {
-                  event.preventDefault();
-                  window.dispatchEvent(new CustomEvent(target === '/expenses' ? 'pata:expense-new' : 'pata:income-new'));
-                }
-                setShowActions(false);
-              }} className={'pata-quick-action-card' + (featured ? ' is-featured' : '')}>
-                <span className={'pata-quick-action-icon ' + item.tone}><Icon size={featured ? 21 : 19}/></span>
-                <span className="pata-quick-action-copy">
+              const active = pathname === item.href || pathname.startsWith(item.href + '/');
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setShowActions(false)}
+                  aria-current={active ? 'page' : undefined}
+                  style={{ '--quick-order': index }}
+                  className={'pata-quick-page' + (index === 0 ? ' is-top' : '') + (active ? ' is-current' : '')}
+                >
+                  <span className="pata-quick-page-icon"><Icon size={21} strokeWidth={2}/></span>
+                  <span className="pata-quick-page-rank">{String(index + 1).padStart(2, '0')}</span>
                   <strong>{item.label}</strong>
-                  <span>{item.description}</span>
-                </span>
-                <ArrowUpRight className="pata-quick-action-arrow" size={16}/>
-              </Link>;
+                  <small>{item.visitCount > 0 ? item.visitCount + ' visite' + (item.visitCount > 1 ? 's' : '') : 'À découvrir'}</small>
+                </Link>
+              );
             })}
           </div>
-          <p className="pata-quick-action-footnote">Tes opérations restent modifiables après leur enregistrement.</p>
+          <p className="pata-quick-picker-footnote">{hasQuickHistory ? 'Tes raccourcis évoluent avec tes habitudes.' : 'Tes pages les plus consultées apparaîtront ici.'}</p>
         </section>
       )}
       {showMore && (
