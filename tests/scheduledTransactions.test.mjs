@@ -125,7 +125,7 @@ test('help center documents scheduled expenses, incomes, recurring options and f
     'programme 250 nourriture le 20',
     '17/05/2027',
     'récurrence mensuelle est activée par défaut',
-    'Source de revenu à laquelle la relier',
+    'relier à un revenu disponible',
     'Rendre cette opération récurrente',
     'peut-on programmer un emprunt',
   ]) assert.ok(help.toLowerCase().includes(phrase.toLowerCase()), 'Missing scheduled transaction help: ' + phrase);
