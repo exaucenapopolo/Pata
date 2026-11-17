@@ -26,6 +26,19 @@ test('chaque passage possède son identifiant et sa réservation indépendants',
   assert.match(apiRoute, /eveningRetentionPass2Date/);
 });
 
+test('la collection des dettes reste accessible dans le second bloc de rappel du soir', () => {
+  const scheduler = apiRoute.slice(
+    apiRoute.indexOf('async function handleNotificationScheduler'),
+    apiRoute.indexOf('async function handleCurrencyRates')
+  );
+  const loop = scheduler.indexOf('for (const userDoc of usersSnapshot.docs)');
+  const declaration = scheduler.indexOf('let openDebts = { docs: [] };', loop);
+  const firstTry = scheduler.indexOf('      try {', loop);
+  const secondUse = scheduler.indexOf('const activeDebtRows = openDebts.docs', declaration);
+  assert.ok(loop >= 0 && declaration > loop && declaration < firstTry);
+  assert.ok(secondUse > firstTry);
+});
+
 test('le planificateur des cotisations ne tourne qu’au premier passage', () => {
   assert.match(apiRoute, /if \(eveningPass === 1\) \{\s*const cotisationResponse = await handleCotisationsScheduler\(request\)/);
 });

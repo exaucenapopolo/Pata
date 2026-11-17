@@ -23,6 +23,7 @@ import { resolveAIReportPeriod } from '@/lib/ai/reportPeriod.mjs';
 import { sanitizeNotificationReply } from '@/lib/ai/notificationFormat.mjs';
 import { buildHelpKnowledgeContext } from '@/lib/ai/helpKnowledge.mjs';
 import { computeGoalPlan, GOAL_LATE_PENALTY_RATE, GOAL_PENALTY_EFFECTIVE_DATE } from '@/lib/goalCalc';
+import { isValidCloudinaryAvatarUrl } from '@/lib/profile/cloudinaryAvatar.mjs';
 import { COTISATION_CHAT_PACK_PRICE, COTISATION_CHAT_PACK_SIZE, summarizeCotisationChatQuota, consumeCotisationChatQuota, sanitizeCotisationChatMessage, cotisationChatExpiry } from '@/lib/cotisations/chatPolicy.mjs';
 import {
   sendPataEmail, welcomeEmail, savingsCreatedEmail, customAdminEmail, pinResetEmail, referralJoinedEmail, referralRewardActivatedEmail,
@@ -2535,10 +2536,10 @@ async function handleNotificationScheduler(request, passNumber = 1) {
     let failed = 0;
     for (const userDoc of usersSnapshot.docs) {
       const userData = userDoc.data();
+      let openDebts = { docs: [] };
       try {
         const storedDebtCount = userData.activeDebtCount;
         const debtCountReady = typeof storedDebtCount === 'number' && Number.isInteger(storedDebtCount) && storedDebtCount >= 0;
-        let openDebts = { docs: [] };
         if (!debtCountReady || storedDebtCount > 0) {
           openDebts = await userDoc.ref.collection('debts')
             .where('status', 'in', ['active', 'partial', 'late'])
@@ -4517,6 +4518,7 @@ async function handleCreateGoal(request) {
       stats.lastResetMonth = currentMonth;
       const record = {
         name, type, categoryId, debtBalance: 0, pinned: false,
+        imageUrl: isValidCloudinaryAvatarUrl(body.imageUrl) ? String(body.imageUrl).slice(0, 2048) : '',
         ...readGoalOptionalDetails(body),
         createdAt: FieldValue.serverTimestamp(),
       };
@@ -4801,6 +4803,7 @@ async function handleUpdateGoal(request) {
         patch.name = value;
       }
       if (body.categoryId !== undefined) patch.categoryId = String(body.categoryId || 'savings').trim().slice(0, 80);
+      if (body.imageUrl !== undefined) patch.imageUrl = isValidCloudinaryAvatarUrl(body.imageUrl) ? String(body.imageUrl).slice(0, 2048) : '';
       if (body.purposeType !== undefined) {
         const allowedPurposes = ['personal', 'family', 'child', 'partner', 'emergency', 'project', 'other'];
         const requestedPurpose = String(body.purposeType || 'personal');
@@ -6155,9 +6158,21 @@ async function getAdminMonthlyMetrics(monthValue) {
       .then((snap) => Number(snap.data().count) || 0).catch(() => null),
     users.count().get().then((snap) => Number(snap.data().count) || 0).catch(() => null),
     users.where('lastPaymentDate', '>', '').count().get().then((snap) => Number(snap.data().count) || 0).catch(() => null),
-    range(subscriptions).aggregate({ count: AggregateField.count(), total: AggregateField.sum('amount') }).get()
-      .then((snap) => ({ count: Number(snap.data().count) || 0, total: Number(snap.data().total) || 0 }))
-      .catch(() => ({ count: null, total: null, unavailable: true })),
+    range(subscriptions).aggregate({
+      count: AggregateField.count(),
+      total: AggregateField.sum('amount'),
+      bundleDiscount: AggregateField.sum('bundleDiscount'),
+      totalSavings: AggregateField.sum('totalSavings'),
+      manualAdjustmentDiscount: AggregateField.sum('manualAdjustmentDiscount'),
+    }).get()
+      .then((snap) => ({
+        count: Number(snap.data().count) || 0,
+        total: Number(snap.data().total) || 0,
+        bundleDiscount: Number(snap.data().bundleDiscount) || 0,
+        totalSavings: Number(snap.data().totalSavings) || 0,
+        manualAdjustmentDiscount: Number(snap.data().manualAdjustmentDiscount) || 0,
+      }))
+      .catch(() => ({ count: null, total: null, bundleDiscount: null, totalSavings: null, manualAdjustmentDiscount: null, unavailable: true })),
     range(subscriptionAdjustments).aggregate({ count: AggregateField.count(), total: AggregateField.sum('amount') }).get()
       .then((snap) => ({ count: Number(snap.data().count) || 0, total: Number(snap.data().total) || 0 }))
       .catch(() => ({ count: null, total: null, unavailable: true })),
@@ -6227,6 +6242,9 @@ async function getAdminMonthlyMetrics(monthValue) {
     cotisationGroupsCreated: groupCreations,
     activeCotisationGroups: activeGroups,
     subscriptionRevenue,
+    subscriptionBundleDiscount: subscriptionSummary.unavailable ? null : Number(subscriptionSummary.bundleDiscount || 0),
+    subscriptionTotalSavings: subscriptionSummary.unavailable ? null : Number(subscriptionSummary.totalSavings || 0),
+    subscriptionManualAdjustmentDiscount: subscriptionSummary.unavailable ? null : Number(subscriptionSummary.manualAdjustmentDiscount || 0),
     subscriptionRefunds: subscriptionAdjustmentsSummary.unavailable ? null : Math.max(0, -subscriptionRefunds),
     subscriptionPayments: subscriptionSummary.count,
     subscriptionProviderCost,
@@ -6443,6 +6461,7 @@ async function handleAdminSavings(request) {
           id: document.id, userId: uid, userName: user.displayName || 'Utilisateur', email: user.email || '',
           name: data.name || (data.type === 'piggybank' ? 'Tirelire' : 'Objectif'),
           type: data.type || 'goal', categoryId: data.categoryId || 'other',
+          imageUrl: isValidCloudinaryAvatarUrl(data.imageUrl) ? String(data.imageUrl) : '',
           targetAmount, depositedAmount,
           cashDeposited: active ? (available ? amount.cashTotal : null) : 0,
           borrowedAmount: active ? (available ? amount.borrowedTotal : null) : 0,
@@ -6536,6 +6555,9 @@ async function handleAdminPremiumChange(request) {
           premiumAccessUpdatedBy: admin.uid,
         };
         if (countAsRevenue) {
+          const manualPricing = calculatePremiumPricing(months, false);
+          const actualSavings = Math.max(0, manualPricing.regularAmount - amount);
+          const bundleDiscount = Math.min(manualPricing.bundleSavings, actualSavings);
           userPatch.lastPaymentDate = nowIso;
           userPatch.lastPaymentAmount = amount;
           userPatch.lastPaymentMethod = 'admin_manual';
@@ -6544,6 +6566,12 @@ async function handleAdminPremiumChange(request) {
             userId: uid,
             amount,
             months,
+            grantedMonths: months,
+            regularAmount: manualPricing.regularAmount,
+            bundleDiscount,
+            referralDiscount: 0,
+            manualAdjustmentDiscount: Math.max(0, actualSavings - bundleDiscount),
+            totalSavings: actualSavings,
             status: 'CONFIRMED',
             method: 'admin_manual',
             source: 'admin_manual_activation',
@@ -6635,7 +6663,7 @@ async function handleAdminUserDetail(request) {
     const uid = String(url.searchParams.get('uid') || '').slice(0, 150);
     if (!uid || uid.includes('/')) return errorResponse('Compte invalide.', 400);
     const userRef = adminDb.collection('users').doc(uid);
-    const [userDoc, chatsSnap, expensesSnap, incomesSnap, goalsSnap, notificationsSnap, billsSnap, debtsSnap, budgetsSnap] = await Promise.all([
+    const [userDoc, chatsSnap, expensesSnap, incomesSnap, goalsSnap, notificationsSnap, billsSnap, debtsSnap, budgetsSnap, subscriptionPaymentsSnap] = await Promise.all([
       userRef.get(),
       userRef.collection('ai_chats').orderBy('updatedAt', 'desc').limit(12).get().catch(() => ({ docs: [] })),
       userRef.collection('expenses').orderBy('date', 'desc').limit(10).get().catch(() => ({ docs: [] })),
@@ -6645,6 +6673,7 @@ async function handleAdminUserDetail(request) {
       userRef.collection('bills').orderBy('nextDueDate', 'asc').limit(20).get().catch(() => ({ docs: [] })),
       userRef.collection('debts').orderBy('createdAt', 'desc').limit(30).get().catch(() => ({ docs: [] })),
       userRef.collection('budgets').orderBy('month', 'desc').limit(30).get().catch(() => ({ docs: [] })),
+      adminDb.collection('subscriptionPayments').where('userId', '==', uid).limit(20).get().catch(() => ({ docs: [] })),
     ]);
     if (!userDoc.exists) return errorResponse('Compte introuvable.', 404);
     const chats = chatsSnap.docs.map((document) => ({ id: document.id, ...serializeAdminValue(document.data()) }));
@@ -6675,13 +6704,87 @@ async function handleAdminUserDetail(request) {
     const sumActive = (field) => savingsSummaryAvailable
       ? activeGoals.reduce((sum, goal) => sum + (Number(goal[field]) || 0), 0)
       : null;
-    const safeUser = { ...userDoc.data() };
+    const rawUserData = userDoc.data() || {};
+    const pushTokens = Array.isArray(rawUserData.pushTokens)
+      ? rawUserData.pushTokens.filter((token) => typeof token === 'string' && token.length > 20)
+      : [];
+    const pushDeviceCount = pushTokens.length + Math.max(0, Number(rawUserData.webPushDeviceCount) || 0);
+    const safeUser = {
+      ...rawUserData,
+      pushDeviceCount,
+      notificationsAvailable: rawUserData.notificationsEnabled === true && pushDeviceCount > 0,
+      emailFallbackAvailable: rawUserData.emailRemindersEnabled !== false && String(rawUserData.email || '').includes('@'),
+    };
     delete safeUser.pushTokens; delete safeUser.monthlyStats; delete safeUser.dailyStats;
     const recentExpenses = expensesSnap.docs.map((document) => ({ id: document.id, ...serializeAdminValue(document.data()) }));
     const recentIncomes = incomesSnap.docs.map((document) => ({ id: document.id, ...serializeAdminValue(document.data()) }));
+    const subscriptionPayments = subscriptionPaymentsSnap.docs
+      .map((document) => ({ id: document.id, ...serializeAdminValue(document.data()) }))
+      .sort((a, b) => String(b.confirmedAt || b.createdAt || '').localeCompare(String(a.confirmedAt || a.createdAt || '')));
+    const activeBillsForNotification = billsSnap.docs.map((document) => ({ id: document.id, ...document.data() }))
+      .filter((bill) => bill.active !== false)
+      .sort((a, b) => String(a.nextDueDate || '9999-12-31').localeCompare(String(b.nextDueDate || '9999-12-31')));
+    const activeDebtsForNotification = debtsSnap.docs.map((document) => ({ id: document.id, ...document.data() }))
+      .filter((debt) => Number(debt.remaining ?? debt.amount) > 0 && !['paid', 'closed', 'cancelled'].includes(String(debt.status || '').toLowerCase()));
+    const notificationOptions = [];
+    const formatFCFA = (value) => Math.max(0, Number(value) || 0).toLocaleString('fr-FR') + ' FCFA';
+    if (activeBillsForNotification.length) {
+      const bill = activeBillsForNotification[0];
+      const dueDate = String(bill.nextDueDate || '');
+      const hasDueDate = dueDate.length === 10 && dueDate[4] === '-' && dueDate[7] === '-';
+      notificationOptions.push({
+        id: 'bill-' + bill.id, label: 'Rappel de facture', categoryId: 'bills', target: '/bills',
+        title: hasDueDate ? 'Prépare ta facture « ' + String(bill.name || 'Facture').slice(0, 60) + ' »' : 'Complète les informations de ta facture',
+        body: hasDueDate
+          ? 'Ta facture « ' + String(bill.name || 'Facture').slice(0, 60) + ' » est prévue pour le ' + dueDate + (Number(bill.amount) > 0 ? ' pour environ ' + formatFCFA(bill.amount) : '') + '. Vérifie son échéance et prépare son paiement dans Pata.'
+          : 'Ta facture « ' + String(bill.name || 'Facture').slice(0, 60) + ' » est enregistrée, mais son échéance reste à préciser. Complète les informations dans Pata pour recevoir un rappel utile.',
+      });
+    }
+    if (activeDebtsForNotification.length) {
+      const debt = activeDebtsForNotification.sort((a, b) => String(a.dueDate || '9999-12-31').localeCompare(String(b.dueDate || '9999-12-31')))[0];
+      const amount = Number(debt.remaining ?? debt.amount) || 0;
+      const person = String(debt.person || debt.bankName || 'cette personne').slice(0, 60);
+      notificationOptions.push({
+        id: 'debt-' + debt.id, label: 'Rappel de dette ou créance', categoryId: 'debts', target: '/debts',
+        title: debt.type === 'owed_to_me' ? 'Fais le point sur une somme à recevoir' : 'Fais le point sur ton remboursement',
+        body: debt.type === 'owed_to_me'
+          ? 'Il te reste ' + formatFCFA(amount) + ' à recevoir de ' + person + (debt.dueDate ? ' (échéance : ' + debt.dueDate + ')' : '') + '. Consulte le suivi dans Pata.'
+          : 'Il te reste ' + formatFCFA(amount) + ' à rembourser à ' + person + (debt.dueDate ? ' (échéance : ' + debt.dueDate + ')' : '') + '. Consulte le suivi dans Pata et prépare la prochaine étape.',
+      });
+    }
+    const firstActiveGoal = goals.find((goal) => goal.active && Number(goal.targetAmount) > 0);
+    if (firstActiveGoal) {
+      notificationOptions.push({
+        id: 'goal-' + firstActiveGoal.id, label: 'Rappel d’objectif d’épargne', categoryId: 'savings', target: '/goals',
+        title: 'Garde le cap sur « ' + String(firstActiveGoal.name || 'ton objectif').slice(0, 55) + ' »',
+        body: 'Ton objectif « ' + String(firstActiveGoal.name || 'Épargne').slice(0, 55) + ' » est à ' + (firstActiveGoal.progress == null ? 'une étape de sa progression' : String(firstActiveGoal.progress) + ' %') + ' de sa cible de ' + formatFCFA(firstActiveGoal.targetAmount) + '. Un versement adapté à tes moyens peut t’aider à poursuivre.',
+      });
+    }
+    const currentMonthBudgets = budgetsSnap.docs.map((document) => ({ id: document.id, ...document.data() }))
+      .filter((budget) => budget.month === getDoualaMonthKey() && Number(budget.amount) > 0);
+    if (currentMonthBudgets.length) {
+      const totalBudgeted = currentMonthBudgets.reduce((sum, budget) => sum + (Number(budget.amount) || 0), 0);
+      notificationOptions.push({
+        id: 'budget-' + getDoualaMonthKey(), label: 'Rappel de suivi budgétaire', categoryId: 'budgets', target: '/budgets',
+        title: 'Vérifie tes enveloppes du mois',
+        body: 'Tu as réparti ' + formatFCFA(totalBudgeted) + ' entre tes catégories ce mois-ci. Fais un point sur les montants déjà utilisés et le solde restant dans Pata.',
+      });
+    }
+    if (recentIncomes.length || recentExpenses.length) {
+      notificationOptions.push({
+        id: 'report-' + getRetentionDoualaDateKey(), label: 'Bilan financier', categoryId: 'reports', target: '/reports',
+        title: 'Fais le point sur tes finances',
+        body: 'Tes derniers revenus et tes dépenses sont enregistrés dans Pata. Consulte ton rapport pour vérifier les mouvements récents et ajuster tes priorités.',
+      });
+    }
+    if (!notificationOptions.length) notificationOptions.push({
+      id: 'checkin-' + getRetentionDoualaDateKey(), label: 'Point quotidien', categoryId: 'daily_checkin', target: '/dashboard',
+      title: 'Prends un instant pour faire le point',
+      body: 'Quelques minutes suffisent pour vérifier tes revenus, tes dépenses et tes priorités du moment dans Pata.',
+    });
     return NextResponse.json({
       success: true,
-      user: { id: uid, ...serializeAdminValue(safeUser) }, chats, goals,
+      user: { id: uid, ...serializeAdminValue(safeUser) }, chats, goals, subscriptionPayments, notificationOptions,
       savingsSummaryAvailable,
       totalSavingsInGoals: sumActive('depositedAmount'),
       cashSavingsInGoals: sumActive('cashDeposited'),
@@ -7024,6 +7127,88 @@ async function handleGoalWithdrawalRequest(request, actionType = 'withdraw') {
   } catch (error) { return errorResponse(error.message || 'Impossible de créer la demande de retrait.', 400); }
 }
 
+
+async function handleAdminUserNotificationSend(request) {
+  try {
+    const admin = await requireAdmin(request);
+    const body = await request.json();
+    const uid = String(body.uid || '').trim().slice(0, 150);
+    const slot = String(body.slot || 'evening1');
+    const title = String(body.title || '').trim().slice(0, 80);
+    const message = String(body.body || '').trim().slice(0, 500);
+    const target = String(body.target || '/dashboard').trim();
+    const allowedTargets = new Set(['/dashboard', '/bills', '/debts', '/goals', '/budgets', '/reports', '/cotisations', '/premium']);
+    if (!uid || uid.includes('/') || !title || !message || !allowedTargets.has(target)
+      || !['daytime', 'evening1', 'evening2'].includes(slot)) {
+      return errorResponse('Vérifie le destinataire, le message et le créneau de notification.', 400);
+    }
+
+    const userRef = adminDb.collection('users').doc(uid);
+    const userSnapshot = await userRef.get();
+    if (!userSnapshot.exists) return errorResponse('Compte utilisateur introuvable.', 404);
+    const userData = userSnapshot.data() || {};
+    const pushTokenCount = Array.isArray(userData.pushTokens)
+      ? userData.pushTokens.filter((token) => typeof token === 'string' && token.length > 20).length
+      : 0;
+    const pushDeviceCount = pushTokenCount + Math.max(0, Number(userData.webPushDeviceCount) || 0);
+    const hasEnabledPush = userData.notificationsEnabled === true && pushDeviceCount > 0;
+    const emailAvailable = userData.emailRemindersEnabled !== false && String(userData.email || '').includes('@');
+    if (!hasEnabledPush && !emailAvailable) {
+      return errorResponse('Aucun canal disponible : active les notifications sur un appareil ou vérifie l’adresse e-mail et les rappels e-mail du compte.', 409);
+    }
+
+    const today = getRetentionDoualaDateKey();
+    const notificationId = 'admin-manual-' + slot + '-' + today + '-' + randomBytes(6).toString('hex');
+    const slotClaim = slot === 'daytime'
+      ? await claimScheduledSpecialSlot(userRef, today, notificationId)
+      : await claimScheduledRetentionSlot(userRef, today, notificationId, slot === 'evening2' ? 2 : 1);
+    if (!slotClaim.allowed) {
+      const reason = slot === 'daytime'
+        ? slotClaim.reason === 'minimum_gap'
+          ? 'Un délai minimum de 90 minutes doit séparer les notifications de journée.'
+          : 'La limite quotidienne de trois notifications de journée est atteinte.'
+        : slotClaim.reason === 'pass_limit'
+          ? 'Ce passage du soir a déjà utilisé son rappel.'
+          : 'Les deux rappels du soir ont déjà été réservés pour aujourd’hui.';
+      return errorResponse(reason, 409);
+    }
+
+    const notification = {
+      title, body: message, target, url: target, source: 'admin_manual_' + slot,
+      categoryId: String(body.categoryId || 'admin').slice(0, 80),
+      tag: notificationId, personalize: false,
+    };
+    const pushResult = hasEnabledPush
+      ? await sendPataPushToUser(userRef, notification, getPataAppUrl(request), userData)
+      : { fcmSent: 0, webPushSent: 0, attempted: 0, failed: 0 };
+    const pushSent = Math.max(0, Number(pushResult.fcmSent) || 0) + Math.max(0, Number(pushResult.webPushSent) || 0);
+    const emailSent = pushSent === 0
+      ? await sendRetentionEmailFallback({
+        userData, title, body: message, target,
+        category: 'Message personnalisé Pata',
+        idempotencyKey: 'pata-admin-notification-' + uid + '-' + notificationId,
+      })
+      : false;
+    await persistAutomaticNotificationDelivery(userRef, userData, notificationId, notification, {
+      date: today, pushSent, emailSent, priority: 60,
+    });
+    await userRef.set({ lastNotificationAt: FieldValue.serverTimestamp() }, { merge: true });
+    return NextResponse.json({
+      success: true, notificationId, pushSent, emailSent,
+      pushAvailable: hasEnabledPush, emailAvailable,
+      delivery: pushSent > 0 ? 'push' : emailSent ? 'email_fallback' : 'not_delivered',
+      message: pushSent > 0
+        ? 'Notification envoyée sur les appareils enregistrés.'
+        : emailSent
+          ? 'Aucun appareil push disponible : l’e-mail de secours a été accepté.'
+          : 'Aucun canal de livraison n’a confirmé l’envoi. Vérifie la configuration e-mail du projet.',
+      adminUid: admin.uid,
+    });
+  } catch (error) {
+    console.error('[PATA ADMIN USER NOTIFICATION]', error.message || error);
+    return errorResponse(error.message || 'Impossible d’envoyer cette notification.', 500);
+  }
+}
 
 async function handleAdminNotificationRecipients(request) {
   try {
@@ -10105,6 +10290,7 @@ const ROUTES = {
   'admin/savings': { GET: handleAdminSavings },
   'admin/notification-recipients': { GET: handleAdminNotificationRecipients },
   'admin/notification-history': { GET: handleAdminNotificationHistory },
+  'admin/notifications/send-user': { POST: handleAdminUserNotificationSend },
   'admin/notification-templates': { GET: handleAdminNotificationTemplates },
   'admin/users': { GET: handleAdminUsers },
   'admin/user-detail': { GET: handleAdminUserDetail },

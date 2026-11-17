@@ -15,6 +15,7 @@ import { Card } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { CategoryManager } from '@/components/ui/CategoryManager';
+import { CloudinaryImageField } from '@/components/ui/CloudinaryImageField';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { WithdrawalHistory } from '@/components/WithdrawalHistory';
 import { NextBestAction } from '@/components/NextBestAction';
@@ -348,6 +349,7 @@ function GoalFormModal({ open, onClose, goal, onSaved }) {
 
   const initial = editing ? {
     name: goal.name || '',
+    imageUrl: goal.imageUrl || '',
     type: goal.type || 'goal',
     targetAmount: String(goal.targetAmount || ''),
     categoryId: goal.categoryId || 'savings',
@@ -365,6 +367,7 @@ function GoalFormModal({ open, onClose, goal, onSaved }) {
     piggyTargetEnabled: goal.type === 'piggybank' && Number(goal.targetAmount) > 0,
   } : {
     name: '',
+    imageUrl: '',
     type: 'goal',
     targetAmount: '',
     categoryId: 'savings',
@@ -384,6 +387,7 @@ function GoalFormModal({ open, onClose, goal, onSaved }) {
 
   const [type, setType] = useState(initial.type);
   const [name, setName] = useState(initial.name);
+  const [imageUrl, setImageUrl] = useState(initial.imageUrl);
   const [targetAmount, setTargetAmount] = useState(initial.targetAmount);
   const [categoryId, setCategoryId] = useState(initial.categoryId);
   const [startDate, setStartDate] = useState(initial.startDate);
@@ -422,6 +426,7 @@ function GoalFormModal({ open, onClose, goal, onSaved }) {
 
     let payload = {
       name: name.trim(),
+      imageUrl,
       type,
       categoryId,
       purposeType,
@@ -482,6 +487,7 @@ function GoalFormModal({ open, onClose, goal, onSaved }) {
           </div>
         )}
 
+        <CloudinaryImageField value={imageUrl} onChange={setImageUrl} folder="pata/goals" language={language} label="Photo de ton objectif ou de ton achat" clickablePreview previewClassName="relative block aspect-[16/7] w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 text-slate-400" />
         <Input label="Nom de l’épargne" required value={name} onChange={(event) => setName(event.target.value)} placeholder={type === 'goal' ? 'Ex. Acheter un ordinateur' : 'Ex. Caisse familiale'} />
         <div><p className="mb-2 text-sm font-medium text-slate-700">Catégorie</p><CategoryManager type="goal" value={categoryId} onChange={setCategoryId}/></div>
 
@@ -597,6 +603,7 @@ function GoalCard({ goal, onOpen, onEdit, onAskWithdraw, onTogglePin, onDelete }
       onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onOpen(); } }}
       className={`flex cursor-pointer flex-col transition-shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300 ${goal.pinned ? 'ring-2 ring-brand-500 shadow-md' : ''}`}
     >
+      {goal.imageUrl && <div className="-mx-4 -mt-4 mb-4 h-36 overflow-hidden rounded-t-2xl bg-slate-100 sm:h-44"><img src={goal.imageUrl} alt={goal.name || 'Photo de l’objectif'} className="h-full w-full object-cover" loading="lazy" referrerPolicy="no-referrer"/></div>}
       <div className="mb-3 flex items-start justify-between gap-2">
         <button type="button" onClick={(event) => { event.stopPropagation(); onOpen(); }} className="min-w-0 flex-1 rounded-lg text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-300">
           <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: category?.color || '#94a3b8' }} /><p className="truncate text-lg font-bold text-slate-900">{goal.name}</p></div>

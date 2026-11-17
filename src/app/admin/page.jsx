@@ -6,6 +6,7 @@ import { Activity, ArrowDownLeft, ArrowDownToLine, ArrowUpRight, Bell, CheckCirc
 import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/context/LanguageContext';
 import { CloudinaryImageField } from '@/components/ui/CloudinaryImageField';
+import { calculatePremiumPricing } from '@/lib/premiumPricing.mjs';
 
 const money = (value) => value == null || !Number.isFinite(Number(value)) ? '—' : `${Math.round(Number(value)).toLocaleString('fr-FR')} FCFA`;
 const currentMonthKey = () => { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`; };
@@ -264,6 +265,7 @@ export default function AdminPage() {
   const [targetFeedback, setTargetFeedback] = useState(''); const [cotisationGroups, setCotisationGroups] = useState([]);
   const [cotisationCursor, setCotisationCursor] = useState(null); const [cotisationStatus, setCotisationStatus] = useState('all'); const [cotisationFeedback, setCotisationFeedback] = useState('');
   const [selectedUser, setSelectedUser] = useState(null); const [userDetail, setUserDetail] = useState(null); const [search, setSearch] = useState(''); const [templateChoice, setTemplateChoice] = useState('');
+  const [adminNotificationSlot, setAdminNotificationSlot] = useState('evening1'); const [notificationSendingId, setNotificationSendingId] = useState(''); const [notificationSendResult, setNotificationSendResult] = useState('');
   const [premiumDialog, setPremiumDialog] = useState(''); const [premiumMonths, setPremiumMonths] = useState(1); const [premiumCountAsRevenue, setPremiumCountAsRevenue] = useState(false); const [premiumAmount, setPremiumAmount] = useState('2500'); const [premiumRecordRefund, setPremiumRecordRefund] = useState(false); const [premiumRefundAmount, setPremiumRefundAmount] = useState(''); const [premiumReason, setPremiumReason] = useState(''); const [premiumFeedback, setPremiumFeedback] = useState('');
   const [emailStatus, setEmailStatus] = useState(null); const [emailStatusLoading, setEmailStatusLoading] = useState(false); const [emailTestLoading, setEmailTestLoading] = useState(false); const [emailTestResult, setEmailTestResult] = useState('');
   const [emailSubject, setEmailSubject] = useState(getTemplateField(templates[0], 'subject', language)); const [emailMessage, setEmailMessage] = useState(getTemplateField(templates[0], 'body', language)); const [emailCustomized, setEmailCustomized] = useState(false); const [emailResult, setEmailResult] = useState(''); const [emailCtaPath, setEmailCtaPath] = useState('/dashboard'); const [emailTemplateKey, setEmailTemplateKey] = useState('welcome');
@@ -399,12 +401,12 @@ export default function AdminPage() {
     finally { setBusy(false); }
   };
 
-  const openUser = async (entry) => { setSelectedUser(entry); setUserDetail(null); setTemplateChoice(templates[0].label); setEmailSubject(getTemplateField(templates[0], 'subject', language)); setEmailMessage(getTemplateField(templates[0], 'body', language)); setEmailCustomized(false); setEmailTemplateKey('welcome'); setEmailResult(''); try { setUserDetail(await api(`admin/user-detail?uid=${encodeURIComponent(entry.id)}`)); } catch (err) { setError(err.message); } };
+  const openUser = async (entry) => { setSelectedUser(entry); setUserDetail(null); setTemplateChoice(templates[0].label); setEmailSubject(getTemplateField(templates[0], 'subject', language)); setEmailMessage(getTemplateField(templates[0], 'body', language)); setEmailCustomized(false); setEmailTemplateKey('welcome'); setEmailResult(''); setNotificationSendResult(''); setAdminNotificationSlot('evening1'); try { setUserDetail(await api(`admin/user-detail?uid=${encodeURIComponent(entry.id)}`)); } catch (err) { setError(err.message); } };
   const openPremiumDialog = (action) => {
     setPremiumDialog(action);
     setPremiumMonths(1);
     setPremiumCountAsRevenue(false);
-    setPremiumAmount('2500');
+    setPremiumAmount(String(calculatePremiumPricing(1).totalAmount));
     setPremiumRecordRefund(false);
     setPremiumRefundAmount('');
     setPremiumReason('');
@@ -467,6 +469,29 @@ export default function AdminPage() {
       setEmailResult(isEnglish ? 'Email accepted by Resend for ' + (result.recipientEmail || userDetail.user.email) + '.' : 'E-mail accepté par Resend pour ' + (result.recipientEmail || userDetail.user.email) + '.');
     } catch (err) { setError(err.message || 'Impossible d’envoyer cet e-mail.'); }
     finally { setBusy(false); }
+  };
+  const sendAdminUserNotification = async (option) => {
+    if (!userDetail?.user?.id || !option?.title || !option?.body) return;
+    setNotificationSendingId(option.id);
+    setNotificationSendResult('');
+    setError('');
+    try {
+      const result = await api('admin/notifications/send-user', 'POST', {
+        uid: userDetail.user.id,
+        title: option.title,
+        body: option.body,
+        target: option.target,
+        categoryId: option.categoryId,
+        slot: adminNotificationSlot,
+      });
+      const detail = await api('admin/user-detail?uid=' + encodeURIComponent(userDetail.user.id));
+      setUserDetail(detail);
+      setNotificationSendResult(result.message || 'Résultat de l’envoi mis à jour.');
+    } catch (err) {
+      setNotificationSendResult(err.message || 'La notification n’a pas pu être envoyée.');
+    } finally {
+      setNotificationSendingId('');
+    }
   };
   const logout = async () => { try { await api('admin/logout', 'POST', {}); } catch { /* session déjà expirée */ } setUnlocked(false); setOverview(null); setUsers([]); setWithdrawals([]); setUserDetail(null); };
   const approve = async (item) => { if (!window.confirm(isEnglish ? `Approve the withdrawal of ${money(item.amount)} to ${item.phone}? The payment will be sent to Fapshi.` : `Valider le retrait de ${money(item.amount)} vers ${item.phone} ? Le paiement sera transmis à Fapshi.`)) return; setBusy(true); setError(''); try { await api('admin/withdrawal/approve', 'POST', { requestId: item.id }); await loadDashboard(); } catch (err) { setError(err.message); setBusy(false); } };
@@ -533,7 +558,7 @@ export default function AdminPage() {
       <div className="rounded-2xl border border-slate-200 bg-white p-4"><div className="flex flex-wrap items-end justify-between gap-3"><div><h2 className="text-lg font-bold">Objectifs mensuels</h2><p className="mt-1 text-xs text-slate-500">Définis les résultats visés et suis le rythme nécessaire.</p></div><label className="text-xs font-semibold">Mois<input type="month" value={targetMonth} onChange={(event) => { setTargetMonth(event.target.value); loadMonthlyMetrics(event.target.value); }} className="mt-1 block h-10 rounded-lg border border-slate-200 px-3 text-sm font-normal"/></label></div>
       <form onSubmit={saveMonthlyTargets} className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{objectiveFields.map((field) => <label key={field.key} className="text-xs font-semibold text-slate-600">{field.label}<input type="number" min="0" step="1" value={targetDraft[field.key] ?? ''} onChange={(event) => setTargetDraft((current) => ({...current,[field.key]:event.target.value}))} className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm font-normal" placeholder="0"/></label>)}<button disabled={busy} className="h-10 self-end rounded-lg bg-slate-950 px-4 text-xs font-semibold text-white disabled:opacity-50">{busy?'Enregistrement…':'Enregistrer les objectifs'}</button></form>{targetFeedback&&<p role="status" className="mt-3 rounded-lg bg-emerald-50 p-3 text-xs font-semibold text-emerald-800">{targetFeedback}</p>}</div>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{objectiveFields.map((field)=>{const actual=monthlyMetrics?.[field.metric];const target=Math.max(0,Number(targetDraft[field.key])||0);const remaining=actual==null?null:Math.max(0,target-Number(actual));const progress=target>0&&actual!=null?Math.min(100,Math.round(Number(actual)/target*100)):0;const days=new Date(Number(targetMonth.slice(0,4)),Number(targetMonth.slice(5,7)),0).getDate();const now=new Date();const todayMonth=currentMonthKey();const elapsed=targetMonth<todayMonth?days:targetMonth===todayMonth?now.getDate():0;const left=targetMonth>todayMonth?days:targetMonth===todayMonth?Math.max(0,days-now.getDate()+1):0;const fmt=(v)=>field.money?money(v):v==null?'—':Math.round(Number(v)).toLocaleString('fr-FR');return <article key={field.key} className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-semibold text-slate-500">{field.label}</p><div className="mt-2 flex items-end justify-between gap-2"><strong className="text-xl tabular-nums">{fmt(actual)}</strong><span className="text-xs text-slate-500">/ {fmt(target)}</span></div><div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-600" style={{width:progress+'%'}}/></div><p className="mt-2 text-[11px] text-slate-500">{actual==null?'Donnée indisponible':progress+' % atteint'} · Reste : {fmt(remaining)}</p><div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-100 pt-3 text-xs"><div><p className="text-[10px] text-slate-400">Moyenne / jour</p><strong>{fmt(elapsed>0&&actual!=null?Math.floor(Number(actual)/elapsed):0)}</strong></div><div><p className="text-[10px] text-slate-400">À faire / jour</p><strong>{fmt(left>0&&remaining!=null?Math.ceil(remaining/left):0)}</strong><p className="text-[10px] text-slate-500">{fmt(left>0&&remaining!=null?Math.ceil(remaining/Math.max(1,left/7)):0)} / semaine</p></div></div></article>})}</div>
-      <div className="grid gap-3 sm:grid-cols-2"><Metric label="Conversion inscrits → payeurs Premium" value={monthlyMetrics?.registeredToPaidConversionRate==null?'—':monthlyMetrics.registeredToPaidConversionRate.toFixed(2)+' %'} detail={(monthlyMetrics?.everPremiumPayers??'—')+' payeurs sur '+(monthlyMetrics?.totalRegisteredUsers??'—')+' inscrits'} icon={Target}/><Metric label="Conversion actifs → Premium" value={monthlyMetrics?.activeToPremiumConversionRate==null?'—':monthlyMetrics.activeToPremiumConversionRate.toFixed(2)+' %'} detail={(monthlyMetrics?.premiumUsers??'—')+' Premium actifs sur '+(monthlyMetrics?.activeUsers??'—')+' actifs'} icon={Activity}/></div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"><Metric label="Remises multi-mois Premium accordées" value={money(monthlyMetrics?.subscriptionBundleDiscount)} detail="Remises de forfait déduites du montant encaissé" icon={CreditCard}/><Metric label="Économies Premium totales accordées" value={money(monthlyMetrics?.subscriptionTotalSavings)} detail="Remises multi-mois et parrainage" icon={CircleDollarSign}/><Metric label="Conversion inscrits → payeurs Premium" value={monthlyMetrics?.registeredToPaidConversionRate==null?'—':monthlyMetrics.registeredToPaidConversionRate.toFixed(2)+' %'} detail={(monthlyMetrics?.everPremiumPayers??'—')+' payeurs sur '+(monthlyMetrics?.totalRegisteredUsers??'—')+' inscrits'} icon={Target}/><Metric label="Conversion actifs → Premium" value={monthlyMetrics?.activeToPremiumConversionRate==null?'—':monthlyMetrics.activeToPremiumConversionRate.toFixed(2)+' %'} detail={(monthlyMetrics?.premiumUsers??'—')+' Premium actifs sur '+(monthlyMetrics?.activeUsers??'—')+' actifs'} icon={Activity}/></div>
       <p className="rounded-xl border border-slate-200 bg-white p-3 text-xs leading-5 text-slate-500">Le chiffre d’affaires Pata additionne les abonnements et les revenus conservés sur les frais de service. Les sommes créditées aux portefeuilles ne sont pas des revenus.</p>
     </section>}
     {tab === 'cotisations' && <section className="space-y-4"><div className="rounded-2xl border border-slate-200 bg-white p-4"><SectionTitle title="Suivi des cotisations" detail="Groupes, responsables, participants, échéances et revenus des versements confirmés." action={<select value={cotisationStatus} onChange={(event)=>{setCotisationStatus(event.target.value);loadCotisations(false,event.target.value)}} className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs font-semibold"><option value="all">Tous</option><option value="active">Actifs</option><option value="closed">Clôturés</option></select>}/><div className="grid grid-cols-2 gap-3 xl:grid-cols-4"><Metric label="Groupes créés ce mois" value={monthlyMetrics?.cotisationGroupsCreated??'—'} detail="Nouveaux groupes" icon={HandCoins}/><Metric label="Groupes actifs" value={monthlyMetrics?.activeCotisationGroups??'—'} detail="En cours" icon={Activity}/><Metric label="Versements confirmés" value={monthlyMetrics?.cotisationTransactions??'—'} detail="Ce mois" icon={CheckCircle2}/><Metric label="Frais totaux (5 %)" value={money(monthlyMetrics?.cotisationFees)} detail="Frais facturés" icon={CircleDollarSign}/><Metric label="Coût de paiement (3 %)" value={money(monthlyMetrics?.cotisationProviderCost)} detail="Sur le montant de base" icon={CreditCard}/><Metric label="Revenu Pata (2 %)" value={money(monthlyMetrics?.cotisationPataRevenue)} detail="Part conservée" icon={Wallet}/><Metric label="Contributions de base" value={money(monthlyMetrics?.cotisationBase)} detail="Hors frais" icon={ArrowDownToLine}/></div></div>{cotisationFeedback&&<p role="status" className="rounded-lg bg-emerald-50 p-3 text-xs font-semibold text-emerald-800">{cotisationFeedback}</p>}<div className="space-y-3">{cotisationGroups.map((group)=>{const frequency=({daily:'Quotidienne',weekly:'Hebdomadaire',monthly:'Mensuelle'})[group.frequency]||group.frequency||'—';const collected=Number(group.cycle?.totalCollected||0);const target=Number(group.cycle?.targetAmount||0);const progress=target>0?Math.min(100,Math.round(collected/target*100)):0;return <article key={group.id} className="rounded-2xl border border-slate-200 bg-white p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-bold">{group.name}</h3><p className="mt-1 text-xs text-slate-500">Créée le {dateLabel(group.createdAt)} · {group.status==='active'?'Active':'Clôturée'}</p><p className="mt-2 text-xs font-semibold">{group.ownerName}</p><p className="text-xs text-slate-500">{group.ownerEmail||'E-mail indisponible'}{group.ownerPhone?' · '+group.ownerPhone:''}</p></div><span className="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-semibold">{group.startedAt?'Lancée':'En préparation'}</span></div><div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4"><div><p className="text-[10px] text-slate-400">Membres</p><p className="text-sm font-bold">{group.memberCount} / {group.expectedMembers}</p></div><div><p className="text-[10px] text-slate-400">Par membre</p><p className="text-sm font-bold">{money(group.contributionAmount)}</p></div><div><p className="text-[10px] text-slate-400">Fréquence</p><p className="text-sm font-bold">{frequency}</p></div><div><p className="text-[10px] text-slate-400">Échéance</p><p className="text-sm font-bold">{group.frequency==='monthly'?'Le '+group.dueDay+' du mois':group.startDate||'—'}</p></div></div><p className="mt-3 text-xs text-slate-500">{group.startedAt?'Lancée le '+dateLabel(group.startedAt):'Prévue le '+(group.startDate||'Date non définie')}{group.cycle?.dueAt?' · Prochaine échéance : '+group.cycle.dueAt:''}</p>{group.cycle&&<div className="mt-3 rounded-xl bg-slate-50 p-3"><div className="flex justify-between gap-3 text-xs"><strong>Collecte du cycle</strong><strong>{money(collected)} / {money(target)}</strong></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-emerald-600" style={{width:progress+'%'}}/></div><p className="mt-1 text-[10px] text-slate-500">{progress} % collecté · {group.cycle.status||'—'}</p></div>}<div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3"><button disabled={busy||!group.ownerEmail} onClick={()=>contactCotisation(group,'email')} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 px-3 text-xs font-semibold disabled:opacity-40"><Mail size={14}/> E-mail</button><button disabled={busy} onClick={()=>contactCotisation(group,'notification')} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 px-3 text-xs font-semibold disabled:opacity-40"><Send size={14}/> Notification Pata</button></div></article>})}{!cotisationGroups.length&&<p className="rounded-xl border border-slate-200 bg-white py-10 text-center text-sm text-slate-500">{busy?'Chargement…':'Aucun groupe à afficher.'}</p>}</div>{cotisationCursor&&<button disabled={busy} onClick={()=>loadCotisations(true)} className="h-10 w-full rounded-lg border border-slate-200 text-xs font-semibold disabled:opacity-50">{busy?'Chargement…':'Charger les groupes suivants'}</button>}</section>}
@@ -546,7 +571,7 @@ export default function AdminPage() {
         <div className="rounded-2xl border border-slate-200 bg-white p-4"><SectionTitle title="Répartition par type"/>{(savings?.summary?.byType||overview?.savingsSummary?.byType||[]).map(item=><div key={item.type} className="mb-3 flex items-center justify-between gap-3 text-xs"><span>{item.type==='piggybank'?'Tirelires':'Objectifs'}</span><strong>{money(item.amount)}</strong></div>)}{!(savings?.summary?.byType||overview?.savingsSummary?.byType||[]).length&&<p className="text-xs text-slate-400">{(savings?.summary?.unavailable||overview?.savingsSummary?.unavailable)?'Répartition indisponible tant que les montants ne sont pas vérifiés.':'Aucune donnée disponible.'}</p>}</div>
       </div>
       <div className="rounded-2xl border border-slate-200 bg-white p-4"><SectionTitle title="Objectifs et tirelires des utilisateurs" detail="Propriétaire, progression et fonds actuellement protégés."/>
-        <div className="space-y-3">{(savings?.goals||[]).map(goal=><article key={goal.id} className="rounded-xl border border-slate-100 p-3"><div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="text-sm font-semibold">{goal.name}</p><p className="mt-1 text-xs text-slate-500">{goal.userName} · {goal.email||goal.userId}</p><p className="mt-1 text-[10px] text-slate-400">{goal.type==='piggybank'?'Tirelire':'Objectif'} · {goal.categoryId} · {goal.active?(goal.withdrawalPending?'Retrait en vérification':'Actif'):'Clôturé'}</p></div><div className="shrink-0 text-right"><p className="text-sm font-bold">{goal.depositsSummaryAvailable===false?'Vérification impossible':money(goal.depositedAmount)}</p>{goal.borrowedAmount>0&&<p className="mt-1 text-[10px] text-amber-700">dont {money(goal.borrowedAmount)} empruntés</p>}{goal.targetAmount>0&&<p className="text-[10px] text-slate-500">sur {money(goal.targetAmount)}</p>}</div></div>
+        <div className="space-y-3">{(savings?.goals||[]).map(goal=><article key={goal.id} className="rounded-xl border border-slate-100 p-3">{goal.imageUrl && <img src={goal.imageUrl} alt={goal.name || ''} className="mb-3 h-28 w-full rounded-lg object-cover" loading="lazy" referrerPolicy="no-referrer"/>}<div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="text-sm font-semibold">{goal.name}</p><p className="mt-1 text-xs text-slate-500">{goal.userName} · {goal.email||goal.userId}</p><p className="mt-1 text-[10px] text-slate-400">{goal.type==='piggybank'?'Tirelire':'Objectif'} · {goal.categoryId} · {goal.active?(goal.withdrawalPending?'Retrait en vérification':'Actif'):'Clôturé'}</p></div><div className="shrink-0 text-right"><p className="text-sm font-bold">{goal.depositsSummaryAvailable===false?'Vérification impossible':money(goal.depositedAmount)}</p>{goal.borrowedAmount>0&&<p className="mt-1 text-[10px] text-amber-700">dont {money(goal.borrowedAmount)} empruntés</p>}{goal.targetAmount>0&&<p className="text-[10px] text-slate-500">sur {money(goal.targetAmount)}</p>}</div></div>
           {goal.targetAmount>0&&<><div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-600" style={{width:`${goal.progress||0}%`}}/></div><p className="mt-1 text-[10px] text-slate-500">{goal.progress||0}% de progression · {goal.deadline||'Sans échéance'}</p></>}</article>)}
           {!savings?.goals?.length&&<p className="py-8 text-center text-sm text-slate-500">{busy?'Chargement des objectifs…':'Aucun objectif ni tirelire enregistré.'}</p>}</div>
         {nextSavingsCursor&&<button onClick={()=>loadSavings(true)} disabled={busy} className="mt-4 inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 px-4 text-xs font-semibold disabled:opacity-50">{busy?'Chargement…':'Charger plus d’objectifs'}</button>}
@@ -566,6 +591,69 @@ export default function AdminPage() {
             </button>
           </div>
           {premiumFeedback && <p role="status" className="mt-3 rounded-lg bg-emerald-50 p-2.5 text-xs leading-5 text-emerald-800">{premiumFeedback}</p>}
+        </section>
+        <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
+          <h4 className="mb-3 text-sm font-bold text-slate-900">Historique des paiements Premium</h4>
+          <div className="space-y-2">
+            {(userDetail.subscriptionPayments || []).map((payment) => (
+              <div key={payment.id} className="rounded-lg border border-slate-100 bg-slate-50/70 p-2.5 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <strong>{money(payment.amount)} · {Number(payment.grantedMonths || payment.months || 1)} mois</strong>
+                  <span className={payment.status === 'CONFIRMED' ? 'font-semibold text-emerald-700' : 'font-semibold text-amber-700'}>{payment.status || '—'}</span>
+                </div>
+                <p className="mt-1 text-[10px] text-slate-500">{dateLabel(payment.confirmedAt || payment.createdAt)} · {payment.method || 'Moyen inconnu'}</p>
+                {(Number(payment.bundleDiscount) > 0 || Number(payment.referralDiscount) > 0 || Number(payment.manualAdjustmentDiscount) > 0 || Number(payment.totalSavings) > 0) && (
+                  <p className="mt-1 text-[10px] text-slate-600">Remise multi-mois : {money(payment.bundleDiscount)} · Remise manuelle : {money(payment.manualAdjustmentDiscount)} · Remise parrainage : {money(payment.referralDiscount)} · Économie totale : {money(payment.totalSavings)}</p>
+                )}
+              </div>
+            ))}
+            {!userDetail.subscriptionPayments?.length && <p className="text-xs text-slate-400">Aucun paiement Premium retrouvé dans le journal des transactions de cet utilisateur.</p>}
+          </div>
+        </div>
+        <section className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h4 className="text-sm font-bold text-slate-900">Suggestions de notifications et envoi manuel</h4>
+              <p className="mt-1 text-[11px] text-slate-500">Propositions adaptées aux factures, dettes, objectifs, budgets et mouvements déjà chargés pour ce compte.</p>
+              <p className="mt-1 text-[11px] font-semibold">
+                {userDetail.user?.notificationsAvailable ? 'Push disponible · ' + userDetail.user.pushDeviceCount + ' appareil(s)' : 'Push désactivé ou aucun appareil enregistré'}
+                {' · '}
+                {userDetail.user?.emailFallbackAvailable ? 'E-mail de secours disponible' : 'E-mail de secours indisponible'}
+              </p>
+            </div>
+            <label className="min-w-44 text-[11px] font-semibold text-slate-600">Créneau à utiliser
+              <select value={adminNotificationSlot} onChange={(event) => setAdminNotificationSlot(event.target.value)} className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs font-normal">
+                <option value="daytime">Journée · maximum 3</option>
+                <option value="evening1">Soir · premier passage</option>
+                <option value="evening2">Soir · deuxième passage</option>
+              </select>
+            </label>
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {(userDetail.notificationOptions || []).map((option) => (
+              <article key={option.id} className="rounded-xl border border-slate-100 bg-slate-50/70 p-3">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-brand-700">{option.label}</p>
+                <p className="mt-1 text-xs font-bold text-slate-800">{option.title}</p>
+                <p className="mt-1 text-[11px] leading-5 text-slate-600">{option.body}</p>
+                <button type="button" onClick={() => sendAdminUserNotification(option)} disabled={Boolean(notificationSendingId) || busy} className="mt-3 inline-flex min-h-9 items-center gap-2 rounded-lg bg-slate-900 px-3 text-[11px] font-semibold text-white disabled:opacity-50">
+                  {notificationSendingId === option.id ? <Loader2 size={13} className="animate-spin"/> : <Send size={13}/>}
+                  Envoyer cette notification
+                </button>
+              </article>
+            ))}
+          </div>
+          {notificationSendResult && <p role="status" className="mt-3 rounded-lg bg-slate-50 p-2.5 text-xs leading-5 text-slate-700">{notificationSendResult}</p>}
+          <div className="mt-4 border-t border-slate-100 pt-3">
+            <p className="mb-2 text-xs font-semibold text-slate-700">Dernières notifications enregistrées</p>
+            {(userDetail.notifications || []).map((item) => (
+              <div key={item.id} className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-100 py-2 text-[10px]">
+                <div className="min-w-0 flex-1"><strong className="block text-slate-700">{item.title || 'Notification'}</strong><p className="mt-0.5 text-slate-500">{item.body || ''}</p><p className="mt-0.5 text-slate-400">{item.source || '—'} · {dateLabel(item.createdAt)}</p></div>
+                <span className="shrink-0 font-semibold text-slate-500">Push : {Number(item.pushSent ?? item.delivered) || 0} · E-mail : {item.emailSent ? 'Oui' : 'Non'}</span>
+              </div>
+            ))}
+            {!userDetail.notifications?.length && <p className="text-xs text-slate-400">Aucun envoi conservé pour ce compte.</p>}
+          </div>
+          <p className="mt-3 text-[10px] leading-4 text-slate-400">Les envois manuels utilisent les mêmes compteurs que les notifications automatiques : 3 en journée (avec 90 minutes minimum entre deux) et 1 par passage du soir, soit 2 maximum.</p>
         </section>
         <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
           <div className="flex flex-wrap items-center justify-between gap-2"><h4 className="text-sm font-bold text-slate-900">Contacter cet utilisateur par e-mail</h4>{waHref(userDetail.user, templates[3]) && <a href={waHref(userDetail.user, templates[3])} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-800"><MessageCircle size={14}/> WhatsApp</a>}</div>
@@ -589,7 +677,7 @@ export default function AdminPage() {
             {!userDetail.chats?.length && <p className="text-xs text-slate-400">Aucune conversation conservée pour ce compte.</p>}
           </div></div>
           <div className="rounded-xl bg-white p-3"><h4 className="mb-3 text-sm font-semibold">Épargnes et objectifs</h4><div className="mb-3 space-y-1 text-xs text-slate-500"><p>Argent protégé : <strong className="text-slate-900">{userDetail.savingsSummaryAvailable===false?'Vérification impossible':money(userDetail.totalSavingsInGoals)}</strong></p><p>Épargne personnelle : <strong className="text-slate-900">{money(userDetail.cashSavingsInGoals)}</strong></p><p>Emprunts présents : <strong className="text-slate-900">{money(userDetail.borrowedSavingsInGoals)}</strong></p></div><div className="max-h-[34rem] space-y-3 overflow-y-auto">
-            {(userDetail.goals||[]).map(goal=><div key={goal.id} className="rounded-lg border border-slate-100 p-3"><div className="flex items-start justify-between gap-2"><div><p className="text-sm font-semibold">{goal.name||'Objectif sans nom'}</p><p className="mt-1 text-[10px] text-slate-500">{goal.type==='piggybank'?'Tirelire':'Objectif'} · {goal.categoryId||'Autre'} · {goal.active?'Actif':'Clôturé'}</p></div><strong className="text-xs">{money(goal.depositedAmount)}</strong></div>
+            {(userDetail.goals||[]).map(goal=><div key={goal.id} className="rounded-lg border border-slate-100 p-3">{goal.imageUrl && <img src={goal.imageUrl} alt={goal.name || ''} className="mb-2 h-24 w-full rounded-lg object-cover" loading="lazy" referrerPolicy="no-referrer"/>}<div className="flex items-start justify-between gap-2"><div><p className="text-sm font-semibold">{goal.name||'Objectif sans nom'}</p><p className="mt-1 text-[10px] text-slate-500">{goal.type==='piggybank'?'Tirelire':'Objectif'} · {goal.categoryId||'Autre'} · {goal.active?'Actif':'Clôturé'}</p></div><strong className="text-xs">{money(goal.depositedAmount)}</strong></div>
               {goal.targetAmount>0&&<><div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-600" style={{width:`${goal.progress||0}%`}}/></div><p className="mt-1 text-[10px] text-slate-500">{goal.progress||0}% de {money(goal.targetAmount)}</p></>}
               {goal.deadline&&<p className="mt-2 text-[10px] text-slate-400">Échéance : {goal.deadline}</p>}</div>)}
             {!userDetail.goals?.length&&<p className="text-xs text-slate-400">Aucune épargne ou aucun objectif enregistré.</p>}
@@ -751,7 +839,7 @@ export default function AdminPage() {
         </div>
         {premiumDialog === 'activate' ? <div className="mt-4 space-y-4">
           <label className="block text-xs font-semibold text-slate-700">Durée de l’accès
-            <select value={premiumMonths} onChange={(event) => { const value = Number(event.target.value); setPremiumMonths(value); setPremiumAmount(String(value * 2500)); }} className="mt-1.5 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal">
+            <select value={premiumMonths} onChange={(event) => { const value = Number(event.target.value); setPremiumMonths(value); setPremiumAmount(String(calculatePremiumPricing(value).totalAmount)); }} className="mt-1.5 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal">
               <option value={1}>1 mois</option><option value={3}>3 mois</option><option value={6}>6 mois</option><option value={12}>12 mois</option>
             </select>
           </label>
@@ -761,6 +849,7 @@ export default function AdminPage() {
           </label>
           {premiumCountAsRevenue && <label className="block text-xs font-semibold text-slate-700">Montant réellement encaissé (FCFA)
             <input type="number" min="1" step="1" inputMode="numeric" value={premiumAmount} onChange={(event) => setPremiumAmount(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-slate-200 px-3 text-sm font-normal"/>
+            <span className="mt-1 block text-[11px] font-normal text-slate-500">Tarif normal : {money(calculatePremiumPricing(premiumMonths).regularAmount)} · Remise multi-mois : {money(calculatePremiumPricing(premiumMonths).bundleSavings)} · Tarif conseillé : <strong>{money(calculatePremiumPricing(premiumMonths).totalAmount)}</strong>. Le champ reste modifiable pour saisir le montant réellement reçu.</span>
           </label>}
           <p className="rounded-lg bg-slate-50 p-3 text-[11px] leading-5 text-slate-600">Si la case reste décochée, Premium sera activé sans créer de paiement, sans modifier le dernier paiement connu et sans augmenter le chiffre d’affaires.</p>
         </div> : <div className="mt-4 space-y-4">
