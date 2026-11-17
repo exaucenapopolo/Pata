@@ -990,7 +990,7 @@ html:not(.dark) main .pata-surface-card {
 
 
 /* Unified light-theme surfaces: one solid, softly tinted finish for every card. */
-html:not(.dark) .pata-app-shell main :is(div, section, article)[class*="rounded-"][class*="border"]:not([class*="bg-red-"]):not([class*="bg-amber-"]):not([class*="bg-yellow-"]):not([class*="bg-rose-"]) {
+html:not(.dark) .pata-app-shell main :is(div, section, article)[class*="rounded-"][class*="border"]:not(.pata-dashboard-hero *):not([class*="bg-red-"]):not([class*="bg-amber-"]):not([class*="bg-yellow-"]):not([class*="bg-rose-"]) {
   background-color: rgba(235, 245, 238, .97) !important;
   background-image: none !important;
   border-color: rgba(7, 91, 67, .16) !important;
@@ -1010,6 +1010,26 @@ html:not(.dark) .pata-app-shell main .pata-dashboard-quick-link {
   border-color: rgba(7, 91, 67, .16) !important;
 }
 html:not(.dark) .pata-app-shell main :is(input, select, textarea) {
+  background-color: rgba(242, 248, 243, .98) !important;
+  background-image: none !important;
+  border-color: rgba(7, 91, 67, .17) !important;
+}
+
+
+/* Cotisations: apply the same calm sage surface to neutral cards and frames. */
+html:not(.dark) .pata-app-shell main .pata-cotisations-page :is(header,section,article,div)[class*="rounded-"][class*="border"]:not([class*="bg-red-"]):not([class*="bg-amber-"]):not([class*="bg-yellow-"]):not([class*="bg-rose-"]):not([class*="bg-emerald-"]):not([class*="bg-blue-"]):not([class*="bg-brand-"]) {
+  background-color: rgba(235, 245, 238, .97) !important;
+  background-image: none !important;
+  border-color: rgba(7, 91, 67, .16) !important;
+  box-shadow: 0 2px 10px rgba(7, 91, 67, .045);
+}
+html:not(.dark) .pata-app-shell main .pata-cotisations-page .pata-surface-card {
+  background: rgba(235, 245, 238, .97) !important;
+  background-image: none !important;
+  border-color: rgba(7, 91, 67, .16) !important;
+  box-shadow: 0 2px 10px rgba(7, 91, 67, .045) !important;
+}
+html:not(.dark) .pata-app-shell main .pata-cotisations-page :is(input,select,textarea) {
   background-color: rgba(242, 248, 243, .98) !important;
   background-image: none !important;
   border-color: rgba(7, 91, 67, .17) !important;
