@@ -22,8 +22,9 @@ export function buildIncomeBudgetRecommendation({
   const safeSource = String(source || 'Revenu').trim().slice(0, 100);
   const safeDate = validDate(date);
   const safeAmount = Math.round(Number(amount) || 0);
+  const normalizedSource = safeSource.normalize('NFD').replace(/[\u0300-\u036f]/g, ' ').toLocaleLowerCase('fr-FR');
   const isSalary = safeCategory === 'salary'
-    || /\\b(salaire|salary|paie|payroll|remuneration)\\b/i.test(safeSource.normalize('NFD').replace(/[\\u0300-\\u036f]/g, ' ').toLocaleLowerCase('fr-FR'));
+    || /\b(salaire|salary|paie|payroll|remuneration)\b/i.test(normalizedSource);
   if (!safeId || safeId.includes('/') || !safeDate || !Number.isSafeInteger(safeAmount)
     || safeAmount <= 0 || flowType !== 'normal'
     || !safeCategory || ['debt_borrowed', 'debt_repayment_received'].includes(safeCategory)) return null;
