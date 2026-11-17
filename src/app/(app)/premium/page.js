@@ -202,43 +202,38 @@ export default function PremiumPage() {
         <h1 className="pata-page-title text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
           {isPremium ? 'Ton abonnement Pata' : 'Découvre Pata Premium'}
         </h1>
-        <p className="max-w-2xl text-sm leading-6 text-slate-500">
-          Moins de saisie répétitive, davantage de suivi automatique et plus de liberté pour organiser tes finances.
-        </p>
       </header>
 
-      <section className="relative overflow-hidden rounded-[26px] bg-gradient-to-br from-[#063d2e] via-[#075b43] to-[#0b7657] p-5 text-white shadow-[0_16px_40px_rgba(7,91,67,.18)] sm:p-7">
-        <div className="pointer-events-none absolute -right-12 -top-16 h-56 w-56 rounded-full border border-white/10" />
-        <div className="pointer-events-none absolute -right-3 -top-7 h-36 w-36 rounded-full border border-white/10" />
-        <div className="relative z-10 max-w-3xl">
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5">
-            <Crown size={14} className="text-emerald-100"/>
-            <span className="text-[10px] font-extrabold uppercase tracking-[.15em] text-emerald-50">Pata Premium</span>
-          </div>
-          <h2 className="mt-4 max-w-2xl text-2xl font-extrabold leading-tight tracking-[-.04em] sm:text-3xl">
-            Moins de saisie. Plus de suivi automatique.
-          </h2>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-emerald-50/95">
-            Ton téléphone peut aider Pata à reconnaître certaines opérations, te permettre de saisir rapidement depuis une notification et garder tes finances à jour avec moins d’efforts.
-          </p>
-          <div className="mt-5 flex flex-wrap items-end gap-x-5 gap-y-3">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-[.13em] text-emerald-100">À partir de</p>
-              <div className="mt-0.5 flex items-baseline gap-1.5">
-                <span className="text-3xl font-extrabold tracking-tight">2 500</span>
-                <span className="text-xs font-semibold text-emerald-100">FCFA / mois</span>
-              </div>
+      <section className="overflow-hidden rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+        <div className="grid gap-5 md:grid-cols-[1fr_auto] md:items-center">
+          <div className="min-w-0">
+            <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-brand-800">
+              <Crown size={14}/>
+              <span className="text-[10px] font-extrabold uppercase tracking-[.15em]">Pata Premium</span>
             </div>
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-100/25 bg-white/10 px-3 py-2 text-[11px] font-semibold text-emerald-50">
-              <Zap size={13}/> Jusqu’à 10 % d’économie sur 6 ou 12 mois
-            </span>
+            <h2 className="mt-4 max-w-xl text-2xl font-extrabold leading-tight tracking-[-.035em] text-slate-950 sm:text-3xl">
+              Tes finances suivies avec moins d’efforts.
+            </h2>
+            <p className="mt-2 max-w-xl text-sm leading-5 text-slate-600">
+              Automatisation Mobile Money, saisie rapide, assistant Mč et suivi avancé.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <span className="rounded-lg bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-700">SMS Mobile Money</span>
+              <span className="rounded-lg bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-700">Notifications intelligentes</span>
+              <span className="rounded-lg bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-700">Mč et automatisations</span>
+            </div>
           </div>
-          <div className="mt-6 flex flex-wrap gap-2.5">
-            <a href="#premium-checkout" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-xs font-extrabold text-[#075b43] shadow-sm transition hover:bg-emerald-50">
+          <div className="rounded-2xl border border-slate-200 bg-[#f8faf9] p-4 md:min-w-[210px]">
+            <p className="text-[10px] font-bold uppercase tracking-[.14em] text-slate-500">À partir de</p>
+            <div className="mt-1 flex items-baseline gap-1.5">
+              <strong className="text-3xl font-extrabold tracking-tight text-slate-950">2 500</strong>
+              <span className="text-xs font-semibold text-slate-500">FCFA / mois</span>
+            </div>
+            <a href="#premium-checkout" className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#075b43] px-4 py-2.5 text-xs font-extrabold text-white transition hover:bg-[#064b38]">
               {isPremium ? 'Prolonger mon accès' : 'Choisir Premium'} <ArrowRight size={15}/>
             </a>
-            <a href="#premium-benefits" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/25 bg-white/10 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-white/15">
-              Voir les avantages
+            <a href="#premium-benefits" className="mt-2 inline-flex min-h-9 w-full items-center justify-center gap-1 text-xs font-semibold text-slate-600 hover:text-brand-700">
+              Comparer les fonctionnalités
             </a>
           </div>
         </div>
@@ -349,8 +344,8 @@ export default function PremiumPage() {
       )}
       {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-3 text-xs leading-5 text-red-700">{error}</p>}
 
-      <section id="premium-checkout" className="pata-premium-checkout scroll-mt-5 overflow-hidden rounded-[24px] border border-emerald-200 bg-white shadow-[0_10px_32px_rgba(7,91,67,.08)]">
-        <div className="border-b border-emerald-100 bg-gradient-to-r from-emerald-50 to-white p-4 sm:p-5">
+      <section id="premium-checkout" className="pata-premium-checkout scroll-mt-5 overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-200 bg-[#f8faf9] p-4 sm:p-5">
           <p className="text-[10px] font-extrabold uppercase tracking-[.15em] text-emerald-800">Choisis ton abonnement</p>
           <div className="mt-1 flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -358,8 +353,8 @@ export default function PremiumPage() {
               <p className="mt-1 text-xs leading-5 text-slate-600">Pas de renouvellement automatique : tu choisis quand prolonger.</p>
             </div>
             {hasDurationDiscount && (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-700 px-3 py-1.5 text-[10px] font-extrabold text-white">
-                <Zap size={12}/> -10 % sur cette durée
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-[10px] font-extrabold text-brand-800 ring-1 ring-slate-200">
+                <Zap size={12}/> {pricing.bundleLabel}
               </span>
             )}
           </div>
@@ -373,11 +368,11 @@ export default function PremiumPage() {
                 const selected = months === option;
                 return (
                   <button key={option} type="button" onClick={() => setMonths(option)} aria-pressed={selected}
-                    className={'pata-premium-duration relative min-h-[78px] rounded-2xl border p-3 text-left transition ' + (selected ? 'border-emerald-700 bg-emerald-50 ring-2 ring-emerald-700/10' : 'border-slate-200 bg-white hover:border-emerald-300 hover:bg-emerald-50/30')}>
-                    {optionPricing.durationDiscount > 0 && <span className="absolute right-2 top-2 rounded-full bg-emerald-700 px-1.5 py-0.5 text-[8px] font-extrabold text-white">-10 %</span>}
+                    className={'pata-premium-duration relative min-h-[78px] rounded-2xl border p-3 text-left transition ' + (selected ? 'border-brand-700 bg-[#f3f7f5] ring-2 ring-brand-700/10' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50')}>
+                    {optionPricing.bundleLabel && <span className="absolute right-2 top-2 max-w-[calc(100%-16px)] rounded-full bg-slate-100 px-1.5 py-0.5 text-[8px] font-extrabold text-slate-700">{optionPricing.bundleLabel}</span>}
                     <span className="block text-[11px] font-bold text-slate-500">{option} mois</span>
                     <strong className="mt-1 block text-base font-extrabold tracking-tight text-slate-900">{formatCurrency(optionPricing.totalAmount)}</strong>
-                    {optionPricing.durationDiscount > 0 && <span className="mt-0.5 block text-[9px] font-semibold text-emerald-800">Économise {formatCurrency(optionPricing.totalSavings)}</span>}
+                    {optionPricing.bundleSavings > 0 && <span className="mt-0.5 block text-[9px] font-semibold text-brand-800">Économise {formatCurrency(optionPricing.bundleSavings)}</span>}
                   </button>
                 );
               })}
@@ -396,7 +391,7 @@ export default function PremiumPage() {
               )}
               {pricing.durationDiscount > 0 && (
                 <div className="mt-2 flex items-center justify-between gap-3 text-xs">
-                  <span className="text-slate-500">Réduction durée (10 %)</span>
+                  <span className="text-slate-500">Avantage du forfait</span>
                   <strong className="text-emerald-700">− {formatCurrency(pricing.durationDiscount)}</strong>
                 </div>
               )}

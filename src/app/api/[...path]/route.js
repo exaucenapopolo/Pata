@@ -1023,6 +1023,7 @@ async function handleSubscriptionCheckout(request) {
     const userDoc = await adminDb.collection('users').doc(uid).get();
     const userData = userDoc.exists ? userDoc.data() : {};
     referralReservation = await reserveReferralDiscount(uid);
+    const pricing = calculatePremiumPricing(months, referralReservation.eligible);
     const amount = referralPremiumPrice(months, referralReservation.eligible);
 
     const baseUrl = getBaseUrl(request);
@@ -1076,6 +1077,11 @@ async function handleSubscriptionCheckout(request) {
       userId: uid,
       amount,
       months,
+      grantedMonths: months,
+      regularAmount: pricing.regularAmount,
+      bundleDiscount: pricing.bundleSavings,
+      referralDiscount: pricing.referralDiscount,
+      totalSavings: pricing.totalSavings,
       method: 'fapshi',
       paymentProviderFee: Math.round(amount * 0.03),
       status: 'PENDING',
@@ -1116,6 +1122,7 @@ async function handleSubscriptionPayWithBalance(request) {
       if (isReferred && Number(referral.discountReservedUntil || 0) > Date.now()) {
         throw new Error('Un paiement Premium avec la remise de parrainage est déjà en attente. Termine-le ou attends son expiration.');
       }
+      const pricing = calculatePremiumPricing(months, isReferred);
       const amount = referralPremiumPrice(months, isReferred);
       const balance = Number(userData.balance) || 0;
       if (balance < amount) throw new Error(`Solde insuffisant. Ton solde est de ${balance.toLocaleString('fr-FR')} FCFA; il manque ${(amount - balance).toLocaleString('fr-FR')} FCFA.`);
@@ -1137,7 +1144,8 @@ async function handleSubscriptionPayWithBalance(request) {
       const currentValue = userData.premiumUntil;
       const currentExpiry = currentValue?.toDate ? currentValue.toDate() : new Date(currentValue || 0);
       const baseDate = currentExpiry > now ? currentExpiry : now;
-      const newExpiration = new Date(baseDate.getTime() + months * 30 * 86400000);
+      const grantedMonths = Math.max(1, Math.min(12, Number(months) || 1));
+      const newExpiration = new Date(baseDate.getTime() + grantedMonths * 30 * 86400000);
       transaction.update(userRef, {
         balance: balance - amount,
         premiumUntil: newExpiration.toISOString(),
@@ -1152,6 +1160,11 @@ async function handleSubscriptionPayWithBalance(request) {
         userId: uid,
         amount,
         months,
+        grantedMonths: months,
+        regularAmount: pricing.regularAmount,
+        bundleDiscount: pricing.bundleSavings,
+        referralDiscount: pricing.referralDiscount,
+        totalSavings: pricing.totalSavings,
         status: 'CONFIRMED',
         method: 'balance',
         referralDiscountApplied: isReferred,
@@ -1265,7 +1278,8 @@ async function handleSubscriptionWebhook(request) {
       const currentPremiumValue = userData.premiumUntil;
       const currentPremiumUntil = currentPremiumValue?.toDate ? currentPremiumValue.toDate() : new Date(currentPremiumValue || 0);
       const baseDate = currentPremiumUntil > now ? currentPremiumUntil : now;
-      const newExpiration = new Date(baseDate.getTime() + Number(payment.months || 1) * 30 * 24 * 60 * 60 * 1000);
+      const grantedMonths = Math.max(1, Math.min(12, Number(payment.grantedMonths || payment.months || 1)));
+      const newExpiration = new Date(baseDate.getTime() + grantedMonths * 30 * 24 * 60 * 60 * 1000);
 
       let reward = null;
       const referral = referralSnap.exists ? referralSnap.data() || {} : {};
