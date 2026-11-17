@@ -40,26 +40,39 @@ export function MobileNav() {
 
   return (
     <>
-      {(showMore || showActions) && <button type="button" aria-label="Fermer le menu" onClick={() => { setShowMore(false); setShowActions(false); }} className="fixed inset-0 z-[60] bg-slate-950/35 backdrop-blur-[2px] lg:hidden" />}
+      {(showMore || showActions) && <button type="button" aria-label="Fermer le menu" onClick={() => { setShowMore(false); setShowActions(false); }} className="pata-mobile-backdrop fixed inset-0 z-[60] bg-slate-950/35 backdrop-blur-[2px] lg:hidden" />}
       {showActions && (
-        <section role="dialog" aria-modal="true" aria-labelledby="pata-quick-actions-title" className="fixed bottom-[calc(4.65rem+env(safe-area-inset-bottom))] left-3 right-3 z-[70] rounded-[26px] border border-slate-200 bg-white p-4 shadow-[0_18px_56px_rgba(15,23,42,0.2)] lg:hidden">
-          <div className="mb-4 flex items-center justify-between"><div><h2 id="pata-quick-actions-title" className="text-sm font-bold tracking-tight text-slate-900">Nouvelle opération</h2><p className="mt-1 text-[11px] text-slate-500">Choisis ce que tu souhaites ajouter.</p></div><button type="button" onClick={() => setShowActions(false)} className="rounded-full bg-slate-100 p-2 text-slate-500" aria-label="Fermer"><X size={17}/></button></div>
-          <div className="grid grid-cols-2 gap-2.5">
-            {QUICK_ACTIONS.map((item) => {
+        <section id="pata-quick-actions-panel" role="dialog" aria-modal="true" aria-labelledby="pata-quick-actions-title" aria-describedby="pata-quick-actions-description" className="pata-quick-action-panel fixed bottom-[calc(4.65rem+env(safe-area-inset-bottom))] left-3 right-3 z-[70] lg:hidden">
+          <div className="pata-quick-action-header">
+            <div>
+              <p className="pata-quick-action-eyebrow">ACTION RAPIDE</p>
+              <h2 id="pata-quick-actions-title">Que veux-tu faire ?</h2>
+              <p id="pata-quick-actions-description">Accède directement à l’essentiel.</p>
+            </div>
+            <button type="button" onClick={() => setShowActions(false)} className="pata-quick-action-close" aria-label="Fermer les actions rapides"><X size={17}/></button>
+          </div>
+          <div className="pata-quick-action-grid">
+            {QUICK_ACTIONS.map((item, index) => {
               const Icon = item.icon;
               const target = item.href.split('?')[0];
-              return <Link key={item.href} href={item.href} onClick={(event) => {
+              const featured = index === 0;
+              return <Link key={item.href} href={item.href} style={{ '--action-order': index }} onClick={(event) => {
                 if (pathname === target && item.href.includes('new=1')) {
                   event.preventDefault();
                   window.dispatchEvent(new CustomEvent(target === '/expenses' ? 'pata:expense-new' : 'pata:income-new'));
                 }
                 setShowActions(false);
-              }} className="flex min-h-[112px] min-w-0 flex-col justify-between rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-sm transition hover:border-brand-200 hover:bg-brand-50/40 active:scale-[0.98]">
-                <span className={'mb-3 flex h-9 w-9 items-center justify-center rounded-xl ' + item.tone}><Icon size={19}/></span>
-                <strong className="block text-[12px] leading-4 text-slate-900">{item.label}</strong><span className="mt-1 block text-[10px] leading-4 text-slate-500">{item.description}</span>
+              }} className={'pata-quick-action-card' + (featured ? ' is-featured' : '')}>
+                <span className={'pata-quick-action-icon ' + item.tone}><Icon size={featured ? 21 : 19}/></span>
+                <span className="pata-quick-action-copy">
+                  <strong>{item.label}</strong>
+                  <span>{item.description}</span>
+                </span>
+                <ArrowUpRight className="pata-quick-action-arrow" size={16}/>
               </Link>;
             })}
           </div>
+          <p className="pata-quick-action-footnote">Tes opérations restent modifiables après leur enregistrement.</p>
         </section>
       )}
       {showMore && (
@@ -81,7 +94,7 @@ export function MobileNav() {
       <nav aria-label="Navigation principale" className="fixed inset-x-0 bottom-0 z-50 grid grid-cols-5 items-end border-t border-slate-200/90 bg-white/96 px-1 pb-[max(env(safe-area-inset-bottom),8px)] pt-1.5 shadow-[0_-6px_22px_rgba(7,91,67,0.07)] backdrop-blur-xl lg:hidden">
         <Link href="/dashboard" className={cn('flex min-h-12 flex-col items-center justify-center gap-1 text-[10px] font-semibold transition', isActive('/dashboard') ? 'text-brand-700' : 'text-slate-500')}><Home size={19} strokeWidth={isActive('/dashboard') ? 2.6 : 2}/><span>Accueil</span></Link>
         <Link href="/expenses" className={cn('flex min-h-12 flex-col items-center justify-center gap-1 text-[10px] font-semibold transition', isActive('/expenses') ? 'text-brand-700' : 'text-slate-500')}><Wallet size={19} strokeWidth={isActive('/expenses') ? 2.6 : 2}/><span>Dépenses</span></Link>
-        <button type="button" onClick={() => { setShowActions((value) => !value); setShowMore(false); }} aria-label="Actions rapides" aria-expanded={showActions} className="-mt-5 mx-auto flex h-[52px] w-[52px] items-center justify-center rounded-2xl border-[3px] border-white bg-[#075b43] text-white shadow-lg shadow-brand-900/20 transition active:scale-95"><Plus size={24} strokeWidth={2.7}/></button>
+        <button type="button" onClick={() => { setShowActions((value) => !value); setShowMore(false); }} aria-label={showActions ? 'Fermer les actions rapides' : 'Actions rapides'} aria-expanded={showActions} aria-controls="pata-quick-actions-panel" className={'pata-quick-launcher -mt-5 mx-auto flex h-[54px] w-[54px] items-center justify-center rounded-[19px] border-[3px] border-white text-white shadow-lg shadow-brand-900/20 transition active:scale-95' + (showActions ? ' is-open' : '')}><Plus size={25} strokeWidth={2.6}/></button>
         <Link href="/income" className={cn('flex min-h-12 flex-col items-center justify-center gap-1 text-[10px] font-semibold transition', isActive('/income') ? 'text-brand-700' : 'text-slate-500')}><TrendingUp size={19} strokeWidth={isActive('/income') ? 2.6 : 2}/><span>Revenus</span></Link>
         <button type="button" onClick={() => { setShowMore((value) => !value); setShowActions(false); }} aria-label="Ouvrir le menu" aria-expanded={showMore} className={cn('flex min-h-12 flex-col items-center justify-center gap-1 text-[10px] font-semibold transition', showMore || MORE_NAV.some((item) => isActive(item.href)) ? 'text-brand-700' : 'text-slate-500')}>{showMore ? <X size={19}/> : <Menu size={19}/>}<span>Plus</span></button>
       </nav>

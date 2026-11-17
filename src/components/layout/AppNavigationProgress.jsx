@@ -23,21 +23,27 @@ export function AppNavigationProgress() {
       fallbackTimerRef.current = null;
     };
 
-    const finish = () => {
-      clearTimers();
+    const complete = () => {
+      if (fallbackTimerRef.current) window.clearTimeout(fallbackTimerRef.current);
+      fallbackTimerRef.current = null;
       setState('complete');
       stateRef.current = 'complete';
       hideTimerRef.current = window.setTimeout(() => {
-        setState('idle');
-        stateRef.current = 'idle';
-      }, 360);
+        setState('hiding');
+        stateRef.current = 'hiding';
+        hideTimerRef.current = window.setTimeout(() => {
+          setState('idle');
+          stateRef.current = 'idle';
+          hideTimerRef.current = null;
+        }, 180);
+      }, 260);
     };
 
     const start = () => {
       clearTimers();
       setState('loading');
       stateRef.current = 'loading';
-      fallbackTimerRef.current = window.setTimeout(finish, 12000);
+      fallbackTimerRef.current = window.setTimeout(complete, 12000);
     };
 
     const handleClick = (event) => {
@@ -68,13 +74,19 @@ export function AppNavigationProgress() {
       fallbackTimerRef.current = null;
       setState('complete');
       stateRef.current = 'complete';
+      if (hideTimerRef.current) window.clearTimeout(hideTimerRef.current);
       hideTimerRef.current = window.setTimeout(() => {
-        setState('idle');
-        stateRef.current = 'idle';
-      }, 360);
+        setState('hiding');
+        stateRef.current = 'hiding';
+        hideTimerRef.current = window.setTimeout(() => {
+          setState('idle');
+          stateRef.current = 'idle';
+          hideTimerRef.current = null;
+        }, 180);
+      }, 260);
     }
   }, [pathname]);
 
   if (state === 'idle') return null;
-  return <div className={'pata-route-progress' + (state === 'complete' ? ' is-complete is-hiding' : '')} aria-hidden="true"><span /></div>;
+  return <div className={'pata-route-progress' + (state === 'complete' ? ' is-complete' : state === 'hiding' ? ' is-hiding' : '')} aria-hidden="true"><span /></div>;
 }
