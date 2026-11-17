@@ -289,6 +289,19 @@ export default function ExpensesPage() {
     setOpen(true);
   };
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const linkSourceId = params.get('linkSource');
+    if (!linkSourceId || !expenses.length) return;
+    const pendingExpense = expenses.find((item) => item.id === linkSourceId && item.awaitingIncomeSource === true);
+    if (!pendingExpense) return;
+    openEdit(pendingExpense);
+    setError('Cette dépense a déjà été enregistrée. Choisis maintenant la source de revenu à laquelle la rattacher, puis enregistre.');
+    params.delete('linkSource');
+    const query = params.toString();
+    window.history.replaceState(null, '', window.location.pathname + (query ? '?' + query : ''));
+  }, [expenses]);
+
   const onSubmit = async (e) => {
     e.preventDefault();
     setError('');
