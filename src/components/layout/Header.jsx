@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, LogOut, Settings, User, HelpCircle } from 'lucide-react';
+import { ChevronLeft, LogOut, Settings, User, HelpCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
 import { useLanguage } from '@/context/LanguageContext';
@@ -32,27 +32,73 @@ export function Header() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const routeStackRef = useRef([]);
+  const pendingPopStateRef = useRef(false);
+  const replaceTargetRef = useRef(null);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      pendingPopStateRef.current = true;
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   useEffect(() => {
     const stack = routeStackRef.current;
-    if (stack[stack.length - 1] !== pathname) {
-      routeStackRef.current = [...stack, pathname].slice(-25);
+    if (stack[stack.length - 1] === pathname) return;
+
+    if (replaceTargetRef.current === pathname) {
+      replaceTargetRef.current = null;
+      routeStackRef.current = [pathname];
+      pendingPopStateRef.current = false;
+      return;
     }
+
+    if (pendingPopStateRef.current) {
+      pendingPopStateRef.current = false;
+      const previousIndex = stack.lastIndexOf(pathname);
+      routeStackRef.current = previousIndex >= 0
+        ? stack.slice(0, previousIndex + 1)
+        : [...stack, pathname].slice(-25);
+      return;
+    }
+
+    routeStackRef.current = [...stack, pathname].slice(-25);
   }, [pathname]);
+
   const isHome = pathname === '/dashboard' || pathname === '/dashboard/';
   const page = PAGE_TITLES.find((item) => pathname === item.path || pathname.startsWith(item.path + '/'));
   const pageTitle = page ? (language === 'en' ? page.en : page.fr) : (language === 'en' ? 'My space' : 'Mon espace');
 
   const goBack = () => {
     setOpen(false);
-    const stack = routeStackRef.current;
-    if (stack.length > 1) {
-      stack.pop();
-      routeStackRef.current = stack;
+    if (routeStackRef.current.length > 1) {
       router.back();
       return;
     }
-    router.replace('/dashboard');
+
+    // A page opened from another page on the same Pata origin should return there.
+    let hasInternalReferrer = false;
+    try {
+      hasInternalReferrer = Boolean(
+        document.referrer
+        && new URL(document.referrer).origin === window.location.origin
+        && window.history.length > 1
+      );
+    } catch {
+      hasInternalReferrer = false;
+    }
+    if (hasInternalReferrer) {
+      router.back();
+      return;
+    }
+
+    // When a deep link has no previous in-app page, return to its natural section.
+    const parentPage = PAGE_TITLES.find((item) => pathname.startsWith(item.path + '/'));
+    const fallbackPath = parentPage?.path || '/dashboard';
+    replaceTargetRef.current = fallbackPath;
+    routeStackRef.current = [fallbackPath];
+    router.replace(fallbackPath);
   };
 
   const handleLogout = async () => {
@@ -72,7 +118,7 @@ export function Header() {
             aria-label={language === 'en' ? 'Go back' : 'Retour'}
             title={language === 'en' ? 'Go back' : 'Retour'}
           >
-            <ArrowLeft size={21} strokeWidth={2.25} />
+            <ChevronLeft size={25} strokeWidth={2.5} />
           </button>
         )}
       </div>
