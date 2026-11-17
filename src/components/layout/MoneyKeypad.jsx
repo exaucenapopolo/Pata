@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { Capacitor } from '@capacitor/core';
 import { Delete } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
-import { evaluateMoneyExpression } from '@/lib/finance/decimalExpression.mjs';
+import { applyMoneyKey, evaluateMoneyExpression } from '@/lib/finance/decimalExpression.mjs';
 
 const MONEY_HINTS = /montant|amount|budget|capital|dépense|depense|revenu|income|expense|somme|versement|cotisation|facture|bill|loyer|épargne|epargne|solde|balance|recharge|payment|paiement|prêt|pret|loan|dette|debt|prix|price|tarif|frais|fcfa|xaf|usd|eur/i;
 const NON_MONEY_HINTS = /pourcentage|percent|participants?|personnes?|jours?|days?|année|annee|years?|fréquence|frequence|frequency|quota|heures?|minutes?/i;
@@ -166,11 +166,7 @@ export function MoneyKeypad() {
   }, [expression]);
 
   const appendKey = (key) => {
-    setExpression((current) => {
-      if (key === 'C') return '';
-      if (key === '⌫') return current.slice(0, -1);
-      return current + key;
-    });
+    setExpression((current) => applyMoneyKey(current, key));
   };
 
   if (!activeField || typeof document === 'undefined') return null;
