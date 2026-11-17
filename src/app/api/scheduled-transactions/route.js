@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 
 const EXPENSE_CATEGORIES = new Set(['food', 'transport', 'housing', 'internet', 'health', 'leisure', 'gift_donation', 'investment', 'contribution', 'savings', 'debt_repayment', 'loan_given', 'other']);
 const INCOME_CATEGORIES = new Set(['salary', 'business', 'sales', 'commission', 'rental', 'pension', 'gift', 'debt_repayment_received', 'debt_borrowed', 'other_income']);
-const clean = (value, max = 180) => String(value ?? '').trim().replace(/\\s+/g, ' ').slice(0, max);
+const clean = (value, max = 180) => String(value ?? '').trim().replace(/\s+/g, ' ').slice(0, max);
 const todayDouala = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Douala', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 
 async function authenticate(request) {
