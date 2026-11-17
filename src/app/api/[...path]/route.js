@@ -4,6 +4,7 @@ import { createHash, createHmac, timingSafeEqual, randomBytes, randomInt, scrypt
 import { adminAuth, adminDb, adminMessaging } from '@/lib/firebase/admin';
 import { FieldValue, FieldPath, AggregateField } from 'firebase-admin/firestore';
 import { isNotificationUnread } from '@/lib/notifications/notificationState.mjs';
+import { getNextAdminPremiumUntil, validateAdminPremiumAmount } from '@/lib/adminPremiumPolicy.mjs';
 import { completeWithGroq } from '@/lib/ai/groqClient';
 import { normalizeWebPushSubscription, webPushSubscriptionId, sendPataWebPush, isExpiredWebPushError } from '@/lib/notifications/webPush.mjs';
 import { dispatchPushNotification } from '@/lib/notifications/dispatcher.mjs';
@@ -5914,7 +5915,7 @@ async function handleAdminOverview(request) {
     const users = adminDb.collection('users');
     const withdrawals = adminDb.collection('withdrawalRequests');
     const activeDebtQuery = adminDb.collectionGroup('debts').where('status', 'in', ['active', 'partial', 'late']);
-    const [userTotals, premiumCount, androidUsers, webUsers, webOnlyUsers, deposits, subscriptions, paidPayouts, pendingPayouts, latestUsers, latestDeposits, latestWithdrawals, topBalances, topExpenses, leastExpenses, topIncomes, lifetimeExpenses, lifetimeIncomes, billsSummary, budgetsSummary, activeDebts, androidDownloadMetrics, trackedUsers] = await Promise.all([
+    const [userTotals, premiumCount, androidUsers, webUsers, webOnlyUsers, deposits, subscriptions, subscriptionAdjustments, paidPayouts, pendingPayouts, latestUsers, latestDeposits, latestWithdrawals, topBalances, topExpenses, leastExpenses, topIncomes, lifetimeExpenses, lifetimeIncomes, billsSummary, budgetsSummary, activeDebts, androidDownloadMetrics, trackedUsers] = await Promise.all([
       aggregateTotal(users, 'balance'),
       users.where('premiumUntil', '>', nowIso).count().get().then((snap) => snap.data().count).catch(() => 0),
       users.where('usedAndroidApp', '==', true).count().get().then((snap) => snap.data().count).catch(() => null),
@@ -5922,6 +5923,7 @@ async function handleAdminOverview(request) {
       users.where('usedWebOnly', '==', true).count().get().then((snap) => snap.data().count).catch(() => null),
       aggregateTotal(adminDb.collection('deposits').where('status', '==', 'CONFIRMED')),
       aggregateTotal(adminDb.collection('subscriptionPayments').where('status', '==', 'CONFIRMED')),
+      aggregateTotal(adminDb.collection('subscriptionAccountingAdjustments')),
       aggregateTotal(withdrawals.where('status', '==', 'PAID')),
       aggregateTotal(withdrawals.where('status', 'in', ['PENDING_REVIEW', 'PROCESSING', 'RECONCILIATION_REQUIRED'])),
       // Include legacy profiles even when createdAt is not present.
@@ -5976,8 +5978,9 @@ async function handleAdminOverview(request) {
         walletLiability: userTotals.total,
         confirmedDeposits: deposits.total,
         depositCount: deposits.count,
-        subscriptionRevenue: subscriptions.total,
+        subscriptionRevenue: subscriptions.unavailable || subscriptionAdjustments.unavailable ? null : subscriptions.total + subscriptionAdjustments.total,
         subscriptionCount: subscriptions.count,
+        subscriptionRefunds: subscriptionAdjustments.unavailable ? null : Math.max(0, -subscriptionAdjustments.total),
         paidWithdrawals: paidPayouts.total,
         paidWithdrawalCount: paidPayouts.count,
         pendingWithdrawals: pendingPayouts.total,
@@ -6027,13 +6030,14 @@ async function getAdminMonthlyMetrics(monthValue) {
   const { month, start, end } = getAdminMonthBounds(monthValue);
   const users = adminDb.collection('users');
   const subscriptions = adminDb.collection('subscriptionPayments').where('status', '==', 'CONFIRMED');
+  const subscriptionAdjustments = adminDb.collection('subscriptionAccountingAdjustments');
   const cotPayments = adminDb.collection('cotisationPayments').where('status', '==', 'CONFIRMED');
   const walletDeposits = adminDb.collection('deposits').where('status', '==', 'CONFIRMED');
   const range = (query) => query.where('createdAt', '>=', start).where('createdAt', '<', end);
   const nowIso = new Date().toISOString();
   const [
     signups, activeUsers, currentPremium, activePremiumUsers, groupCreations, activeGroups, totalRegisteredUsers, everPremiumPayers,
-    subscriptionSummary, walletSubscriptionSummary, cotisationSummary, walletSummary,
+    subscriptionSummary, subscriptionAdjustmentsSummary, adminManualSubscriptionSummary, walletSubscriptionSummary, cotisationSummary, walletSummary,
   ] = await Promise.all([
     range(users).count().get().then((snap) => Number(snap.data().count) || 0).catch(() => null),
     users.where('lastSeenAt', '>=', start).where('lastSeenAt', '<', end).count().get()
@@ -6051,6 +6055,11 @@ async function getAdminMonthlyMetrics(monthValue) {
     range(subscriptions).aggregate({ count: AggregateField.count(), total: AggregateField.sum('amount') }).get()
       .then((snap) => ({ count: Number(snap.data().count) || 0, total: Number(snap.data().total) || 0 }))
       .catch(() => ({ count: null, total: null, unavailable: true })),
+    range(subscriptionAdjustments).aggregate({ count: AggregateField.count(), total: AggregateField.sum('amount') }).get()
+      .then((snap) => ({ count: Number(snap.data().count) || 0, total: Number(snap.data().total) || 0 }))
+      .catch(() => ({ count: null, total: null, unavailable: true })),
+    range(subscriptions).where('method', '==', 'admin_manual').aggregate({ total: AggregateField.sum('amount') }).get()
+      .then((snap) => Number(snap.data().total) || 0).catch(() => 0),
     range(subscriptions).where('method', '==', 'balance')
       .aggregate({ total: AggregateField.sum('amount') }).get()
       .then((snap) => Number(snap.data().total) || 0).catch(() => 0),
@@ -6087,12 +6096,14 @@ async function getAdminMonthlyMetrics(monthValue) {
   const walletProviderCost = walletSummary.unavailable ? null
     : (Number(walletSummary.providerFees || 0) || Math.round(Number(walletSummary.credited || 0) * 0.03));
   const walletPataRevenue = walletSummary.unavailable ? null : Number(walletSummary.pataRevenue || 0);
-  const subscriptionRevenue = Number(subscriptionSummary.total || 0);
-  const externalSubscriptionBase = Math.max(0, subscriptionRevenue - Number(walletSubscriptionSummary || 0));
+  const subscriptionGrossRevenue = Number(subscriptionSummary.total || 0);
+  const subscriptionRefunds = Number(subscriptionAdjustmentsSummary.total || 0);
+  const subscriptionRevenue = subscriptionGrossRevenue + subscriptionRefunds;
+  const externalSubscriptionBase = Math.max(0, subscriptionGrossRevenue - Number(walletSubscriptionSummary || 0) - Number(adminManualSubscriptionSummary || 0));
   const subscriptionProviderCost = subscriptionSummary.unavailable ? null : Math.round(externalSubscriptionBase * 0.03);
-  const revenueTotal = subscriptionSummary.unavailable || cotisationSummary.unavailable || walletSummary.unavailable
+  const revenueTotal = subscriptionSummary.unavailable || subscriptionAdjustmentsSummary.unavailable || cotisationSummary.unavailable || walletSummary.unavailable
     ? null : subscriptionRevenue + Number(cotisationSummary.fees || 0) + walletFees;
-  const pataNetRevenue = subscriptionSummary.unavailable || cotisationSummary.unavailable || walletSummary.unavailable
+  const pataNetRevenue = subscriptionSummary.unavailable || subscriptionAdjustmentsSummary.unavailable || cotisationSummary.unavailable || walletSummary.unavailable
     ? null : subscriptionRevenue - Number(subscriptionProviderCost || 0) + Number(cotPataRevenue || 0) + Number(walletPataRevenue || 0);
   const paymentCosts = subscriptionProviderCost == null || cotProviderCost == null || walletProviderCost == null
     ? null : subscriptionProviderCost + cotProviderCost + walletProviderCost;
@@ -6113,6 +6124,7 @@ async function getAdminMonthlyMetrics(monthValue) {
     cotisationGroupsCreated: groupCreations,
     activeCotisationGroups: activeGroups,
     subscriptionRevenue,
+    subscriptionRefunds: subscriptionAdjustmentsSummary.unavailable ? null : Math.max(0, -subscriptionRefunds),
     subscriptionPayments: subscriptionSummary.count,
     subscriptionProviderCost,
     cotisationTransactions: cotisationSummary.count,
@@ -6129,7 +6141,7 @@ async function getAdminMonthlyMetrics(monthValue) {
     paymentCosts,
     netAfterPaymentCosts,
     pataNetRevenue,
-    unavailable: subscriptionSummary.unavailable === true
+    unavailable: subscriptionSummary.unavailable === true || subscriptionAdjustmentsSummary.unavailable === true
       || cotisationSummary.unavailable === true || walletSummary.unavailable === true,
   };
 }
@@ -6375,6 +6387,142 @@ async function handleAdminUsers(request) {
     );
     return NextResponse.json({ success: true, users: docs, nextCursor: hasMore ? snapshot.docs[limitValue - 1]?.id || null : null });
   } catch (error) { return errorResponse(error.message || 'Impossible de charger les comptes.', 401); }
+}
+
+async function handleAdminPremiumChange(request) {
+  try {
+    const admin = await requireAdmin(request);
+    const body = await request.json();
+    const uid = String(body.uid || '').trim().slice(0, 128);
+    const action = String(body.action || '').trim();
+    const reason = String(body.reason || '').trim().slice(0, 300);
+    if (!uid || uid.includes('/') || !['activate', 'deactivate'].includes(action)) {
+      return errorResponse('Compte ou action Premium invalide.', 400);
+    }
+
+    const months = action === 'activate' ? Number(body.months ?? 1) : 0;
+    if (action === 'activate' && (!Number.isInteger(months) || months < 1 || months > 12)) {
+      return errorResponse('Choisis une durée comprise entre 1 et 12 mois.', 400);
+    }
+    const countAsRevenue = action === 'activate' && body.countAsRevenue === true;
+    const recordRefund = action === 'deactivate' && body.recordRefund === true;
+    let amount = null;
+    if (countAsRevenue) amount = validateAdminPremiumAmount(body.amount, 'Montant encaissé');
+    if (recordRefund) amount = validateAdminPremiumAmount(body.refundAmount, 'Montant remboursé');
+
+    const userRef = adminDb.collection('users').doc(uid);
+    const auditRef = adminDb.collection('adminPremiumActions').doc();
+    const paymentRef = countAsRevenue ? adminDb.collection('subscriptionPayments').doc() : null;
+    const refundRef = recordRefund ? adminDb.collection('subscriptionAccountingAdjustments').doc() : null;
+    const now = new Date();
+    const nowIso = now.toISOString();
+
+    const result = await adminDb.runTransaction(async (transaction) => {
+      const userSnapshot = await transaction.get(userRef);
+      if (!userSnapshot.exists) throw new Error('Compte utilisateur introuvable.');
+      const userData = userSnapshot.data() || {};
+      const oldPremiumUntil = userData.premiumUntil || null;
+
+      let premiumUntil = nowIso;
+      if (action === 'activate') {
+        premiumUntil = getNextAdminPremiumUntil(userData.premiumUntil, months, now);
+        const userPatch = {
+          premiumUntil,
+          premiumAccessSource: 'admin',
+          premiumAccessUpdatedAt: FieldValue.serverTimestamp(),
+          premiumAccessUpdatedBy: admin.uid,
+        };
+        if (countAsRevenue) {
+          userPatch.lastPaymentDate = nowIso;
+          userPatch.lastPaymentAmount = amount;
+          userPatch.lastPaymentMethod = 'admin_manual';
+          transaction.create(paymentRef, {
+            transId: paymentRef.id,
+            userId: uid,
+            amount,
+            months,
+            status: 'CONFIRMED',
+            method: 'admin_manual',
+            source: 'admin_manual_activation',
+            manualEntry: true,
+            paymentProviderFee: 0,
+            referralDiscountApplied: false,
+            adminUid: admin.uid,
+            adminReason: reason,
+            createdAt: FieldValue.serverTimestamp(),
+            confirmedAt: FieldValue.serverTimestamp(),
+          });
+        }
+        transaction.update(userRef, userPatch);
+      } else {
+        const currentValue = userData.premiumUntil;
+        const currentDate = typeof currentValue?.toDate === 'function'
+          ? currentValue.toDate()
+          : new Date(currentValue || 0);
+        if (!Number.isFinite(currentDate.getTime()) || currentDate <= now) {
+          throw new Error('Ce compte ne possède plus d’accès Premium actif.');
+        }
+        const userPatch = {
+          premiumUntil: nowIso,
+          premiumAccessSource: 'admin',
+          premiumAccessUpdatedAt: FieldValue.serverTimestamp(),
+          premiumAccessUpdatedBy: admin.uid,
+        };
+        if (recordRefund) {
+          transaction.create(refundRef, {
+            userId: uid,
+            amount: -amount,
+            status: 'CONFIRMED',
+            type: 'REFUND',
+            method: 'admin_manual_refund',
+            source: 'admin_manual_premium_refund',
+            adminUid: admin.uid,
+            adminReason: reason,
+            createdAt: FieldValue.serverTimestamp(),
+            confirmedAt: FieldValue.serverTimestamp(),
+          });
+        }
+        transaction.update(userRef, userPatch);
+      }
+
+      transaction.create(auditRef, {
+        userId: uid,
+        adminUid: admin.uid,
+        action,
+        oldPremiumUntil,
+        newPremiumUntil: premiumUntil,
+        months: action === 'activate' ? months : null,
+        countAsRevenue,
+        recordRefund,
+        amount,
+        paymentId: paymentRef?.id || null,
+        refundId: refundRef?.id || null,
+        reason,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      return { premiumUntil, paymentId: paymentRef?.id || null, refundId: refundRef?.id || null };
+    });
+
+    return NextResponse.json({
+      success: true,
+      action,
+      premiumUntil: result.premiumUntil,
+      paymentId: result.paymentId,
+      refundId: result.refundId,
+      countAsRevenue,
+      recordRefund,
+      amount,
+      message: action === 'activate'
+        ? (countAsRevenue
+          ? 'Accès Premium activé et encaissement ajouté aux recettes.'
+          : 'Accès Premium activé sans ajouter de recette ni modifier les paiements historiques.')
+        : (recordRefund
+          ? 'Accès Premium désactivé. Le remboursement réel a été enregistré séparément; le paiement initial est conservé.'
+          : 'Accès Premium désactivé. Tous les paiements historiques sont conservés dans les comptes.'),
+    });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de modifier l’accès Premium.', 400);
+  }
 }
 
 async function handleAdminUserDetail(request) {
@@ -9820,6 +9968,7 @@ const ROUTES = {
   'admin/notification-history': { GET: handleAdminNotificationHistory },
   'admin/users': { GET: handleAdminUsers },
   'admin/user-detail': { GET: handleAdminUserDetail },
+  'admin/premium/change': { POST: handleAdminPremiumChange },
   'admin/questions': { GET: handleAdminPopularQuestions },
   'admin/withdrawals': { GET: handleAdminWithdrawals },
   'admin/withdrawal/approve': { POST: handleAdminApproveWithdrawal },

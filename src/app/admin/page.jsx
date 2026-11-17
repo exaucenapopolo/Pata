@@ -263,6 +263,7 @@ export default function AdminPage() {
   const [targetFeedback, setTargetFeedback] = useState(''); const [cotisationGroups, setCotisationGroups] = useState([]);
   const [cotisationCursor, setCotisationCursor] = useState(null); const [cotisationStatus, setCotisationStatus] = useState('all'); const [cotisationFeedback, setCotisationFeedback] = useState('');
   const [selectedUser, setSelectedUser] = useState(null); const [userDetail, setUserDetail] = useState(null); const [search, setSearch] = useState(''); const [templateChoice, setTemplateChoice] = useState('');
+  const [premiumDialog, setPremiumDialog] = useState(''); const [premiumMonths, setPremiumMonths] = useState(1); const [premiumCountAsRevenue, setPremiumCountAsRevenue] = useState(false); const [premiumAmount, setPremiumAmount] = useState('2500'); const [premiumRecordRefund, setPremiumRecordRefund] = useState(false); const [premiumRefundAmount, setPremiumRefundAmount] = useState(''); const [premiumReason, setPremiumReason] = useState(''); const [premiumFeedback, setPremiumFeedback] = useState('');
   const [emailStatus, setEmailStatus] = useState(null); const [emailStatusLoading, setEmailStatusLoading] = useState(false); const [emailTestLoading, setEmailTestLoading] = useState(false); const [emailTestResult, setEmailTestResult] = useState('');
   const [emailSubject, setEmailSubject] = useState(getTemplateField(templates[0], 'subject', language)); const [emailMessage, setEmailMessage] = useState(getTemplateField(templates[0], 'body', language)); const [emailCustomized, setEmailCustomized] = useState(false); const [emailResult, setEmailResult] = useState(''); const [emailCtaPath, setEmailCtaPath] = useState('/dashboard'); const [emailTemplateKey, setEmailTemplateKey] = useState('welcome');
   const [broadcastTitle, setBroadcastTitle] = useState('Information Pata'); const [broadcastMessage, setBroadcastMessage] = useState(''); const [broadcastPath, setBroadcastPath] = useState('/dashboard'); const [broadcastImageUrl, setBroadcastImageUrl] = useState(''); const [broadcastResult, setBroadcastResult] = useState('');
@@ -382,6 +383,56 @@ export default function AdminPage() {
   };
 
   const openUser = async (entry) => { setSelectedUser(entry); setUserDetail(null); setTemplateChoice(templates[0].label); setEmailSubject(getTemplateField(templates[0], 'subject', language)); setEmailMessage(getTemplateField(templates[0], 'body', language)); setEmailCustomized(false); setEmailTemplateKey('welcome'); setEmailResult(''); try { setUserDetail(await api(`admin/user-detail?uid=${encodeURIComponent(entry.id)}`)); } catch (err) { setError(err.message); } };
+  const openPremiumDialog = (action) => {
+    setPremiumDialog(action);
+    setPremiumMonths(1);
+    setPremiumCountAsRevenue(false);
+    setPremiumAmount('2500');
+    setPremiumRecordRefund(false);
+    setPremiumRefundAmount('');
+    setPremiumReason('');
+    setPremiumFeedback('');
+  };
+  const submitPremiumChange = async () => {
+    if (!userDetail?.user?.id || !premiumDialog) return;
+    const body = {
+      uid: userDetail.user.id,
+      action: premiumDialog,
+      reason: premiumReason.trim(),
+    };
+    if (premiumDialog === 'activate') {
+      body.months = premiumMonths;
+      body.countAsRevenue = premiumCountAsRevenue;
+      if (premiumCountAsRevenue) body.amount = Number(premiumAmount);
+    } else {
+      body.recordRefund = premiumRecordRefund;
+      if (premiumRecordRefund) body.refundAmount = Number(premiumRefundAmount);
+    }
+    setBusy(true);
+    setError('');
+    setPremiumFeedback('');
+    try {
+      const result = await api('admin/premium/change', 'POST', body);
+      const [detail, summary, monthly] = await Promise.all([
+        api('admin/user-detail?uid=' + encodeURIComponent(userDetail.user.id)),
+        api('admin/overview'),
+        api('admin/monthly-metrics?month=' + encodeURIComponent(targetMonth)),
+      ]);
+      setUserDetail(detail);
+      setOverview(summary);
+      setMonthlyMetrics(monthly.metrics || null);
+      setUsers((current) => current.map((entry) => entry.id === userDetail.user.id
+        ? { ...entry, premiumUntil: detail.user?.premiumUntil, lastPaymentDate: detail.user?.lastPaymentDate, lastPaymentAmount: detail.user?.lastPaymentAmount, lastPaymentMethod: detail.user?.lastPaymentMethod }
+        : entry));
+      setPremiumDialog('');
+      setPremiumFeedback(result.message || 'L’accès Premium a été mis à jour.');
+    } catch (err) {
+      setError(err.message || 'Impossible de modifier l’accès Premium.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const sendUserEmail = async () => {
     if (!userDetail?.user?.id || !emailSubject.trim() || !emailMessage.trim()) return;
     setBusy(true); setError(''); setEmailResult('');
@@ -422,6 +473,9 @@ export default function AdminPage() {
   if (!unlocked) return <main className="grid min-h-screen place-items-center bg-slate-50 px-4 py-10"><form onSubmit={unlock} className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-7 shadow-xl"><div className="mb-6 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-950 text-white"><ShieldCheck size={23}/></div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Pata · Espace privé</p><h1 className="mt-2 text-2xl font-bold text-slate-950">Administration</h1><p className="mt-2 text-sm leading-6 text-slate-500">Saisis le code administrateur pour accéder à la gestion de Pata.</p><label className="mt-6 block text-sm font-medium text-slate-700">Code administrateur</label><input autoComplete="current-password" type="password" value={code} onChange={(event) => setCode(event.target.value)} className="mt-2 h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-base tracking-widest outline-none focus:border-slate-800" placeholder="Saisir le code" required/>{error && <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}<button disabled={busy || !code} className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white disabled:opacity-50">{busy ? <Loader2 className="animate-spin" size={17}/> : <KeyRound size={17}/>} Accéder à l’administration</button><p className="mt-4 text-center text-xs text-slate-400">NAPOPOLO EXAUCE · Pata</p></form></main>;
 
   const stats = overview?.stats || {};
+  const selectedPremiumValue = userDetail?.user?.premiumUntil;
+  const selectedPremiumExpiry = selectedPremiumValue?.toDate ? selectedPremiumValue.toDate() : selectedPremiumValue ? new Date(selectedPremiumValue) : null;
+  const selectedPremiumActive = Boolean(selectedPremiumExpiry && Number.isFinite(selectedPremiumExpiry.getTime()) && selectedPremiumExpiry > new Date());
   const nav = [['overview', 'Vue générale', Activity], ['objectives', 'Objectifs mensuels', Target], ['cotisations', 'Cotisations', HandCoins], ['savings', 'Épargnes & objectifs', PiggyBank], ['users', 'Utilisateurs', Users], ['questions', 'Discussions IA', MessageCircle], ['withdrawals', 'Retraits', ArrowDownToLine], ['broadcast', 'Notifications', Bell], ['notification-history', 'Historique automatique', Clock3]];
   return <main className="min-h-screen bg-slate-50 p-3 text-slate-900 sm:p-6"><div className="mx-auto max-w-7xl space-y-6">
     <header className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5"><div><p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Pata · Administration</p><h1 className="mt-1 text-xl font-bold sm:text-2xl">Bonjour, NAPOPOLO EXAUCE</h1><p className="mt-1 text-xs text-slate-500">Gestion des comptes, de l’activité et des paiements</p></div><div className="flex gap-2"><button onClick={loadDashboard} disabled={busy} className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 px-3 text-sm font-medium hover:bg-slate-50"><RefreshCw size={15}/> Actualiser</button><button onClick={checkEmailConfiguration} disabled={emailStatusLoading} className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 px-3 text-sm font-medium hover:bg-slate-50 disabled:opacity-50">{emailStatusLoading?<Loader2 className="animate-spin" size={15}/>:<Mail size={15}/>} Vérifier e-mail</button><button onClick={logout} className="inline-flex h-10 items-center gap-2 rounded-lg bg-slate-950 px-3 text-sm font-medium text-white"><LogOut size={15}/> Quitter</button></div></header>
@@ -474,6 +528,19 @@ export default function AdminPage() {
     </section>}
     {tab === 'users' && <section className="rounded-2xl border border-slate-200 bg-white p-4"><SectionTitle title="Gestion des utilisateurs" detail={`${users.length} comptes chargés sur la page courante`} action={<select value={platformFilter} onChange={(event) => loadUsersByPlatform(event.target.value)} className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-700"><option value="all">Tous les comptes</option><option value="android">Utilisateurs Android</option><option value="web">Site Web uniquement</option></select>}/><div className="relative mb-4"><Search className="absolute left-3 top-3 text-slate-400" size={16}/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Rechercher par nom, e-mail ou téléphone" className="h-10 w-full rounded-lg border border-slate-200 pl-9 pr-3 text-sm"/></div><div className="space-y-2">{visibleUsers.map((entry) => <button key={entry.id} onClick={() => openUser(entry)} className={`flex w-full flex-wrap items-center justify-between gap-3 rounded-xl border p-3 text-left ${selectedUser?.id === entry.id ? 'border-slate-500 bg-slate-50' : 'border-slate-100 hover:bg-slate-50'}`}><div className="flex min-w-0 flex-1 items-center gap-3"><span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-100 text-sm font-bold text-slate-600">{entry.photoURL ? <img src={entry.photoURL} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer"/> : (entry.displayName || '?').slice(0,1).toUpperCase()}</span><div className="min-w-0"><p className="truncate text-sm font-semibold">{entry.displayName || 'Nom non renseigné'}</p><p className="truncate text-xs text-slate-500">{entry.email || 'E-mail non renseigné'} {entry.phone ? ` · ${entry.phone}` : ''}</p></div></div><div className="flex items-center gap-3 text-right"><span className="text-[11px] text-slate-500"><span className="block">Inscrit : {dateLabel(entry.createdAt)} · Actif : {dateLabel(entry.lastSeenAt)}</span><span className="mt-1 block">{entry.lastSeenPlatform === 'android' ? 'Android' : entry.lastSeenPlatform === 'web' ? 'Web' : entry.lastSeenPlatform === 'ios' ? 'iOS' : 'Plateforme à identifier'} · {entry.theme === 'dark' ? 'Mode sombre' : 'Mode clair'} · {entry.passwordLoginEnabled === true ? 'Mot de passe activé' : entry.passwordLoginEnabled === false ? 'Sans mot de passe e-mail' : 'Connexion à confirmer'}</span></span><span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${entry.premiumUntil && new Date(entry.premiumUntil) > new Date() ? 'bg-emerald-50 text-emerald-700' : entry.lastPaymentDate ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>{entry.premiumUntil && new Date(entry.premiumUntil) > new Date() ? 'Premium actif' : entry.lastPaymentDate ? 'A déjà payé' : 'Gratuit'}</span><ChevronRight size={16}/></div></button>)}{!visibleUsers.length && <p className="py-8 text-center text-sm text-slate-500">Aucun utilisateur correspondant.</p>}</div>{nextCursor && !search.trim() && <button disabled={busy} onClick={loadMoreUsers} className="mt-4 h-10 w-full rounded-lg border border-slate-200 text-sm font-semibold text-slate-700 disabled:opacity-50">{busy ? 'Chargement…' : 'Charger 40 autres utilisateurs'}</button>}
       {userDetail && <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div className="flex min-w-0 items-center gap-3"><span className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-white text-xl font-bold text-slate-600">{userDetail.user?.photoURL ? <img src={userDetail.user.photoURL} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer"/> : (userDetail.user?.displayName || '?').slice(0,1).toUpperCase()}</span><div className="min-w-0"><h3 className="text-base font-bold">{userDetail.user?.displayName || 'Utilisateur'}</h3><p className="text-xs text-slate-500">{userDetail.user?.email} · {userDetail.user?.phone || 'Aucun numéro enregistré'}</p><p className="mt-1 text-[11px] font-semibold text-slate-600">Catégorie du compte : {userDetail.userCategory === 'premium' ? 'Premium' : 'Gratuit'}</p><p className="mt-1 text-[11px] text-slate-500">Inscription : {dateLabel(userDetail.user?.createdAt)} · Dernière activité : {dateLabel(userDetail.user?.lastSeenAt)}</p><p className="mt-1 text-[11px] text-slate-500">Dernier paiement : {dateLabel(userDetail.user?.lastPaymentDate)} · {userDetail.user?.lastPaymentAmount ? money(userDetail.user.lastPaymentAmount) : 'Aucun paiement Premium enregistré'} · {userDetail.user?.lastPaymentMethod || '—'}</p><p className="mt-1 text-[11px] text-slate-500">Plateforme : {userDetail.user?.lastSeenPlatform || 'Non classée'} · Mode : {userDetail.user?.theme === 'dark' ? 'Sombre' : 'Clair'} · Connexion par mot de passe : {userDetail.user?.passwordLoginEnabled === true ? 'Oui' : userDetail.user?.passwordLoginEnabled === false ? 'Non' : 'À confirmer'}</p><p className="mt-1 text-[11px] text-slate-500">Photo de profil : {userDetail.user?.hasProfilePhoto ? 'Présente' : 'Aucune'} · Changements suivis depuis la mise en place : {Number(userDetail.user?.photoChangeCount) || 0} · Dernière modification : {dateLabel(userDetail.user?.photoUpdatedAt)}</p></div></div><button onClick={() => { setSelectedUser(null); setUserDetail(null); }} className="rounded-lg border border-slate-200 bg-white p-2"><XCircle size={16}/></button></div>
+        <section className="mt-4 rounded-xl border border-slate-200 bg-white p-3.5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h4 className="text-sm font-bold text-slate-900">Accès Premium</h4>
+              <p className="mt-1 text-xs text-slate-500">{selectedPremiumActive ? 'Actif jusqu’au ' + dateLabel(userDetail.user?.premiumUntil) : 'Aucun accès Premium actif.'}</p>
+              <p className="mt-1 text-[11px] text-slate-500">La gestion de l’accès est indépendante de l’historique des paiements.</p>
+            </div>
+            <button type="button" onClick={() => openPremiumDialog(selectedPremiumActive ? 'deactivate' : 'activate')} disabled={busy} className={`inline-flex min-h-10 items-center justify-center rounded-lg px-4 text-xs font-semibold text-white disabled:opacity-50 ${selectedPremiumActive ? 'bg-rose-700 hover:bg-rose-800' : 'bg-emerald-700 hover:bg-emerald-800'}`}>
+              {selectedPremiumActive ? 'Désactiver Premium' : 'Activer Premium'}
+            </button>
+          </div>
+          {premiumFeedback && <p role="status" className="mt-3 rounded-lg bg-emerald-50 p-2.5 text-xs leading-5 text-emerald-800">{premiumFeedback}</p>}
+        </section>
         <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
           <div className="flex flex-wrap items-center justify-between gap-2"><h4 className="text-sm font-bold text-slate-900">Contacter cet utilisateur par e-mail</h4>{waHref(userDetail.user, templates[3]) && <a href={waHref(userDetail.user, templates[3])} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-800"><MessageCircle size={14}/> WhatsApp</a>}</div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -621,6 +688,47 @@ export default function AdminPage() {
       </div>
       {nextNotificationLogCursor && <button type="button" onClick={() => loadNotificationHistory(true)} disabled={busy} className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-slate-200 text-xs font-semibold disabled:opacity-50">{busy ? 'Chargement…' : 'Charger les notifications précédentes'}</button>}
     </section>}
+    {premiumDialog && userDetail?.user && <div className="fixed inset-0 z-[250] flex items-center justify-center bg-slate-950/55 p-3 sm:p-5">
+      <section role="dialog" aria-modal="true" aria-labelledby="admin-premium-dialog-title" className="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+        <div className="flex items-start justify-between gap-3">
+          <div><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">Administration Pata</p><h2 id="admin-premium-dialog-title" className="mt-1 text-lg font-bold text-slate-900">{premiumDialog === 'activate' ? 'Activer l’accès Premium' : 'Désactiver l’accès Premium'}</h2><p className="mt-1 text-xs text-slate-500">{userDetail.user.displayName || userDetail.user.email || userDetail.user.id}</p></div>
+          <button type="button" onClick={() => setPremiumDialog('')} disabled={busy} aria-label="Fermer" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><XCircle size={18}/></button>
+        </div>
+        {premiumDialog === 'activate' ? <div className="mt-4 space-y-4">
+          <label className="block text-xs font-semibold text-slate-700">Durée de l’accès
+            <select value={premiumMonths} onChange={(event) => { const value = Number(event.target.value); setPremiumMonths(value); setPremiumAmount(String(value * 2500)); }} className="mt-1.5 h-11 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal">
+              <option value={1}>1 mois</option><option value={3}>3 mois</option><option value={6}>6 mois</option><option value={12}>12 mois</option>
+            </select>
+          </label>
+          <label className="flex items-start gap-2.5 rounded-xl border border-slate-200 p-3 text-xs leading-5 text-slate-700">
+            <input type="checkbox" checked={premiumCountAsRevenue} onChange={(event) => setPremiumCountAsRevenue(event.target.checked)} className="mt-0.5"/>
+            <span><strong className="block text-slate-900">Comptabiliser comme de l’argent réellement reçu</strong> À cocher uniquement si le membre a déjà payé en dehors du système de paiement Pata. Une activation offerte ne doit pas être ajoutée aux recettes.</span>
+          </label>
+          {premiumCountAsRevenue && <label className="block text-xs font-semibold text-slate-700">Montant réellement encaissé (FCFA)
+            <input type="number" min="1" step="1" inputMode="numeric" value={premiumAmount} onChange={(event) => setPremiumAmount(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-slate-200 px-3 text-sm font-normal"/>
+          </label>}
+          <p className="rounded-lg bg-slate-50 p-3 text-[11px] leading-5 text-slate-600">Si la case reste décochée, Premium sera activé sans créer de paiement, sans modifier le dernier paiement connu et sans augmenter le chiffre d’affaires.</p>
+        </div> : <div className="mt-4 space-y-4">
+          <p className="rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900">Confirme l’arrêt de l’accès Premium. Tous les paiements déjà reçus resteront dans l’historique et dans les recettes; cette désactivation ne les efface pas.</p>
+          <label className="flex items-start gap-2.5 rounded-xl border border-slate-200 p-3 text-xs leading-5 text-slate-700">
+            <input type="checkbox" checked={premiumRecordRefund} onChange={(event) => setPremiumRecordRefund(event.target.checked)} className="mt-0.5"/>
+            <span><strong className="block text-slate-900">Un remboursement a réellement été versé au membre</strong> Coche uniquement si l’argent a effectivement été retourné. Le remboursement sera enregistré séparément du paiement d’origine.</span>
+          </label>
+          {premiumRecordRefund && <label className="block text-xs font-semibold text-slate-700">Montant réellement remboursé (FCFA)
+            <input type="number" min="1" step="1" inputMode="numeric" value={premiumRefundAmount} onChange={(event) => setPremiumRefundAmount(event.target.value)} className="mt-1.5 h-11 w-full rounded-lg border border-slate-200 px-3 text-sm font-normal"/>
+          </label>}
+        </div>}
+        <label className="mt-4 block text-xs font-semibold text-slate-700">Motif ou note interne (facultatif)
+          <textarea value={premiumReason} onChange={(event) => setPremiumReason(event.target.value)} rows={2} maxLength={300} className="mt-1.5 w-full rounded-lg border border-slate-200 p-3 text-sm font-normal" placeholder="Ex. accès offert, paiement reçu en espèces…"/>
+        </label>
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <button type="button" onClick={() => setPremiumDialog('')} disabled={busy} className="min-h-10 rounded-lg border border-slate-200 px-4 text-xs font-semibold text-slate-700">Annuler</button>
+          <button type="button" onClick={submitPremiumChange} disabled={busy || (premiumDialog === 'activate' && premiumCountAsRevenue && (!Number.isSafeInteger(Number(premiumAmount)) || Number(premiumAmount) <= 0)) || (premiumDialog === 'deactivate' && premiumRecordRefund && (!Number.isSafeInteger(Number(premiumRefundAmount)) || Number(premiumRefundAmount) <= 0))} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-slate-950 px-4 text-xs font-semibold text-white disabled:opacity-50">
+            {busy ? <Loader2 size={15} className="animate-spin"/> : <CheckCircle2 size={15}/>} {premiumDialog === 'activate' ? 'Confirmer l’activation' : 'Confirmer la désactivation'}
+          </button>
+        </div>
+      </section>
+    </div>}
     <footer className="pb-4 text-center text-[11px] text-slate-400">Pata Administration · NAPOPOLO EXAUCE</footer>
   </div></main>;
 }
