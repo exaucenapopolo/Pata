@@ -2,7 +2,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { PiggyBank, Pencil, Landmark, ChevronRight, MessageCircle, BookmarkPlus, Trash2, Layers3, Pin } from 'lucide-react';
+import { PiggyBank, Pencil, Landmark, ChevronRight, MessageCircle, BookmarkPlus, Trash2, Layers3, Pin, Plus } from 'lucide-react';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { Button } from '@/components/ui/Button';
@@ -42,7 +42,7 @@ export default function BudgetsPage() {
   }, []);
 
   const { incomes } = useIncomes();
-  const { budgets } = useBudgets(month, selectedIncome);
+  const { budgets, loading: budgetsLoading } = useBudgets(month, selectedIncome);
   const { expenses } = useExpenses({ startDate: month + '-01', endDate: month + '-31', limit: 500 });
   const { categories: allExpenseCategories } = useCustomCategories('expense');
   const expenseCategories = useMemo(() => allExpenseCategories.filter((category) => category.id !== 'loan_given'), [allExpenseCategories]);
@@ -64,6 +64,11 @@ export default function BudgetsPage() {
   const [templateMessage, setTemplateMessage] = useState('');
   const [budgetPersona, setBudgetPersona] = useState('employee');
   const [applySuggestedAfterSave, setApplySuggestedAfterSave] = useState(false);
+  const [createBudgetOpen, setCreateBudgetOpen] = useState(false);
+  const [createBudgetCategoryId, setCreateBudgetCategoryId] = useState('');
+  const [createBudgetIncomeSourceId, setCreateBudgetIncomeSourceId] = useState('all');
+  const [createBudgetAmount, setCreateBudgetAmount] = useState('');
+  const [creatingBudget, setCreatingBudget] = useState(false);
 
   const [pinMenuId, setPinMenuId] = useState(null);
   const [pinSavingId, setPinSavingId] = useState('');
@@ -109,6 +114,13 @@ export default function BudgetsPage() {
   }, [user]);
 
   const monthIncomes = useMemo(() => incomes.filter(i => i.month === month), [incomes, month]);
+  const budgetIncomeSources = useMemo(() => incomes.filter((income) =>
+    !income.neutralFlow
+    && !income.cashPocket
+    && income.flowType !== 'debt_borrowed'
+    && income.flowType !== 'repayment_received'
+    && income.categoryId !== 'debt_repayment_received'
+  ), [incomes]);
 
   const monthExpenses = useMemo(() => {
     let filtered = expenses.filter((e) => !e.neutralFlow && e.date?.startsWith(month));
@@ -170,6 +182,41 @@ export default function BudgetsPage() {
   const openEdit = (category) => {
     setEditing(category);
     setAmount(String(category.allocated || ''));
+  };
+
+  const openCreateBudget = (incomeSourceId = selectedIncome) => {
+    setCreateBudgetIncomeSourceId(incomeSourceId || 'all');
+    setCreateBudgetCategoryId(expenseCategories[0]?.id || '');
+    setCreateBudgetAmount('');
+    setSaveError('');
+    setCreateBudgetOpen(true);
+  };
+
+  const onCreateBudget = async (event) => {
+    event.preventDefault();
+    const value = Math.round(Number(createBudgetAmount));
+    if (!createBudgetCategoryId || !Number.isSafeInteger(value) || value <= 0) {
+      setSaveError(isEnglish ? 'Choose a category and enter a positive amount.' : 'Choisis une catégorie et saisis un montant supérieur à zéro.');
+      return;
+    }
+    setCreatingBudget(true);
+    setSaveError('');
+    try {
+      await upsertBudget(user.uid, {
+        categoryId: createBudgetCategoryId,
+        amount: value,
+        month,
+        incomeSourceId: createBudgetIncomeSourceId || 'all',
+      });
+      setSelectedIncome(createBudgetIncomeSourceId || 'all');
+      setCreateBudgetOpen(false);
+      setCreateBudgetAmount('');
+      setNextAction({ sequence: Date.now() });
+    } catch (error) {
+      setSaveError(error.message || (isEnglish ? 'Could not create this budget.' : 'Impossible de créer ce budget.'));
+    } finally {
+      setCreatingBudget(false);
+    }
   };
 
   const openSuggestedBudget = () => {
@@ -316,6 +363,9 @@ export default function BudgetsPage() {
           {!budgetPremium && <p className="mt-1 text-xs text-slate-500">Créations de budgets et modèles : {usedBudgetQuota} / 2 ce mois-ci.</p>}
         </div>
         <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+          <Button type="button" size="sm" onClick={() => openCreateBudget()} disabled={!expenseCategories.length || budgetQuotaReached}>
+            <Plus size={14}/> Créer un budget
+          </Button>
           <Button type="button" variant="outline" size="sm" onClick={() => {
             const prompt = isEnglish
               ? `Analyze my Pata budget for ${month}. Profile: ${budgetPersona}. Recorded income: ${monthIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0)} XAF. Current allocation: ${enriched.map((item) => `${translateText(item.label, 'en')}: planned ${item.allocated} XAF, spent ${item.spent} XAF`).join('; ')}. Identify the categories with the highest spending, budget limits that are too high or too low, and realistic adjustments for this profile. Do not change anything without my approval.`
@@ -380,11 +430,23 @@ export default function BudgetsPage() {
         </section>
       )}
 
+      {!budgetsLoading && selectedIncome !== 'all' && budgetedCategories.length === 0 && (
+        <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-brand-100 bg-[#edf6ef]/80 p-4">
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-slate-900">Aucun budget pour {monthIncomes.find((income) => income.id === selectedIncome)?.source || 'ce revenu'}</p>
+            <p className="mt-1 text-xs text-slate-600">Crée ses enveloppes ici, sans quitter cette page.</p>
+          </div>
+          <Button type="button" size="sm" onClick={() => openCreateBudget(selectedIncome)} disabled={budgetQuotaReached}>
+            <Plus size={14}/> Créer son budget
+          </Button>
+        </section>
+      )}
+
       {totalAllocated === 0 && (
         <EmptyState
           icon={PiggyBank}
           title="Aucun budget défini"
-          description="Va dans Revenus et applique la répartition suggérée, ou définis un budget manuellement ici."
+          description="Crée directement ici tes premières enveloppes et relie-les à une source de revenus."
         />
       )}
 
@@ -562,6 +624,55 @@ export default function BudgetsPage() {
             </Button>
           </div>
         )}
+      </Modal>
+
+      <Modal
+        open={createBudgetOpen}
+        onClose={() => { if (!creatingBudget) setCreateBudgetOpen(false); }}
+        title="Créer un budget"
+      >
+        <form onSubmit={onCreateBudget} className="space-y-3">
+          <label className="block text-xs font-semibold text-slate-700">
+            Catégorie
+            <select
+              value={createBudgetCategoryId}
+              onChange={(event) => setCreateBudgetCategoryId(event.target.value)}
+              required
+              className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800 outline-none focus:border-brand-500"
+            >
+              <option value="" disabled>Choisir une catégorie</option>
+              {expenseCategories.map((category) => (
+                <option key={category.id} value={category.id}>{translateText(category.label, language)}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-xs font-semibold text-slate-700">
+            Lier à un revenu
+            <select
+              value={createBudgetIncomeSourceId}
+              onChange={(event) => setCreateBudgetIncomeSourceId(event.target.value)}
+              className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800 outline-none focus:border-brand-500"
+            >
+              <option value="all">Budget global · tous les revenus</option>
+              {budgetIncomeSources.map((income) => (
+                <option key={income.id} value={income.id}>{income.source || 'Revenu'} · {formatCurrency(income.amount)}</option>
+              ))}
+            </select>
+          </label>
+          <Input
+            label="Montant prévu (FCFA)"
+            type="number"
+            min="1"
+            step="1"
+            required
+            value={createBudgetAmount}
+            onChange={(event) => setCreateBudgetAmount(event.target.value)}
+          />
+          {saveError && <p role="alert" className="rounded-lg bg-red-50 p-2 text-xs text-red-700">{saveError}</p>}
+          <Button type="submit" className="w-full" disabled={creatingBudget || !createBudgetCategoryId || !createBudgetAmount}>
+            {creatingBudget ? 'Création…' : 'Créer le budget'}
+          </Button>
+        </form>
       </Modal>
 
       <Modal

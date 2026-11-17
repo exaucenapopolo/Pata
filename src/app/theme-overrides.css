@@ -973,3 +973,17 @@ html.dark .pata-calendar-panel .text-slate-500 { color: #adbdaf !important; }
 html.dark .pata-calendar-panel .border-slate-200 { border-color: #365344 !important; }
 html.dark .pata-calendar-panel select { color: #edf5ef !important; }
 html.dark .pata-date-range-trigger { background: #1d2d24 !important; border-color: #365344 !important; }
+
+
+/* App-wide surfaces: softened ivory/mint cards instead of bright pure white. */
+html:not(.dark) main .pata-surface-card,
+html:not(.dark) main .rounded-2xl.border.bg-white:not(button):not(a),
+html:not(.dark) main .rounded-xl.border.bg-white:not(button):not(a),
+html:not(.dark) main .rounded-lg.border.bg-white:not(button):not(a) {
+  background-color: rgba(248, 252, 249, .94) !important;
+  background-image: linear-gradient(145deg, rgba(255, 255, 255, .78) 0%, rgba(232, 244, 235, .76) 100%) !important;
+  border-color: rgba(7, 91, 67, .12) !important;
+}
+html:not(.dark) main .pata-surface-card {
+  box-shadow: 0 2px 12px rgba(7, 91, 67, .045);
+}

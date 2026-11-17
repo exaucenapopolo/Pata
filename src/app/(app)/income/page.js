@@ -714,6 +714,9 @@ export default function IncomePage() {
         <h1 className="pata-page-title text-2xl font-bold text-slate-900">Revenus</h1>
         <div className="flex flex-wrap items-center gap-2">
           <AssistantShortcut label="Analyser mes revenus" prompt="Analyse mes sources de revenus dans Pata. Aide-moi à comprendre leur régularité, leur répartition et les risques de dépendance à une seule source. Propose des pistes adaptées sans modifier mes opérations." promptEn="Analyze my income sources in Pata. Help me understand how regular they are, how they are distributed and the risks of relying on a single source. Suggest practical improvements without changing my transactions." />
+          <Button size="sm" onClick={openNewIncome} disabled={incomeQuotaReached} data-pata-tour="income-create-top" title={incomeQuotaReached ? 'Limite gratuite atteinte' : 'Ajouter un revenu'}>
+            <Plus size={14}/> Ajouter un revenu
+          </Button>
           <MonthPicker value={month} onChange={setMonth} className="w-full sm:w-auto" />
         </div>
       </div>
