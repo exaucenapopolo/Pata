@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="260" height="260" viewBox="0 0 260 260" fill="none">
+  <g stroke="#267A53" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" opacity=".28">
+    <circle cx="34" cy="42" r="13"/>
+    <path d="M38 50c-5 0-8-3-9-7h11M29 39h12M29 43h12M45 27h2v30h-2"/>
+    <circle cx="220" cy="184" r="16"/>
+    <path d="M224 194c-6 0-10-4-11-9h13M213 181h14M213 186h14M239 168h2v35h-2"/>
+    <path d="M148 22h20M158 12v20"/>
+  </g>
+  <g fill="#267A53" font-family="Arial,sans-serif" font-weight="500" opacity=".20">
+    <text x="177" y="67" font-size="24">€</text>
+    <text x="44" y="208" font-size="20">€</text>
+    <text x="173" y="242" font-size="12">PATA</text>
+  </g>
+</svg>

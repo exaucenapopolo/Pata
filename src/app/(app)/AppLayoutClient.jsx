@@ -18,18 +18,21 @@ import { SmsImportCoordinator } from '@/components/SmsImportCoordinator';
 import { QuickCaptureCoordinator } from '@/components/QuickCaptureCoordinator';
 import { AndroidUpdateChecker } from '@/components/AndroidUpdateChecker';
 import { AppFeatureTour } from '@/components/AppFeatureTour';
+import { AppLoadingScreen } from '@/components/layout/AppLoadingScreen';
+import { AppNavigationProgress } from '@/components/layout/AppNavigationProgress';
 
 export default function AppLayout({ children }) {
   const { loading, user } = useAuthGuard();
 
   if (loading || !user) {
     return (
-      <div className="grid min-h-[100dvh] place-items-center bg-[#f5f8f6]"><div className="flex flex-col items-center gap-3"><img src="/android-chrome-192x192.png" alt="Pata" className="h-12 w-12 rounded-2xl" /><div className="h-1.5 w-20 overflow-hidden rounded-full bg-slate-200"><div className="h-full w-1/2 animate-pulse rounded-full bg-brand-600" /></div></div></div>
+      <AppLoadingScreen />
     );
   }
 
   return (
-    <div className="pata-app-shell min-h-[100dvh] bg-[#f5f8f6] lg:flex lg:h-[100dvh] lg:overflow-hidden">
+    <div className="pata-app-shell relative isolate min-h-[100dvh] bg-[#f0f6f1] lg:flex lg:h-[100dvh] lg:overflow-hidden">
+      <AppNavigationProgress />
       <Sidebar />
       <div className="flex min-h-[100dvh] min-w-0 flex-1 flex-col lg:h-full lg:overflow-hidden">
         <Header />
