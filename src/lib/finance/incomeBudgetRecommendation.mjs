@@ -1,7 +1,3 @@
-const NORMAL_INCOME_CATEGORIES = new Set([
-  'salary', 'business', 'sales', 'commission', 'rental', 'pension', 'gift', 'other_income',
-]);
-
 function validDate(value) {
   const date = String(value || '').slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return '';
@@ -22,21 +18,25 @@ export function buildIncomeBudgetRecommendation({
   flowType = 'normal',
 } = {}) {
   const safeId = String(incomeId || '').trim().slice(0, 150);
-  const safeCategory = String(categoryId || 'other_income').trim();
+  const safeCategory = String(categoryId || 'other_income').trim().slice(0, 80);
+  const safeSource = String(source || 'Revenu').trim().slice(0, 100);
   const safeDate = validDate(date);
   const safeAmount = Math.round(Number(amount) || 0);
+  const isSalary = safeCategory === 'salary'
+    || /\\b(salaire|salary|paie|payroll|remuneration)\\b/i.test(safeSource.normalize('NFD').replace(/[\\u0300-\\u036f]/g, ' ').toLocaleLowerCase('fr-FR'));
   if (!safeId || safeId.includes('/') || !safeDate || !Number.isSafeInteger(safeAmount)
-    || safeAmount <= 0 || flowType !== 'normal' || !NORMAL_INCOME_CATEGORIES.has(safeCategory)) return null;
+    || safeAmount <= 0 || flowType !== 'normal'
+    || !safeCategory || ['debt_borrowed', 'debt_repayment_received'].includes(safeCategory)) return null;
 
   const month = safeDate.slice(0, 7);
   return {
     incomeId: safeId,
     amount: safeAmount,
-    source: String(source || 'Revenu').trim().slice(0, 100),
+    source: safeSource,
     categoryId: safeCategory,
     date: safeDate,
     month,
-    isSalary: safeCategory === 'salary',
+    isSalary,
     target: '/budgets?month=' + month + '&incomeId=' + encodeURIComponent(safeId),
   };
 }
