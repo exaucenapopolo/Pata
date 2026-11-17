@@ -137,9 +137,6 @@ export default function WalletPage() {
       <div className="pata-page-heading flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="pata-page-title text-2xl font-bold text-slate-900">Portefeuille</h1>
-          <p className="text-sm text-slate-500">
-            Recharge ton solde et finance tes objectifs d&apos;épargne.
-          </p>
         </div>
         <AssistantShortcut label="Comprendre mon portefeuille" prompt="Explique-moi le fonctionnement de mon portefeuille Pata, la différence entre solde disponible, recharge initiée, paiement confirmé et argent affecté aux objectifs. Aide-moi à vérifier mes opérations sans en créer ni en modifier aucune." />
       </div>

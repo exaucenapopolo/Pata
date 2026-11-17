@@ -607,18 +607,15 @@ export default function CotisationsPage() {
       <header className="pata-surface-card rounded-2xl border border-slate-200 bg-white p-5 sm:p-7">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-2xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-500">Organisation collective</p>
-            <h1 className="pata-page-title mt-2 text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">Cotisations et tontines</h1>
-            <p className="mt-2 text-sm leading-6 text-slate-600">Crée un groupe, invite les membres et suis chaque versement. Chaque paiement est vérifié avant d’être ajouté à la cagnotte.</p>
+            <h1 className="pata-page-title text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">Cotisations et tontines</h1>
           </div>
           <Button onClick={() => setShowCreate((value) => !value)} data-pata-tour="cotisation-create"><Plus size={16}/> Créer un groupe</Button>
         </div>
-        <div className="mt-4 grid gap-2 sm:grid-cols-3">
-          <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Mes groupes</p><p className="mt-1 text-lg font-bold text-slate-900">{totalInGroups}</p></div>
-          <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Frais sur les versements</p><p className="mt-1 text-lg font-bold text-slate-900">5 %</p></div>
-          <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-slate-500">Frais de retrait Pata</p><p className="mt-1 text-lg font-bold text-slate-900">0 %</p></div>
+        <div className="mt-4 grid grid-cols-3 gap-2">
+          <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-2.5 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Groupes</p><p className="mt-1 text-base font-extrabold tabular-nums text-slate-950">{totalInGroups}</p></div>
+          <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-2.5 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Frais versement</p><p className="mt-1 text-base font-extrabold tabular-nums text-slate-950">5 %</p></div>
+          <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-2.5 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Frais retrait</p><p className="mt-1 text-base font-extrabold tabular-nums text-slate-950">0 %</p></div>
         </div>
-        <p className="mt-3 text-[11px] leading-5 text-slate-500">Les frais de 5 % sont calculés automatiquement sur chaque versement. Aucun frais de retrait supplémentaire n’est ajouté par Pata.</p>
       </header>
 
       {error && <div role="alert" className="flex gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"><AlertCircle size={17} className="mt-0.5 shrink-0"/>{error}<button type="button" onClick={() => setError('')} className="ml-auto text-xs font-semibold">Fermer</button></div>}

@@ -5,6 +5,7 @@ import { LockKeyhole, ShieldCheck, Mail, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/context/LanguageContext';
 import { PinPad } from '@/components/security/PinPad';
+import { AppLoadingScreen } from '@/components/layout/AppLoadingScreen';
 
 async function apiCall(user, path, body) {
   const token = await user.getIdToken();
@@ -167,7 +168,7 @@ export function PinGate() {
     finally { setBusy(false); }
   };
 
-  if (checking && user) return <div className="fixed inset-0 z-[200] grid place-items-center bg-[#f5f8f6] dark:bg-[#101a16]"><span className="h-8 w-8 animate-spin rounded-full border-2 border-brand-700 border-t-transparent"/></div>;
+  if (checking && user) return <div className="fixed inset-0 z-[200]"><AppLoadingScreen /></div>;
   if (!locked || !enabled) return null;
 
   return (

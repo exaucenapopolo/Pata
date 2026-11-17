@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
+import { AppLoadingScreen } from '@/components/layout/AppLoadingScreen';
 
 export function AppNavigationProgress() {
   const pathname = usePathname();
@@ -88,5 +89,5 @@ export function AppNavigationProgress() {
   }, [pathname]);
 
   if (state === 'idle') return null;
-  return <div className={'pata-route-progress' + (state === 'complete' ? ' is-complete' : state === 'hiding' ? ' is-hiding' : '')} aria-hidden="true"><span /></div>;
+  return <div className="pata-navigation-loading-overlay" role="status" aria-live="polite"><AppLoadingScreen compact /></div>;
 }

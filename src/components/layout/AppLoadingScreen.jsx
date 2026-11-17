@@ -11,7 +11,7 @@ export function AppLoadingScreen({ compact = false }) {
           <img src="/pata-notification.svg" alt="" />
         </div>
         <p className="pata-loading-title">Pata prépare ton espace</p>
-        <p className="pata-loading-subtitle">Chargement de tes informations. Tu peux rester ici, ton application est en cours de préparation.</p>
+        <p className="pata-loading-subtitle">Chargement de ton espace.</p>
         <div className="pata-loading-track" aria-hidden="true"><span /></div>
         <div className="pata-loading-dots" aria-hidden="true"><span /><span /><span /></div>
       </div>

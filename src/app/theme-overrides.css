@@ -140,7 +140,26 @@ html.dark .pata-loading-subtitle { color:#a1b4a8; }
 html.dark .pata-loading-track { background:#2a4034; }
 html.dark .pata-loading-orbit circle { stroke:#72c89b; }
 
-/* Thin navigation progress line; the previous page stays visible while Next.js navigates. */
+/* Shared branded transition overlay for navigation and security checks. */
+.pata-navigation-loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(245, 248, 246, .97);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+}
+.pata-navigation-loading-overlay .pata-loading-screen {
+  width: min(100%, 520px);
+  min-height: 52vh;
+  border-radius: 24px;
+}
+html.dark .pata-navigation-loading-overlay { background: rgba(16, 26, 22, .97); }
+
+/* Thin navigation progress line retained for older routes that still use it. */
 .pata-route-progress { position:fixed; top:0; left:0; z-index:1000; width:100%; height:3px; pointer-events:none; overflow:hidden; opacity:1; transition:opacity .18s ease; }
 .pata-route-progress.is-hiding { opacity:0; }
 .pata-route-progress span { display:block; width:34%; height:100%; border-radius:0 999px 999px 0; background:linear-gradient(90deg,#075b43,#35aa78,#8dd7ad); box-shadow:0 0 10px rgba(7,91,67,.22); transform:translateX(-120%); animation:pata-route-sweep 1.2s cubic-bezier(.55,.08,.35,.95) infinite; }
