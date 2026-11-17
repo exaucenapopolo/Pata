@@ -255,6 +255,12 @@ export function claimDailyRetentionPassSlot(state = {}, dateKey, notificationKey
   }, dateKey, notificationKey);
   if (!dailyClaim.allowed) return dailyClaim;
 
+  const otherPass = pass === 1 ? 2 : 1;
+  const otherDateKey = 'pass' + otherPass + 'Date';
+  const otherCountKey = 'pass' + otherPass + 'Count';
+  const otherKeysKey = 'pass' + otherPass + 'Keys';
+  const otherSameDay = state[otherDateKey] === dateKey;
+
   return {
     ...dailyClaim,
     state: {
@@ -262,6 +268,9 @@ export function claimDailyRetentionPassSlot(state = {}, dateKey, notificationKey
       [passDateKey]: dateKey,
       [passCountKey]: passCount + 1,
       [passKeysKey]: [...passKeys, String(notificationKey)].slice(-1),
+      [otherDateKey]: dateKey,
+      [otherCountKey]: otherSameDay ? Math.max(0, Number(state[otherCountKey]) || 0) : 0,
+      [otherKeysKey]: otherSameDay && Array.isArray(state[otherKeysKey]) ? state[otherKeysKey].map(String) : [],
       pass,
     },
   };
