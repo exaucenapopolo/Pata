@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { Home, Wallet, TrendingUp, Plus, Menu, X, Banknote, Target, BarChart3, Settings, Crown, LogOut, PiggyBank, ArrowDownLeft, ArrowUpRight, Users, HandCoins, Receipt } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
+import { bodyScrollLockManager } from '@/lib/ui/bodyScrollLock.mjs';
 
 const MORE_NAV = [
   { href: '/wallet', label: 'Portefeuille', icon: Banknote, description: 'Solde et mouvements', position: 'top-left' },
@@ -42,6 +43,11 @@ export function MobileNav() {
     moreMenuCloseRef.current?.focus();
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [showMore]);
+
+  useEffect(() => {
+    if (!showMore && !showActions) return undefined;
+    return bodyScrollLockManager.acquire(document.body);
+  }, [showMore, showActions]);
 
   useEffect(() => {
     setShowMore(false);

@@ -474,3 +474,45 @@ html.dark .pata-dashboard-quick-link span:last-child { color:#a8baad !important;
 @media (prefers-reduced-motion:reduce) {
   .pata-dashboard-quick-link > span:first-child { transition:none !important; }
 }
+
+
+/* Shared app surfaces: a restrained mint glass instead of repeated stark-white rectangles. */
+.pata-surface-card {
+  background:linear-gradient(155deg,rgba(255,255,255,.96),rgba(247,251,248,.93)) !important;
+  border-color:rgba(218,232,221,.92) !important;
+  box-shadow:0 2px 12px rgba(7,91,67,.045);
+  backdrop-filter:blur(7px);
+  -webkit-backdrop-filter:blur(7px);
+}
+.pata-field {
+  background:rgba(250,253,250,.96) !important;
+  border-color:#dce9df !important;
+  box-shadow:inset 0 1px 2px rgba(7,91,67,.025),0 1px 2px rgba(7,91,67,.025) !important;
+  transition:border-color .16s ease,box-shadow .16s ease,background .16s ease;
+}
+.pata-field:focus {
+  background:#fff !important;
+  border-color:#27845a !important;
+  box-shadow:0 0 0 3px rgba(39,132,90,.12) !important;
+}
+.pata-button { min-width:0; -webkit-tap-highlight-color:transparent; }
+.pata-button:focus-visible { outline:2px solid rgba(39,132,90,.55); outline-offset:3px; }
+.pata-progress-track { background:#e7f0e9 !important; }
+.pata-progress-fill { border-radius:999px; }
+
+html.dark .pata-surface-card {
+  background:linear-gradient(155deg,rgba(29,44,35,.97),rgba(22,35,28,.97)) !important;
+  border-color:#30483a !important;
+  box-shadow:0 2px 12px rgba(0,0,0,.12);
+}
+html.dark .pata-field {
+  background:#14221b !important;
+  border-color:#3a5144 !important;
+  color:#f0f5f1 !important;
+}
+html.dark .pata-field:focus { background:#182920 !important; border-color:#5fa47a !important; }
+html.dark .pata-progress-track { background:#263b30 !important; }
+
+@media (prefers-reduced-motion:reduce) {
+  .pata-field { transition:none !important; }
+}
