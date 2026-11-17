@@ -268,6 +268,7 @@ export default function AdminPage() {
   const [emailStatus, setEmailStatus] = useState(null); const [emailStatusLoading, setEmailStatusLoading] = useState(false); const [emailTestLoading, setEmailTestLoading] = useState(false); const [emailTestResult, setEmailTestResult] = useState('');
   const [emailSubject, setEmailSubject] = useState(getTemplateField(templates[0], 'subject', language)); const [emailMessage, setEmailMessage] = useState(getTemplateField(templates[0], 'body', language)); const [emailCustomized, setEmailCustomized] = useState(false); const [emailResult, setEmailResult] = useState(''); const [emailCtaPath, setEmailCtaPath] = useState('/dashboard'); const [emailTemplateKey, setEmailTemplateKey] = useState('welcome');
   const [broadcastTitle, setBroadcastTitle] = useState('Information Pata'); const [broadcastMessage, setBroadcastMessage] = useState(''); const [broadcastPath, setBroadcastPath] = useState('/dashboard'); const [broadcastImageUrl, setBroadcastImageUrl] = useState(''); const [broadcastResult, setBroadcastResult] = useState('');
+  const [savedBroadcastTemplates, setSavedBroadcastTemplates] = useState([]); const [selectedBroadcastTemplateId, setSelectedBroadcastTemplateId] = useState(''); const [saveBroadcastTemplate, setSaveBroadcastTemplate] = useState(false); const [broadcastTemplatesLoading, setBroadcastTemplatesLoading] = useState(false);
   const [notificationLogs, setNotificationLogs] = useState([]); const [notificationQuotaSummary, setNotificationQuotaSummary] = useState(null); const [nextNotificationLogCursor, setNextNotificationLogCursor] = useState(null); const [notificationHistoryFilter, setNotificationHistoryFilter] = useState('all'); const [notificationHistorySearch, setNotificationHistorySearch] = useState('');
 
   useEffect(() => {
@@ -286,6 +287,21 @@ export default function AdminPage() {
     if (!response.ok || !data.success) throw new Error(data.error || 'Une erreur est survenue.');
     return data;
   }, [user]);
+  const loadSavedBroadcastTemplates = useCallback(async () => {
+    setBroadcastTemplatesLoading(true);
+    try {
+      const result = await api('admin/notification-templates');
+      setSavedBroadcastTemplates(Array.isArray(result.templates) ? result.templates : []);
+    } catch (loadError) {
+      setError(loadError.message || 'Impossible de charger les modèles de notification.');
+    } finally {
+      setBroadcastTemplatesLoading(false);
+    }
+  }, [api]);
+  useEffect(() => {
+    if (!unlocked || tab !== 'broadcast') return;
+    void loadSavedBroadcastTemplates();
+  }, [unlocked, tab, loadSavedBroadcastTemplates]);
   const sendAdminEmailTest = async () => {
     setEmailTestLoading(true);
     setEmailTestResult('');
@@ -458,10 +474,19 @@ export default function AdminPage() {
   const broadcast = async (event) => {
     event.preventDefault(); setBusy(true); setBroadcastResult(''); setError('');
     try {
-      const result = await api('admin/notifications/broadcast', 'POST', { title: broadcastTitle, message: broadcastMessage, path: broadcastPath, imageUrl: broadcastImageUrl.trim(), recipientMode, recipientIds: recipientMode === 'selected' ? selectedRecipientIds : [] });
+      const result = await api('admin/notifications/broadcast', 'POST', {
+        title: broadcastTitle, message: broadcastMessage, path: broadcastPath,
+        imageUrl: broadcastImageUrl.trim(), recipientMode,
+        recipientIds: recipientMode === 'selected' ? selectedRecipientIds : [],
+        saveAsTemplate: saveBroadcastTemplate,
+      });
       const codes = (result.pushFailureDetails || []).map((item) => item.code);
       const diagnostic = codes.length ? ' Codes retournés : ' + [...new Set(codes)].join(', ') + '.' : '';
-      setBroadcastResult((result.message || 'Notification enregistrée.') + diagnostic);
+      const savedMessage = result.templateSaved ? ' Modèle enregistré : tu pourras le réutiliser lors du prochain envoi.' : '';
+      setBroadcastResult((result.message || 'Notification enregistrée.') + diagnostic + savedMessage);
+      if (result.templateSaved) await loadSavedBroadcastTemplates();
+      setSaveBroadcastTemplate(false);
+      setSelectedBroadcastTemplateId('');
       setBroadcastMessage(''); setBroadcastImageUrl('');
     } catch (err) { setError(err.message); }
     finally { setBusy(false); }
@@ -605,6 +630,28 @@ export default function AdminPage() {
     {tab === 'withdrawals' && <section className="rounded-2xl border border-slate-200 bg-white p-4"><SectionTitle title="Demandes de retrait" detail="Chaque paiement nécessite une validation manuelle. Vérifie le numéro et le montant avant d’approuver."/><div className="space-y-3">{withdrawals.map((item) => <article key={item.id} className="rounded-xl border border-slate-200 p-3"><div className="flex flex-wrap justify-between gap-3"><div><p className="text-sm font-bold">{item.displayName || 'Utilisateur'} · {money(item.amount)}</p><p className="mt-1 text-xs text-slate-500">{item.goalName || 'Épargne'} · {item.phone} · {item.medium === 'orange money' ? 'Orange Money' : 'MTN Mobile Money'}</p><p className="mt-1 text-xs text-slate-500">{dateLabel(item.createdAt)} · {statusLabel[item.status] || item.status}</p>{item.providerMessage && <p className="mt-1 text-xs text-amber-700">{item.providerMessage}</p>}</div><div className="flex items-start gap-2">{item.status === 'PENDING_REVIEW' ? <><button disabled={busy} onClick={() => approve(item)} className="inline-flex h-9 items-center gap-1 rounded-lg bg-emerald-700 px-3 text-xs font-semibold text-white disabled:opacity-50"><CheckCircle2 size={14}/> Valider et payer</button><button disabled={busy} onClick={() => reject(item)} className="inline-flex h-9 items-center gap-1 rounded-lg border border-red-200 px-3 text-xs font-semibold text-red-700 disabled:opacity-50"><XCircle size={14}/> Refuser</button></> : <span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600">{statusLabel[item.status] || item.status}</span>}</div></div><div className="mt-3 grid grid-cols-2 gap-2 rounded-lg bg-slate-50 p-2 text-xs sm:grid-cols-4"><span>Brut : <strong>{money(item.grossAmount)}</strong></span><span>Dette : <strong>{money(item.debtDeduction)}</strong></span><span>Ajustement : <strong>{money(item.cancellationPenalty)}</strong></span><span>Frais Pata : <strong>{money(item.platformFee)}</strong></span></div></article>)}{!withdrawals.length && <p className="py-8 text-center text-sm text-slate-500">Aucune demande de retrait.</p>}</div><p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">Le service de retrait Fapshi doit être activé et approvisionné séparément du service qui encaisse les dépôts. En cas de réponse incertaine, la demande reste en vérification : ne relance pas le paiement sans rapprochement.</p></section>}
     {tab === 'broadcast' && <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
       <form onSubmit={broadcast} className="rounded-2xl border border-slate-200 bg-white p-4"><SectionTitle title="Envoyer une notification" detail="Chaque message est enregistré dans la boîte de réception Pata. Les appareils autorisés reçoivent également une notification push."/>
+        <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <label className="block text-xs font-semibold text-slate-700">Réutiliser une notification enregistrée
+            <select value={selectedBroadcastTemplateId} onChange={(event) => {
+              const selectedId = event.target.value;
+              setSelectedBroadcastTemplateId(selectedId);
+              const saved = savedBroadcastTemplates.find((item) => item.id === selectedId);
+              if (saved) {
+                setBroadcastTitle(saved.title || 'Information Pata');
+                setBroadcastMessage(saved.message || '');
+                setBroadcastPath(saved.path || '/dashboard');
+                setBroadcastImageUrl(saved.imageUrl || '');
+              }
+            }} className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-normal">
+              <option value="">Choisir un modèle…</option>
+              {savedBroadcastTemplates.map((item) => <option key={item.id} value={item.id}>{item.title}{item.createdAt ? ' · ' + dateLabel(item.createdAt) : ''}</option>)}
+            </select>
+          </label>
+          <div className="mt-2 flex items-center justify-between gap-2">
+            {!savedBroadcastTemplates.length && !broadcastTemplatesLoading && <p className="text-[11px] text-slate-500">Aucun modèle pour le moment. Tu peux en enregistrer un avant un envoi.</p>}
+            <button type="button" onClick={loadSavedBroadcastTemplates} disabled={broadcastTemplatesLoading} className="text-[11px] font-semibold text-slate-600 underline disabled:opacity-50">{broadcastTemplatesLoading ? 'Chargement…' : 'Actualiser'}</button>
+          </div>
+        </div>
         <div className="mb-4 grid grid-cols-2 gap-2"><button type="button" onClick={()=>setRecipientMode('all')} className={`rounded-lg border p-3 text-left text-xs ${recipientMode==='all'?'border-slate-900 bg-slate-50':'border-slate-200'}`}><strong className="block text-sm">Tous les comptes</strong><span className="mt-1 block text-slate-500">Boîte Pata pour tous ; push si activé.</span></button><button type="button" onClick={()=>setRecipientMode('selected')} className={`rounded-lg border p-3 text-left text-xs ${recipientMode==='selected'?'border-slate-900 bg-slate-50':'border-slate-200'}`}><strong className="block text-sm">Comptes sélectionnés</strong><span className="mt-1 block text-slate-500">Choisis les destinataires.</span></button></div>
         {recipientMode==='selected'&&<div className="mb-4 rounded-xl border border-slate-200 p-3"><div className="mb-2 flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold">{selectedRecipientIds.length} compte(s) sélectionné(s)</p><p className="text-[10px] text-slate-500">{recipientSummary?.optedInUsers??'—'} comptes avec notifications activées</p></div><input value={recipientSearch} onChange={e=>setRecipientSearch(e.target.value)} placeholder="Rechercher par nom ou e-mail" className="mb-3 h-9 w-full rounded-lg border border-slate-200 px-3 text-xs"/>
           <div className="max-h-64 space-y-2 overflow-y-auto">{recipients.filter(item=>`${item.displayName} ${item.email} ${item.phone}`.toLowerCase().includes(recipientSearch.toLowerCase())).map(item=><label key={item.id} className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-slate-100 p-2 text-xs hover:bg-slate-50"><span className="flex min-w-0 items-center gap-2"><input type="checkbox" checked={selectedRecipientIds.includes(item.id)} onChange={e=>setSelectedRecipientIds(current=>e.target.checked?[...current,item.id]:current.filter(id=>id!==item.id))}/><span className="min-w-0"><strong className="block truncate">{item.displayName}</strong><span className="block truncate text-[10px] text-slate-500">{item.email||item.phone||item.id}</span></span></span><span className={`shrink-0 rounded-full px-2 py-1 text-[10px] ${item.notificationsEnabled?'bg-emerald-50 text-emerald-700':'bg-slate-100 text-slate-500'}`}>{item.notificationsEnabled?`Push actif · ${item.deviceCount}`:'In-app uniquement'}</span></label>)}
@@ -619,6 +666,10 @@ export default function AdminPage() {
         </div>
         {broadcastImageUrl && <img src={broadcastImageUrl} alt="Aperçu de la notification" className="mt-2 max-h-44 w-full rounded-xl border border-slate-200 object-cover" />}
         <label className="mt-3 block text-sm font-medium">Page à ouvrir<input value={broadcastPath} onChange={e=>setBroadcastPath(e.target.value)} className="mt-1 h-11 w-full rounded-lg border border-slate-200 px-3 text-sm" placeholder="/dashboard"/></label>
+        <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+          <input type="checkbox" checked={saveBroadcastTemplate} onChange={(event) => setSaveBroadcastTemplate(event.target.checked)} className="mt-0.5 h-4 w-4 rounded border-slate-300"/>
+          <span><strong className="block">Garder cette notification pour la prochaine fois</strong><span className="mt-1 block text-[11px] leading-5 text-slate-500">Conserve le titre, le message, la page à ouvrir et l’image, même si elle est absente. Les destinataires ne sont pas mémorisés et aucun envoi automatique n’est programmé.</span></span>
+        </label>
         {broadcastResult&&<p className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">{broadcastResult}</p>}
         <button disabled={busy||(recipientMode==='selected'&&!selectedRecipientIds.length)} className="mt-4 inline-flex h-11 items-center gap-2 rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white disabled:opacity-50">{busy?<Loader2 className="animate-spin" size={16}/>:<Bell size={16}/>} Envoyer la notification</button>
         <p className="mt-3 text-[11px] leading-5 text-slate-400">La notification reste dans la boîte jusqu’à ce que l’utilisateur la marque comme lue. Le push dépend des autorisations et de l’appareil. L’image HTTPS est facultative et s’affiche selon les capacités du navigateur ou du système.</p>

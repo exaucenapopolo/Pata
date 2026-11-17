@@ -74,11 +74,21 @@ export async function POST(request) {
     const decoded = await adminAuth.verifyIdToken(authorization.slice(7));
     const uid = decoded.uid;
     const body = await request.json();
+    const userRef = adminDb.collection('users').doc(uid);
     const idempotencyKey = String(body.idempotencyKey || '').trim();
     let parsed = null;
     if (typeof body.text === 'string' && body.text.trim()) {
       const today = doualaToday();
-      parsed = parseQuickCapture(body.text, new Date(today + 'T12:00:00.000Z'));
+      const categoriesSnap = await userRef.collection('categories').get();
+      const categories = categoriesSnap.docs.map((doc) => {
+        const data = doc.data() || {};
+        return {
+          id: doc.id,
+          name: String(data.name || data.label || '').trim(),
+          type: String(data.type || ''),
+        };
+      }).filter((category) => category.name && ['expense', 'income'].includes(category.type));
+      parsed = parseQuickCapture(body.text, new Date(today + 'T12:00:00.000Z'), { categories });
       if (parsed.needsReview) {
         return errorResponse(
           'Je n’ai pas reconnu avec assez de certitude les informations indispensables. Rien n’a été enregistré.',
@@ -102,7 +112,6 @@ export async function POST(request) {
     if (!validDate(date)) return errorResponse('La date de l’opération est invalide.', 400);
     if (dueDate && !validDate(dueDate)) return errorResponse('La date d’échéance est invalide.', 400);
 
-    const userRef = adminDb.collection('users').doc(uid);
     const profileSnap = await userRef.get();
     if (!profileSnap.exists) return errorResponse('Profil Pata introuvable.', 404);
     if (!isPremium(profileSnap.data() || {})) return errorResponse('Pata Quick Capture est réservé aux abonnés Premium. Aucune opération n’a été enregistrée.', 403);

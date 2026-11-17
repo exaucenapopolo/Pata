@@ -26,6 +26,7 @@
     "test:offline-quick-capture": "node --test tests/offlineQuickCapture.test.mjs",
     "test:sms-bill-payment": "node --test tests/smsBillPayment.test.mjs",
     "test:quick-capture-income": "node --test tests/quickCaptureIncomeFlows.test.mjs",
+    "test:quick-capture-help-notifications": "node --test tests/quickCaptureHelpNotificationTemplates.test.mjs",
     "test:android-release-version": "node --test tests/androidReleaseVersion.test.mjs",
     "test:ai-spending-guidance": "node --test tests/ai-spending-guidance.test.mjs"
   },

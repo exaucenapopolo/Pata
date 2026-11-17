@@ -82,6 +82,9 @@ jobs:
       - name: Vérifier les trois natures de revenu de Quick Capture
         run: npm run test:quick-capture-income
 
+      - name: Vérifier le guide Quick Capture et les modèles de notifications
+        run: npm run test:quick-capture-help-notifications
+
       - name: Vérifier la fréquence des invitations Premium
         run: npm run test:premium-reminder
 

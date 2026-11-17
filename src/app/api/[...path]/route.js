@@ -7222,9 +7222,33 @@ async function handleAdminEmailSend(request) {
   }
 }
 
+async function handleAdminNotificationTemplates(request) {
+  try {
+    const admin = await requireAdmin(request);
+    const snapshot = await adminDb.collection('users').doc(admin.uid)
+      .collection('savedAdminNotificationTemplates')
+      .orderBy('createdAt', 'desc').limit(50).get();
+    const templates = snapshot.docs.map((doc) => {
+      const data = doc.data() || {};
+      return {
+        id: doc.id,
+        title: String(data.title || '').slice(0, 80),
+        message: String(data.message || '').slice(0, 220),
+        path: String(data.path || '/dashboard'),
+        imageUrl: String(data.imageUrl || ''),
+        createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : '',
+      };
+    });
+    return NextResponse.json({ success: true, templates });
+  } catch (error) {
+    console.error('[ADMIN NOTIFICATION TEMPLATES]', error.message || error);
+    return errorResponse(error.message || 'Impossible de charger les modèles de notification.', 500);
+  }
+}
+
 async function handleAdminBroadcast(request) {
   try {
-    await requireAdmin(request);
+    const admin = await requireAdmin(request);
     const body = await request.json();
     const title = String(body.title || '').trim().slice(0, 80);
     const message = String(body.message || '').trim().slice(0, 220);
@@ -7250,6 +7274,17 @@ async function handleAdminBroadcast(request) {
       }
     }
     if (!recipientDocs.length) return errorResponse('Aucun compte destinataire trouvé.', 404);
+
+    let savedTemplateId = null;
+    if (body.saveAsTemplate === true) {
+      const templateRef = adminDb.collection('users').doc(admin.uid)
+        .collection('savedAdminNotificationTemplates').doc();
+      await templateRef.set({
+        title, message, path, imageUrl: imageUrl || '',
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      savedTemplateId = templateRef.id;
+    }
 
     const tag = `pata-admin-${Date.now()}`;
     const notificationId = adminDb.collection('notificationIds').doc().id;
@@ -7408,6 +7443,7 @@ async function handleAdminBroadcast(request) {
     const optedInDevices = optedTokens.length + webPushTargets.length;
     return NextResponse.json({
       success: true, notificationId, recipientMode, inAppDelivered,
+      templateSaved: Boolean(savedTemplateId), templateId: savedTemplateId,
       optedInDevices, pushRecipients: pushRecipientPaths.size,
       recipientsWithoutPush: Math.max(0, inAppDelivered - pushRecipientPaths.size),
       pushSent: totalPushSent, fcmPushSent: pushSent, webPushSent,
@@ -9966,6 +10002,7 @@ const ROUTES = {
   'admin/savings': { GET: handleAdminSavings },
   'admin/notification-recipients': { GET: handleAdminNotificationRecipients },
   'admin/notification-history': { GET: handleAdminNotificationHistory },
+  'admin/notification-templates': { GET: handleAdminNotificationTemplates },
   'admin/users': { GET: handleAdminUsers },
   'admin/user-detail': { GET: handleAdminUserDetail },
   'admin/premium/change': { POST: handleAdminPremiumChange },
