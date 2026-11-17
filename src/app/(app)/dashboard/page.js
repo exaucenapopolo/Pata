@@ -80,17 +80,19 @@ const DASHBOARD_FEATURES = [
 ];
 
 const DASHBOARD_USAGE_LINKS = [
-  { href: '/expenses', label: 'Dépenses', english: 'Expenses' },
-  { href: '/income', label: 'Revenus', english: 'Income' },
-  { href: '/budgets', label: 'Budgets', english: 'Budgets' },
-  { href: '/goals', label: 'Épargne', english: 'Savings' },
-  { href: '/debts', label: 'Dettes & prêts', english: 'Debts & loans' },
-  { href: '/bills', label: 'Factures', english: 'Bills' },
-  { href: '/cotisations', label: 'Cotisations', english: 'Contributions' },
-  { href: '/wallet', label: 'Portefeuille', english: 'Wallet' },
-  { href: '/reports', label: 'Rapports', english: 'Reports' },
-  { href: '/premium', label: 'Premium', english: 'Premium' },
+  { href: '/expenses', label: 'Dépenses', english: 'Expenses', description: 'Retrouver mes dépenses', descriptionEn: 'Review my expenses', icon: Wallet, tone: 'bg-rose-50 text-rose-700' },
+  { href: '/income', label: 'Revenus', english: 'Income', description: 'Suivre mes revenus', descriptionEn: 'Review my income', icon: TrendingUp, tone: 'bg-emerald-50 text-emerald-700' },
+  { href: '/budgets', label: 'Budgets', english: 'Budgets', description: 'Ajuster mes enveloppes', descriptionEn: 'Adjust my budgets', icon: PiggyBank, tone: 'bg-blue-50 text-blue-700' },
+  { href: '/goals', label: 'Épargne', english: 'Savings', description: 'Suivre mon épargne', descriptionEn: 'Track my savings', icon: Target, tone: 'bg-violet-50 text-violet-700' },
+  { href: '/debts', label: 'Dettes & prêts', english: 'Debts & loans', description: 'Voir mes remboursements', descriptionEn: 'Review repayments', icon: Landmark, tone: 'bg-amber-50 text-amber-800' },
+  { href: '/bills', label: 'Factures', english: 'Bills', description: 'Suivre mes échéances', descriptionEn: 'Track due dates', icon: Calendar, tone: 'bg-sky-50 text-sky-700' },
+  { href: '/cotisations', label: 'Cotisations', english: 'Contributions', description: 'Gérer mes groupes', descriptionEn: 'Manage my groups', icon: Wallet, tone: 'bg-teal-50 text-teal-700' },
+  { href: '/wallet', label: 'Portefeuille', english: 'Wallet', description: 'Consulter mon portefeuille', descriptionEn: 'Check my wallet', icon: Wallet, tone: 'bg-lime-50 text-lime-700' },
+  { href: '/reports', label: 'Rapports', english: 'Reports', description: 'Consulter mes analyses', descriptionEn: 'Review my reports', icon: Lightbulb, tone: 'bg-purple-50 text-purple-700' },
+  { href: '/premium', label: 'Premium', english: 'Premium', description: 'Découvrir les automatismes', descriptionEn: 'Explore automation', icon: CheckCircle2, tone: 'bg-emerald-50 text-emerald-800' },
 ];
+
+const DASHBOARD_DEFAULT_FAVORITES = ['/budgets', '/goals'];
 
 const ADVICE_ICONS = { success: CheckCircle2, danger: AlertTriangle, warning: AlertTriangle, tip: Lightbulb, info: Info };
 
@@ -101,6 +103,7 @@ export default function DashboardPage() {
   const [activeFeature, setActiveFeature] = useState(0);
   const [frequentPages, setFrequentPages] = useState([]);
   const [dashboardView, setDashboardView] = useState('all');
+  const [dashboardPreferenceReady, setDashboardPreferenceReady] = useState(false);
   const [financialTarget, setFinancialTarget] = useState(null);
   const [targetPeriodType, setTargetPeriodType] = useState('month');
   const [targetDraft, setTargetDraft] = useState({ incomeTarget: '', expenseLimit: '', debtLimit: '', loanGivenLimit: '', resolutions: [] });
@@ -108,7 +111,7 @@ export default function DashboardPage() {
   const [targetSaving, setTargetSaving] = useState(false);
   const [targetError, setTargetError] = useState('');
   const [targetSaved, setTargetSaved] = useState(false);
-  const [targetCollapsed, setTargetCollapsed] = useState(false);
+  const [targetCollapsed, setTargetCollapsed] = useState(true);
   const { user } = useAuth();
   const { language } = useLanguage();
   const isEnglish = language === 'en';
@@ -141,11 +144,18 @@ export default function DashboardPage() {
   }, [user?.uid]);
 
   useEffect(() => {
-    const intervalId = window.setInterval(() => {
-      setActiveFeature((current) => (current + 1) % DASHBOARD_FEATURES.length);
-    }, 3000);
-    return () => window.clearInterval(intervalId);
-  }, []);
+    if (!user?.uid) {
+      setDashboardPreferenceReady(true);
+      return undefined;
+    }
+    try {
+      const savedView = localStorage.getItem('pata-dashboard-view:' + user.uid);
+      if (['all', 'goals', 'spending', 'assistant'].includes(savedView)) setDashboardView(savedView);
+    } catch {
+      // L'accueil reste utilisable sans stockage local.
+    }
+    setDashboardPreferenceReady(true);
+  }, [user?.uid]);
 
   useEffect(() => {
     let active = true;
@@ -165,9 +175,7 @@ export default function DashboardPage() {
       if (!active) return;
       const target = data.target || null;
       setFinancialTarget(target);
-      const configuredTargetCount = ['incomeTarget', 'expenseLimit', 'debtLimit', 'loanGivenLimit']
-        .filter((field) => target?.[field] !== undefined && target?.[field] !== null && String(target[field]).trim() !== '').length;
-      setTargetCollapsed(configuredTargetCount >= 2);
+      setTargetCollapsed(true);
       setTargetDraft({
         incomeTarget: target?.incomeTarget == null ? '' : String(target.incomeTarget),
         expenseLimit: target?.expenseLimit == null ? '' : String(target.expenseLimit),
@@ -183,6 +191,52 @@ export default function DashboardPage() {
     });
     return () => { active = false; };
   }, [user, targetPeriodType, targetPeriodKey]);
+
+  const personalizedQuickLinks = useMemo(() => {
+    const visited = frequentPages.filter((item) => item.href !== '/expenses' && item.href !== '/income');
+    const selected = [...visited, ...DASHBOARD_DEFAULT_FAVORITES
+      .map((href) => DASHBOARD_USAGE_LINKS.find((item) => item.href === href))
+      .filter(Boolean)]
+      .filter((item, index, all) => all.findIndex((candidate) => candidate.href === item.href) === index)
+      .slice(0, 2);
+    return selected;
+  }, [frequentPages]);
+
+  const dashboardQuickActions = useMemo(() => [
+    {
+      href: '/expenses?new=1',
+      label: isEnglish ? 'Add an expense' : 'Ajouter une dépense',
+      description: isEnglish ? 'Record money out' : 'Enregistrer une sortie',
+      icon: ArrowUpRight,
+      tone: 'bg-rose-50 text-rose-700',
+    },
+    {
+      href: '/income?new=1',
+      label: isEnglish ? 'Add income' : 'Ajouter un revenu',
+      description: isEnglish ? 'Record money in' : 'Enregistrer une entrée',
+      icon: ArrowDownLeft,
+      tone: 'bg-emerald-50 text-emerald-700',
+    },
+    ...personalizedQuickLinks.map((item) => ({
+      href: item.href,
+      label: isEnglish ? item.english : item.label,
+      description: isEnglish ? item.descriptionEn : item.description,
+      icon: item.icon,
+      tone: item.tone,
+    })),
+  ], [personalizedQuickLinks, isEnglish]);
+
+  const changeDashboardView = (nextView) => {
+    setDashboardView(nextView);
+    if (!user?.uid) return;
+    try {
+      localStorage.setItem('pata-dashboard-view:' + user.uid, nextView);
+    } catch {
+      // Le choix reste actif pendant la session.
+    }
+  };
+
+  const hasFinancialActivity = incomes.length > 0 || expenses.length > 0 || goals.length > 0 || debts.length > 0;
 
   const startDate = showCustomPeriod ? customStart : getFirstOfMonth();
   const endDate = showCustomPeriod ? customEnd : todayIso();
@@ -475,33 +529,44 @@ export default function DashboardPage() {
         </div>
       </section>
       <section data-pata-tour="dashboard-overview">
-        <div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-bold text-slate-900">Actions rapides</h2><span className="text-[10px] font-medium text-slate-400">Gérer mon argent</span></div>
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-          <Link href="/expenses?new=1" className="group flex min-h-[112px] flex-col justify-between rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:-translate-y-0.5 hover:border-rose-200 hover:shadow-md active:scale-[0.98]"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-rose-50 text-rose-700"><ArrowUpRight size={19}/></span><span><strong className="block text-xs text-slate-900">Ajouter une dépense</strong><span className="mt-0.5 block text-[10px] text-slate-500">Enregistrer une sortie</span></span></Link>
-          <Link href="/income?new=1" className="group flex min-h-[112px] flex-col justify-between rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md active:scale-[0.98]"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><ArrowDownLeft size={19}/></span><span><strong className="block text-xs text-slate-900">Ajouter un revenu</strong><span className="mt-0.5 block text-[10px] text-slate-500">Enregistrer une entrée</span></span></Link>
-          <Link href="/budgets" className="group flex min-h-[112px] flex-col justify-between rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md active:scale-[0.98]"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><PiggyBank size={19}/></span><span><strong className="block text-xs text-slate-900">Gérer mes budgets</strong><span className="mt-0.5 block text-[10px] text-slate-500">Prévoir mes dépenses</span></span></Link>
-          <Link href="/goals" className="group flex min-h-[112px] flex-col justify-between rounded-2xl border border-slate-200 bg-white p-3.5 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-md active:scale-[0.98]"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-50 text-violet-700"><Plus size={19}/></span><span><strong className="block text-xs text-slate-900">Créer un objectif</strong><span className="mt-0.5 block text-[10px] text-slate-500">Préparer mon épargne</span></span></Link>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-bold text-slate-900">{frequentPages.length > 0 ? (isEnglish ? 'Your usual spaces' : 'Tes espaces habituels') : (hasFinancialActivity ? (isEnglish ? 'Quick actions' : 'Actions rapides') : (isEnglish ? 'Start here' : 'Commencer ici'))}</h2>
+            <p className="mt-0.5 text-[10px] text-slate-400">{frequentPages.length > 0 ? (isEnglish ? 'Shortcuts adapt to the pages you visit most.' : 'Tes raccourcis suivent les rubriques que tu consultes le plus.') : (hasFinancialActivity ? (isEnglish ? 'The essentials, one tap away.' : 'Les actions essentielles, en un toucher.') : (isEnglish ? 'Add your first operation to get started.' : 'Enregistre ta première opération pour commencer.'))}</p>
+          </div>
+          {frequentPages.length > 0 && <span className="shrink-0 rounded-full bg-brand-50 px-2.5 py-1 text-[9px] font-bold text-brand-700">{isEnglish ? 'For you' : 'Pour toi'}</span>}
         </div>
-        {frequentPages.length > 0 && (
-          <div className="mt-4 border-t border-slate-100 pt-3">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <p className="text-[10px] font-bold uppercase tracking-[.12em] text-slate-500">{isEnglish ? 'Your frequent spaces' : 'Tes espaces habituels'}</p>
-              <span className="text-[9px] text-slate-400">{isEnglish ? 'Based on your visits' : 'Selon tes visites'}</span>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {frequentPages.map((item) => (
-                <Link key={item.href} href={item.href} className="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-emerald-100 bg-emerald-50/60 px-3 text-[11px] font-semibold text-emerald-900 transition hover:border-emerald-300 hover:bg-emerald-50">
-                  {isEnglish ? item.english : item.label}<ChevronRight size={13}/>
-                </Link>
-              ))}
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+          {dashboardQuickActions.map((item) => {
+            const Icon = item.icon;
+            return (
+              <Link key={item.href} href={item.href} className="pata-dashboard-quick-link group flex min-h-[94px] min-w-0 flex-col justify-between rounded-2xl border border-slate-200 bg-white p-3 shadow-[0_2px_10px_rgba(7,91,67,.035)] transition hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-md active:scale-[0.98] sm:min-h-[102px] sm:p-3.5">
+                <span className={'flex h-9 w-9 items-center justify-center rounded-xl ' + item.tone}><Icon size={18}/></span>
+                <span className="min-w-0">
+                  <strong className="block truncate text-[11px] font-bold text-slate-900 sm:text-xs">{item.label}</strong>
+                  <span className="mt-0.5 block truncate text-[9px] text-slate-500 sm:text-[10px]">{item.description}</span>
+                </span>
+              </Link>
+            );
+          })}
+        </div>
+      </section>
+      {openDebts.length > 0 && (
+        <Link href="/debts" className="group flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3.5 shadow-[0_2px_10px_rgba(7,91,67,.035)] transition hover:border-brand-200 hover:shadow-sm">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700"><Landmark size={19}/></span>
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-slate-900">{isEnglish ? 'Debts and receivables' : 'Dettes et créances'}</p>
+              <p className="mt-0.5 text-[10px] text-slate-500">{openDebts.length} {isEnglish ? 'active item(s)' : 'opération(s) en cours'}</p>
             </div>
           </div>
-        )}
-      </section>
-      <section className="grid grid-cols-2 gap-3">
-        <Link href="/debts" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-emerald-200"><p className="text-xs font-semibold text-slate-500">On me doit</p><p className="mt-1 text-xl font-bold text-emerald-700">{formatCurrency(receivableTotal)}</p><p className="mt-1 text-[11px] text-slate-500">{receivables.length} créance(s) active(s)</p></Link>
-        <Link href="/debts" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-amber-200"><p className="text-xs font-semibold text-slate-500">Je dois</p><p className="mt-1 text-xl font-bold text-amber-700">{formatCurrency(payableTotal)}</p><p className="mt-1 text-[11px] text-slate-500">{payables.length} dette(s) active(s)</p></Link>
-      </section>
+          <div className="flex items-center gap-4">
+            <div className="text-right"><p className="text-[9px] font-medium text-slate-500">{isEnglish ? 'Owed to you' : 'On me doit'}</p><p className="text-sm font-extrabold text-emerald-700">{formatCurrency(receivableTotal)}</p></div>
+            <div className="text-right"><p className="text-[9px] font-medium text-slate-500">{isEnglish ? 'You owe' : 'Je dois'}</p><p className="text-sm font-extrabold text-amber-700">{formatCurrency(payableTotal)}</p></div>
+            <ChevronRight size={16} className="text-slate-400 transition group-hover:translate-x-0.5"/>
+          </div>
+        </Link>
+      )}
       <nav aria-label={isEnglish ? 'Dashboard sections' : 'Rubriques du tableau de bord'} className="-mx-1 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div className="flex min-w-max gap-2 px-1" role="tablist">
           {[
@@ -511,7 +576,7 @@ export default function DashboardPage() {
             ['assistant', isEnglish ? 'Assistant advice' : 'Conseils de Mč'],
           ].map(([value, label]) => (
             <button key={value} type="button" role="tab" aria-selected={dashboardView === value}
-              onClick={() => setDashboardView(value)}
+              onClick={() => changeDashboardView(value)}
               className={'min-h-10 shrink-0 rounded-xl border px-3.5 text-xs font-semibold transition ' + (dashboardView === value ? 'border-brand-700 bg-brand-700 text-white shadow-sm' : 'border-slate-200 bg-white text-slate-600 hover:border-brand-200 hover:bg-brand-50 hover:text-brand-800')}>
               {label}
             </button>
@@ -525,11 +590,17 @@ export default function DashboardPage() {
           <div className="flex items-center gap-2">
             {targetSaved && <span className="text-xs font-semibold text-emerald-700">Enregistré</span>}
             <button type="button" onClick={() => setTargetCollapsed((value) => !value)} className="min-h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-              {targetCollapsed ? 'Modifier' : 'Replier'}
+              {targetCollapsed ? (isEnglish ? 'Set up' : 'Configurer') : (isEnglish ? 'Hide details' : 'Masquer')}
             </button>
           </div>
         </div>
-        {targetCollapsed && <p className="mt-3 rounded-xl bg-slate-50 px-3 py-2.5 text-xs leading-5 text-slate-600">Tes objectifs et résolutions enregistrés sont repliés pour alléger le tableau de bord. Appuie sur « Modifier » pour les consulter ou les changer.</p>}
+        {targetCollapsed && (
+          <p className="mt-3 rounded-xl bg-brand-50/70 px-3 py-2.5 text-xs leading-5 text-slate-600">
+            {financialTarget
+              ? (isEnglish ? 'Your financial guide is saved. Open it whenever you want to adjust your targets or resolutions.' : 'Tes repères financiers sont enregistrés. Tu peux les ajuster quand ta situation évolue.')
+              : (isEnglish ? 'Set one simple target or resolution. Pata will use it to make your financial guidance more relevant.' : 'Définis un repère simple ou une résolution. Pata s’en servira pour mieux adapter ses conseils à ta situation.')}
+          </p>
+        )}
         <div hidden={targetCollapsed}>
         <div className="mt-4 flex flex-wrap gap-2">
           {[
@@ -667,7 +738,7 @@ export default function DashboardPage() {
       </>
       )}
 
-      {dashboardView === 'all' && (
+      {dashboardView === 'spending' && (
       <>
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <Card>
