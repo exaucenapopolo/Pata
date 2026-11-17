@@ -369,7 +369,7 @@ export default function BillsPage() {
       {nextAction?.type === 'paid' && <NextBestAction key={nextAction.sequence} actionKey="bill-paid" title={isEnglish ? 'Payment added to your expenses' : 'Paiement ajouté à tes dépenses'} description={isEnglish ? 'Review your spending and the remaining amount in the related budget.' : 'Consulte tes dépenses et le montant restant dans le budget concerné.'} href="/expenses" cta={isEnglish ? 'View my expenses' : 'Voir mes dépenses'} />}
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Factures et échéances</h1>
+          <h1 className="pata-page-title text-2xl font-bold text-slate-900">Factures et échéances</h1>
           <p className="mt-1 max-w-2xl text-sm leading-5 text-slate-500">Centralise l’électricité, l’eau, le loyer, la télévision, Internet, les impôts et toutes tes factures personnalisées.</p>
         </div>
         <Button onClick={openCreate} data-pata-tour="bill-create"><Plus size={16}/> Ajouter une facture</Button>

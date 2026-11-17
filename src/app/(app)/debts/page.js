@@ -115,7 +115,7 @@ export default function DebtsPage() {
     <div className="space-y-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Dettes & prêts</h1>
+          <h1 className="pata-page-title text-2xl font-bold text-slate-900">Dettes & prêts</h1>
           <p className="mt-1 text-sm text-slate-500">Suis ce que tu as prêté, ce que tu dois et chaque remboursement.</p>
         </div>
         <div className="flex flex-wrap gap-2">
