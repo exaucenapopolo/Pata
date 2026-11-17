@@ -130,6 +130,9 @@ export async function POST(request) {
       if (['loan_given', 'debt_borrowed'].includes(type) && !String(parsed?.person || '').trim()) {
         return errorResponse('Indique la personne ou la banque concernée avant de programmer cette opération.', 422, { needsReview: true, recognized: parsed });
       }
+      if (type === 'loan_given' && !dueDate) {
+        return errorResponse('Indique aussi la date à laquelle la personne devra te rembourser.', 422, { needsReview: true, recognized: parsed });
+      }
       if (type === 'debt_borrowed' && !dueDate) {
         return errorResponse('Indique également la date à laquelle tu dois rembourser cet emprunt.', 422, { needsReview: true, recognized: parsed });
       }
