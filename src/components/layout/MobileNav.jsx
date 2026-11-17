@@ -3,11 +3,11 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Home, Wallet, TrendingUp, Plus, Menu, X, Banknote, Target, BarChart3, Settings, Crown, LogOut, PiggyBank, Users, HandCoins, Receipt } from 'lucide-react';
+import { Home, Wallet, TrendingUp, Plus, Menu, X, Banknote, Target, BarChart3, Settings, Crown, LogOut, PiggyBank, Users, HandCoins, Receipt, Info, Lock, Pencil, GripVertical } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { bodyScrollLockManager } from '@/lib/ui/bodyScrollLock.mjs';
-import { rankQuickNavigationPages } from '@/lib/navigation/quickNavigation.mjs';
+import { getQuickNavigationPages, moveQuickNavigationPage } from '@/lib/navigation/quickNavigation.mjs';
 
 const MORE_NAV = [
   { href: '/wallet', label: 'Portefeuille', icon: Banknote, description: 'Solde et mouvements', position: 'top-left' },
@@ -42,15 +42,22 @@ export function MobileNav() {
   const [showActions, setShowActions] = useState(false);
   const moreMenuCloseRef = useRef(null);
   const quickMenuCloseRef = useRef(null);
-  const [quickPages, setQuickPages] = useState(() => rankQuickNavigationPages(QUICK_NAV_PAGES, {}, 4));
-  const [hasQuickHistory, setHasQuickHistory] = useState(false);
+  const [quickPages, setQuickPages] = useState(() => getQuickNavigationPages(QUICK_NAV_PAGES, {}, null, 4));
+  const quickPagesRef = useRef(quickPages);
+  const [isQuickLocked, setIsQuickLocked] = useState(false);
+  const [isArrangingQuick, setIsArrangingQuick] = useState(false);
+  const [draggedQuickHref, setDraggedQuickHref] = useState(null);
+  const [quickInfoOpen, setQuickInfoOpen] = useState(false);
+  const quickGestureRef = useRef(null);
+  const quickLongPressRef = useRef(null);
+  const suppressQuickClickRef = useRef(false);
 
   useEffect(() => {
     if (!showMore && !showActions) return undefined;
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') {
         setShowMore(false);
-        setShowActions(false);
+        closeQuickMenu();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -62,15 +69,18 @@ export function MobileNav() {
   useEffect(() => {
     const refreshQuickPages = () => {
       try {
-        const saved = user?.uid
+        const usage = user?.uid
           ? JSON.parse(localStorage.getItem('pata-page-visits:' + user.uid) || '{}')
           : {};
-        const hasHistory = Object.values(saved).some((entry) => Number(entry?.count) > 0);
-        setQuickPages(rankQuickNavigationPages(QUICK_NAV_PAGES, saved, 4));
-        setHasQuickHistory(hasHistory);
+        const preference = user?.uid
+          ? JSON.parse(localStorage.getItem('pata-quick-navigation:v1:' + user.uid) || 'null')
+          : null;
+        const pages = getQuickNavigationPages(QUICK_NAV_PAGES, usage, preference, 4);
+        setQuickPages(pages);
+        setIsQuickLocked(Boolean(preference?.customized && preference?.locked));
       } catch {
-        setQuickPages(rankQuickNavigationPages(QUICK_NAV_PAGES, {}, 4));
-        setHasQuickHistory(false);
+        setQuickPages(getQuickNavigationPages(QUICK_NAV_PAGES, {}, null, 4));
+        setIsQuickLocked(false);
       }
     };
     refreshQuickPages();
@@ -81,6 +91,14 @@ export function MobileNav() {
       window.removeEventListener('storage', refreshQuickPages);
     };
   }, [user?.uid]);
+
+  useEffect(() => {
+    quickPagesRef.current = quickPages;
+  }, [quickPages]);
+
+  useEffect(() => () => {
+    if (quickLongPressRef.current) window.clearTimeout(quickLongPressRef.current);
+  }, []);
 
   useEffect(() => {
     if (!showMore && !showActions) return undefined;
@@ -98,41 +116,214 @@ export function MobileNav() {
   };
   const isActive = (href) => pathname === href || pathname.startsWith(href + '/');
 
+  const persistQuickPreference = (pages, locked) => {
+    if (!user?.uid || typeof window === 'undefined') return;
+    try {
+      localStorage.setItem('pata-quick-navigation:v1:' + user.uid, JSON.stringify({
+        version: 1,
+        customized: true,
+        locked: Boolean(locked),
+        order: pages.map((page) => page.href),
+      }));
+      setIsQuickLocked(Boolean(locked));
+    } catch {
+      // La navigation reste utilisable même si le stockage local est indisponible.
+    }
+  };
+
+  const unlockQuickNavigation = () => {
+    setIsQuickLocked(false);
+    setIsArrangingQuick(true);
+    setQuickInfoOpen(false);
+    persistQuickPreference(quickPagesRef.current, false);
+  };
+
+  function closeQuickMenu() {
+    if (quickGestureRef.current && quickLongPressRef.current) {
+      window.clearTimeout(quickLongPressRef.current);
+    }
+    quickLongPressRef.current = null;
+    quickGestureRef.current = null;
+    setDraggedQuickHref(null);
+    setIsArrangingQuick(false);
+    setQuickInfoOpen(false);
+    setShowActions(false);
+  }
+
+  const lockQuickNavigation = () => {
+    persistQuickPreference(quickPagesRef.current, true);
+    setIsArrangingQuick(false);
+    setDraggedQuickHref(null);
+  };
+
+  const handleQuickPointerDown = (event, href) => {
+    if (isQuickLocked) return;
+    if (quickLongPressRef.current) window.clearTimeout(quickLongPressRef.current);
+
+    if (isArrangingQuick) {
+      event.preventDefault();
+      quickGestureRef.current = {
+        pointerId: event.pointerId,
+        href,
+        startX: event.clientX,
+        startY: event.clientY,
+        longPressed: true,
+        element: event.currentTarget,
+      };
+      setDraggedQuickHref(href);
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      return;
+    }
+
+    quickGestureRef.current = {
+      pointerId: event.pointerId,
+      href,
+      startX: event.clientX,
+      startY: event.clientY,
+      longPressed: false,
+      element: event.currentTarget,
+    };
+    quickLongPressRef.current = window.setTimeout(() => {
+      const gesture = quickGestureRef.current;
+      if (!gesture || gesture.pointerId !== event.pointerId) return;
+      gesture.longPressed = true;
+      suppressQuickClickRef.current = true;
+      setIsArrangingQuick(true);
+      setDraggedQuickHref(href);
+      gesture.element?.setPointerCapture?.(gesture.pointerId);
+      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(12);
+    }, 430);
+  };
+
+  const handleQuickPointerMove = (event) => {
+    const gesture = quickGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    if (!gesture.longPressed) {
+      const distance = Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY);
+      if (distance > 10 && quickLongPressRef.current) {
+        window.clearTimeout(quickLongPressRef.current);
+        quickLongPressRef.current = null;
+        quickGestureRef.current = null;
+      }
+      return;
+    }
+
+    const nodes = Array.from(document.querySelectorAll('[data-quick-href]'));
+    const target = nodes.find((node) => {
+      const rect = node.getBoundingClientRect();
+      return event.clientX >= rect.left && event.clientX <= rect.right
+        && event.clientY >= rect.top && event.clientY <= rect.bottom;
+    });
+    const targetHref = target?.getAttribute('data-quick-href');
+    if (!targetHref || targetHref === gesture.href) return;
+    setQuickPages((current) => moveQuickNavigationPage(current, gesture.href, targetHref));
+  };
+
+  const handleQuickPointerEnd = (event) => {
+    const gesture = quickGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    if (quickLongPressRef.current) window.clearTimeout(quickLongPressRef.current);
+    quickLongPressRef.current = null;
+    if (gesture.longPressed) {
+      suppressQuickClickRef.current = true;
+      persistQuickPreference(quickPagesRef.current, false);
+      setDraggedQuickHref(null);
+    }
+    quickGestureRef.current = null;
+  };
+
+  const handleQuickPointerCancel = () => {
+    if (quickLongPressRef.current) window.clearTimeout(quickLongPressRef.current);
+    quickLongPressRef.current = null;
+    quickGestureRef.current = null;
+    setDraggedQuickHref(null);
+  };
+
   return (
     <>
       {(showMore || showActions) && <button type="button" aria-label="Fermer le menu" onClick={() => { setShowMore(false); setShowActions(false); }} className={'pata-mobile-backdrop fixed inset-0 z-[60] lg:hidden' + (showMore ? ' is-orbit' : showActions ? ' is-quick' : '')} />}
       {showActions && (
-        <section id="pata-quick-actions-panel" role="dialog" aria-modal="true" aria-labelledby="pata-quick-actions-title" aria-describedby="pata-quick-actions-description" className="pata-quick-picker fixed bottom-[calc(5.35rem+env(safe-area-inset-bottom))] left-1/2 z-[70] w-[min(92vw,348px)] -translate-x-1/2 lg:hidden">
-          <header className="pata-quick-picker-header">
-            <div className="min-w-0">
-              <p className="pata-quick-picker-eyebrow">{hasQuickHistory ? 'TES HABITUDES' : 'POUR COMMENCER'}</p>
-              <h2 id="pata-quick-actions-title">{hasQuickHistory ? 'Tes 4 espaces les plus consultés' : 'Tes espaces à portée de main'}</h2>
-              <p id="pata-quick-actions-description">{hasQuickHistory ? 'Classés selon tes visites sur cet appareil.' : 'Pata les classera au fil de ton utilisation.'}</p>
+        <section
+          id="pata-quick-actions-panel"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="pata-quick-actions-title"
+          className="pata-quick-swarm fixed inset-0 z-[70] flex items-end justify-center px-3 pb-[calc(5.25rem+env(safe-area-inset-bottom))] lg:hidden"
+          onClick={closeQuickMenu}
+        >
+          <div className="pata-quick-swarm-content w-full" onClick={(event) => event.stopPropagation()}>
+            <header className="pata-quick-swarm-toolbar">
+              <div className="pata-quick-swarm-heading">
+                <span className="pata-quick-swarm-eyebrow">PATA</span>
+                <h2 id="pata-quick-actions-title">Tes raccourcis</h2>
+              </div>
+              <div className="pata-quick-swarm-controls">
+                <button
+                  type="button"
+                  className={'pata-quick-control' + (quickInfoOpen ? ' is-selected' : '')}
+                  aria-label="Comprendre les raccourcis"
+                  aria-expanded={quickInfoOpen}
+                  onClick={() => setQuickInfoOpen((value) => !value)}
+                ><Info size={16}/></button>
+                {isArrangingQuick ? (
+                  <button type="button" className="pata-quick-lock" onClick={lockQuickNavigation}>
+                    <Lock size={13}/> Verrouiller
+                  </button>
+                ) : isQuickLocked ? (
+                  <button type="button" className="pata-quick-control" onClick={unlockQuickNavigation} aria-label="Déverrouiller et réorganiser les raccourcis">
+                    <Pencil size={15}/>
+                  </button>
+                ) : null}
+                <button ref={quickMenuCloseRef} type="button" className="pata-quick-control" onClick={closeQuickMenu} aria-label="Fermer les raccourcis">
+                  <X size={17}/>
+                </button>
+              </div>
+            </header>
+            {quickInfoOpen && (
+              <p className="pata-quick-info">
+                Pata propose les pages que tu consultes le plus. Maintiens un raccourci pour le déplacer, puis verrouille ton organisation pour la conserver.
+              </p>
+            )}
+            <div className={'pata-quick-swarm-stage' + (isArrangingQuick ? ' is-arranging' : '')}>
+              {quickPages.map((item, index) => {
+                const Icon = item.icon;
+                const active = isActive(item.href);
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    data-quick-href={item.href}
+                    data-slot={index}
+                    style={{ '--quick-order': index }}
+                    onPointerDown={(event) => handleQuickPointerDown(event, item.href)}
+                    onPointerMove={handleQuickPointerMove}
+                    onPointerUp={handleQuickPointerEnd}
+                    onPointerCancel={handleQuickPointerCancel}
+                    onContextMenu={(event) => event.preventDefault()}
+                    onClick={(event) => {
+                      if (suppressQuickClickRef.current || isArrangingQuick) {
+                        event.preventDefault();
+                        suppressQuickClickRef.current = false;
+                        return;
+                      }
+                      closeQuickMenu();
+                    }}
+                    aria-current={active ? 'page' : undefined}
+                    aria-label={isArrangingQuick ? item.label + ', déplacer le raccourci' : item.label}
+                    className={'pata-quick-node' + (active ? ' is-current' : '') + (draggedQuickHref === item.href ? ' is-dragging' : '')}
+                  >
+                    <span className="pata-quick-node-icon"><Icon size={23} strokeWidth={2}/></span>
+                    <strong>{item.label}</strong>
+                    {isArrangingQuick && <span className="pata-quick-node-grip" aria-hidden="true"><GripVertical size={13}/></span>}
+                    {active && <span className="pata-quick-node-active" aria-hidden="true"/>}
+                  </Link>
+                );
+              })}
             </div>
-            <button ref={quickMenuCloseRef} type="button" onClick={() => setShowActions(false)} className="pata-quick-picker-close" aria-label="Fermer les raccourcis"><X size={16}/></button>
-          </header>
-          <div className="pata-quick-picker-grid">
-            {quickPages.map((item, index) => {
-              const Icon = item.icon;
-              const active = pathname === item.href || pathname.startsWith(item.href + '/');
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => setShowActions(false)}
-                  aria-current={active ? 'page' : undefined}
-                  style={{ '--quick-order': index }}
-                  className={'pata-quick-page' + (index === 0 ? ' is-top' : '') + (active ? ' is-current' : '')}
-                >
-                  <span className="pata-quick-page-icon"><Icon size={21} strokeWidth={2}/></span>
-                  <span className="pata-quick-page-rank">{String(index + 1).padStart(2, '0')}</span>
-                  <strong>{item.label}</strong>
-                  <small>{item.visitCount > 0 ? item.visitCount + ' visite' + (item.visitCount > 1 ? 's' : '') : 'À découvrir'}</small>
-                </Link>
-              );
-            })}
+            {isArrangingQuick && (
+              <p className="pata-quick-arrange-hint">Fais glisser les raccourcis, puis verrouille ton choix.</p>
+            )}
           </div>
-          <p className="pata-quick-picker-footnote">{hasQuickHistory ? 'Tes raccourcis évoluent avec tes habitudes.' : 'Tes pages les plus consultées apparaîtront ici.'}</p>
         </section>
       )}
       {showMore && (
