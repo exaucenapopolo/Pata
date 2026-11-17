@@ -9,7 +9,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const clean = (value, max = 180) => String(value ?? '').trim().slice(0, max);
-const appUrl = () => String(process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'https://pata.app').replace(/\/$/, '');
+const appUrl = () => String(process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'https://www.pata-yam.site').replace(/\/$/, '');
 const safeId = (value) => String(value || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 90);
 
 async function sendScheduledNotification(userRef, profile, notification) {
