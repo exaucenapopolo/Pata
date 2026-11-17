@@ -360,7 +360,6 @@ export function parseQuickCapture(input, now = new Date(), options = {}) {
   const requestedFrequency = /\b(quotidien|quotidienne|chaque jour|tous les jours|par jour)\b/.test(normalized) ? "daily"
     : /\b(hebdomadaire|chaque semaine|toutes les semaines|par semaine)\b/.test(normalized) ? "weekly"
     : /\b(mensuel|mensuelle|chaque mois|tous les mois|par mois)\b/.test(normalized) ? "monthly" : null;
-    : /\\b(mensuel|mensuelle|chaque mois|tous les mois|par mois)\\b/.test(normalized) ? "monthly" : null;
   const hasBill = /\bfacture\w*\b|\bquittance\b|\bavis d.?echeance\b|\bnote d.?echeance\b/.test(normalized);
   const repaymentVerb = /\b(rembours\w*|regle|regler|paye|payer)\b/;
   const explicitRepaymentVerb = /\brembours\w*\b/;
