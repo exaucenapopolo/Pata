@@ -76,10 +76,13 @@ export function MobileNav() {
           ? JSON.parse(localStorage.getItem('pata-quick-navigation:v1:' + user.uid) || 'null')
           : null;
         const pages = getQuickNavigationPages(QUICK_NAV_PAGES, usage, preference, 4);
+        quickPagesRef.current = pages;
         setQuickPages(pages);
         setIsQuickLocked(Boolean(preference?.customized && preference?.locked));
       } catch {
-        setQuickPages(getQuickNavigationPages(QUICK_NAV_PAGES, {}, null, 4));
+        const fallbackPages = getQuickNavigationPages(QUICK_NAV_PAGES, {}, null, 4);
+        quickPagesRef.current = fallbackPages;
+        setQuickPages(fallbackPages);
         setIsQuickLocked(false);
       }
     };
@@ -216,7 +219,11 @@ export function MobileNav() {
     });
     const targetHref = target?.getAttribute('data-quick-href');
     if (!targetHref || targetHref === gesture.href) return;
-    setQuickPages((current) => moveQuickNavigationPage(current, gesture.href, targetHref));
+    setQuickPages((current) => {
+      const nextPages = moveQuickNavigationPage(current, gesture.href, targetHref);
+      quickPagesRef.current = nextPages;
+      return nextPages;
+    });
   };
 
   const handleQuickPointerEnd = (event) => {
