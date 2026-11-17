@@ -268,7 +268,7 @@ function extractIncomeSourceName(text) {
   return value.slice(0, 100);
 }
 function extractCounterparty(text, type) {
-  let value = String(text || "");
+  let value = normalize(String(text || ""));
   value = value
     .replace(/\b20\d{2}-\d{1,2}-\d{1,2}\b/g, " ")
     .replace(/\b[0-3]?\d[/.-][01]?\d(?:[/.-]20\d{2})?\b/g, " ")
