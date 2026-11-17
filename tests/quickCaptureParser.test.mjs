@@ -258,3 +258,69 @@ test('détecte la source de revenu explicitement nommée dans une dépense', () 
   assert.equal(result.categoryId, "food");
   assert.equal(result.incomeSourceName, "KDO Informatique");
 });
+
+test('reconnaît revenu, revenue, revenus et une faute de frappe comme revenus ordinaires', () => {
+  for (const phrase of ['revenu 5000 diane', 'revenue 5000 diane', 'revenus 5000 diane', 'revnue 5000 diane']) {
+    const result = parseQuickCapture(phrase, now);
+    assert.equal(result.type, 'income', phrase);
+    assert.equal(result.amount, 5000, phrase);
+    assert.equal(result.categoryId, 'other_income', phrase);
+    assert.equal(result.source, 'Diane', phrase);
+    assert.equal(result.needsReview, false, phrase);
+  }
+});
+
+test('reconnaît avant-hier dans les deux ordres courants', () => {
+  for (const phrase of ['avant-hier 500 nourriture', 'avant hier nourriture 500']) {
+    const result = parseQuickCapture(phrase, now);
+    assert.equal(result.type, 'expense');
+    assert.equal(result.amount, 500);
+    assert.equal(result.date, '2026-11-13');
+    assert.equal(result.categoryId, 'food');
+    assert.equal(result.note, '');
+  }
+});
+
+test('reconnaît le jour du mois sans confondre le jour et le montant', () => {
+  const result = parseQuickCapture('le 17 transport 500', now);
+  assert.equal(result.amount, 500);
+  assert.equal(result.date, '2026-11-17');
+  assert.equal(result.categoryId, 'transport');
+});
+
+test('reconnaît le dernier jour de semaine correspondant', () => {
+  const result = parseQuickCapture('Jeudi 500 transport', now);
+  assert.equal(result.amount, 500);
+  assert.equal(result.date, '2026-11-12');
+  assert.equal(result.categoryId, 'transport');
+  assert.equal(result.note, '');
+});
+
+test('reconnaît les catégories de dépenses personnalisées du compte', () => {
+  const result = parseQuickCapture('bière 500', now, {
+    categories: [{ id: 'custom_beer', name: 'Bière', type: 'expense' }],
+  });
+  assert.equal(result.type, 'expense');
+  assert.equal(result.categoryId, 'custom_beer');
+  assert.equal(result.amount, 500);
+  assert.equal(result.note, '');
+  assert.equal(result.needsReview, false);
+});
+
+test('reconnaît les catégories de revenus personnalisées du compte', () => {
+  const result = parseQuickCapture('revenu 7000 dividendes', now, {
+    categories: [{ id: 'custom_dividends', name: 'Dividendes', type: 'income' }],
+  });
+  assert.equal(result.type, 'income');
+  assert.equal(result.categoryId, 'custom_dividends');
+  assert.equal(result.source, 'Dividendes');
+  assert.equal(result.amount, 7000);
+  assert.equal(result.note, '');
+});
+
+test('une date relative sur une dette reste la date de l’opération et non son échéance', () => {
+  const result = parseQuickCapture('dette hier 500 Paul', now);
+  assert.equal(result.type, 'debt_borrowed');
+  assert.equal(result.date, '2026-11-14');
+  assert.equal(result.dueDate, null);
+});

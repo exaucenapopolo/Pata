@@ -37,6 +37,13 @@ function validDate(value) {
 function cleanText(value, max = 100) {
   return String(value || '').trim().replace(/\s+/g, ' ').slice(0, max);
 }
+async function isAllowedCategory(userRef, categoryId, type, builtIns) {
+  const id = String(categoryId || '').trim();
+  if (!id || id.includes('/')) return false;
+  if (builtIns.has(id)) return true;
+  const snapshot = await userRef.collection('categories').doc(id).get();
+  return snapshot.exists && snapshot.data()?.type === type;
+}
 function isValidBillImageUrl(value) {
   try {
     const url = new URL(String(value || ''));
@@ -106,8 +113,9 @@ export async function POST(request) {
       const frequencyCandidate = parsed?.frequency || body.frequency || '';
       const frequencyKnown = BILL_FREQUENCIES.has(frequencyCandidate);
       const frequency = frequencyKnown ? frequencyCandidate : 'once';
-      const expenseCategory = BILL_CATEGORIES.has(parsed?.expenseCategoryId || body.expenseCategoryId)
-        ? (parsed?.expenseCategoryId || body.expenseCategoryId) : 'other';
+      const requestedExpenseCategory = String(parsed?.expenseCategoryId || body.expenseCategoryId || 'other').trim();
+      const expenseCategory = await isAllowedCategory(userRef, requestedExpenseCategory, 'expense', BILL_CATEGORIES)
+        ? requestedExpenseCategory : 'other';
       const imageUrl = String(body.imageUrl || '').trim();
       if (imageUrl && !isValidBillImageUrl(imageUrl)) return errorResponse('La photo de cette facture n’est pas hébergée sur le service sécurisé de Pata.', 400);
       const isVariable = parsed?.isVariable === true || body.isVariable === true || amount == null;
@@ -283,7 +291,9 @@ export async function POST(request) {
     }
 
     if (type === 'expense') {
-      if (!EXPENSE_CATEGORIES.has(categoryId)) return errorResponse('La catégorie de dépense est invalide. Choisis « Autre » pour cette opération.', 400);
+      if (!(await isAllowedCategory(userRef, categoryId, 'expense', EXPENSE_CATEGORIES))) {
+        return errorResponse('Cette catégorie de dépense ne fait pas partie de tes catégories enregistrées. Choisis une catégorie existante.', 400);
+      }
       const selectedIncomeId = cleanText(body.incomeSourceId || 'all', 150) || 'all';
       const selectedIncomeName = cleanText(parsed?.incomeSourceName || body.incomeSourceName || '', 100);
       if (selectedIncomeId.includes('/')) return errorResponse('Source de revenu invalide.', 400);
@@ -373,7 +383,9 @@ export async function POST(request) {
         }),
       });
     }
-    if (!INCOME_CATEGORIES.has(categoryId)) return errorResponse('La catégorie de revenu est invalide. Classe ce revenu dans « Autre revenu » si nécessaire.', 400);
+    if (!(await isAllowedCategory(userRef, categoryId, 'income', INCOME_CATEGORIES))) {
+      return errorResponse('Cette catégorie de revenu ne fait pas partie de tes catégories enregistrées. Choisis une catégorie existante.', 400);
+    }
     const source = cleanText(parsed?.source || body.source || '', 100);
     if (!source) return errorResponse('Indique la source de ce revenu, par exemple « MTN », « Orange » ou « Salaire ».', 400);
     const month = date.slice(0, 7);

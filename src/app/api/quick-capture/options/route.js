@@ -24,9 +24,10 @@ export async function GET(request) {
     }
 
     // Cette lecture n'est exécutée qu'à l'ouverture de Quick Capture, jamais à l'installation.
-    const [incomesSnap, debtsSnap] = await Promise.all([
+    const [incomesSnap, debtsSnap, categoriesSnap] = await Promise.all([
       userRef.collection('incomes').orderBy('date', 'desc').limit(100).get(),
       userRef.collection('debts').orderBy('createdAt', 'desc').limit(100).get(),
+      userRef.collection('categories').orderBy('createdAt', 'asc').get(),
     ]);
     const incomes = incomesSnap.docs
       .filter((doc) => {
@@ -70,7 +71,17 @@ export async function GET(request) {
           && Number(data.remaining) > 0;
       })
       .map(mapDebt);
-    return NextResponse.json({ success: true, incomes, debts, receivables });
+    const categories = categoriesSnap.docs
+      .map((doc) => {
+        const data = doc.data() || {};
+        return {
+          id: doc.id,
+          name: String(data.name || data.label || '').trim().slice(0, 100),
+          type: String(data.type || ''),
+        };
+      })
+      .filter((category) => category.name && ['expense', 'income'].includes(category.type));
+    return NextResponse.json({ success: true, incomes, debts, receivables, categories });
   } catch (error) {
     console.error('[PATA QUICK CAPTURE OPTIONS]', error.message || error);
     return NextResponse.json({ success: false, error: 'Impossible de charger les sources et dettes disponibles.' }, { status: 500 });

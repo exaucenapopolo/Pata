@@ -43,6 +43,13 @@ const MONTHS = {
   mai: 5, juin: 6, juillet: 7, juil: 7, aout: 8, septembre: 9, sept: 9,
   octobre: 10, oct: 10, novembre: 11, nov: 11, decembre: 12, dec: 12,
 };
+const WEEKDAYS = {
+  dimanche: 0, lundi: 1, mardi: 2, mercredi: 3, jeudi: 4, vendredi: 5, samedi: 6,
+};
+const INCOME_INTENT_ALIASES = [
+  "revenu", "revenus", "revenue", "revenues", "recette", "recettes",
+  "rentree d'argent", "rentre d'argent", "argent recu", "entree d'argent",
+];
 
 function isValidCalendarDate(year, month, day) {
   const value = String(year) + "-" + pad(month) + "-" + pad(day);
@@ -52,10 +59,26 @@ function isValidCalendarDate(year, month, day) {
 function dateFromRelative(token, now) {
   const date = new Date(now);
   const value = normalize(token);
-  if (/\b(apres demain|apres-demain)\b/.test(value)) date.setDate(date.getDate() + 2);
+  if (/\bavant[- ]hier\b/.test(value)) date.setDate(date.getDate() - 2);
+  else if (/\b(apres demain|apres-demain)\b/.test(value)) date.setDate(date.getDate() + 2);
   else if (/\bdemain\b/.test(value)) date.setDate(date.getDate() + 1);
   else if (/\bhier\b/.test(value)) date.setDate(date.getDate() - 1);
   return date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate());
+}
+function dateFromWeekday(token, now) {
+  const value = normalize(token);
+  const match = value.match(/\b(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\b/);
+  if (!match) return null;
+  const target = WEEKDAYS[match[1]];
+  const todayKey = now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-" + pad(now.getDate());
+  const base = new Date(todayKey + "T12:00:00.000Z");
+  const current = base.getUTCDay();
+  const wantsFuture = /\b(prochain|prochaine|qui vient)\b/.test(value);
+  const explicitlyPast = /\b(dernier|derniere|passe|passee)\b/.test(value);
+  let offset = wantsFuture ? (target - current + 7) % 7 : (current - target + 7) % 7;
+  if ((wantsFuture || explicitlyPast) && offset === 0) offset = 7;
+  base.setUTCDate(base.getUTCDate() + (wantsFuture ? offset : -offset));
+  return base.toISOString().slice(0, 10);
 }
 function dateTokenValue(token, now) {
   const raw = normalize(token).trim();
@@ -67,7 +90,10 @@ function dateTokenValue(token, now) {
   if (monthFirst) return isValidCalendarDate(Number(monthFirst[3] || now.getFullYear()), MONTHS[monthFirst[2]], Number(monthFirst[1]));
   const dayFirst = raw.match(/\b(janvier|janv|fevrier|fevr|fev|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)\s+(\d{1,2})(?:\s+(20\d{2}))?\b/);
   if (dayFirst) return isValidCalendarDate(Number(dayFirst[3] || now.getFullYear()), MONTHS[dayFirst[1]], Number(dayFirst[2]));
-  if (/\b(demain|hier|apres demain|apres-demain)\b/.test(raw)) return dateFromRelative(raw, now);
+  const dayOnly = raw.match(/^(?:le|du)\s+([0-3]?\d)$/);
+  if (dayOnly) return isValidCalendarDate(now.getFullYear(), now.getMonth() + 1, Number(dayOnly[1]));
+  if (/\b(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\b/.test(raw)) return dateFromWeekday(raw, now);
+  if (/\b(avant[- ]hier|demain|hier|apres demain|apres-demain)\b/.test(raw)) return dateFromRelative(raw, now);
   if (/\baujourd'hui\b|\baujourd hui\b/.test(raw)) return now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-" + pad(now.getDate());
   return null;
 }
@@ -78,7 +104,9 @@ function extractDateTokens(text, now) {
     /\b[0-3]?\d[/.\-][01]?\d(?:[/.\-]20\d{2})?\b/gi,
     /\b\d{1,2}(?:er)?\s+(?:janvier|janv|fevrier|fevr|fev|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)(?:\s+20\d{2})?\b/gi,
     /\b(?:janvier|janv|fevrier|fevr|fev|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)\s+\d{1,2}(?:\s+20\d{2})?\b/gi,
-    /\bapres[- ]demain\b|\bdemain\b|\bhier\b|\baujourd'hui\b/gi,
+    /\b(?:le|du)\s+[0-3]?\d\b/gi,
+    /\b(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)(?:\s+(?:dernier|derniere|passe|passee|prochain|prochaine))?\b/gi,
+    /\bavant[- ]hier\b|\bapres[- ]demain\b|\bdemain\b|\bhier\b|\baujourd'hui\b/gi,
   ];
   const matches = [];
   for (const pattern of patterns) {
@@ -110,7 +138,13 @@ function extractDueDate(text, now, hasBill, hasLoan, hasDebt) {
     if (date) return date;
   }
   if (explicitDateLabels.test(normalized)) return null;
-  if (hasBill || hasLoan || hasDebt) return tokens[0].value;
+  if (hasBill) return tokens[0].value;
+  if (hasLoan || hasDebt) {
+    const relativeOperationDate = /\b(avant[- ]hier|hier|aujourd'hui|demain|apres[- ]demain|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\b/.test(normalized)
+      || /^\s*(?:le|du)\s+[0-3]?\d\b/i.test(raw);
+    if (relativeOperationDate && !dueLabel.test(normalized)) return null;
+    return tokens[0].value;
+  }
   if (dueLabel.test(normalized)) return tokens[0].value;
   return null;
 }
@@ -119,7 +153,10 @@ function extractAmount(text) {
     .replace(/\b20\d{2}-\d{1,2}-\d{1,2}\b/g, " ")
     .replace(/\b[0-3]?\d[/.\-][01]?\d(?:[/.\-]20\d{2})?\b/g, " ")
     .replace(/\b\d{1,2}(?:er)?\s+(?:janvier|janv|fevrier|fevr|fev|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)(?:\s+20\d{2})?\b/gi, " ")
-    .replace(/\b(?:janvier|janv|fevrier|fevr|fev|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)\s+\d{1,2}(?:\s+20\d{2})?\b/gi, " ");
+    .replace(/\b(?:janvier|janv|fevrier|fevr|fev|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)\s+\d{1,2}(?:\s+20\d{2})?\b/gi, " ")
+    .replace(/\b(?:le|du)\s+[0-3]?\d\b/gi, " ")
+    .replace(/\b(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)(?:\s+(?:dernier|derniere|passe|passee|prochain|prochaine))?\b/gi, " ")
+    .replace(/\b(?:avant[- ]hier|apres[- ]demain|demain|hier|aujourd'hui)\b/gi, " ");
   const match = amountText.match(/(?:^|\D)(\d{1,3}(?:[ .,'’]\d{3})+|\d{1,10})(?:\s*(?:fcfa|xaf|cfa|francs?|euros?|eur|eru))?/i);
   if (!match) return null;
   const amount = Number(match[1].replace(/\D/g, ""));
@@ -185,16 +222,31 @@ function removeAliasFromText(value, target) {
 function stripAliasTerms(text, aliases = [], beforeAmountOnly = false) {
   const original = String(text || "");
   const amountMatch = /(?:^|\D)(\d{1,3}(?:[ .,'’]\d{3})+|\d{1,10})/.exec(original);
-  const amountStart = amountMatch
-    ? amountMatch.index + amountMatch[0].length - amountMatch[1].length
-    : original.length;
+  const amountStart = amountMatch ? amountMatch.index + amountMatch[0].length - amountMatch[1].length : original.length;
   let before = original.slice(0, amountStart);
   const after = original.slice(amountStart);
+  let matchedBeforeAmount = false;
   for (const alias of aliases) {
     const target = normalize(alias);
-    if (target && hasAlias(before, target)) before = removeAliasFromText(before, target);
+    if (target && hasAlias(before, target)) {
+      before = removeAliasFromText(before, target);
+      matchedBeforeAmount = true;
+    }
   }
-  if (beforeAmountOnly) return before + after;
+  if (beforeAmountOnly) {
+    if (!matchedBeforeAmount) {
+      let remaining = after;
+      for (const alias of aliases) {
+        const target = normalize(alias);
+        if (target && hasAlias(remaining, target)) {
+          remaining = removeAliasFromText(remaining, target);
+          break;
+        }
+      }
+      return before + remaining;
+    }
+    return before + after;
+  }
   let value = before + after;
   for (const alias of aliases) {
     const target = normalize(alias);
@@ -222,7 +274,7 @@ function extractCounterparty(text, type) {
     .replace(/\b[0-3]?\d[/.-][01]?\d(?:[/.-]20\d{2})?\b/g, " ")
     .replace(/\b\d{1,2}(?:er)?\s+(?:janvier|janv|fevrier|fevr|fev|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)(?:\s+20\d{2})?\b/gi, " ")
     .replace(/\b(?:janvier|janv|fevrier|fevr|fev|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)\s+\d{1,2}(?:\s+20\d{2})?\b/gi, " ")
-    .replace(/\b(demain|apres[- ]demain|hier|aujourd'hui)\b/gi, " ")
+    .replace(/\b(avant[- ]hier|demain|apres[- ]demain|hier|aujourd'hui|lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|dernier|derniere|dernière|passe|passé|passee|passée|prochain|prochaine)\b/gi, " ")
     .replace(/\b\d{1,3}(?:[ .,'’]\d{3})+\b|\b\d{1,10}\b/g, " ")
     .replace(/\b(fcfa|xaf|cfa|eru|euros?|francs?|frs?)\b/gi, " ")
     .replace(/(?:echeance|échéance|date limite|à rendre|a rendre|avant le|a payer le|à payer le|pour le)\s*(?:le|du)?\s*[:]?(20\d{2}-\d{2}-\d{2}|demain|hier|apres[- ]demain)?/gi, " ");
@@ -257,20 +309,29 @@ function cleanNote(text, categoryAliases = [], beforeAmountOnly = false) {
     .replace(/\b(j'ai|jai|je|nous|on|a|aujourd'hui|demain|hier|dépensé|depense|depenses|paye|payer|achete|achat|acheté|reçu|recu|gagné|gagne|encaisse|encaissement|versé|verse|pour|de|du|des|un|une|la|le|les|mon|ma|mes|revenu|recette|facture|factures|factu|pret|prêt|dette|dettes|emprunt|echeance|échéance|date|limite|rendre|avant|a|le|du)\b/gi, " ")
     .replace(/\b\d{1,2}\s+(?:janvier|janv|fevrier|fevr|fev|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)\b/gi, " ")
     .replace(/\b(?:janvier|janv|fevrier|fevr|fev|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)\s+\d{1,2}\b/gi, " ")
-    .replace(/[,:;.!?]/g, " ").replace(/\b(au)\s+\1\b/gi, "$1").replace(/\s+/g, " ").trim().slice(0, 180);
+    .replace(/\b(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|dernier|dernière|prochain|prochaine)\b/gi, " ")
+    .replace(/(?:^|\W)(?:passé|passée|passés|passées)(?=\W|$)/gi, " ")
+    .replace(/[,:;.!?–—-]/g, " ").replace(/\b(au)\s+\1\b/gi, "$1").replace(/\s+/g, " ").trim().slice(0, 180);
 }
-function extractIncomeSource(raw, categoryId, incomeMatch) {
+function extractIncomeSource(raw, categoryId, incomeMatch, customIncomeCategory) {
   let value = String(raw || "");
   value = value.replace(/\b20\d{2}-\d{2}-\d{2}\b/g, " ")
     .replace(/\b\d{1,3}(?:[ .,'’]\d{3})+\b|\b\d{1,10}\b/g, " ")
+    .replace(/\b(?:le|du)\s+[0-3]?\d\b/gi, " ")
+    .replace(/\b(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)(?:\s+(?:dernier|derniere|passe|passee|prochain|prochaine))?\b/gi, " ")
+    .replace(/\b(avant[- ]hier|demain|apres[- ]demain|hier|aujourd'hui)\b/gi, " ")
     .replace(/\b(fcfa|xaf|cfa|francs?)\b/gi, " ")
-    .replace(/\b(revenu|recette|recu|reçu|reçue|j'ai|jai|je|on|a|de|du|des|par|pour|un|une|le|la|les|mon|ma|mes|hier|demain|date)\b/gi, " ");
+    .replace(/\b(revenu|revenus|revenue|revenues|recette|recettes|recu|reçus|reçue|j'ai|jai|je|on|a|de|du|des|par|pour|un|une|le|la|les|mon|ma|mes|hier|demain|date|provenant|provenance)\b/gi, " ");
   if (incomeMatch) value = value.replace(incomeMatch[1], " ");
+  for (const alias of INCOME_INTENT_ALIASES) value = removeAliasFromText(value, normalize(alias));
+  if (customIncomeCategory?.name || customIncomeCategory?.label) {
+    value = removeAliasFromText(value, normalize(customIncomeCategory.name || customIncomeCategory.label));
+  }
   value = value.replace(/\b(salaire|paie|business|benefice|bénéfice|prestation|freelance|vente|vendu|vendre|commission|prime|bonus|loyer|location|locataire|pension|allocation|cadeau|don|remuneration|traitement|appointement)\b/gi, " ");
   value = value.replace(/[,:;.!?]/g, " ").replace(/\s+/g, " ").trim().slice(0, 100);
   if (value) return value.charAt(0).toLocaleUpperCase("fr-FR") + value.slice(1);
   const labels = { salary: "Salaire", business: "Business", sales: "Vente", commission: "Commission", rental: "Loyer reçu", pension: "Pension", gift: "Don reçu" };
-  return labels[categoryId] || "Autre revenu";
+  return customIncomeCategory?.name || customIncomeCategory?.label || labels[categoryId] || "Autre revenu";
 }
 function extractBillDetails(raw, normalized) {
   const billRules = [
@@ -292,7 +353,7 @@ function extractBillDetails(raw, normalized) {
   if (!match) return { billType: "other", expenseCategoryId: "other", billName: "Facture à préciser", frequency };
   return { billType: match[0], expenseCategoryId: match[2], billName: "Facture " + match[3], frequency, categoryAliases: match[4] };
 }
-export function parseQuickCapture(input, now = new Date()) {
+export function parseQuickCapture(input, now = new Date(), options = {}) {
   const raw = String(input || "").trim().slice(0, 500);
   const normalized = normalize(raw);
   const amount = extractAmount(raw);
@@ -319,8 +380,18 @@ export function parseQuickCapture(input, now = new Date()) {
   const explicitDateLabels = /(?:date de (?:transaction|l'operation|operation|paiement|l'achat|achat|facture)|date (?:de )?(?:transaction|paiement|achat)|effectue le|operation du|transaction du)/.test(normalized);
   const income = INCOME_RULES.find((rule) => matchesRules(normalized, rule));
   const expense = EXPENSE_RULES.find((rule) => matchesRules(normalized, rule));
+  const availableCategories = Array.isArray(options?.categories) ? options.categories : [];
+  const findUserCategory = (categoryType) => availableCategories.find((category) => {
+    if (!category || category.type !== categoryType) return false;
+    const name = String(category.name || category.label || "").trim();
+    if (!name) return false;
+    return [name, ...(Array.isArray(category.keywords) ? category.keywords : [])].some((alias) => hasAlias(normalized, alias));
+  }) || null;
+  const customIncome = findUserCategory("income");
+  const customExpense = findUserCategory("expense");
   const incomeSourceName = extractIncomeSourceName(raw);
-  const incomeVerb = /\b(recu|recois|reception|encaisse|encaissement|gagne|touche|versement recu|revenu|recette|remuneration|on m'a envoye|jai recu|on m'a paye|credit de mon compte|argent recu|entree d'argent)\b/.test(normalized);
+  const incomeIntent = INCOME_INTENT_ALIASES.some((alias) => hasAlias(normalized, alias));
+  const incomeVerb = /\b(recu|recois|reception|encaisse|encaissement|gagne|touche|versement recu|revenu|revenus|revenue|revenues|recette|recettes|remuneration|on m'a envoye|jai recu|on m'a paye|credit de mon compte|argent recu|entree d'argent)\b/.test(normalized) || incomeIntent;
   const expenseVerb = /\b(depense|depens|paye|payer|achete|achat|sorti|sortie|regle|reglement|consomme|consommation|utilise|utilisation|j'ai mange|jai mange)\b/.test(normalized);
   let type = null;
   if (hasBill) type = "bill";
@@ -329,22 +400,34 @@ export function parseQuickCapture(input, now = new Date()) {
   else if (hasLoan) type = "loan_given";
   else if (hasDebt) type = "debt_borrowed";
   else if (expense && (expenseVerb || incomeSourceName)) type = "expense";
-  else if (income || incomeVerb) type = "income";
-  else if (expense || expenseVerb || (amount && cleanNote(raw))) type = "expense";
+  else if (income || incomeVerb || customIncome) type = "income";
+  else if (customExpense || expense || expenseVerb || (amount && cleanNote(raw))) type = "expense";
 
   const bill = hasBill ? extractBillDetails(raw, normalized) : null;
   const categoryId = type === "income"
-    ? (income ? income[0] : "other_income")
+    ? (customIncome?.id || (income ? income[0] : "other_income"))
     : type === "expense"
-      ? (expense ? expense[0] : "other")
+      ? (customExpense?.id || (expense ? expense[0] : "other"))
       : type === "bill" ? bill.expenseCategoryId
       : type === "loan_given" ? "loan_given"
       : type === "debt_borrowed" ? "debt_borrowed"
       : type === "debt_repayment" ? "debt_repayment" : null;
   const person = type === "loan_given" || type === "debt_borrowed" || type === "debt_repayment"
     ? extractCounterparty(raw, type) : "";
-  const note = cleanNote(raw, type === "expense" ? expense?.[2] || [] : type === "bill" ? bill?.categoryAliases || [] : [], type === "expense");
-  const source = type === "income" ? extractIncomeSource(raw, categoryId, income?.[1]) : "";
+  const expenseAliases = [
+    ...(expense?.[2] || []),
+    ...(customExpense ? [customExpense.name || customExpense.label] : []),
+  ].filter(Boolean);
+  const incomeAliases = [
+    ...INCOME_INTENT_ALIASES,
+    ...(customIncome ? [customIncome.name || customIncome.label] : []),
+  ];
+  const note = cleanNote(raw,
+    type === "expense" ? expenseAliases
+      : type === "income" ? incomeAliases
+      : type === "bill" ? bill?.categoryAliases || [] : [],
+    type === "expense");
+  const source = type === "income" ? extractIncomeSource(raw, categoryId, income?.[1], customIncome) : "";
   const dueDate = hasRepayment ? null : extractDueDate(raw, now, hasBill, hasLoan, hasDebt);
   const confidence = Math.min(0.99, (amount ? 0.55 : 0) + (type ? 0.25 : 0) + (categoryId ? 0.18 : 0));
   const missingRequiredDetail = (type === "loan_given" || type === "debt_borrowed" || type === "debt_repayment") && !person;

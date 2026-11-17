@@ -45,5 +45,18 @@ test('the options endpoint returns both debts owed and receivables', () => {
   const route = read('src/app/api/quick-capture/options/route.js');
   assert.match(route, /const receivables = debtsSnap\.docs/);
   assert.match(route, /data\.type === 'owed_to_me'/);
-  assert.match(route, /return NextResponse\.json\(\{ success: true, incomes, debts, receivables \}\)/);
+  assert.match(route, /return NextResponse\.json\(\{ success: true, incomes, debts, receivables, categories \}\)/);
+});
+
+test('Quick Capture loads account-defined categories for natural language recognition', () => {
+  const optionsRoute = read('src/app/api/quick-capture/options/route.js');
+  const component = read('src/components/QuickCaptureCoordinator.jsx');
+  const captureRoute = read('src/app/api/quick-capture/route.js');
+  assert.match(optionsRoute, /categoriesSnap/);
+  assert.match(optionsRoute, /categories,/);
+  assert.match(component, /parseQuickCapture\(rawText, new Date\(\), \{ categories: captureOptions\.categories \}\)/);
+  assert.match(component, /item\.type === 'expense'/);
+  assert.match(component, /item\.type === 'income'/);
+  assert.match(captureRoute, /isAllowedCategory\(userRef, categoryId, 'expense', EXPENSE_CATEGORIES\)/);
+  assert.match(captureRoute, /isAllowedCategory\(userRef, categoryId, 'income', INCOME_CATEGORIES\)/);
 });

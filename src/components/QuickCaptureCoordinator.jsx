@@ -76,7 +76,7 @@ export function QuickCaptureCoordinator() {
   const [notice, setNotice] = useState('');
   const [budgetPrompt, setBudgetPrompt] = useState(null);
   const [error, setError] = useState('');
-  const [captureOptions, setCaptureOptions] = useState({ incomes: [], debts: [], receivables: [] });
+  const [captureOptions, setCaptureOptions] = useState({ incomes: [], debts: [], receivables: [], categories: [] });
   const [optionsLoading, setOptionsLoading] = useState(false);
   const [optionsError, setOptionsError] = useState('');
   const [voiceOptionsOpen, setVoiceOptionsOpen] = useState(false);
@@ -156,11 +156,21 @@ export function QuickCaptureCoordinator() {
     };
   }, [user, premium]);
 
-  const expenseCategories = useMemo(() => EXPENSE_CATEGORIES.filter((item) => !['loan_given', 'debt_repayment'].includes(item.id)), []);
-  const incomeCategories = useMemo(() => INCOME_CATEGORIES.filter((item) => !['debt_borrowed', 'debt_repayment_received'].includes(item.id)), []);
+  const expenseCategories = useMemo(() => [
+    ...EXPENSE_CATEGORIES.filter((item) => !['loan_given', 'debt_repayment'].includes(item.id)),
+    ...(captureOptions.categories || []).filter((item) => item.type === 'expense').map((item) => ({
+      id: item.id, label: item.name, isCustom: true,
+    })),
+  ], [captureOptions.categories]);
+  const incomeCategories = useMemo(() => [
+    ...INCOME_CATEGORIES.filter((item) => !['debt_borrowed', 'debt_repayment_received'].includes(item.id)),
+    ...(captureOptions.categories || []).filter((item) => item.type === 'income').map((item) => ({
+      id: item.id, label: item.name, isCustom: true,
+    })),
+  ], [captureOptions.categories]);
 
   const openDraft = useCallback((rawText = '', forcedType = '', nativeCaptureId = '', origin = 'manual', extracted = null, sharedImageData = '') => {
-    const parsed = parseQuickCapture(rawText);
+    const parsed = parseQuickCapture(rawText, new Date(), { categories: captureOptions.categories });
     const type = forcedType || parsed.type || 'expense';
     setError('');
     setDraft({
@@ -169,6 +179,8 @@ export function QuickCaptureCoordinator() {
       origin,
       rawText,
       type,
+      manualTypeOverride: Boolean(forcedType),
+      manualCategoryOverride: false,
       amount: extracted?.totalAmount != null ? String(extracted.totalAmount) : parsed.amount == null ? '' : String(parsed.amount),
       categoryId: extracted?.suggestedCategory || parsed.categoryId || (type === 'income' ? 'other_income' : 'other'),
       date: extracted?.invoiceDate || parsed.date || today(),
@@ -200,7 +212,7 @@ export function QuickCaptureCoordinator() {
       sourceMimeType: origin === 'pdf' ? 'application/pdf' : '',
       analysisWarning: extracted?.analysisWarning || (origin === 'pdf' ? 'Le PDF est rendu en image pour son analyse. Vérifie le montant sur le document original.' : ''),
     });
-  }, []);
+  }, [captureOptions.categories]);
 
   const analyzeSharedImage = useCallback(async (shared) => {
     if (!user) return;
@@ -368,8 +380,9 @@ export function QuickCaptureCoordinator() {
 
   useEffect(() => {
     const needsIncomeOptions = draft?.type === 'income' && draft?.incomeFlowType === 'repayment_received';
-    if (!user || !draft || !premium || (!['expense', 'debt_repayment'].includes(draft.type) && !needsIncomeOptions)) {
-      setCaptureOptions({ incomes: [], debts: [], receivables: [] });
+    const needsNormalIncomeCategories = draft?.type === 'income' && draft?.incomeFlowType === 'normal';
+    if (!user || !draft || !premium || (!['expense', 'debt_repayment'].includes(draft.type) && !needsIncomeOptions && !needsNormalIncomeCategories)) {
+      setCaptureOptions({ incomes: [], debts: [], receivables: [], categories: [] });
       setOptionsError('');
       setOptionsLoading(false);
       return undefined;
@@ -390,9 +403,13 @@ export function QuickCaptureCoordinator() {
         const incomes = Array.isArray(result.incomes) ? result.incomes : [];
         const debts = Array.isArray(result.debts) ? result.debts : [];
         const receivables = Array.isArray(result.receivables) ? result.receivables : [];
-        setCaptureOptions({ incomes, debts, receivables });
+        const categories = Array.isArray(result.categories) ? result.categories : [];
+        setCaptureOptions({ incomes, debts, receivables, categories });
         setDraft((current) => {
           if (!current || current.id !== draft.id) return current;
+          const reparsed = current.rawText && !current.manualTypeOverride
+            ? parseQuickCapture(current.rawText, new Date(), { categories })
+            : null;
           const normalize = (value) => String(value || '').normalize('NFD')
             .replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
           const sourceMatches = current.incomeSourceName
@@ -406,6 +423,14 @@ export function QuickCaptureCoordinator() {
             : [];
           return {
             ...current,
+            ...(reparsed?.type ? { type: reparsed.type } : {}),
+            ...(!current.manualCategoryOverride && reparsed?.categoryId ? { categoryId: reparsed.categoryId } : {}),
+            ...(reparsed?.amount != null && !current.amount ? { amount: String(reparsed.amount) } : {}),
+            ...(reparsed?.date ? { date: reparsed.date } : {}),
+            ...(reparsed?.source ? { source: reparsed.source } : {}),
+            ...(reparsed ? { note: reparsed.note || '' } : {}),
+            ...(reparsed?.person ? { person: reparsed.person, incomePerson: current.incomePerson || reparsed.person } : {}),
+            ...(reparsed?.dueDate ? { dueDate: reparsed.dueDate, incomeDueDate: reparsed.dueDate } : {}),
             ...(current.incomeSourceName && sourceMatches.length === 1 ? { incomeSourceId: sourceMatches[0].id } : {}),
             ...(counterpartyName && debtMatches.length === 1 ? { repaymentDebtId: debtMatches[0].id } : {}),
           };
@@ -719,18 +744,19 @@ export function QuickCaptureCoordinator() {
         <form onSubmit={save} className="space-y-3">
           <p className="text-xs leading-5 text-slate-500">{draft.rawText ? 'Saisie reçue : « ' + draft.rawText + ' »' : 'Complète uniquement ce qui manque. La date est déterminée automatiquement à partir de ta phrase.'}</p>
           <div className="grid grid-cols-5 gap-1.5">
-            <button type="button" onClick={() => setDraft((current) => ({ ...current, type: 'expense', categoryId: current.type === 'income' || current.type === 'bill' || current.type === 'debt_repayment' ? 'other' : current.categoryId }))} className={'flex min-w-0 items-center justify-center gap-1 rounded-xl border px-1.5 py-3 text-[11px] font-semibold ' + (draft.type === 'expense' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><ArrowUpRight size={14}/> Dépense</button>
+            <button type="button" onClick={() => setDraft((current) => ({ ...current, type: 'expense', manualTypeOverride: true, categoryId: current.type === 'income' || current.type === 'bill' || current.type === 'debt_repayment' ? 'other' : current.categoryId }))} className={'flex min-w-0 items-center justify-center gap-1 rounded-xl border px-1.5 py-3 text-[11px] font-semibold ' + (draft.type === 'expense' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><ArrowUpRight size={14}/> Dépense</button>
             <button type="button" onClick={() => setDraft((current) => ({
               ...current,
               type: 'income',
+              manualTypeOverride: true,
               incomeFlowType: current.type === 'debt_borrowed' ? 'debt_borrowed' : current.type === 'repayment_received' ? 'repayment_received' : current.incomeFlowType || 'normal',
               categoryId: current.type === 'debt_borrowed' ? 'debt_borrowed' : current.type === 'repayment_received' ? 'debt_repayment_received' : current.type !== 'income' ? 'other_income' : current.categoryId,
               incomePerson: current.incomePerson || current.person || '',
               incomeDueDate: current.incomeDueDate || current.dueDate || '',
             }))} className={'flex min-w-0 items-center justify-center gap-1 rounded-xl border px-1.5 py-3 text-[11px] font-semibold ' + (draft.type === 'income' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><ArrowDownLeft size={14}/> Revenu</button>
-            <button type="button" onClick={() => setDraft((current) => ({ ...current, type: 'debt_borrowed', categoryId: 'debt_borrowed', person: current.person || current.incomePerson || '', dueDate: current.incomeDueDate || current.dueDate || '' }))} className={'flex min-w-0 items-center justify-center gap-1 rounded-xl border px-1 py-3 text-[10px] font-semibold ' + (draft.type === 'debt_borrowed' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><HandCoins size={14}/> Emprunt</button>
-            <button type="button" onClick={() => setDraft((current) => ({ ...current, type: 'bill', categoryId: current.type === 'bill' ? current.categoryId : current.expenseCategoryId || 'other' }))} className={'flex min-w-0 items-center justify-center gap-1 rounded-xl border px-1.5 py-3 text-[11px] font-semibold ' + (draft.type === 'bill' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><ReceiptText size={14}/> Facture</button>
-            <button type="button" onClick={() => setDraft((current) => ({ ...current, type: 'debt_repayment', categoryId: 'debt_repayment' }))} className={'flex min-w-0 items-center justify-center gap-1 rounded-xl border px-1.5 py-3 text-[10px] font-semibold ' + (draft.type === 'debt_repayment' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><HandCoins size={14}/> Rembourser</button>
+            <button type="button" onClick={() => setDraft((current) => ({ ...current, type: 'debt_borrowed', manualTypeOverride: true, categoryId: 'debt_borrowed', person: current.person || current.incomePerson || '', dueDate: current.incomeDueDate || current.dueDate || '' }))} className={'flex min-w-0 items-center justify-center gap-1 rounded-xl border px-1 py-3 text-[10px] font-semibold ' + (draft.type === 'debt_borrowed' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><HandCoins size={14}/> Emprunt</button>
+            <button type="button" onClick={() => setDraft((current) => ({ ...current, type: 'bill', manualTypeOverride: true, categoryId: current.type === 'bill' ? current.categoryId : current.expenseCategoryId || 'other' }))} className={'flex min-w-0 items-center justify-center gap-1 rounded-xl border px-1.5 py-3 text-[11px] font-semibold ' + (draft.type === 'bill' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><ReceiptText size={14}/> Facture</button>
+            <button type="button" onClick={() => setDraft((current) => ({ ...current, type: 'debt_repayment', manualTypeOverride: true, categoryId: 'debt_repayment' }))} className={'flex min-w-0 items-center justify-center gap-1 rounded-xl border px-1.5 py-3 text-[10px] font-semibold ' + (draft.type === 'debt_repayment' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><HandCoins size={14}/> Rembourser</button>
           </div>
           {draft.type === 'bill' && <label className="block text-xs font-semibold text-slate-700">Nom de la facture
             <input required maxLength={100} value={draft.billName || ''} onChange={(event) => setDraft((current) => ({ ...current, billName: event.target.value }))} placeholder="Ex. Facture ENEO" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm font-normal"/>
@@ -781,7 +807,7 @@ export function QuickCaptureCoordinator() {
           </label>}
           {draft.type === 'income' && draft.incomeFlowType === 'normal' && <>
             <label className="block text-xs font-semibold text-slate-700">Catégorie de revenu
-              <select value={draft.categoryId} onChange={(event) => setDraft((current) => ({ ...current, categoryId: event.target.value }))} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal">
+              <select value={draft.categoryId} onChange={(event) => setDraft((current) => ({ ...current, categoryId: event.target.value, manualCategoryOverride: true }))} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal">
                 {incomeCategories.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}
               </select>
             </label>
@@ -821,7 +847,7 @@ export function QuickCaptureCoordinator() {
             {!optionsLoading && captureOptions.receivables.length === 0 && <span className="mt-1 block text-[10px] font-normal text-amber-700">Aucune créance active à encaisser.</span>}
           </label>}
           {draft.type !== 'income' && <label className="block text-xs font-semibold text-slate-700">Catégorie
-            <select value={draft.categoryId} onChange={(event) => setDraft((current) => ({ ...current, categoryId: event.target.value }))} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal">
+            <select value={draft.categoryId} onChange={(event) => setDraft((current) => ({ ...current, categoryId: event.target.value, manualCategoryOverride: true }))} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal">
               {categories.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}
             </select>
           </label>}
