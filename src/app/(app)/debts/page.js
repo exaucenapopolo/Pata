@@ -11,7 +11,6 @@ import { formatCurrency, formatDate } from '@/lib/utils';
 import { EmptyState } from '@/components/ui/EmptyState';
 import DebtRequestsPanel from '@/components/debts/DebtRequestsPanel';
 import { ScheduledTransactionsPanel } from '@/components/transactions/ScheduledTransactionsPanel';
-import { ScheduledTransactionsPanel } from '@/components/transactions/ScheduledTransactionsPanel';
 
 const OPEN_STATUSES = ['active', 'partial', 'late'];
 const FILTERS = [
@@ -126,8 +125,6 @@ export default function DebtsPage() {
           </>}
         </div>
       </header>
-
-      <ScheduledTransactionsPanel kinds={['loan_given', 'debt_borrowed', 'debt_repayment', 'repayment_received']} isPremium={isPremium} compact />
 
       <section className="grid grid-cols-2 gap-3">
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
