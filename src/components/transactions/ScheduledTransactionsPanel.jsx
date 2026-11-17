@@ -21,7 +21,8 @@ export function ScheduledTransactionsPanel({ kinds = null, isPremium = true, com
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState('');
-  const allowed = useMemo(() => Array.isArray(kinds) ? new Set(kinds) : null, [kinds]);
+  const kindsKey = Array.isArray(kinds) ? kinds.join('|') : '*';
+  const allowed = useMemo(() => kindsKey === '*' ? null : new Set(kindsKey.split('|')), [kindsKey]);
   const load = useCallback(async () => {
     if (!user?.uid) { setItems([]); setLoading(false); return; }
     try {
