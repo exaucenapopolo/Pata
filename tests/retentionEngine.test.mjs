@@ -74,7 +74,7 @@ test('reserves at most one financial reminder in each of the two evening passes'
   assert.equal(second.allowed, true);
   assert.equal(second.state.count, 2);
   assert.equal(extraSecond.allowed, false);
-  assert.equal(extraSecond.reason, 'daily_limit');
+  assert.equal(extraSecond.reason, 'pass_limit');
 });
 
 test('resets both evening passes at the next Cameroon calendar day', () => {
