@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateMoneyExpression } from '../src/lib/finance/decimalExpression.mjs';
+import { applyMoneyKey, evaluateMoneyExpression } from '../src/lib/finance/decimalExpression.mjs';
 
 test('respects multiplication precedence', () => {
   assert.deepEqual(evaluateMoneyExpression('500 + 250 × 2'), {
@@ -47,4 +47,21 @@ test('rejects incomplete and malformed expressions', () => {
 test('rejects executable or unsupported input instead of evaluating it', () => {
   assert.throws(() => evaluateMoneyExpression('globalThis.process.exit()'), /Caractère non autorisé/);
   assert.throws(() => evaluateMoneyExpression('1 ** 3'), /Calcul incomplet|Caractère non autorisé/);
+});
+
+
+test('delete removes exactly one character from a money expression', () => {
+  assert.equal(applyMoneyKey('12500', 'delete'), '1250');
+  assert.equal(applyMoneyKey('125', '⌫'), '12');
+  assert.equal(applyMoneyKey('', 'delete'), '');
+});
+
+test('clear empties the money expression without entering action text', () => {
+  assert.equal(applyMoneyKey('12500 + 300', 'clear'), '');
+  assert.equal(applyMoneyKey('12500', 'C'), '');
+});
+
+test('numeric and operator keys are still appended literally', () => {
+  assert.equal(applyMoneyKey('125', '00'), '12500');
+  assert.equal(applyMoneyKey('125', '+'), '125+');
 });
