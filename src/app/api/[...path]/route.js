@@ -7,7 +7,7 @@ import { isNotificationUnread } from '@/lib/notifications/notificationState.mjs'
 import { completeWithGroq } from '@/lib/ai/groqClient';
 import { normalizeWebPushSubscription, webPushSubscriptionId, sendPataWebPush, isExpiredWebPushError } from '@/lib/notifications/webPush.mjs';
 import { dispatchPushNotification } from '@/lib/notifications/dispatcher.mjs';
-import { claimDailyRetentionSlot, claimDailyNonEssentialSlot, buildCategoryAdviceNotification, selectRetentionCandidates, getDoualaDateKey as getRetentionDoualaDateKey, isWithinDoualaEveningWindow } from '@/lib/notifications/retentionEngine.mjs';
+import { claimDailyRetentionSlot, claimDailyRetentionPassSlot, claimDailyNonEssentialSlot, buildCategoryAdviceNotification, selectRetentionCandidates, getDoualaDateKey as getRetentionDoualaDateKey, isWithinDoualaEveningWindow } from '@/lib/notifications/retentionEngine.mjs';
 import { AI_TOOLS, createExpenseForUser, updateExpenseForUser, deleteExpenseForUser, deleteIncomeForUser, executeAITool, runAutomationForUser, generateWeeklyReportForUser } from '@/lib/ai/financialTools';
 import { generateAudioWithGemini } from '@/lib/ai/geminiTTS';
 import { buildIncomePriorityReminder } from '@/lib/finance/incomePriorities.mjs';
@@ -101,23 +101,33 @@ function getStoredTimestampMs(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-async function claimScheduledRetentionSlot(userRef, dateKey, notificationKey) {
-  // Les deux rappels financiers du soir ont leur propre compteur.
-  // Ils ne consomment pas les trois créneaux de rétention en journée.
+async function claimScheduledRetentionSlot(userRef, dateKey, notificationKey, passNumber = 1) {
+  // Un seul rappel financier par passage : le total reste plafonné à deux.
+  // Les trois créneaux de rétention en journée sont dans un autre compteur.
   return adminDb.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(userRef);
     const profile = snapshot.exists ? snapshot.data() || {} : {};
-    const retentionClaim = claimDailyRetentionSlot({
+    const retentionClaim = claimDailyRetentionPassSlot({
       date: profile.dailyRetentionDate,
       count: profile.dailyRetentionCount,
       keys: profile.dailyRetentionKeys,
-    }, dateKey, notificationKey);
+      pass1Date: profile.dailyRetentionPass1Date,
+      pass1Count: profile.dailyRetentionPass1Count,
+      pass1Keys: profile.dailyRetentionPass1Keys,
+      pass2Date: profile.dailyRetentionPass2Date,
+      pass2Count: profile.dailyRetentionPass2Count,
+      pass2Keys: profile.dailyRetentionPass2Keys,
+    }, dateKey, notificationKey, passNumber);
     if (!retentionClaim.allowed) return retentionClaim;
 
+    const passField = Number(passNumber) === 2 ? '2' : '1';
     transaction.set(userRef, {
       dailyRetentionDate: retentionClaim.state.date,
       dailyRetentionCount: retentionClaim.state.count,
       dailyRetentionKeys: retentionClaim.state.keys,
+      ['dailyRetentionPass' + passField + 'Date']: dateKey,
+      ['dailyRetentionPass' + passField + 'Count']: retentionClaim.state['pass' + passField + 'Count'],
+      ['dailyRetentionPass' + passField + 'Keys']: retentionClaim.state['pass' + passField + 'Keys'],
       dailyRetentionUpdatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
     return retentionClaim;
@@ -2490,7 +2500,7 @@ async function handleWeekendReport(request) {
 }
 
 
-async function handleNotificationScheduler(request) {
+async function handleNotificationScheduler(request, passNumber = 1) {
   try {
     const expectedSecret = process.env.CRON_SECRET;
     const authHeader = request.headers.get('authorization') || '';
@@ -2498,6 +2508,7 @@ async function handleNotificationScheduler(request) {
     if (!expectedSecret || suppliedSecret !== expectedSecret) return errorResponse('Accès au planificateur refusé.', 401);
     const now = new Date();
     const today = getRetentionDoualaDateKey(now);
+    const eveningPass = Number(passNumber) === 2 ? 2 : 1;
     if (!isWithinDoualaEveningWindow(now)) {
       return NextResponse.json({ success: true, skippedOutsideEveningWindow: true, localTimeZone: 'Africa/Douala' });
     }
@@ -2579,7 +2590,7 @@ async function handleNotificationScheduler(request) {
           if (!reminderKey || (debt.lastReminderKey === reminderKey && !retryEmailOnly)) continue;
           const reminderId = 'debt-' + debtDoc.id + '-' + reminderKey;
           if (!retryEmailOnly) {
-            const slot = await claimScheduledRetentionSlot(userDoc.ref, today, 'debt:' + debtDoc.id + ':' + reminderKey);
+            const slot = await claimScheduledRetentionSlot(userDoc.ref, today, 'debt:' + debtDoc.id + ':' + reminderKey, eveningPass);
             if (!slot.allowed) {
               await debtDoc.ref.set({
                 pendingRetentionReminderKey: reminderKey,
@@ -2678,7 +2689,7 @@ async function handleNotificationScheduler(request) {
           const setupExisting = await setupRef.get();
           const setupSlot = setupExisting.exists
             ? { allowed: false }
-            : await claimScheduledRetentionSlot(userDoc.ref, today, 'bill:setup-invitation');
+            : await claimScheduledRetentionSlot(userDoc.ref, today, 'bill:setup-invitation', eveningPass);
           const shouldInvite = setupSlot.allowed && await adminDb.runTransaction(async (transaction) => {
             const existing = await transaction.get(setupRef);
             if (existing.exists) return false;
@@ -2788,7 +2799,7 @@ async function handleNotificationScheduler(request) {
           if (!reminderKey || (bill.lastReminderKey === reminderKey && !retryEmailOnly)) continue;
           const reminderId = 'bill-' + billDoc.id + '-' + reminderKey;
           if (!retryEmailOnly) {
-            const slot = await claimScheduledRetentionSlot(userDoc.ref, today, 'bill:' + billDoc.id + ':' + reminderKey);
+            const slot = await claimScheduledRetentionSlot(userDoc.ref, today, 'bill:' + billDoc.id + ':' + reminderKey, eveningPass);
             if (!slot.allowed) {
               await billDoc.ref.set({
                 pendingRetentionReminderKey: reminderKey,
@@ -2857,7 +2868,12 @@ async function handleNotificationScheduler(request) {
       } catch (billReminderError) {
         console.warn('[PATA BILL REMINDER]', userDoc.id, billReminderError.message || billReminderError);
       }
-      if (userData.notificationsDailyDate === today) { skipped += 1; continue; }
+      const passDateField = eveningPass === 2 ? 'eveningRetentionPass2Date' : 'eveningRetentionPass1Date';
+      if (userData[passDateField] === today
+        || (eveningPass === 1 && userData.notificationsDailyDate === today)) {
+        skipped += 1;
+        continue;
+      }
       try {
         const monthStart = `${month}-01`;
         const [todayExpensesSnap, monthExpensesSnap, budgetsSnap, automationsSnap, goalsSnap, monthIncomesSnap, weeklyReportsSnap, recurringPatternsSnap] = await Promise.all([
@@ -3133,18 +3149,22 @@ async function handleNotificationScheduler(request) {
             target: '/dashboard', source: 'daily_checkin',
           });
         }
-        const selectedCandidate = selectRetentionCandidates(candidates, 1)[0];
+        const previousPassCandidateKey = eveningPass === 2
+          ? String(userData.eveningRetentionPass1CandidateKey || '')
+          : '';
+        const eligibleCandidates = candidates.filter((candidate) => candidate.key !== previousPassCandidateKey);
+        const selectedCandidate = selectRetentionCandidates(eligibleCandidates, 1)[0];
         if (!selectedCandidate) { skipped += 1; continue; }
         let { title, body, target, source: dailySource, categoryId } = selectedCandidate;
         target = target || '/dashboard';
-        const notificationId = today;
+        const notificationId = 'evening-' + eveningPass + '-' + today;
         const notification = {
           title, body, target, source: dailySource || 'daily_reminder',
           categoryId: categoryId || '',
-          url: target, tag: 'pata-' + today + '-' + String(selectedCandidate.topic || 'daily'),
+          url: target, tag: 'pata-evening-' + eveningPass + '-' + today + '-' + String(selectedCandidate.topic || 'daily'),
           personalize: selectedCandidate.personalize !== false,
         };
-        const dailySlot = await claimScheduledRetentionSlot(userDoc.ref, today, 'daily:' + today);
+        const dailySlot = await claimScheduledRetentionSlot(userDoc.ref, today, 'daily:' + eveningPass + ':' + today, eveningPass);
         if (!dailySlot.allowed) { skipped += 1; continue; }
         const pushResult = await sendPataPushToUser(userDoc.ref, notification, appUrl, userData);
         const delivered = pushResult.fcmSent + pushResult.webPushSent;
@@ -3154,7 +3174,7 @@ async function handleNotificationScheduler(request) {
             category: selectedCandidate.emailCategory || '',
             amount: overBudget ? overBudget.spent : null,
             budgetAmount: overBudget ? overBudget.allocated : null,
-            idempotencyKey: 'pata-retention-' + userDoc.id + '-' + today,
+            idempotencyKey: 'pata-retention-' + userDoc.id + '-' + today + '-pass-' + eveningPass,
           })
           : false;
         await persistAutomaticNotificationDelivery(userDoc.ref, userData, notificationId, notification, {
@@ -3162,6 +3182,8 @@ async function handleNotificationScheduler(request) {
         });
         await userDoc.ref.update({
           notificationsDailyDate: today,
+          [passDateField]: today,
+          ...(eveningPass === 1 ? { eveningRetentionPass1CandidateKey: selectedCandidate.key || '' } : {}),
           lastNotificationAt: FieldValue.serverTimestamp(),
           lastRetentionNotificationAt: FieldValue.serverTimestamp(),
           lastRetentionNotificationSource: dailySource || 'daily_reminder',
@@ -9822,7 +9844,8 @@ const ROUTES = {
   'notifications/status': { GET: handleNotificationStatus },
   'notifications/inbox': { GET: handleNotificationsInbox },
   'notifications/read': { POST: handleNotificationRead },
-  'notifications/scheduler': { GET: handleNotificationScheduler, POST: handleNotificationScheduler },
+  'notifications/scheduler': { GET: (request) => handleNotificationScheduler(request, 1), POST: (request) => handleNotificationScheduler(request, 1) },
+  'notifications/evening-followup': { GET: (request) => handleNotificationScheduler(request, 2), POST: (request) => handleNotificationScheduler(request, 2) },
   'notifications/weekend-scheduler': { GET: handleWeekendNotificationScheduler, POST: handleWeekendNotificationScheduler },
   'notifications/opportunity': { POST: handleNotificationOpportunity },
   'reports/weekend': { GET: handleWeekendReport },
