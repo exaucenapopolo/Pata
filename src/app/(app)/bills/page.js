@@ -378,13 +378,13 @@ export default function BillsPage() {
       {feedback && <div role="status" className={'rounded-xl border px-3 py-2.5 text-sm ' + (feedbackError ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800')}>{feedback}</div>}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <section className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs text-slate-500">Factures actives</p><p className="mt-2 text-xl font-bold text-slate-900">{activeBills.length}</p></section>
-        <section className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs text-slate-500">À échéance sous 7 jours</p><p className="mt-2 text-xl font-bold text-amber-700">{upcomingBills.length}</p></section>
-        <section className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs text-slate-500">En retard</p><p className="mt-2 text-xl font-bold text-red-600">{overdueBills.length}</p></section>
-        <section className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs text-slate-500">Budget mensuel estimé</p><p className="mt-2 text-xl font-bold text-slate-900">{formatCurrency(monthlyTotal)}</p></section>
+        <section className="pata-surface-card rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs text-slate-500">Factures actives</p><p className="mt-2 text-xl font-bold text-slate-900">{activeBills.length}</p></section>
+        <section className="pata-surface-card rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs text-slate-500">À échéance sous 7 jours</p><p className="mt-2 text-xl font-bold text-amber-700">{upcomingBills.length}</p></section>
+        <section className="pata-surface-card rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs text-slate-500">En retard</p><p className="mt-2 text-xl font-bold text-red-600">{overdueBills.length}</p></section>
+        <section className="pata-surface-card rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs text-slate-500">Budget mensuel estimé</p><p className="mt-2 text-xl font-bold text-slate-900">{formatCurrency(monthlyTotal)}</p></section>
       </div>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+      <section className="pata-surface-card rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
         <div className="flex items-start gap-3">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><CalendarDays size={19}/></span>
           <div>
@@ -412,7 +412,7 @@ export default function BillsPage() {
             const statusClass = !hasDueDate || bill.pendingDetails === true ? 'bg-amber-50 text-amber-800' : remainingDays < 0 ? 'bg-red-50 text-red-700' : remainingDays <= 7 ? 'bg-amber-50 text-amber-800' : 'bg-slate-100 text-slate-600';
             const billTypeLabel = BILL_TYPES.find(([id]) => id === bill.billType)?.[1] || 'Autre facture';
             return (
-              <article key={bill.id} className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-slate-300 sm:p-4">
+              <article key={bill.id} className="pata-surface-card rounded-2xl border border-slate-200 bg-white p-3 shadow-sm transition hover:border-brand-200 sm:p-4">
                 <div className="flex flex-wrap items-center gap-3">
                   <button type="button" onClick={() => setViewingBill(bill)} className="flex min-w-0 flex-1 items-start gap-3 rounded-xl text-left outline-none focus-visible:ring-2 focus-visible:ring-emerald-600">
                     <span className="flex h-[68px] w-[68px] shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 text-emerald-800">

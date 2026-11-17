@@ -604,7 +604,7 @@ export default function CotisationsPage() {
 
   return (
     <div className="mx-auto min-w-0 max-w-6xl space-y-5 overflow-x-hidden px-0.5 pb-10">
-      <header className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-7">
+      <header className="pata-surface-card rounded-2xl border border-slate-200 bg-white p-5 sm:p-7">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-2xl">
             <p className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-500">Organisation collective</p>

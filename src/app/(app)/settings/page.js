@@ -220,7 +220,7 @@ export default function SettingsPage() {
         <p className="text-sm leading-5 text-slate-500">Gère ton compte et les préférences de Pata au même endroit.</p>
       </header>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+      <section className="pata-surface-card rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="flex items-center gap-3.5">
           <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-brand-50 p-1.5">
             <img src="/android-chrome-192x192.png" alt="Logo Pata" className="h-full w-full object-contain" />
@@ -243,7 +243,7 @@ export default function SettingsPage() {
 
       <section className="space-y-2.5">
         <h2 className="px-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Compte et abonnement</h2>
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white divide-y divide-slate-100">
+        <div className="pata-surface-card overflow-hidden rounded-2xl border border-slate-200 bg-white divide-y divide-slate-100">
           <SettingRow icon={UserRound} title="Informations personnelles" description="Nom affiché, adresse e-mail et devise" onClick={() => setActivePanel('profile')} />
           <SettingRow icon={Crown} title="Mon abonnement" description={isPremium ? `Premium actif jusqu’au ${expiry.toLocaleDateString(getPreferredLocale())}` : 'Tu utilises actuellement la version gratuite'} value={isPremium ? 'Premium' : 'Gratuit'} onClick={() => setActivePanel('subscription')} />
         </div>
@@ -253,7 +253,7 @@ export default function SettingsPage() {
 
       <section className="space-y-2.5">
         <h2 className="px-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Sécurité et notifications</h2>
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white divide-y divide-slate-100">
+        <div className="pata-surface-card overflow-hidden rounded-2xl border border-slate-200 bg-white divide-y divide-slate-100">
           <SettingRow icon={LockKeyhole} title="Code secret" description="Verrouille l’accès à ton espace personnel" value="PIN à 4 chiffres" tourTarget="pin-security-settings" onClick={() => setActivePanel('security')} />
           <SettingRow icon={KeyRound} title="Mot de passe" description={user?.providerData?.some((provider) => provider.providerId === 'password') ? "Modifier ou réinitialiser ton mot de passe" : "Ajouter un mot de passe à ton compte"} onClick={() => setActivePanel('password')} />
           <SettingRow icon={Bell} title="Notifications" description="Alertes et rappels sur cet appareil" tourTarget="notifications-settings" onClick={() => setActivePanel('notifications')} />
@@ -263,7 +263,7 @@ export default function SettingsPage() {
 
       <section className="space-y-2.5">
         <h2 className="px-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Préférences et données</h2>
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white divide-y divide-slate-100">
+        <div className="pata-surface-card overflow-hidden rounded-2xl border border-slate-200 bg-white divide-y divide-slate-100">
           <SettingRow icon={theme === 'dark' ? Moon : Sun} title="Apparence de Pata" description="Choisis un thème clair ou sombre" value={theme === 'dark' ? 'Sombre' : 'Clair'} onClick={() => setActivePanel('appearance')} />
           <SettingRow icon={Smartphone} title="Télécharger l’application Android" description="Installer la version mobile Pata (APK)" onClick={() => router.push('/telecharger')} />
           <SettingRow icon={Download} title="Exporter mes données" description="Télécharger tes opérations et tes bilans" onClick={() => setActivePanel('exports')} />
@@ -275,7 +275,7 @@ export default function SettingsPage() {
 
       <section className="space-y-2.5">
         <h2 className="px-1 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">{isEnglish ? 'Help and discovery' : 'Aide et découverte'}</h2>
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white divide-y divide-slate-100">
+        <div className="pata-surface-card overflow-hidden rounded-2xl border border-slate-200 bg-white divide-y divide-slate-100">
           <SettingRow icon={HelpCircle} title={isEnglish ? 'Help Center' : 'Centre d’aide'} description={isEnglish ? 'Find answers and step-by-step guides before contacting support' : 'Retrouve les réponses et les étapes pour utiliser chaque fonction'} onClick={() => router.push('/help')} />
           <SettingRow icon={BookOpen} title={isEnglish ? 'Replay the Pata guide' : 'Revoir le guide de Pata'} description={isEnglish ? 'Take the animated tour of the main features again' : 'Revoir la présentation animée des principales fonctions'} onClick={() => window.dispatchEvent(new Event('pata:app-tour-start'))} />
         </div>

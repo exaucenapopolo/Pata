@@ -566,3 +566,26 @@ html.dark .pata-bottom-nav > button:not(.pata-quick-launcher):active { backgroun
   .pata-bottom-nav { left:7px; right:7px; border-radius:21px; }
   .pata-bottom-nav > a, .pata-bottom-nav > button:not(.pata-quick-launcher) { gap:3px; font-size:9px; }
 }
+
+
+/* Compact native filter chips shared by lists and report sections. */
+.pata-filter-pill {
+  min-height:38px;
+  background:rgba(255,255,255,.72);
+  border-color:#dfe9e1;
+  transition:background .16s ease,border-color .16s ease,color .16s ease,transform .16s ease;
+  -webkit-tap-highlight-color:transparent;
+}
+.pata-filter-pill:active { transform:scale(.97); }
+.pata-filter-pill.is-active {
+  background:#075b43 !important;
+  border-color:#075b43 !important;
+  color:#fff !important;
+  box-shadow:0 3px 10px rgba(7,91,67,.14);
+}
+html.dark .pata-filter-pill:not(.is-active) {
+  background:#1b2b22 !important;
+  border-color:#30483a !important;
+  color:#c7d6cc !important;
+}
+html.dark .pata-filter-pill.is-active { background:#0b7657 !important; border-color:#0b7657 !important; color:#fff !important; }
