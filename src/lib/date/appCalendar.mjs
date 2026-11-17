@@ -31,3 +31,14 @@ export function normalizeIsoDateRange(startDate, endDate) {
     ? { startDate: start, endDate: end }
     : { startDate: end, endDate: start };
 }
+
+
+/** Keeps a two-tap date range selection in one open calendar. */
+export function advanceIsoDateRangeSelection(startDate, endDate, choosingEnd, selectedDate) {
+  if (!parseIsoDate(selectedDate)) return { startDate, endDate, choosingEnd };
+  if (!startDate || endDate || !choosingEnd) {
+    return { startDate: selectedDate, endDate: '', choosingEnd: true };
+  }
+  const normalized = normalizeIsoDateRange(startDate, selectedDate);
+  return { ...normalized, choosingEnd: false };
+}
