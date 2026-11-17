@@ -262,4 +262,3 @@ export function DateRangePicker({ startDate, endDate, onChange, language = 'fr' 
     </>
   );
 }
-}
