@@ -1,10 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { CalendarDays, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
 import { getDateLocale, getLocalizedMonthNames } from '@/lib/i18n/dateLocale';
-import { formatIsoDate, parseIsoDate, isDateInBounds, normalizeIsoDateRange } from '@/lib/date/appCalendar';
+import { advanceIsoDateRangeSelection, formatIsoDate, parseIsoDate, isDateInBounds } from '@/lib/date/appCalendar';
 
 function formatDateLabel(value, language) {
   const date = parseIsoDate(value);
@@ -141,9 +142,9 @@ export function NativeDatePicker() {
     close();
   };
 
-  return active ? (
-    <div className="pata-calendar-backdrop fixed inset-0 z-[125] flex items-end justify-center bg-slate-950/45 sm:items-center sm:p-4" onPointerDown={(event) => { if (event.target === event.currentTarget) close(); }}>
-      <section role="dialog" aria-modal="true" aria-labelledby="pata-date-title" className="pata-calendar-panel w-full max-w-md rounded-t-[28px] border border-white/70 bg-[#fbfdfb] p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-2xl sm:rounded-[28px]">
+  return active && typeof document !== 'undefined' ? createPortal(
+    <div className="pata-calendar-backdrop fixed inset-0 z-[2147483001] flex items-end justify-center bg-slate-950/45 sm:items-center sm:p-4" onPointerDown={(event) => { if (event.target === event.currentTarget) close(); }}>
+      <section role="dialog" aria-modal="true" aria-labelledby="pata-date-title" onPointerDown={(event) => event.stopPropagation()} className="pata-calendar-panel w-full max-w-md rounded-t-[28px] border border-white/70 bg-[#fbfdfb] p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-2xl sm:rounded-[28px]">
         <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-slate-300 sm:hidden"/>
         <div className="mb-3 flex items-center justify-between">
           <div><p className="text-[10px] font-bold uppercase tracking-[.15em] text-emerald-700">PATA</p><h2 id="pata-date-title" className="mt-0.5 text-lg font-extrabold text-slate-900">{active.label}</h2><p className="mt-0.5 text-xs text-slate-500">{formatDateLabel(active.value, language)}</p></div>
@@ -152,7 +153,8 @@ export function NativeDatePicker() {
         <CalendarSurface language={language} cursor={cursor} setCursor={setCursor} selectedDate={active.value} minDate={active.min} maxDate={active.max} onSelect={commit}/>
         <button type="button" onClick={() => commit(formatIsoDate(new Date()))} disabled={!isDateInBounds(formatIsoDate(new Date()), active.min, active.max)} className="mt-3 h-11 w-full rounded-xl bg-emerald-50 text-sm font-bold text-emerald-800 disabled:opacity-40">{language === 'en' ? 'Today' : 'Aujourd’hui'}</button>
       </section>
-    </div>
+    </div>,
+    document.body
   ) : null;
 }
 
@@ -185,16 +187,12 @@ export function DateRangePicker({ startDate, endDate, onChange, language = 'fr' 
   }, [startDate, endDate, open]);
 
   const selectDate = (value) => {
-    if (!draftStart || (draftStart && draftEnd) || !choosingEnd) {
-      setDraftStart(value);
-      setDraftEnd('');
-      setChoosingEnd(true);
-      return;
-    }
-    const normalized = normalizeIsoDateRange(draftStart, value);
-    setDraftStart(normalized.startDate);
-    setDraftEnd(normalized.endDate);
-    setChoosingEnd(false);
+    const next = advanceIsoDateRangeSelection(draftStart, draftEnd, choosingEnd, value);
+    setDraftStart(next.startDate);
+    setDraftEnd(next.endDate);
+    setChoosingEnd(next.choosingEnd);
+    const selected = parseIsoDate(value);
+    if (selected) setCursor(new Date(selected.getFullYear(), selected.getMonth(), 1));
   };
 
   const cancel = () => {
@@ -221,24 +219,47 @@ export function DateRangePicker({ startDate, endDate, onChange, language = 'fr' 
   return (
     <>
       <button type="button" onClick={openPicker} aria-expanded={open} className="pata-date-range-trigger flex min-h-12 w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-3.5 py-2.5 text-left shadow-sm active:scale-[.99]">
-        <span className="flex min-w-0 items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-800"><CalendarDays size={18}/></span><span className="min-w-0"><span className="block text-[10px] font-bold uppercase tracking-wide text-slate-400">{language === 'en' ? 'Selected period' : 'Période sélectionnée'}</span><span className="mt-0.5 block truncate text-sm font-bold text-slate-800">{startDate && endDate ? formatDateLabel(startDate, language) + ' – ' + formatDateLabel(endDate, language) : (language === 'en' ? 'Choose a period' : 'Choisir une période')}</span></span></span>
+        <span className="flex min-w-0 items-center gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-800"><CalendarDays size={18}/></span>
+          <span className="min-w-0">
+            <span className="block text-[10px] font-bold uppercase tracking-wide text-slate-400">{language === 'en' ? 'Selected period' : 'Période sélectionnée'}</span>
+            <span className="mt-0.5 block truncate text-sm font-bold text-slate-800">{startDate && endDate ? formatDateLabel(startDate, language) + ' – ' + formatDateLabel(endDate, language) : (language === 'en' ? 'Choose a period' : 'Choisir une période')}</span>
+          </span>
+        </span>
         <ChevronRight size={17} className="shrink-0 text-slate-400"/>
       </button>
-      {open && (
-        <div className="pata-calendar-backdrop fixed inset-0 z-[125] flex items-end justify-center bg-slate-950/45 sm:items-center sm:p-4" onPointerDown={(event) => { if (event.target === event.currentTarget) cancel(); }}>
-          <section role="dialog" aria-modal="true" aria-labelledby="pata-range-title" className="pata-calendar-panel w-full max-w-md rounded-t-[28px] border border-white/70 bg-[#fbfdfb] p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-2xl sm:rounded-[28px]">
+      {open && typeof document !== 'undefined' && createPortal(
+        <div className="pata-calendar-backdrop fixed inset-0 z-[2147483001] flex items-end justify-center bg-slate-950/45 sm:items-center sm:p-4" onPointerDown={(event) => { if (event.target === event.currentTarget) cancel(); }}>
+          <section role="dialog" aria-modal="true" aria-labelledby="pata-range-title" onPointerDown={(event) => event.stopPropagation()} className="pata-calendar-panel w-full max-w-md rounded-t-[28px] border border-white/70 bg-[#fbfdfb] p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-2xl sm:rounded-[28px]">
             <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-slate-300 sm:hidden"/>
-            <div className="mb-3 flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-[.15em] text-emerald-700">PATA</p><h2 id="pata-range-title" className="mt-0.5 text-lg font-extrabold text-slate-900">{language === 'en' ? 'Choose a period' : 'Choisir une période'}</h2></div><button type="button" onClick={cancel} aria-label={language === 'en' ? 'Close calendar' : 'Fermer le calendrier'} className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-slate-500 shadow-sm"><X size={18}/></button></div>
-            <div className="mb-3 grid grid-cols-2 gap-2">
-              <div className="rounded-xl bg-emerald-50 p-2.5"><p className="text-[10px] font-bold uppercase tracking-wide text-emerald-800">{language === 'en' ? 'Start date' : 'Date de début'}</p><p className="mt-1 text-xs font-bold text-emerald-950">{draftStart ? formatDateLabel(draftStart, language) : '—'}</p></div>
-              <div className="rounded-xl bg-slate-100 p-2.5"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{language === 'en' ? 'End date' : 'Date de fin'}</p><p className="mt-1 text-xs font-bold text-slate-800">{draftEnd ? formatDateLabel(draftEnd, language) : (language === 'en' ? 'Tap a second day' : 'Choisis le second jour')}</p></div>
+            <div className="mb-3 flex items-center justify-between">
+              <div><p className="text-[10px] font-bold uppercase tracking-[.15em] text-emerald-700">PATA</p><h2 id="pata-range-title" className="mt-0.5 text-lg font-extrabold text-slate-900">{language === 'en' ? 'Choose a period' : 'Choisir une période'}</h2></div>
+              <button type="button" onClick={cancel} aria-label={language === 'en' ? 'Close calendar' : 'Fermer le calendrier'} className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-slate-500 shadow-sm"><X size={18}/></button>
             </div>
-            <p className="mb-2 text-center text-xs font-medium text-slate-500">{draftStart && !draftEnd ? (language === 'en' ? 'Now choose the end date' : 'Choisis maintenant la date de fin') : (language === 'en' ? 'Tap the start date, then the end date' : 'Appuie sur le début, puis sur la fin de la période')}</p>
+            <div className="mb-2 rounded-2xl border border-emerald-100 bg-emerald-50/70 px-3.5 py-3">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-800">{language === 'en' ? 'Selected dates' : 'Sélection de dates'}</p>
+              <p className="mt-1 text-sm font-bold text-emerald-950">
+                {draftStart ? formatDateLabel(draftStart, language) : (language === 'en' ? 'Choose the first day' : 'Choisis le premier jour')}
+                {draftEnd ? '  →  ' + formatDateLabel(draftEnd, language) : draftStart ? '  →  …' : ''}
+              </p>
+            </div>
+            <p className="mb-3 text-center text-xs font-medium text-slate-500">
+              {!draftStart
+                ? (language === 'en' ? 'Tap the first day in the calendar' : 'Choisis le premier jour dans le calendrier')
+                : !draftEnd
+                  ? (language === 'en' ? 'Now tap the last day in this same calendar' : 'Choisis maintenant le dernier jour dans ce même calendrier')
+                  : (language === 'en' ? 'Your period is ready to apply' : 'Ta période est prête à être appliquée')}
+            </p>
             <CalendarSurface language={language} cursor={cursor} setCursor={setCursor} startDate={draftStart} endDate={draftEnd} rangeMode onSelect={selectDate}/>
-            <div className="mt-3 grid grid-cols-[auto_1fr] gap-2"><button type="button" onClick={cancel} className="h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600">{language === 'en' ? 'Cancel' : 'Annuler'}</button><button type="button" onClick={confirm} disabled={!draftStart || !draftEnd} className="h-11 rounded-xl bg-[#075b43] px-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">{language === 'en' ? 'Apply this period' : 'Valider cette période'}</button></div>
+            <div className="mt-3 grid grid-cols-[auto_1fr] gap-2">
+              <button type="button" onClick={cancel} className="h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600">{language === 'en' ? 'Cancel' : 'Annuler'}</button>
+              <button type="button" onClick={confirm} disabled={!draftStart || !draftEnd} className="h-11 rounded-xl bg-[#075b43] px-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">{language === 'en' ? 'Apply this period' : 'Appliquer la période'}</button>
+            </div>
           </section>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );
+}
 }
