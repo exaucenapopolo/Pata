@@ -1,7 +1,7 @@
 /* eslint-disable react/no-unescaped-entities */
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2, Wallet, Pencil, Landmark, Calendar, Repeat, Clock3, MapPin, FolderPlus, Info, Briefcase } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -264,7 +264,7 @@ export default function ExpensesPage() {
     setOpen(true);
   };
 
-  const openEdit = (exp) => {
+  const openEdit = useCallback((exp) => {
     setForm({
       id: exp.id,
       amount: String(exp.amount),
@@ -287,7 +287,7 @@ export default function ExpensesPage() {
     });
     setError('');
     setOpen(true);
-  };
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -300,7 +300,7 @@ export default function ExpensesPage() {
     params.delete('linkSource');
     const query = params.toString();
     window.history.replaceState(null, '', window.location.pathname + (query ? '?' + query : ''));
-  }, [expenses]);
+  }, [expenses, openEdit]);
 
   const onSubmit = async (e) => {
     e.preventDefault();
