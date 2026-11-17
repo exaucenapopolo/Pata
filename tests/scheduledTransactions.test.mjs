@@ -49,6 +49,31 @@ test('salary scheduling defaults to monthly recurrence and can be made explicit'
   assert.equal(result.frequency, 'monthly');
 });
 
+test('Quick Capture separates the scheduled date from a borrowed debt due date', () => {
+  const result = parseQuickCapture('programme emprunt 25 000 chez Paul le 22 novembre échéance 22 décembre', now);
+  assert.equal(result.type, 'debt_borrowed');
+  assert.equal(result.amount, 25000);
+  assert.equal(result.person, 'Paul');
+  assert.equal(result.date, '2026-11-22');
+  assert.equal(result.dueDate, '2026-12-22');
+  assert.equal(result.isScheduled, true);
+});
+
+test('Quick Capture schedules a loan given and a debt repayment', () => {
+  const loan = parseQuickCapture('programme prêt 5 000 à Diane le 20 novembre échéance 20 décembre', now);
+  assert.equal(loan.type, 'loan_given');
+  assert.equal(loan.person, 'Diane');
+  assert.equal(loan.date, '2026-11-20');
+  assert.equal(loan.dueDate, '2026-12-20');
+  assert.equal(loan.isScheduled, true);
+
+  const repayment = parseQuickCapture('programme remboursement 500 de dette à Paul demain', now);
+  assert.equal(repayment.type, 'debt_repayment');
+  assert.equal(repayment.person, 'Paul');
+  assert.equal(repayment.date, '2026-11-18');
+  assert.equal(repayment.isScheduled, true);
+});
+
 test('scheduled Quick Capture matches a user-created category', () => {
   const result = parseQuickCapture('programme bière 500 demain', now, {
     categories: [{ id: 'custom_beer', name: 'Bière', type: 'expense' }],
@@ -116,6 +141,14 @@ test('Quick Capture saves scheduled requests instead of immediately recording th
   assert.match(route, /parsed\?\.isScheduled === true/);
   assert.match(route, /scheduleRef\.create\(schedulePayload\)/);
   assert.match(route, /date <= doualaToday\(\)/);
+  assert.match(route, /'debt_repayment'/);
+  assert.match(route, /repaymentDebtId = matches\[0\]\.id/);
+  const processor = read('src/app/api/scheduled-transactions/process/route.js');
+  assert.match(processor, /export async function POST/);
+  assert.match(processor, /adminAuth\.verifyIdToken/);
+  const panel = read('src/components/transactions/ScheduledTransactionsPanel.jsx');
+  assert.match(panel, /retryScheduledTransaction/);
+  assert.match(panel, /Réessayer/);
 });
 
 test('help center documents scheduled expenses, incomes, recurring options and future source linking', () => {
