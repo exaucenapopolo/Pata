@@ -660,6 +660,8 @@ export async function updateExpenseForUser(uid, expenseId, input) {
       date,
       incomeSourceId: first.income.id,
       incomeSourceName: first.income.source || 'Revenu sans nom',
+      awaitingIncomeSource: false,
+      pendingIncomeSourceName: FieldValue.delete(),
       expenseType,
       projectId: expenseType === 'project' ? projectId : null,
       projectName: expenseType === 'project' ? projectName : null,
