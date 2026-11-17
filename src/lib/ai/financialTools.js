@@ -565,6 +565,13 @@ export async function updateExpenseForUser(uid, expenseId, input) {
     if (!expenseSnap.exists) throw new Error('Dépense introuvable.');
 
     const previousData = expenseSnap.data();
+    const scheduledTransactionId = cleanText(previousData.scheduledTransactionId, 150);
+    const scheduledTransactionRef = scheduledTransactionId
+      ? subcol(uid, 'scheduledTransactions').doc(scheduledTransactionId)
+      : null;
+    const scheduledTransactionSnap = scheduledTransactionRef
+      ? await transaction.get(scheduledTransactionRef)
+      : null;
     if (previousData.flowType === 'loan_given' || previousData.repaymentDebtId) throw new Error('Modifie ou supprime ce mouvement depuis le module Dettes & prêts pour conserver le suivi du solde.');
     const amount = requestedAmount ?? asPositiveMoney(previousData.amount, 'Dépense');
     const previousCategoryId = cleanText(previousData.categoryId, 80) || 'other';
@@ -668,6 +675,18 @@ export async function updateExpenseForUser(uid, expenseId, input) {
       ...optionalMetadata,
       updatedAt: FieldValue.serverTimestamp(),
     });
+
+    // Si la première occurrence d'une dépense récurrente attendait une source future,
+    // mémorise le choix effectué pour les occurrences suivantes.
+    if (scheduledTransactionRef && scheduledTransactionSnap?.exists
+      && scheduledTransactionSnap.data()?.recurrenceEnabled === true) {
+      transaction.update(scheduledTransactionRef, {
+        incomeSourceId: selectedSource.id === 'all' ? 'all' : selectedSource.id,
+        incomeSourceName: selectedSource.id === 'all' ? 'Toutes les sources disponibles' : selectedSource.name,
+        futureIncomeSourceName: FieldValue.delete(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
 
     const extraRecords = [];
     allocations.slice(1).forEach(({ income, amount: allocated }, index) => {
