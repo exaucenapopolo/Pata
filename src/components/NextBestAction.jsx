@@ -50,7 +50,7 @@ export function NextBestAction({ actionKey, title, description, href, cta }) {
   if (!ready || !visible) return null;
 
   return (
-    <section className="relative overflow-hidden rounded-2xl border border-emerald-200/80 bg-gradient-to-br from-[#f0f8f1] to-white p-4 shadow-[0_5px_18px_rgba(7,91,67,.06)]" aria-live="polite">
+    <section className="pata-next-action relative overflow-hidden rounded-2xl border border-emerald-200/80 bg-gradient-to-br from-[#f0f8f1] to-white p-4 shadow-[0_5px_18px_rgba(7,91,67,.06)]" aria-live="polite">
       <button type="button" onClick={() => setVisible(false)} aria-label={isEnglish ? 'Dismiss this suggestion' : 'Masquer cette suggestion'} className="absolute right-3 top-3 rounded-full p-1.5 text-slate-400 transition hover:bg-white hover:text-slate-700">
         <X size={16}/>
       </button>

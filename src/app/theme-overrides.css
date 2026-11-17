@@ -217,3 +217,15 @@ html.dark .pata-quick-action-icon { background-color:#254133 !important; color:#
   .pata-mobile-backdrop, .pata-quick-action-panel, .pata-quick-action-card { animation:none !important; opacity:1; transform:none; }
   .pata-quick-launcher, .pata-quick-launcher svg { transition:none !important; }
 }
+
+
+/* Pata design tokens: the primary green is identical across shared Tailwind brand utilities. */
+html.dark .pata-next-action {
+  border-color: #355b43 !important;
+  background: linear-gradient(135deg, #1d3b2a, #18251f) !important;
+}
+html.dark .pata-next-action h2 { color: #edf5ef !important; }
+html.dark .pata-next-action p { color: #b7c8bc !important; }
+html.dark .pata-next-action .text-emerald-800 { color: #9edbb4 !important; }
+html.dark .pata-next-action label { color: #bdcfc3 !important; }
+html.dark .pata-next-action input { accent-color: #62b987; }

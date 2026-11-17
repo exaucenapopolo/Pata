@@ -6,9 +6,9 @@ module.exports = {
     extend: {
       colors: {
         brand: {
-          50: '#ecfdf5', 100: '#d1fae5', 200: '#a7f3d0', 300: '#6ee7b7',
-          400: '#34d399', 500: '#10b981', 600: '#059669', 700: '#047857',
-          800: '#065f46', 900: '#064e3b',
+          50: '#f1f7f2', 100: '#e0eee3', 200: '#c2ddc9', 300: '#98c3a6',
+          400: '#5fa47a', 500: '#27845a', 600: '#0b7657', 700: '#075b43',
+          800: '#064b38', 900: '#043a2c',
         },
       },
       fontFamily: { sans: ['Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'] },
