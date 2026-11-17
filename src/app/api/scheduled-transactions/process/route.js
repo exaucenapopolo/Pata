@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { FieldValue } from 'firebase-admin/firestore';
-import { adminDb, adminMessaging } from '@/lib/firebase/admin';
+import { adminAuth, adminDb, adminMessaging } from '@/lib/firebase/admin';
 import { sendPataWebPush } from '@/lib/notifications/webPush.mjs';
 import { createExpenseForUser } from '@/lib/ai/financialTools';
 import { addScheduledFrequency, dateKeyInTimeZone, getScheduledOccurrenceId, isValidDateKey } from '@/lib/scheduling/scheduledTransactions.mjs';
@@ -373,5 +373,44 @@ export async function GET(request) {
   } catch (error) {
     console.error('[PATA SCHEDULED TRANSACTIONS CRON]', error.message || error);
     return NextResponse.json({ success: false, error: 'Le traitement des opérations programmées a échoué.' }, { status: 500 });
+  }
+}
+
+export async function POST(request) {
+  try {
+    const authorization = request.headers.get('authorization') || '';
+    if (!authorization.startsWith('Bearer ')) return NextResponse.json({ success: false, error: 'Session manquante. Reconnecte-toi à Pata.' }, { status: 401 });
+    const decoded = await adminAuth.verifyIdToken(authorization.slice(7));
+    const { scheduleId } = await request.json();
+    const id = clean(scheduleId, 150);
+    if (!id || id.includes('/')) return NextResponse.json({ success: false, error: 'Identifiant de programmation invalide.' }, { status: 400 });
+    const userRef = adminDb.collection('users').doc(decoded.uid);
+    const scheduleRef = userRef.collection('scheduledTransactions').doc(id);
+    const [profileSnap, scheduleSnap] = await Promise.all([userRef.get(), scheduleRef.get()]);
+    if (!profileSnap.exists || !scheduleSnap.exists) return NextResponse.json({ success: false, error: 'Cette programmation est introuvable.' }, { status: 404 });
+    const profile = profileSnap.data() || {};
+    const current = scheduleSnap.data() || {};
+    if (!['failed', 'scheduled'].includes(current.status)) return NextResponse.json({ success: false, error: 'Cette opération ne peut pas être relancée.' }, { status: 409 });
+    const today = dateKeyInTimeZone(new Date());
+    const dueDate = String(current.nextRunDate || current.scheduleDate || '');
+    if (!isValidDateKey(dueDate) || dueDate > today) return NextResponse.json({ success: false, error: 'La date prévue de cette opération n’est pas encore arrivée.' }, { status: 409 });
+    if (current.status === 'failed') {
+      await scheduleRef.update({
+        status: 'scheduled',
+        active: true,
+        lastError: FieldValue.delete(),
+        lastRunStatus: 'RETRYING',
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
+    const refreshed = await scheduleRef.get();
+    const schedule = { id, ...(refreshed.data() || {}) };
+    const result = await processOccurrence(userRef, decoded.uid, scheduleRef, schedule, dueDate, profile);
+    if (result.failed) return NextResponse.json({ success: false, error: result.error || 'Pata n’a pas pu enregistrer cette opération.' }, { status: 409 });
+    if (result.skipped) return NextResponse.json({ success: false, error: 'Cette opération est déjà en cours de traitement ou a déjà été exécutée.' }, { status: 409 });
+    return NextResponse.json({ success: true, ...result });
+  } catch (error) {
+    console.error('[PATA SCHEDULED TRANSACTIONS RETRY]', error.message || error);
+    return NextResponse.json({ success: false, error: error.message || 'Impossible de relancer cette opération.' }, { status: 500 });
   }
 }
