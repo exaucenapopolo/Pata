@@ -306,7 +306,7 @@ function cleanNote(text, categoryAliases = [], beforeAmountOnly = false) {
     .replace(/\b[0-3]?\d[/.\-][01]?\d(?:[/.\-]20\d{2})?\b/g, " ")
     .replace(/\b\d{1,3}(?:[ .,'’]\d{3})+\b|\b\d{1,10}\b/g, " ")
     .replace(/\b(fcfa|f\s*cfa|xaf|cfa|eru|euros?|francs?|frs?)\b/gi, " ")
-    .replace(/\b(j'ai|jai|je|nous|on|a|aujourd'hui|demain|hier|dépensé|depense|depenses|paye|payer|achete|achat|acheté|reçu|recu|gagné|gagne|encaisse|encaissement|versé|verse|pour|de|du|des|un|une|la|le|les|mon|ma|mes|revenu|recette|facture|factures|factu|pret|prêt|dette|dettes|emprunt|echeance|échéance|date|limite|rendre|avant|a|le|du)\b/gi, " ")
+    .replace(/\b(j'ai|jai|je|nous|on|a|aujourd'hui|demain|hier|dépensé|depense|depenses|paye|payer|achete|achat|acheté|reçu|recu|gagné|gagne|encaisse|encaissement|versé|verse|pour|de|du|des|un|une|la|le|les|mon|ma|mes|revenu|recette|facture|factures|factu|pret|prêt|dette|dettes|emprunt|echeance|échéance|date|limite|rendre|avant|a|le|du|programme|programmer|planifie|planifier|prevois|prévois|prevoir|prévoir|quotidien|quotidienne|hebdomadaire|mensuel|mensuelle|chaque|jours|jour|semaine|mois)\b/gi, " ")
     .replace(/\b\d{1,2}\s+(?:janvier|janv|fevrier|fevr|fev|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)\b/gi, " ")
     .replace(/\b(?:janvier|janv|fevrier|fevr|fev|mars|avril|avr|mai|juin|juillet|juil|aout|septembre|sept|octobre|oct|novembre|nov|decembre|dec)\s+\d{1,2}\b/gi, " ")
     .replace(/\b(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|dernier|dernière|prochain|prochaine)\b/gi, " ")
@@ -357,9 +357,10 @@ export function parseQuickCapture(input, now = new Date(), options = {}) {
   const raw = String(input || "").trim().slice(0, 500);
   const normalized = normalize(raw);
   const amount = extractAmount(raw);
-  const isScheduled = /\\b(programm\\w*|planifi\\w*|prevoi\\w*|prevois|a programmer|a planifier|a prevoir)\\b/.test(normalized);
-  const requestedFrequency = /\\b(quotidien|quotidienne|chaque jour|tous les jours|par jour)\\b/.test(normalized) ? "daily"
-    : /\\b(hebdomadaire|chaque semaine|toutes les semaines|par semaine)\\b/.test(normalized) ? "weekly"
+  const isScheduled = /\b(programm\w*|planifi\w*|prevoi\w*|a programmer|a planifier|a prevoir)\b/.test(normalized);
+  const requestedFrequency = /\b(quotidien|quotidienne|chaque jour|tous les jours|par jour)\b/.test(normalized) ? "daily"
+    : /\b(hebdomadaire|chaque semaine|toutes les semaines|par semaine)\b/.test(normalized) ? "weekly"
+    : /\b(mensuel|mensuelle|chaque mois|tous les mois|par mois)\b/.test(normalized) ? "monthly" : null;
     : /\\b(mensuel|mensuelle|chaque mois|tous les mois|par mois)\\b/.test(normalized) ? "monthly" : null;
   const hasBill = /\bfacture\w*\b|\bquittance\b|\bavis d.?echeance\b|\bnote d.?echeance\b/.test(normalized);
   const repaymentVerb = /\b(rembours\w*|regle|regler|paye|payer)\b/;
