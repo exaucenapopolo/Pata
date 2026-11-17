@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=swap');
+
 /* Shared Pata surfaces and responsive type scale. */
 :root {
   --pata-green: #075b43;
@@ -867,11 +869,11 @@ body {
   box-shadow: 0 3px 16px rgba(26, 72, 47, .035);
 }
 .pata-header-title {
-  font-family: "Avenir Next", "Segoe UI Variable", "Inter", system-ui, sans-serif;
-  font-size: clamp(15px, 1.25rem, 18px);
+  font-family: "Manrope", "Avenir Next", "Segoe UI Variable", "Inter", system-ui, sans-serif;
+  font-size: clamp(19px, 1.45rem, 21px);
   font-weight: 800;
   letter-spacing: -.045em;
-  line-height: 1.15;
+  line-height: 1.12;
 }
 .pata-header-back { -webkit-tap-highlight-color: transparent; }
 .pata-app-shell main .pata-page-title { display: none !important; }
@@ -904,7 +906,7 @@ html.dark .pata-app-shell main .rounded-xl.border.bg-white {
 }
 @media (max-width: 639px) {
   .pata-app-header { padding-left: 12px; padding-right: 12px; }
-  .pata-header-title { font-size: 15px; }
+  .pata-header-title { font-size: 19px; }
 }
 
 

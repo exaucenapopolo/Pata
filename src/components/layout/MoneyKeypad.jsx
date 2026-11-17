@@ -49,7 +49,6 @@ export function MoneyKeypad() {
   const [activeField, setActiveField] = useState(null);
   const [expression, setExpression] = useState('');
   const [error, setError] = useState('');
-  const [hasCalculated, setHasCalculated] = useState(false);
   const activeInputRef = useRef(null);
   const originalAttributesRef = useRef(null);
 
@@ -77,7 +76,6 @@ export function MoneyKeypad() {
     setActiveField({ label });
     setExpression(String(input.value || '').replace(/\s/g, ''));
     setError('');
-    setHasCalculated(false);
   }, [language]);
 
   const close = useCallback(() => {
@@ -93,7 +91,6 @@ export function MoneyKeypad() {
     originalAttributesRef.current = null;
     setActiveField(null);
     setError('');
-    setHasCalculated(false);
   }, []);
 
   useEffect(() => {
@@ -130,7 +127,6 @@ export function MoneyKeypad() {
 
   const appendKey = (key) => {
     setError('');
-    setHasCalculated(false);
     setExpression((current) => {
       if (key === 'C') return '';
       if (key === '⌫') return current.slice(0, -1);
@@ -145,7 +141,6 @@ export function MoneyKeypad() {
       return;
     }
     setError('');
-    setHasCalculated(true);
   };
 
   const commit = () => {

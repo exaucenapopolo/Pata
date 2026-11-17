@@ -69,8 +69,8 @@ export function Header() {
         )}
       </div>
 
-      <div className="pointer-events-none absolute left-1/2 top-1/2 w-[min(58%,520px)] -translate-x-1/2 -translate-y-1/2 text-center">
-        <h1 className="pata-header-title truncate text-[16px] font-extrabold tracking-[-0.045em] text-slate-900 sm:text-[17px]">
+      <div className="pointer-events-none absolute left-1/2 top-1/2 w-[min(66%,680px)] -translate-x-1/2 -translate-y-1/2 text-center">
+        <h1 className="pata-header-title truncate text-[19px] font-extrabold tracking-[-0.045em] text-slate-900 sm:text-[21px]">
           {pageTitle}
         </h1>
         {isHome && profile?.displayName && (
