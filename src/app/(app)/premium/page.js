@@ -164,7 +164,12 @@ export default function PremiumPage() {
         {isPremium ? (
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
             <div><p className="text-xs font-semibold text-slate-800">{daysLeft} jour(s) restant(s)</p><p className="mt-0.5 text-[11px] text-slate-500">Tu peux prolonger ton accès avant son échéance.</p></div>
-            <span className="text-xs font-semibold text-emerald-700">Toutes les fonctions Premium sont accessibles</span>
+            <div className="flex flex-col items-start gap-2 sm:items-end">
+              <span className="text-xs font-semibold text-emerald-700">Ton abonnement Premium est actif</span>
+              <Link href="/telecharger" className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-[#075b43] px-3 text-xs font-semibold text-white">
+                Télécharger l’application Android <ArrowRight size={14}/>
+              </Link>
+            </div>
           </div>
         ) : (
           <div className="mt-4 grid grid-cols-2 gap-2.5 border-t border-slate-100 pt-3 sm:grid-cols-4">
@@ -216,7 +221,11 @@ export default function PremiumPage() {
           <strong>Ton offre de parrainage est disponible.</strong> Le premier mois revient à 1 250 FCFA au lieu de 2 500 FCFA.
         </div>
       )}
-      {success && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-3 text-xs font-semibold text-emerald-800">Paiement confirmé. Ton accès Premium a été prolongé.</p>}
+      {success && <section role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+        <p className="text-sm font-bold text-emerald-900">Paiement confirmé. Ton accès Premium a été prolongé.</p>
+        <p className="mt-1 text-xs leading-5 text-emerald-900/80">Pour profiter de l’import automatique des SMS Mobile Money et de la notification permanente Pata, installe maintenant l’application Android officielle.</p>
+        <Link href="/telecharger" className="mt-3 inline-flex min-h-10 items-center gap-1.5 rounded-lg bg-[#075b43] px-4 text-xs font-semibold text-white">Télécharger l’application Android <ArrowRight size={14}/></Link>
+      </section>}
       {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-3 text-xs text-red-700">{error}</p>}
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
@@ -301,7 +310,7 @@ export default function PremiumPage() {
                 </section>
               );
             })}
-            <p className="text-[10px] leading-4 text-slate-500">Les fonctions d’intelligence artificielle restent soumises à leur disponibilité et aux règles de sécurité de Pata. Premium permet une utilisation plus large, sans garantir une disponibilité illimitée.</p>
+            <p className="text-[10px] leading-4 text-slate-500">Les fonctions d’intelligence artificielle restent soumises à leur disponibilité et aux règles de sécurité de Pata. Premium permet une utilisation plus large, sans garantir une disponibilité illimitée. L’import automatique des SMS Mobile Money, la notification permanente et le widget financier nécessitent l’application Android officielle installée sur le téléphone.</p>
           </div>
         )}
       </section>
