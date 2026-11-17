@@ -32,9 +32,13 @@ Les notifications nécessitent HTTPS, une autorisation explicite de l’utilisat
 
 ## 5. Quotas et fenêtres d’envoi des notifications
 
-Les rappels automatiques planifiés sont autorisés de **17 h 30 à 22 h 30, heure du Cameroun** (`Africa/Douala`). Le rappel financier quotidien est planifié à 16:30 UTC, au début de cette plage. Le projet Pata utilise Vercel Hobby : le déclenchement peut arriver à n'importe quel moment de l'heure planifiée (jusqu'à 18 h 29 au Cameroun), pas à une minute garantie. Les rappels du week-end restent planifiés vendredi/dimanche à 17:00 UTC (18:00) et samedi à 16:30 UTC (17:30).
+Les rappels financiers du soir sont répartis en deux passages quotidiens dans la plage **17 h 30–22 h 30, heure du Cameroun** (`Africa/Douala`) :
+- Premier passage : Cron à 16:30 UTC, exécution possible entre 17 h 30 et 18 h 29 au Cameroun.
+- Second passage : Cron à 19:30 UTC, exécution possible entre 20 h 30 et 21 h 29 au Cameroun.
 
-Les quotas sont indépendants : deux rappels financiers maximum le soir (dettes, factures, dépenses récurrentes reconnues et point financier) et trois messages maximum en journée (rétention, découverte et week-end), avec un intervalle minimal de 90 minutes entre les messages de journée. Cela permet jusqu'à cinq messages de ces deux familles par jour. Les alertes de cotisation et les autres notifications opérationnelles/transactionnelles ne réservent aucun de ces quotas.
+Sur Vercel Hobby, chaque tâche Cron peut tourner une fois par jour et son démarrage peut se produire à n'importe quel moment de l'heure planifiée (±59 min). Les 100 tâches Cron autorisées par projet permettent ces deux passages séparés ; ils ne garantissent toutefois pas une minute précise et Vercel ne relance pas automatiquement une tâche en échec. Les rappels du week-end restent planifiés vendredi/dimanche à 17:00 UTC (18:00) et samedi à 16:30 UTC (17:30).
+
+Les quotas sont indépendants : **deux rappels financiers maximum le soir**, un seul réservé par passage (dettes, factures, dépenses récurrentes reconnues et point financier), et **trois messages maximum en journée** (rétention, découverte et week-end), avec un intervalle minimal de 90 minutes entre les messages de journée. Les alertes de cotisation et les autres notifications opérationnelles/transactionnelles ne réservent aucun de ces quotas. Chaque passage possède son identifiant de notification et sa clé d'e-mail afin que le second message ne remplace pas le premier et ne soit pas bloqué par son idempotence.
 
 Le relais e-mail des notifications automatiques est limité à 100 e-mails par jour UTC et utilise une clé d’idempotence pour éviter les doublons lors des nouvelles tentatives. Les e-mails transactionnels envoyés directement par `sendPataEmail` restent séparés de ce plafond. Les e-mails de secours pour les rappels de cotisation utilisent le plafond e-mail de 100/jour, mais pas le quota de deux notifications.
 
