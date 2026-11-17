@@ -117,8 +117,8 @@ export async function POST(request) {
     if (!isPremium(profileSnap.data() || {})) return errorResponse('Pata Quick Capture est réservé aux abonnés Premium. Aucune opération n’a été enregistrée.', 403);
 
     if (parsed?.isScheduled === true || body.isScheduled === true) {
-      if (!['expense', 'income', 'loan_given', 'debt_borrowed'].includes(type)) {
-        return errorResponse('La programmation rapide est disponible pour les dépenses, les revenus, les emprunts et les prêts accordés.', 422, { needsReview: true, recognized: parsed });
+      if (!['expense', 'income', 'loan_given', 'debt_borrowed', 'debt_repayment'].includes(type)) {
+        return errorResponse('La programmation rapide est disponible pour les dépenses, les revenus, les emprunts, les prêts accordés et les remboursements de dette.', 422, { needsReview: true, recognized: parsed });
       }
       if (date <= doualaToday()) return errorResponse('Pour programmer une opération, indique une date future. Aucune opération n’a été enregistrée.', 400, { needsReview: true, recognized: parsed });
       if (type === 'expense' && !(await isAllowedCategory(userRef, categoryId, 'expense', EXPENSE_CATEGORIES))) {
@@ -126,6 +126,9 @@ export async function POST(request) {
       }
       if (type === 'income' && !(await isAllowedCategory(userRef, categoryId, 'income', INCOME_CATEGORIES))) {
         return errorResponse('Cette catégorie de revenu ne fait pas partie de tes catégories enregistrées.', 400);
+      }
+      if (type === 'debt_repayment' && !(await isAllowedCategory(userRef, 'debt_repayment', 'expense', EXPENSE_CATEGORIES))) {
+        return errorResponse('La catégorie de remboursement de dette est introuvable.', 400);
       }
       if (['loan_given', 'debt_borrowed'].includes(type) && !String(parsed?.person || '').trim()) {
         return errorResponse('Indique la personne ou la banque concernée avant de programmer cette opération.', 422, { needsReview: true, recognized: parsed });
@@ -135,6 +138,23 @@ export async function POST(request) {
       }
       if (type === 'debt_borrowed' && !dueDate) {
         return errorResponse('Indique également la date à laquelle tu dois rembourser cet emprunt.', 422, { needsReview: true, recognized: parsed });
+      }
+      let repaymentDebtId = '';
+      if (type === 'debt_repayment') {
+        const person = cleanText(parsed?.person || body.person || '', 100);
+        if (!person) return errorResponse('Indique la personne ou la banque concernée par ce remboursement.', 422, { needsReview: true, recognized: parsed });
+        const debtsSnap = await userRef.collection('debts').orderBy('createdAt', 'desc').limit(100).get();
+        const activeDebts = debtsSnap.docs.map((document) => ({ id: document.id, ...document.data() }))
+          .filter((debt) => debt.type === 'i_owe' && ['active', 'partial', 'late'].includes(debt.status) && Number(debt.remaining) > 0);
+        const normalizePerson = (value) => String(value || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+        const matches = activeDebts.filter((debt) => normalizePerson(debt.person || debt.bankName) === normalizePerson(person));
+        if (matches.length !== 1) {
+          return errorResponse(matches.length > 1
+            ? 'Plusieurs dettes correspondent à « ' + person + ' ». Ouvre le formulaire pour choisir précisément la dette.'
+            : 'Aucune dette active enregistrée au nom de « ' + person + ' ». Vérifie son nom ou choisis la dette dans le formulaire.',
+            422, { needsReview: true, recognized: parsed });
+        }
+        repaymentDebtId = matches[0].id;
       }
       const frequency = parsed?.frequency || body.frequency || (type === 'income' && categoryId === 'salary' ? 'monthly' : null);
       const recurring = (parsed?.recurrenceEnabled === true || body.recurrenceEnabled === true || (type === 'income' && categoryId === 'salary'))
@@ -150,6 +170,8 @@ export async function POST(request) {
         note,
         source: cleanText(parsed?.source || body.source || '', 100),
         person: cleanText(parsed?.person || body.person || '', 100),
+        repaymentDebtId,
+        expenseType: 'consumption',
         dueDate,
         status: 'scheduled',
         active: true,
@@ -158,7 +180,7 @@ export async function POST(request) {
         anchorDay: Number(date.slice(8, 10)),
         incomeSourceId: 'all',
         incomeSourceName: 'Toutes les sources disponibles',
-        flowType: type === 'loan_given' ? 'loan_given' : type === 'debt_borrowed' ? 'debt_borrowed' : 'normal',
+        flowType: type === 'loan_given' ? 'loan_given' : type === 'debt_borrowed' ? 'debt_borrowed' : type === 'debt_repayment' ? 'repayment' : 'normal',
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       };
