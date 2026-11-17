@@ -1,7 +1,6 @@
 const MAX_EXPRESSION_LENGTH = 120;
 const MAX_DIGITS = 24;
 const MAX_INTEGER_DIGITS = 78;
-const ROUNDING_SCALE = 1_000_000n;
 const MAX_SAFE_INTEGER = BigInt(Number.MAX_SAFE_INTEGER);
 
 function gcd(a, b) {

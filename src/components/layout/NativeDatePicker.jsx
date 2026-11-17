@@ -164,6 +164,19 @@ export function DateRangePicker({ startDate, endDate, onChange, language = 'fr' 
   const [choosingEnd, setChoosingEnd] = useState(false);
 
   useEffect(() => {
+    if (!open) return undefined;
+    const handleEscape = (event) => {
+      if (event.key !== 'Escape') return;
+      setDraftStart(startDate || '');
+      setDraftEnd(endDate || '');
+      setChoosingEnd(false);
+      setOpen(false);
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [open, startDate, endDate]);
+
+  useEffect(() => {
     if (!open) {
       setDraftStart(startDate || '');
       setDraftEnd(endDate || '');

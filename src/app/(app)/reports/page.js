@@ -6,7 +6,7 @@ import { Download, FileSpreadsheet, FileText, BarChart3, Wallet, Target, PiggyBa
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, CartesianGrid } from 'recharts';
 import { Button } from '@/components/ui/Button';
 import { MonthPicker } from '@/components/ui/MonthPicker';
-import { DateRangePicker } from '@/components/ui/DateRangePicker';
+import { DateRangePicker } from '@/components/layout/NativeDatePicker';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useExpenses } from '@/hooks/useExpenses';

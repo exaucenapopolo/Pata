@@ -31,7 +31,7 @@ import { checkFinancialOperation } from '@/lib/firestore/financialTargets';
 import { translateText } from '@/lib/i18n/translations';
 import { EXPENSE_CATEGORIES } from '@/lib/constants';
 import { NextBestAction } from '@/components/NextBestAction';
-import { DateRangePicker } from '@/components/ui/DateRangePicker';
+import { DateRangePicker } from '@/components/layout/NativeDatePicker';
 
 const todayIso = () => {
   const d = new Date();
