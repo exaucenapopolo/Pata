@@ -357,6 +357,10 @@ export function parseQuickCapture(input, now = new Date(), options = {}) {
   const raw = String(input || "").trim().slice(0, 500);
   const normalized = normalize(raw);
   const amount = extractAmount(raw);
+  const isScheduled = /\\b(programm\\w*|planifi\\w*|prevoi\\w*|prevois|a programmer|a planifier|a prevoir)\\b/.test(normalized);
+  const requestedFrequency = /\\b(quotidien|quotidienne|chaque jour|tous les jours|par jour)\\b/.test(normalized) ? "daily"
+    : /\\b(hebdomadaire|chaque semaine|toutes les semaines|par semaine)\\b/.test(normalized) ? "weekly"
+    : /\\b(mensuel|mensuelle|chaque mois|tous les mois|par mois)\\b/.test(normalized) ? "monthly" : null;
   const hasBill = /\bfacture\w*\b|\bquittance\b|\bavis d.?echeance\b|\bnote d.?echeance\b/.test(normalized);
   const repaymentVerb = /\b(rembours\w*|regle|regler|paye|payer)\b/;
   const explicitRepaymentVerb = /\brembours\w*\b/;
@@ -442,7 +446,9 @@ export function parseQuickCapture(input, now = new Date(), options = {}) {
     note, source, person, incomeSourceName, confidence,
     billName: bill?.billName || "", billType: bill?.billType || "",
     expenseCategoryId: bill?.expenseCategoryId || "",
-    frequency: bill?.frequency || null,
+    frequency: bill?.frequency || requestedFrequency || null,
+    isScheduled,
+    recurrenceEnabled: isScheduled && (Boolean(requestedFrequency) || (type === "income" && categoryId === "salary")),
     isVariable: type === "bill" && !amount,
     needsReview,
   };
