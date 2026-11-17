@@ -611,3 +611,42 @@ html.dark .pata-quota-panel {
   .pata-page-heading { align-items:flex-start; }
   .pata-page-heading > div:first-child { min-width:0; flex:1 1 100%; }
 }
+
+
+/* Premium: put the buying decision first while keeping the comparison available on demand. */
+.pata-premium-page { min-width:0; }
+.pata-premium-checkout {
+  background:linear-gradient(145deg,rgba(255,255,255,.98),rgba(247,251,248,.96)) !important;
+  border-color:#cfe4d5 !important;
+}
+.pata-premium-checkout > div:first-child {
+  background:linear-gradient(110deg,#eaf5ed 0%,#f7fbf8 72%,#fff 100%) !important;
+}
+.pata-premium-duration {
+  min-width:0;
+  -webkit-tap-highlight-color:transparent;
+}
+.pata-premium-duration[aria-pressed="true"] {
+  box-shadow:0 0 0 2px rgba(7,91,67,.10),0 5px 14px rgba(7,91,67,.06);
+}
+html.dark .pata-premium-checkout {
+  background:linear-gradient(145deg,#1d2d24,#18251f) !important;
+  border-color:#426d55 !important;
+}
+html.dark .pata-premium-checkout > div:first-child {
+  background:linear-gradient(110deg,#1d3b2a,#1a2b22 72%,#18251f) !important;
+  border-color:#355b43 !important;
+}
+html.dark .pata-premium-duration {
+  background:#1a2922 !important;
+  border-color:#355043 !important;
+}
+html.dark .pata-premium-duration[aria-pressed="true"] {
+  background:#1e3b2c !important;
+  border-color:#62b987 !important;
+}
+html.dark .pata-premium-duration strong { color:#eef5ef !important; }
+@media (max-width:380px) {
+  .pata-premium-page #premium-checkout { border-radius:19px; }
+  .pata-premium-page #premium-checkout > div:last-child { padding:12px; }
+}

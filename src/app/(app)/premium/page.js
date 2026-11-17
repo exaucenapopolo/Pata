@@ -196,10 +196,10 @@ export default function PremiumPage() {
   };
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5 pb-10 sm:space-y-6">
-      <header className="space-y-1">
+    <div className="pata-premium-page mx-auto max-w-5xl space-y-5 pb-10 sm:space-y-6">
+      <header className="pata-page-heading space-y-1">
         <p className="text-[10px] font-extrabold uppercase tracking-[.18em] text-brand-700">Ton espace abonnement</p>
-        <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
+        <h1 className="pata-page-title text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
           {isPremium ? 'Ton abonnement Pata' : 'Découvre Pata Premium'}
         </h1>
         <p className="max-w-2xl text-sm leading-6 text-slate-500">
@@ -244,7 +244,7 @@ export default function PremiumPage() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+      <section className="pata-surface-card rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="flex items-start gap-3">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700"><Crown size={19}/></span>
           <div className="min-w-0 flex-1">
@@ -349,7 +349,7 @@ export default function PremiumPage() {
       )}
       {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-3 text-xs leading-5 text-red-700">{error}</p>}
 
-      <section id="premium-checkout" className="scroll-mt-5 overflow-hidden rounded-[24px] border border-emerald-200 bg-white shadow-[0_10px_32px_rgba(7,91,67,.08)]">
+      <section id="premium-checkout" className="pata-premium-checkout scroll-mt-5 overflow-hidden rounded-[24px] border border-emerald-200 bg-white shadow-[0_10px_32px_rgba(7,91,67,.08)]">
         <div className="border-b border-emerald-100 bg-gradient-to-r from-emerald-50 to-white p-4 sm:p-5">
           <p className="text-[10px] font-extrabold uppercase tracking-[.15em] text-emerald-800">Choisis ton abonnement</p>
           <div className="mt-1 flex flex-wrap items-start justify-between gap-3">
@@ -373,7 +373,7 @@ export default function PremiumPage() {
                 const selected = months === option;
                 return (
                   <button key={option} type="button" onClick={() => setMonths(option)} aria-pressed={selected}
-                    className={'relative min-h-[78px] rounded-2xl border p-3 text-left transition ' + (selected ? 'border-emerald-700 bg-emerald-50 ring-2 ring-emerald-700/10' : 'border-slate-200 bg-white hover:border-emerald-300 hover:bg-emerald-50/30')}>
+                    className={'pata-premium-duration relative min-h-[78px] rounded-2xl border p-3 text-left transition ' + (selected ? 'border-emerald-700 bg-emerald-50 ring-2 ring-emerald-700/10' : 'border-slate-200 bg-white hover:border-emerald-300 hover:bg-emerald-50/30')}>
                     {optionPricing.durationDiscount > 0 && <span className="absolute right-2 top-2 rounded-full bg-emerald-700 px-1.5 py-0.5 text-[8px] font-extrabold text-white">-10 %</span>}
                     <span className="block text-[11px] font-bold text-slate-500">{option} mois</span>
                     <strong className="mt-1 block text-base font-extrabold tracking-tight text-slate-900">{formatCurrency(optionPricing.totalAmount)}</strong>
@@ -383,7 +383,7 @@ export default function PremiumPage() {
               })}
             </div>
             <p className="text-[11px] leading-5 text-slate-500">Chaque mois ajoute 30 jours. Si ton accès est déjà actif, les jours restants sont conservés.</p>
-            <div className="rounded-xl bg-slate-50 p-3">
+            <div className="pata-surface-card rounded-xl bg-slate-50 p-3">
               <div className="flex items-center justify-between gap-3 text-xs">
                 <span className="text-slate-500">Prix normal</span>
                 <strong className="text-slate-800">{formatCurrency(pricing.regularAmount)}</strong>
@@ -440,7 +440,7 @@ export default function PremiumPage() {
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+      <section className="pata-surface-card overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <button type="button" onClick={() => setShowAllBenefits((value) => !value)} aria-expanded={showAllBenefits}
           className="flex min-h-16 w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-slate-50 sm:px-5">
           <span>
