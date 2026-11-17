@@ -699,12 +699,12 @@ export default function GoalsPage() {
   return (
     <div className="space-y-6">
       {nextAction && <NextBestAction key={nextAction.sequence} actionKey="goal-created" title={isEnglish ? 'Your savings space is ready' : 'Ton espace d’épargne est prêt'} description={isEnglish ? 'Add your first deposit to track progress toward your goal.' : 'Ajoute ton premier versement pour suivre la progression de ton objectif.'} href="/goals" cta={isEnglish ? 'View my savings' : 'Voir mon épargne'} />}
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div><h1 className="text-2xl font-bold text-slate-900">Épargne & Objectifs</h1><p className="text-sm text-slate-500">Gère tes objectifs datés ou ta tirelire libre.</p></div>
+      <div className="pata-page-heading flex flex-wrap items-end justify-between gap-3">
+        <div><h1 className="pata-page-title text-2xl font-bold text-slate-900">Épargne & Objectifs</h1><p className="text-sm text-slate-500">Gère tes objectifs datés ou ta tirelire libre.</p></div>
         <Button onClick={openCreate} data-pata-tour="goal-create" disabled={goalQuotaReached} className={goalQuotaReached ? 'opacity-50 grayscale' : ''}><Plus size={16} /> {goalQuotaReached ? 'Limite atteinte' : 'Créer une épargne'}</Button>
       </div>
       {!premiumActive && (
-        <div className={`rounded-xl border p-3 ${goalQuotaReached ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-white'}`}>
+        <div className={`pata-quota-panel rounded-xl border p-3 ${goalQuotaReached ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-white'}`}>
           <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-sm font-semibold text-slate-800">Création d’épargne ce mois-ci</p><p className="text-xs text-slate-500">{usedGoalQuota} sur 1 autorisée avec le compte gratuit. Un objectif gratuit peut durer jusqu’à deux mois.</p></div><span className="text-sm font-bold text-slate-700">{Math.min(usedGoalQuota, 1)}/1</span></div>
           {goalQuotaReached && <div className="mt-3 flex flex-wrap items-center justify-between gap-2"><p className="text-xs text-amber-800">Tu as utilisé ta création gratuite de ce mois.</p><Button size="sm" onClick={() => window.location.assign('/premium')}>Passer à Premium</Button></div>}
         </div>

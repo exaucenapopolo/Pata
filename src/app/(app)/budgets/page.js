@@ -299,9 +299,9 @@ export default function BudgetsPage() {
   return (
     <div className="space-y-4">
       {nextAction && <NextBestAction key={nextAction.sequence} actionKey="budget-saved" title={isEnglish ? 'Budget ready to follow' : 'Ton budget est prêt à être suivi'} description={isEnglish ? 'As you record expenses, Pata can compare actual spending with the amount you planned.' : 'Au fil de tes dépenses, Pata pourra comparer les montants réels à ce que tu as prévu.'} href="/expenses" cta={isEnglish ? 'View my expenses' : 'Voir mes dépenses'} />}
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="pata-page-heading flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Budgets</h1>
+          <h1 className="pata-page-title text-2xl font-bold text-slate-900">Budgets</h1>
           <p className="text-sm text-slate-500">
             {formatCurrency(totalSpent)} dépensés sur {formatCurrency(totalAllocated)} alloués
           </p>

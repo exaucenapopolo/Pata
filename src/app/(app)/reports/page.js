@@ -340,22 +340,22 @@ export default function ReportsPage() {
 
   return (
     <div className="space-y-5">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div><h1 data-pata-tour="reports-overview" className="text-2xl font-bold text-slate-900">Rapports financiers</h1><p className="mt-1 text-sm text-slate-500">Une analyse détaillée de tes opérations, de tes budgets, de ton épargne et de ton portefeuille.</p></div>
+      <header className="pata-page-heading flex flex-wrap items-end justify-between gap-3">
+        <div><h1 data-pata-tour="reports-overview" className="pata-page-title text-2xl font-bold text-slate-900">Rapports financiers</h1><p className="mt-1 text-sm text-slate-500">Une analyse détaillée de tes opérations, de tes budgets, de ton épargne et de ton portefeuille.</p></div>
         <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={exportPdf}><FileText size={15}/> PDF</Button><Button variant="outline" onClick={exportExcel}><FileSpreadsheet size={15}/> Excel</Button></div>
       </header>
 
       <Card>
         <div className="mb-3 flex items-center gap-2"><CalendarRange size={17} className="text-slate-500"/><CardTitle>Période du rapport</CardTitle></div>
         <div className="flex flex-wrap gap-2">
-          {[['day','Jour'],['week','Semaine'],['month','Mois'],['year','Année'],['custom','Période personnalisée']].map(([value,label]) => <button key={value} onClick={() => setPeriodType(value)} className={`rounded-lg px-3 py-2 text-xs font-semibold ${periodType===value?'bg-slate-900 text-white':'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}>{label}</button>)}
+          {[['day','Jour'],['week','Semaine'],['month','Mois'],['year','Année'],['custom','Période personnalisée']].map(([value,label]) => <button key={value} onClick={() => setPeriodType(value)} className={`pata-filter-pill rounded-lg px-3 py-2 text-xs font-semibold ${periodType===value?'is-active bg-brand-700 text-white':'bg-slate-100 text-slate-700 hover:bg-brand-50'}`}>{label}</button>)}
         </div>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          {periodType==='day' && <label className="text-xs font-medium text-slate-500">Journée<input type="date" value={selectedDay} onChange={(e)=>setSelectedDay(e.target.value)} className="mt-1 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-800"/></label>}
-          {periodType==='week' && <label className="text-xs font-medium text-slate-500">Semaine contenant le<input type="date" value={selectedWeekDate} onChange={(e)=>setSelectedWeekDate(e.target.value)} className="mt-1 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-800"/></label>}
+          {periodType==='day' && <label className="text-xs font-medium text-slate-500">Journée<input type="date" value={selectedDay} onChange={(e)=>setSelectedDay(e.target.value)} className="pata-field mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-800"/></label>}
+          {periodType==='week' && <label className="text-xs font-medium text-slate-500">Semaine contenant le<input type="date" value={selectedWeekDate} onChange={(e)=>setSelectedWeekDate(e.target.value)} className="pata-field mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-800"/></label>}
           {periodType==='month' && <label className="text-xs font-medium text-slate-500">{isEnglish ? 'Month' : 'Mois'}<MonthPicker value={month} onChange={setMonth} className="mt-1 w-full"/></label>}
-          {periodType==='year' && <label className="text-xs font-medium text-slate-500">Année<input type="number" min="2000" max="2100" value={year} onChange={(e)=>setYear(e.target.value)} className="mt-1 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-800"/></label>}
-          {periodType==='custom' && <><label className="text-xs font-medium text-slate-500">Du<input type="date" value={customStart} onChange={(e)=>setCustomStart(e.target.value)} className="mt-1 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-800"/></label><label className="text-xs font-medium text-slate-500">Au<input type="date" value={customEnd} onChange={(e)=>setCustomEnd(e.target.value)} className="mt-1 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-800"/></label></>}
+          {periodType==='year' && <label className="text-xs font-medium text-slate-500">Année<input type="number" min="2000" max="2100" value={year} onChange={(e)=>setYear(e.target.value)} className="pata-field mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-800"/></label>}
+          {periodType==='custom' && <><label className="text-xs font-medium text-slate-500">Du<input type="date" value={customStart} onChange={(e)=>setCustomStart(e.target.value)} className="pata-field mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-800"/></label><label className="text-xs font-medium text-slate-500">Au<input type="date" value={customEnd} onChange={(e)=>setCustomEnd(e.target.value)} className="pata-field mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-800"/></label></>}
         </div>
         <p className="mt-3 text-sm font-semibold text-slate-800">{range.label}</p>
         {!rangeValid && <p className="mt-1 text-xs text-red-600">La date de début doit être antérieure ou égale à la date de fin.</p>}

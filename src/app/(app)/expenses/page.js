@@ -495,9 +495,9 @@ export default function ExpensesPage() {
   return (
     <div className="space-y-4">
       {nextAction && <NextBestAction key={nextAction.sequence} actionKey="expense-saved" title={isEnglish ? 'Expense saved' : 'Dépense enregistrée'} description={isEnglish ? 'Check what remains in the budget for this category so you can adjust your next expenses.' : 'Vérifie ce qu’il te reste dans le budget de cette catégorie pour mieux préparer tes prochaines dépenses.'} href="/budgets" cta={isEnglish ? 'View my budgets' : 'Voir mes budgets'} />}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="pata-page-heading flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Dépenses</h1>
+          <h1 className="pata-page-title text-2xl font-bold text-slate-900">Dépenses</h1>
           <p className="text-sm text-slate-500">
             Total des dépenses comptabilisées (hors prêts accordés) : <span className="font-semibold text-slate-800">{formatCurrency(total)}</span>
           </p>
@@ -536,7 +536,7 @@ export default function ExpensesPage() {
         </section>
       )}
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4">
+      <section className="pata-surface-card rounded-2xl border border-slate-200 bg-white p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div><h2 className="text-base font-bold text-slate-900">Projets et financements</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-slate-500">Suis les revenus affectés, les emprunts réservés à un projet et les sorties correspondantes, sans confondre financement et revenu gagné.</p></div>
           {isPremium ? <Button onClick={() => { setProjectError(''); setProjectModalOpen(true); }} variant="outline"><FolderPlus size={15}/> Créer un projet</Button> : <a href="/premium" className="inline-flex h-10 items-center rounded-xl border border-brand-200 px-3 text-xs font-semibold text-brand-700 hover:bg-brand-50">Découvrir cette fonction Premium</a>}

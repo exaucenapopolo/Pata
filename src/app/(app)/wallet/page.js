@@ -134,9 +134,9 @@ export default function WalletPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="pata-page-heading flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Portefeuille</h1>
+          <h1 className="pata-page-title text-2xl font-bold text-slate-900">Portefeuille</h1>
           <p className="text-sm text-slate-500">
             Recharge ton solde et finance tes objectifs d&apos;épargne.
           </p>
@@ -165,7 +165,7 @@ export default function WalletPage() {
               pattern="[0-9]+"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"
+              className="pata-field h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
               required
             />
             <div className="mt-2 flex flex-wrap gap-2">
@@ -174,7 +174,7 @@ export default function WalletPage() {
                   type="button"
                   key={v}
                   onClick={() => setAmount(String(v))}
-                  className="rounded-full border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 transition hover:border-brand-500 hover:text-brand-600"
+                  className="pata-filter-pill rounded-full border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 transition hover:border-brand-500 hover:text-brand-600"
                 >
                   {v.toLocaleString(getPreferredLocale())}
                 </button>

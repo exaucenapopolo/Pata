@@ -589,3 +589,25 @@ html.dark .pata-filter-pill:not(.is-active) {
   color:#c7d6cc !important;
 }
 html.dark .pata-filter-pill.is-active { background:#0b7657 !important; border-color:#0b7657 !important; color:#fff !important; }
+
+
+/* A consistent page heading and compact quota context for finance modules. */
+.pata-page-heading { gap:12px; }
+.pata-page-title {
+  letter-spacing:-.04em !important;
+  line-height:1.18;
+  font-weight:800 !important;
+}
+.pata-quota-panel {
+  background:linear-gradient(140deg,rgba(255,255,255,.94),rgba(245,251,246,.92)) !important;
+  border-color:#dfe9e1 !important;
+  box-shadow:0 2px 10px rgba(7,91,67,.035);
+}
+html.dark .pata-quota-panel {
+  background:linear-gradient(140deg,#1d2d24,#19271f) !important;
+  border-color:#3a5144 !important;
+}
+@media (max-width:639px) {
+  .pata-page-heading { align-items:flex-start; }
+  .pata-page-heading > div:first-child { min-width:0; flex:1 1 100%; }
+}

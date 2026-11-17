@@ -700,9 +700,9 @@ export default function IncomePage() {
     <div className="space-y-4">
       {nextAction && <NextBestAction key={nextAction.sequence} actionKey="income-saved" title={isEnglish ? 'Income saved' : 'Revenu enregistré'} description={isEnglish ? 'You can now allocate part of this income to your budgets and keep track of what remains available.' : 'Tu peux maintenant répartir une partie de ce revenu entre tes budgets et suivre ce qu’il te reste.'} href="/budgets" cta={isEnglish ? 'Organise this income' : 'Organiser ce revenu'} />}
       {showCotisationReminder && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3"><div><p className="text-sm font-semibold text-brand-900">Revenu enregistré.</p><p className="mt-0.5 text-xs text-brand-800">Pense à vérifier ta prochaine cotisation si tu participes à un groupe.</p></div><div className="flex items-center gap-3"><Link href="/cotisations" className="text-xs font-bold text-brand-800 underline">Voir mes cotisations</Link><button type="button" onClick={() => setShowCotisationReminder(false)} className="text-xs text-brand-700">Fermer</button></div></div>}
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="pata-page-heading flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Revenus</h1>
+          <h1 className="pata-page-title text-2xl font-bold text-slate-900">Revenus</h1>
           <p className="text-sm text-slate-500">
             {activeIncomes.length} source(s) de revenu active(s) — Disponible : <span className="font-semibold text-brand-600">{totalAvailable == null ? 'Indisponible' : formatCurrency(totalAvailable)}</span> · Espèces disponibles : <span className="font-semibold text-slate-700">{cashAvailable == null ? 'Indisponible' : formatCurrency(cashAvailable)}</span>
           </p>
@@ -728,14 +728,14 @@ export default function IncomePage() {
           ].map(([value, label]) => (
             <button key={value} type="button" role="tab" aria-selected={incomeSection === value}
               onClick={() => setIncomeSection(value)}
-              className={'min-h-10 shrink-0 rounded-xl border px-3.5 text-xs font-semibold transition ' + (incomeSection === value ? 'border-brand-700 bg-brand-700 text-white shadow-sm' : 'border-slate-200 bg-white text-slate-600 hover:border-brand-200 hover:bg-brand-50 hover:text-brand-800')}>
+              className={'pata-filter-pill min-h-10 shrink-0 rounded-xl border px-3.5 text-xs font-semibold transition ' + (incomeSection === value ? 'is-active border-brand-700 bg-brand-700 text-white shadow-sm' : 'border-slate-200 bg-white text-slate-600 hover:border-brand-200 hover:bg-brand-50 hover:text-brand-800')}>
               {label}
             </button>
           ))}
         </div>
       </nav>
       {(incomeSection === 'all' || incomeSection === 'revenues') && !premiumActive && (
-        <div className={`rounded-xl border p-3 ${incomeQuotaReached ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-white'}`}>
+        <div className={`pata-quota-panel rounded-xl border p-3 ${incomeQuotaReached ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-white'}`}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div><p className="text-sm font-semibold text-slate-800">Revenus créés ce mois-ci</p><p className="text-xs text-slate-500">{usedIncomeQuota} sur 2 autorisés avec le compte gratuit.</p></div>
             <span className="text-sm font-bold text-slate-700">{Math.min(usedIncomeQuota, 2)}/2</span>
