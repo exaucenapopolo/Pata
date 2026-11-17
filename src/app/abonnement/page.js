@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { calculatePremiumPricing } from '@/lib/premiumPricing.mjs';
 
 export const metadata = {
   title: 'Abonnement Pata Premium : fonctionnalités et prix',
@@ -98,6 +99,30 @@ export default function SubscriptionPage() {
           </table>
         </div>
         <p className="mt-3 text-[11px] leading-5 text-slate-500">* L’utilisation de Mč, de la génération d’images et des réponses vocales reste soumise à la disponibilité des fournisseurs et aux règles de sécurité de Pata. Premium élargit l’accès sans garantir une capacité technique illimitée. Le suivi Mobile Money nécessite l’application Android et les autorisations compatibles.</p>
+      </section>
+
+      <section className="mx-auto max-w-5xl px-4 py-12 sm:px-6">
+        <div className="max-w-3xl">
+          <p className="text-xs font-extrabold uppercase tracking-[.16em] text-[#075b43]">Choisir sa durée</p>
+          <h2 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">Plus tu choisis une durée longue, moins tu paies.</h2>
+          <p className="mt-3 text-sm leading-7 text-slate-600">Les forfaits de 6 et 12 mois bénéficient automatiquement de 10 % de réduction. La remise est appliquée au montant total lors du paiement.</p>
+        </div>
+        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {[1, 3, 6, 12].map((months) => {
+            const pricing = calculatePremiumPricing(months, false);
+            const discounted = pricing.durationDiscount > 0;
+            return (
+              <article key={months} className={'rounded-2xl border p-4 ' + (months === 12 ? 'border-emerald-300 bg-emerald-50/70' : 'border-slate-200 bg-white')}>
+                <p className="text-xs font-bold text-slate-500">{months} mois</p>
+                {discounted && <span className="mt-2 inline-flex rounded-full bg-emerald-700 px-2 py-1 text-[9px] font-extrabold text-white">−10 %</span>}
+                <p className="mt-2 text-xl font-extrabold tracking-tight text-slate-900">{pricing.totalAmount.toLocaleString('fr-FR')} FCFA</p>
+                {discounted && <p className="mt-1 text-[11px] text-slate-400 line-through">{pricing.regularAmount.toLocaleString('fr-FR')} FCFA</p>}
+                <p className="mt-1 text-[11px] leading-4 text-slate-500">{discounted ? 'Tu économises ' + pricing.totalSavings.toLocaleString('fr-FR') + ' FCFA.' : 'Au tarif mensuel standard.'}</p>
+                <Link href="/register" className="mt-4 inline-flex min-h-9 items-center gap-1 text-xs font-bold text-[#075b43]">Commencer <span aria-hidden="true">→</span></Link>
+              </article>
+            );
+          })}
+        </div>
       </section>
 
       <section className="mx-auto max-w-5xl px-4 py-14 sm:px-6">

@@ -5,6 +5,7 @@ import { adminAuth, adminDb, adminMessaging } from '@/lib/firebase/admin';
 import { FieldValue, FieldPath, AggregateField } from 'firebase-admin/firestore';
 import { isNotificationUnread } from '@/lib/notifications/notificationState.mjs';
 import { getNextAdminPremiumUntil, validateAdminPremiumAmount } from '@/lib/adminPremiumPolicy.mjs';
+import { calculatePremiumPricing } from '@/lib/premiumPricing.mjs';
 import { completeWithGroq } from '@/lib/ai/groqClient';
 import { normalizeWebPushSubscription, webPushSubscriptionId, sendPataWebPush, isExpiredWebPushError } from '@/lib/notifications/webPush.mjs';
 import { dispatchPushNotification } from '@/lib/notifications/dispatcher.mjs';
@@ -1004,8 +1005,7 @@ async function releaseReferralDiscount(uid, reservationKey) {
 }
 
 function referralPremiumPrice(months, discounted) {
-  const safeMonths = Math.max(1, Math.min(12, Math.floor(Number(months) || 1)));
-  return discounted ? 1250 + (safeMonths - 1) * 2500 : 2500 * safeMonths;
+  return calculatePremiumPricing(months, discounted).totalAmount;
 }
 
 async function handleSubscriptionCheckout(request) {
