@@ -11,6 +11,7 @@ import { formatCurrency, formatDate } from '@/lib/utils';
 import { subscribeBills, createBill, updateBill, deactivateBill, payBill } from '@/lib/firestore/bills';
 import { CloudinaryImageField } from '@/components/ui/CloudinaryImageField';
 import { uploadBillImage } from '@/lib/bills/uploadBillImage.mjs';
+import { NextBestAction } from '@/components/NextBestAction';
 
 const BILL_TYPES = [
   ['electricity', 'Électricité'],
@@ -105,6 +106,7 @@ export default function BillsPage() {
   const [scanningInvoice, setScanningInvoice] = useState(false);
   const [scanFeedback, setScanFeedback] = useState('');
   const [scanError, setScanError] = useState(false);
+  const [nextAction, setNextAction] = useState(null);
 
   useEffect(() => {
     if (!user?.uid) {
@@ -285,7 +287,10 @@ export default function BillsPage() {
         note: form.note.trim(),
       };
       if (form.id) await updateBill(form.id, payload);
-      else await createBill(payload);
+      else {
+        await createBill(payload);
+        setNextAction({ sequence: Date.now(), type: 'created' });
+      }
       setShowEditor(false);
       setFeedback(form.id ? 'Facture mise à jour.' : 'Facture enregistrée. Pata te rappellera son échéance.');
       setFeedbackError(false);
@@ -331,6 +336,7 @@ export default function BillsPage() {
         setFeedback(t(result.completed
           ? 'Paiement enregistré dans tes dépenses. Cette facture ponctuelle est terminée.'
           : 'Paiement enregistré dans tes dépenses. Prochaine échéance : ' + formatDate(result.nextDueDate) + '.'));
+        setNextAction({ sequence: Date.now(), type: 'paid' });
       }
       setFeedbackError(false);
       setPayingBill(null);
@@ -359,6 +365,8 @@ export default function BillsPage() {
 
   return (
     <div className="space-y-5">
+      {nextAction?.type === 'created' && <NextBestAction key={nextAction.sequence} actionKey="bill-created" title={isEnglish ? 'Keep this due date in sight' : 'Garde cette échéance en vue'} description={isEnglish ? 'Check that Pata notifications are enabled so you can receive the reminders you configured.' : 'Vérifie que les notifications de Pata sont autorisées pour recevoir les rappels que tu as configurés.'} href="/settings" cta={isEnglish ? 'Check notifications' : 'Vérifier les notifications'} />}
+      {nextAction?.type === 'paid' && <NextBestAction key={nextAction.sequence} actionKey="bill-paid" title={isEnglish ? 'Payment added to your expenses' : 'Paiement ajouté à tes dépenses'} description={isEnglish ? 'Review your spending and the remaining amount in the related budget.' : 'Consulte tes dépenses et le montant restant dans le budget concerné.'} href="/expenses" cta={isEnglish ? 'View my expenses' : 'Voir mes dépenses'} />}
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Factures et échéances</h1>

@@ -21,6 +21,7 @@ import { upsertBudget, deleteBudget, getBudgetTemplates, saveBudgetTemplate, app
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { formatCurrency, getLocalMonth, normalizeExpenseCategoryId } from '@/lib/utils';
 import { buildBudgetSuggestions } from '@/lib/financialPlanning';
+import { NextBestAction } from '@/components/NextBestAction';
 
 const todayMonth = () => getLocalMonth();
 
@@ -51,6 +52,7 @@ export default function BudgetsPage() {
   const [saving, setSaving] = useState(false);
   const [details, setDetails] = useState(null);
   const [saveError, setSaveError] = useState('');
+  const [nextAction, setNextAction] = useState(null);
   const [templates, setTemplates] = useState([]);
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
@@ -285,6 +287,7 @@ export default function BudgetsPage() {
           incomeSourceId: selectedIncome,
         });
       }
+      if (value > 0) setNextAction({ sequence: Date.now() });
       setEditing(null);
     } catch (error) {
       setSaveError(isEnglish ? 'Could not save this budget.' : (error.message || 'Impossible d’enregistrer ce budget.'));
@@ -295,6 +298,7 @@ export default function BudgetsPage() {
 
   return (
     <div className="space-y-4">
+      {nextAction && <NextBestAction key={nextAction.sequence} actionKey="budget-saved" title={isEnglish ? 'Budget ready to follow' : 'Ton budget est prêt à être suivi'} description={isEnglish ? 'As you record expenses, Pata can compare actual spending with the amount you planned.' : 'Au fil de tes dépenses, Pata pourra comparer les montants réels à ce que tu as prévu.'} href="/expenses" cta={isEnglish ? 'View my expenses' : 'Voir mes dépenses'} />}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Budgets</h1>
