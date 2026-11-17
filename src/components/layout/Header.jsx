@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, LogOut, Settings, User, HelpCircle } from 'lucide-react';
@@ -31,20 +31,29 @@ export function Header() {
   const pathname = usePathname() || '/dashboard';
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const routeStackRef = useRef([]);
+
+  useEffect(() => {
+    const stack = routeStackRef.current;
+    if (stack[stack.length - 1] !== pathname) {
+      routeStackRef.current = [...stack, pathname].slice(-25);
+    }
+  }, [pathname]);
   const isHome = pathname === '/dashboard' || pathname === '/dashboard/';
   const page = PAGE_TITLES.find((item) => pathname === item.path || pathname.startsWith(item.path + '/'));
   const pageTitle = page ? (language === 'en' ? page.en : page.fr) : (language === 'en' ? 'My space' : 'Mon espace');
 
   const goBack = () => {
     setOpen(false);
-    const sameOriginReferrer = typeof document !== 'undefined'
-      && document.referrer
-      && document.referrer.startsWith(window.location.origin);
-    const nextHistoryEntryIsInternal = typeof window !== 'undefined'
-      && Number.isInteger(window.history.state?.idx)
-      && window.history.state.idx > 0;
-    if (sameOriginReferrer || nextHistoryEntryIsInternal) router.back();
-    else router.replace('/dashboard');
+    const stack = routeStackRef.current;
+    if (stack.length > 1) {
+      stack.pop();
+      const previousPath = stack[stack.length - 1];
+      routeStackRef.current = stack;
+      router.push(previousPath);
+      return;
+    }
+    router.replace('/dashboard');
   };
 
   const handleLogout = async () => {
