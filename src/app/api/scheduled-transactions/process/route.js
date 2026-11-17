@@ -72,6 +72,12 @@ async function createUnlinkedExpense(userRef, schedule, occurrenceDate, occurren
       incomeSourceName: 'Source à relier : ' + clean(schedule.futureIncomeSourceName, 100),
       pendingIncomeSourceName: clean(schedule.futureIncomeSourceName, 100),
       awaitingIncomeSource: true,
+      locationLabel: clean(schedule.locationLabel, 160),
+      latitude: Number.isFinite(Number(schedule.latitude)) ? Number(schedule.latitude) : null,
+      longitude: Number.isFinite(Number(schedule.longitude)) ? Number(schedule.longitude) : null,
+      locationAccuracy: Number.isFinite(Number(schedule.locationAccuracy)) ? Number(schedule.locationAccuracy) : null,
+      paymentMethod: clean(schedule.paymentMethod, 30),
+      details: clean(schedule.details, 160),
       scheduledTransactionId: schedule.id,
       scheduledOccurrenceDate: occurrenceDate,
       createdAt: FieldValue.serverTimestamp(),
@@ -243,7 +249,7 @@ async function processOccurrence(userRef, uid, scheduleRef, schedule, occurrence
       if (!freshSchedule.exists || freshRun.data()?.status === 'completed') return;
       transaction.set(runsRef, { status: 'completed', ...entity, completedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       transaction.update(scheduleRef, {
-        status: 'scheduled',
+        status: recurring ? 'scheduled' : 'completed',
         active: recurring,
         nextRunDate,
         lastRunDate: occurrenceDate,
@@ -282,7 +288,7 @@ async function processOccurrence(userRef, uid, scheduleRef, schedule, occurrence
       date: occurrenceDate,
       title: 'Une opération programmée nécessite ton attention',
       body: 'Pata n’a pas pu enregistrer ' + clean(schedule.note || schedule.source || schedule.person || 'cette opération', 70) + ' : ' + clean(error.message || 'vérifie les informations et les fonds disponibles.', 110),
-      target: '/scheduled',
+      target: ['expense', 'loan_given', 'debt_repayment'].includes(schedule.kind) ? '/expenses' : '/income',
     }).catch((notificationError) => console.warn('[PATA SCHEDULE FAILURE NOTIFICATION]', notificationError.message || notificationError));
     return { failed: true, error: error.message || 'Échec inconnu.' };
   }
