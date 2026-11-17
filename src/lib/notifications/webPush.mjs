@@ -74,6 +74,17 @@ export function buildPataWebPushPayload(notification = {}) {
   };
 }
 
+export function buildPataWebPushSendOptions(payload = {}) {
+  const topic = String(payload.tag || 'pata-notification')
+    .replace(/[^a-zA-Z0-9_-]/g, '-')
+    .slice(0, 32);
+  return {
+    TTL: 86400,
+    urgency: 'high',
+    topic,
+  };
+}
+
 export async function sendPataWebPush(subscriptionInput, notification) {
   const publicKey = process.env.NEXT_PUBLIC_WEB_PUSH_VAPID_KEY;
   const privateKey = process.env.WEB_PUSH_VAPID_PRIVATE_KEY;
@@ -85,9 +96,9 @@ export async function sendPataWebPush(subscriptionInput, notification) {
 
   const payload = buildPataWebPushPayload(notification);
 
-  return webPush.sendNotification(subscription, JSON.stringify(payload), {
-    TTL: 86400,
-    urgency: 'high',
-    topic: tag,
-  });
+  return webPush.sendNotification(
+    subscription,
+    JSON.stringify(payload),
+    buildPataWebPushSendOptions(payload)
+  );
 }

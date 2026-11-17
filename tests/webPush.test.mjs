@@ -72,3 +72,23 @@ test('refuse une image non HTTPS dans le payload Web Push', async () => {
   const payload = buildPataWebPushPayload({ imageUrl: 'http://example.com/photo.jpg' });
   assert.equal(Object.prototype.hasOwnProperty.call(payload, 'image'), false);
 });
+
+test('construit les options d’envoi Web Push à partir du tag du payload', async () => {
+  const { buildPataWebPushPayload, buildPataWebPushSendOptions } = await import('../src/lib/notifications/webPush.mjs');
+  const payload = buildPataWebPushPayload({
+    title: 'Information Pata',
+    body: 'Notification de test',
+    tag: 'pata-admin-12345',
+    imageUrl: 'https://res.cloudinary.com/do83voiqy/image/upload/v1/pata/notifications/info.jpg',
+  });
+  const options = buildPataWebPushSendOptions(payload);
+  assert.equal(options.topic, payload.tag);
+  assert.equal(options.topic, 'pata-admin-12345');
+  assert.equal(options.TTL, 86400);
+  assert.equal(options.urgency, 'high');
+});
+
+test('construit un topic Web Push de secours lorsque le payload ne contient pas de tag', async () => {
+  const { buildPataWebPushSendOptions } = await import('../src/lib/notifications/webPush.mjs');
+  assert.equal(buildPataWebPushSendOptions({}).topic, 'pata-notification');
+});
