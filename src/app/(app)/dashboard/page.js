@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import { Card, CardTitle, CardValue } from '@/components/ui/Card';
+import { DateRangePicker } from '@/components/layout/NativeDatePicker';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { CategoryImage } from '@/components/ui/CategoryImage';
@@ -724,15 +725,16 @@ export default function DashboardPage() {
         </div>
 
         {showCustomPeriod && (
-          <div className="mt-3 flex flex-wrap gap-2 items-end">
-            <div className="flex-1 min-w-[140px]">
-              <label className="block text-xs font-medium text-slate-500 mb-1">Du</label>
-              <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm" />
-            </div>
-            <div className="flex-1 min-w-[140px]">
-              <label className="block text-xs font-medium text-slate-500 mb-1">Au</label>
-              <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm" />
-            </div>
+          <div className="mt-3">
+            <DateRangePicker
+              startDate={customStart}
+              endDate={customEnd}
+              onChange={({ startDate, endDate }) => {
+                setCustomStart(startDate);
+                setCustomEnd(endDate);
+              }}
+              language={isEnglish ? 'en' : 'fr'}
+            />
           </div>
         )}
 
