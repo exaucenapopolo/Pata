@@ -26,6 +26,7 @@ import { PataQuickCapture } from '@/lib/quickCapture/nativePlugin';
 import { QuickCaptureSettings } from '@/components/QuickCaptureSettings';
 import { ProfilePhotoEditor } from '@/components/profile/ProfilePhotoEditor';
 import { useLanguage } from '@/context/LanguageContext';
+import { NextBestActionPreferences } from '@/components/NextBestAction';
 import { translateText } from '@/lib/i18n/translations';
 
 export default function SettingsPage() {
@@ -278,6 +279,7 @@ export default function SettingsPage() {
           <SettingRow icon={HelpCircle} title={isEnglish ? 'Help Center' : 'Centre d’aide'} description={isEnglish ? 'Find answers and step-by-step guides before contacting support' : 'Retrouve les réponses et les étapes pour utiliser chaque fonction'} onClick={() => router.push('/help')} />
           <SettingRow icon={BookOpen} title={isEnglish ? 'Replay the Pata guide' : 'Revoir le guide de Pata'} description={isEnglish ? 'Take the animated tour of the main features again' : 'Revoir la présentation animée des principales fonctions'} onClick={() => window.dispatchEvent(new Event('pata:app-tour-start'))} />
         </div>
+        <NextBestActionPreferences />
       </section>
 
       <button type="button" onClick={onLogout} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 text-sm font-semibold text-red-700 transition hover:bg-red-100">

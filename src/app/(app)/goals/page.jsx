@@ -17,6 +17,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { CategoryManager } from '@/components/ui/CategoryManager';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { WithdrawalHistory } from '@/components/WithdrawalHistory';
+import { NextBestAction } from '@/components/NextBestAction';
 import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
 import { useGoals, useDeposits } from '@/hooks/useGoals';
@@ -336,7 +337,7 @@ function GoalDetail({ goal, onClose, onAskWithdraw }) {
   );
 }
 
-function GoalFormModal({ open, onClose, goal }) {
+function GoalFormModal({ open, onClose, goal, onSaved }) {
   const { user } = useAuth();
   const { language } = useLanguage();
   const isEnglish = language === 'en';
@@ -453,7 +454,10 @@ function GoalFormModal({ open, onClose, goal }) {
     setSaving(true);
     try {
       if (editing) await updateGoal(user.uid, goal.id, payload);
-      else await createGoal(user.uid, payload);
+      else {
+        await createGoal(user.uid, payload);
+        onSaved?.();
+      }
       onClose();
     } catch (err) {
       setError(isEnglish ? 'Could not save this savings goal.' : (err.message || 'Impossible d’enregistrer cette épargne.'));
@@ -643,6 +647,7 @@ export default function GoalsPage() {
   const { profile } = useProfile();
   const { goals } = useGoals();
   const [open, setOpen] = useState(false);
+  const [nextAction, setNextAction] = useState(null);
   const [editingGoal, setEditingGoal] = useState(null);
   const [selected, setSelected] = useState(null);
   const [confirmGoal, setConfirmGoal] = useState(null);
@@ -693,6 +698,7 @@ export default function GoalsPage() {
 
   return (
     <div className="space-y-6">
+      {nextAction && <NextBestAction key={nextAction.sequence} actionKey="goal-created" title={isEnglish ? 'Your savings space is ready' : 'Ton espace d’épargne est prêt'} description={isEnglish ? 'Add your first deposit to track progress toward your goal.' : 'Ajoute ton premier versement pour suivre la progression de ton objectif.'} href="/goals" cta={isEnglish ? 'View my savings' : 'Voir mon épargne'} />}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div><h1 className="text-2xl font-bold text-slate-900">Épargne & Objectifs</h1><p className="text-sm text-slate-500">Gère tes objectifs datés ou ta tirelire libre.</p></div>
         <Button onClick={openCreate} data-pata-tour="goal-create" disabled={goalQuotaReached} className={goalQuotaReached ? 'opacity-50 grayscale' : ''}><Plus size={16} /> {goalQuotaReached ? 'Limite atteinte' : 'Créer une épargne'}</Button>
@@ -714,7 +720,7 @@ export default function GoalsPage() {
         </div>
       )}
 
-      {open && <GoalFormModal key={editingGoal?.id || 'new'} open={open} onClose={closeForm} goal={editingGoal} />}
+      {open && <GoalFormModal key={editingGoal?.id || 'new'} open={open} onClose={closeForm} goal={editingGoal} onSaved={() => setNextAction({ sequence: Date.now() })} />}
       {selected && (<GoalDetail goal={selected} onClose={() => setSelected(null)} onAskWithdraw={(g, type) => { setSelected(null); askWithdraw(g, type); }} />)}
       {confirmGoal && confirmType && (<ConfirmWithdrawModal goal={confirmGoal} actionType={confirmType} onClose={() => { setConfirmGoal(null); setConfirmType(null); }} onConfirm={handleConfirmAction} busy={confirmBusy} />)}
 
