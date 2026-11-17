@@ -3213,12 +3213,18 @@ async function handleNotificationScheduler(request, passNumber = 1) {
         console.error(`[PUSH] Échec utilisateur ${userDoc.id}:`, userError.message);
       }
     }
-    // Le planificateur quotidien existant gère également les rappels de cotisation.
-    // Cela évite d'exiger un troisième Cron sur les projets Vercel Hobby.
-    const cotisationResponse = await handleCotisationsScheduler(request);
-    const cotisationSummary = await cotisationResponse.json().catch(() => ({ success: false, error: 'Réponse du planificateur de cotisations illisible.' }));
+    // Les cotisations restent hors quotas et ne sont traitées qu'au premier passage.
+    // Le second Cron est réservé au deuxième rappel financier et ne relance pas ce module.
+    let cotisationSummary = { skipped: 'handled_by_first_evening_pass' };
+    if (eveningPass === 1) {
+      const cotisationResponse = await handleCotisationsScheduler(request);
+      cotisationSummary = await cotisationResponse.json().catch(() => ({
+        success: false,
+        error: 'Réponse du planificateur de cotisations illisible.',
+      }));
+    }
     return NextResponse.json({
-      success: true, date: today, checked: usersSnapshot.size, sent, skipped, failed,
+      success: true, date: today, eveningPass, checked: usersSnapshot.size, sent, skipped, failed,
       cotisations: cotisationSummary,
     });
   } catch (error) {
