@@ -151,6 +151,9 @@ export async function POST(request) {
       }
       payload.time = clean(body.time, 5);
       payload.locationLabel = clean(body.locationLabel, 160);
+      payload.latitude = body.latitude == null || body.latitude === '' ? null : Number(body.latitude);
+      payload.longitude = body.longitude == null || body.longitude === '' ? null : Number(body.longitude);
+      payload.locationAccuracy = body.locationAccuracy == null || body.locationAccuracy === '' ? null : Number(body.locationAccuracy);
       payload.paymentMethod = clean(body.paymentMethod, 30);
       payload.details = clean(body.details, 160);
       payload.flowType = kind === 'debt_borrowed' ? 'debt_borrowed' : kind === 'repayment_received' ? 'repayment_received' : 'normal';
