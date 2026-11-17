@@ -224,6 +224,49 @@ export function claimDailyRetentionSlot(state = {}, dateKey, notificationKey, li
  * The two financial evening reminders use claimDailyRetentionSlot instead.
  * Transactional/operational alerts and cotisation messages must not call this.
  */
+/**
+ * Reserves one of the two evening financial passes. Each pass may deliver at
+ * most one reminder, while the shared daily retention limit remains two.
+ * This prevents the early run from consuming both evening opportunities.
+ */
+export function claimDailyRetentionPassSlot(state = {}, dateKey, notificationKey, passNumber = 1) {
+  const pass = Number(passNumber) === 2 ? 2 : 1;
+  const passDateKey = 'pass' + pass + 'Date';
+  const passCountKey = 'pass' + pass + 'Count';
+  const passKeysKey = 'pass' + pass + 'Keys';
+  const samePassDay = state[passDateKey] === dateKey;
+  const passCount = samePassDay ? Math.max(0, Number(state[passCountKey]) || 0) : 0;
+  const passKeys = samePassDay && Array.isArray(state[passKeysKey]) ? state[passKeysKey].map(String) : [];
+
+  if (!dateKey || !String(notificationKey || '').trim()) {
+    return { allowed: false, reason: 'invalid', state: { ...state } };
+  }
+  if (passKeys.includes(String(notificationKey))) {
+    return { allowed: false, reason: 'duplicate', state: { ...state } };
+  }
+  if (passCount >= 1) {
+    return { allowed: false, reason: 'pass_limit', state: { ...state } };
+  }
+
+  const dailyClaim = claimDailyRetentionSlot({
+    date: state.date,
+    count: state.count,
+    keys: state.keys,
+  }, dateKey, notificationKey);
+  if (!dailyClaim.allowed) return dailyClaim;
+
+  return {
+    ...dailyClaim,
+    state: {
+      ...dailyClaim.state,
+      [passDateKey]: dateKey,
+      [passCountKey]: passCount + 1,
+      [passKeysKey]: [...passKeys, String(notificationKey)].slice(-1),
+      pass,
+    },
+  };
+}
+
 export function claimDailyNonEssentialSlot(
   state = {},
   dateKey,
