@@ -19,6 +19,10 @@
     {
       "path": "/api/notifications/weekend-scheduler",
       "schedule": "30 16 * * 6"
+    },
+    {
+      "path": "/api/scheduled-transactions/process",
+      "schedule": "5 0 * * *"
     }
   ],
   "headers": [
