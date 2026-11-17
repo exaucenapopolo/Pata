@@ -154,6 +154,30 @@ export function MoneyKeypad() {
         setError(calculationError.message);
         return;
       }
+      const amount = Number(evaluated.roundedValue);
+      if (!Number.isFinite(amount) || amount < 0) {
+        setError(language === 'en' ? 'An amount cannot be negative.' : 'Un montant ne peut pas être négatif.');
+        return;
+      }
+      const minimum = input.min === '' ? null : Number(input.min);
+      const maximum = input.max === '' ? null : Number(input.max);
+      const step = input.step === '' || input.step === 'any' ? null : Number(input.step);
+      if (minimum !== null && Number.isFinite(minimum) && amount < minimum) {
+        setError((language === 'en' ? 'Minimum allowed: ' : 'Minimum autorisé : ') + minimum);
+        return;
+      }
+      if (maximum !== null && Number.isFinite(maximum) && amount > maximum) {
+        setError((language === 'en' ? 'Maximum allowed: ' : 'Maximum autorisé : ') + maximum);
+        return;
+      }
+      const stepBase = minimum ?? 0;
+      if (step !== null && Number.isFinite(step) && step > 0
+        && Math.abs((amount - stepBase) / step - Math.round((amount - stepBase) / step)) > 1e-8) {
+        setError(language === 'en'
+          ? 'Use an amount that matches the required increment.'
+          : 'Utilise un montant qui respecte le pas autorisé.');
+        return;
+      }
       const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
       if (nativeSetter) nativeSetter.call(input, evaluated.roundedValue);
       else input.value = evaluated.roundedValue;
@@ -198,7 +222,7 @@ export function MoneyKeypad() {
             </p>
           </div>
           {result?.isRounded && !result.error && <p className="mt-1 text-right text-[10px] text-slate-500">{language === 'en' ? 'Rounded to the nearest whole CFA franc.' : 'Arrondi au franc CFA le plus proche.'}</p>}
-          {(error || result?.error) && <p role="alert" className="mt-2 text-right text-xs font-semibold text-red-600">{error || result.error}</p>}
+          {error && <p role="alert" className="mt-2 text-right text-xs font-semibold text-red-600">{error}</p>}
         </div>
 
         <div className="grid grid-cols-4 gap-2">
