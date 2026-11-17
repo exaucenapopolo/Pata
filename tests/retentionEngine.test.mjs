@@ -7,6 +7,7 @@ import {
   buildCategoryAdviceNotification,
   claimDailyNonEssentialSlot,
   claimDailyRetentionSlot,
+  claimDailyRetentionPassSlot,
   getCategoryAdvice,
   getDoualaDateKey,
   isWithinDoualaEveningWindow,
@@ -59,6 +60,34 @@ test('allows three daytime messages and two independent evening financial remind
   assert.equal(secondEvening.allowed, true);
   assert.equal(thirdEvening.allowed, false);
   assert.equal(thirdEvening.reason, 'daily_limit');
+});
+
+test('reserves at most one financial reminder in each of the two evening passes', () => {
+  const first = claimDailyRetentionPassSlot({}, '2026-11-17', 'debt-1', 1);
+  const extraFirst = claimDailyRetentionPassSlot(first.state, '2026-11-17', 'bill-1', 1);
+  const second = claimDailyRetentionPassSlot(first.state, '2026-11-17', 'daily-checkin', 2);
+  const extraSecond = claimDailyRetentionPassSlot(second.state, '2026-11-17', 'another-checkin', 2);
+
+  assert.equal(first.allowed, true);
+  assert.equal(extraFirst.allowed, false);
+  assert.equal(extraFirst.reason, 'pass_limit');
+  assert.equal(second.allowed, true);
+  assert.equal(second.state.count, 2);
+  assert.equal(extraSecond.allowed, false);
+  assert.equal(extraSecond.reason, 'daily_limit');
+});
+
+test('resets both evening passes at the next Cameroon calendar day', () => {
+  const first = claimDailyRetentionPassSlot({}, '2026-11-17', 'debt-1', 1);
+  const second = claimDailyRetentionPassSlot(first.state, '2026-11-17', 'bill-1', 2);
+  const nextDay = claimDailyRetentionPassSlot(second.state, '2026-11-18', 'new-day-reminder', 1);
+
+  assert.equal(first.allowed, true);
+  assert.equal(second.allowed, true);
+  assert.equal(nextDay.allowed, true);
+  assert.equal(nextDay.state.count, 1);
+  assert.equal(nextDay.state.pass1Count, 1);
+  assert.equal(nextDay.state.pass2Count, 0);
 });
 
 test('resets the retention counter on the next Cameroon calendar date', () => {
