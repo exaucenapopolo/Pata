@@ -321,7 +321,7 @@ function extractIncomeSource(raw, categoryId, incomeMatch, customIncomeCategory)
     .replace(/\b(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)(?:\s+(?:dernier|derniere|passe|passee|prochain|prochaine))?\b/gi, " ")
     .replace(/\b(avant[- ]hier|demain|apres[- ]demain|hier|aujourd'hui)\b/gi, " ")
     .replace(/\b(fcfa|xaf|cfa|francs?)\b/gi, " ")
-    .replace(/\b(revenu|revenus|revenue|revenues|recette|recettes|recu|reçu|reçus|reçue|j'ai|jai|je|on|a|de|du|des|par|pour|un|une|le|la|les|mon|ma|mes|hier|demain|date|provenant|provenance|chaque|mois|semaine|jour|jours|tous|toutes|mensuel|mensuelle|hebdomadaire|quotidien|quotidienne)\b/gi, " ");
+    .replace(/\b(revenu|revenus|revenue|revenues|recette|recettes|recu|reçu|reçus|reçue|j'ai|jai|je|on|a|de|du|des|par|pour|un|une|le|la|les|mon|ma|mes|hier|demain|date|provenant|provenance|programme|programmer|programmé|programmée|programmés|programmées|planifie|planifier|planifié|planifiée|prévois|prévoir|prévu|prévue|chaque|mois|semaine|jour|jours|tous|toutes|mensuel|mensuelle|hebdomadaire|quotidien|quotidienne)\b/gi, " ");
   if (incomeMatch) value = value.replace(incomeMatch[1], " ");
   for (const alias of INCOME_INTENT_ALIASES) value = removeAliasFromText(value, normalize(alias));
   if (customIncomeCategory?.name || customIncomeCategory?.label) {
