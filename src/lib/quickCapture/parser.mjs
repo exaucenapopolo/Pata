@@ -441,7 +441,7 @@ export function parseQuickCapture(input, now = new Date(), options = {}) {
     || (!type && !amount);
   return {
     raw, amount, type, categoryId,
-    date: (hasBill || hasLoan || hasDebt) && dueDate ? (now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-" + pad(now.getDate())) : extractDate(raw, now),
+    date: isScheduled ? extractDate(raw, now) : (hasBill || hasLoan || hasDebt) && dueDate ? (now.getFullYear() + "-" + pad(now.getMonth() + 1) + "-" + pad(now.getDate())) : extractDate(raw, now),
     dueDate,
     note, source, person, incomeSourceName, confidence,
     billName: bill?.billName || "", billType: bill?.billType || "",
