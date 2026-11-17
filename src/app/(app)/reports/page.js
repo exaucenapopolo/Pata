@@ -342,7 +342,7 @@ export default function ReportsPage() {
   return (
     <div className="space-y-5">
       <header className="pata-page-heading flex flex-wrap items-end justify-between gap-3">
-        <div data-pata-tour="reports-overview"><h1 className="pata-page-title text-2xl font-bold text-slate-900">Rapports financiers</h1><p className="mt-1 text-sm text-slate-500">Une analyse détaillée de tes opérations, de tes budgets, de ton épargne et de ton portefeuille.</p></div>
+        <div data-pata-tour="reports-overview"><h1 className="pata-page-title text-2xl font-bold text-slate-900">Rapports financiers</h1></div>
         <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={exportPdf}><FileText size={15}/> PDF</Button><Button variant="outline" onClick={exportExcel}><FileSpreadsheet size={15}/> Excel</Button></div>
       </header>
 
@@ -361,6 +361,13 @@ export default function ReportsPage() {
         <p className="mt-3 text-sm font-semibold text-slate-800">{range.label}</p>
         {!rangeValid && <p className="mt-1 text-xs text-red-600">La date de début doit être antérieure ou égale à la date de fin.</p>}
       </Card>
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-3"><p className="text-[10px] leading-4 text-slate-500">Revenus encaissés</p><p className="mt-1 break-words text-sm font-extrabold tabular-nums text-emerald-700 sm:text-base">{formatCurrency(totalIncome)}</p><p className="mt-1 text-[10px] text-slate-500">{financialIncomes.length} opération(s)</p></div>
+        <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-3"><p className="text-[10px] leading-4 text-slate-500">Dépenses comptabilisées</p><p className="mt-1 break-words text-sm font-extrabold tabular-nums text-red-600 sm:text-base">{formatCurrency(totalExpense)}</p><p className="mt-1 text-[10px] text-slate-500">{financialExpenses.length} opération(s)</p></div>
+        <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-3"><p className="text-[10px] leading-4 text-slate-500">Variation du solde</p><p className={`mt-1 break-words text-sm font-extrabold tabular-nums sm:text-base ${cashBalanceMovement>=0?'text-slate-900':'text-red-600'}`}>{formatCurrency(cashBalanceMovement)}</p></div>
+        <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-3"><p className="text-[10px] leading-4 text-slate-500">Dépense moyenne / jour</p><p className="mt-1 break-words text-sm font-extrabold tabular-nums text-slate-950 sm:text-base">{formatCurrency(averageDailyExpense)}</p></div>
+      </div>
 
       <Card>
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -429,21 +436,6 @@ export default function ReportsPage() {
           <p className="mt-3 text-sm text-slate-500">Le bilan du week-end n’est pas disponible pour le moment.</p>
         )}
       </Card>
-
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Card><p className="text-xs font-medium text-slate-500">Revenus encaissés</p><p className="mt-2 text-xl font-bold text-emerald-700">{formatCurrency(totalIncome)}</p><p className="mt-1 text-xs text-slate-500">{financialIncomes.length} revenu(s) · hors dettes</p></Card>
-        <Card><p className="text-xs font-medium text-slate-500">Dépenses comptabilisées</p><p className="mt-2 text-xl font-bold text-red-600">{formatCurrency(totalExpense)}</p><p className="mt-1 text-xs text-slate-500">{financialExpenses.length} dépense(s) · hors prêts accordés</p></Card>
-        <Card><p className="text-xs font-medium text-slate-500">Variation réelle du solde</p><p className={`mt-2 text-xl font-bold ${cashBalanceMovement>=0?'text-slate-900':'text-red-600'}`}>{formatCurrency(cashBalanceMovement)}</p><p className="mt-1 text-xs text-slate-500">Prêts accordés et dettes contractées compris</p></Card>
-        <Card>
-          <p className="text-xs font-medium text-slate-500">Moyennes des dépenses</p>
-          <div className="mt-2 space-y-1.5 text-xs">
-            <div className="flex items-center justify-between gap-2"><span className="text-slate-500">Par jour</span><strong className="text-sm text-slate-900">{formatCurrency(averageDailyExpense)}</strong></div>
-            <div className="flex items-center justify-between gap-2"><span className="text-slate-500">Par semaine</span><strong className="text-sm text-slate-900">{formatCurrency(averageWeeklyExpense)}</strong></div>
-            <div className="flex items-center justify-between gap-2"><span className="text-slate-500">Par mois</span><strong className="text-sm text-slate-900">{formatCurrency(averageMonthlyExpense)}</strong></div>
-          </div>
-          <p className="mt-1 text-[10px] leading-4 text-slate-500">Rythme moyen ramené à la durée choisie</p>
-        </Card>
-      </div>
 
       <Card>
         <div className="flex flex-wrap items-start justify-between gap-3">

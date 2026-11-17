@@ -360,6 +360,21 @@ export default function IncomePage() {
     .sort((a, b) => String(b.date || b.createdDate || '').localeCompare(String(a.date || a.createdDate || ''))),
   [incomesWithBalance, month]);
 
+  const monthEarningSources = useMemo(() => monthIncomes.filter((income) =>
+    !income.neutralFlow
+    && !income.cashPocket
+    && income.flowType !== 'debt_borrowed'
+    && income.flowType !== 'repayment_received'
+    && income.categoryId !== 'debt_repayment_received'
+  ), [monthIncomes]);
+  const earnedThisMonth = monthEarningSources.reduce((sum, income) => sum + (Number(income.amount) || 0), 0);
+  const activeMonthSources = monthEarningSources.filter((income) =>
+    income.balanceAvailable && !income.isExhausted && Number(income.remaining) > 0
+  );
+  const availableThisMonth = balancesReady && monthEarningSources.every((income) => income.balanceAvailable)
+    ? activeMonthSources.reduce((sum, income) => sum + (Number(income.remaining) || 0), 0)
+    : null;
+
   const filteredIncomes = useMemo(() => {
     const query = incomeSearch.trim().toLocaleLowerCase();
     const minimum = incomeMinAmount === '' ? null : Number(incomeMinAmount);
@@ -393,13 +408,8 @@ export default function IncomePage() {
     });
     return matches;
   }, [incomesWithBalance, incomeSearch, incomeFilterCategory, incomeAvailability, incomeSort, incomeMinAmount, incomeMaxAmount, customIncomeCategories]);
-  const highestIncomeInMonth = useMemo(() => monthIncomes
-    .filter((income) => !income.neutralFlow
-      && !income.cashPocket
-      && income.flowType !== 'debt_borrowed'
-      && income.flowType !== 'repayment_received'
-      && income.categoryId !== 'debt_repayment_received')
-    .reduce((highest, income) => Number(income.amount) > Number(highest?.amount || 0) ? income : highest, null), [monthIncomes]);
+  const highestIncomeInMonth = useMemo(() => monthEarningSources
+    .reduce((highest, income) => Number(income.amount) > Number(highest?.amount || 0) ? income : highest, null), [monthEarningSources]);
   const totalIncome = monthIncomes.filter((income) => !income.neutralFlow).reduce((s, i) => s + (Number(i.remaining) || 0), 0);
   const breakdown = useMemo(() => computeBudgetBreakdown(totalIncome, rules), [totalIncome, rules]);
 
@@ -700,24 +710,21 @@ export default function IncomePage() {
     <div className="space-y-4">
       {nextAction && <NextBestAction key={nextAction.sequence} actionKey="income-saved" title={isEnglish ? 'Income saved' : 'Revenu enregistré'} description={isEnglish ? 'You can now allocate part of this income to your budgets and keep track of what remains available.' : 'Tu peux maintenant répartir une partie de ce revenu entre tes budgets et suivre ce qu’il te reste.'} href="/budgets" cta={isEnglish ? 'Organise this income' : 'Organiser ce revenu'} />}
       {showCotisationReminder && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3"><div><p className="text-sm font-semibold text-brand-900">Revenu enregistré.</p><p className="mt-0.5 text-xs text-brand-800">Pense à vérifier ta prochaine cotisation si tu participes à un groupe.</p></div><div className="flex items-center gap-3"><Link href="/cotisations" className="text-xs font-bold text-brand-800 underline">Voir mes cotisations</Link><button type="button" onClick={() => setShowCotisationReminder(false)} className="text-xs text-brand-700">Fermer</button></div></div>}
-      <div className="pata-page-heading flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="pata-page-title text-2xl font-bold text-slate-900">Revenus</h1>
-          <p className="text-sm text-slate-500">
-            {activeIncomes.length} source(s) de revenu active(s) — Disponible : <span className="font-semibold text-brand-600">{totalAvailable == null ? 'Indisponible' : formatCurrency(totalAvailable)}</span> · Espèces disponibles : <span className="font-semibold text-slate-700">{cashAvailable == null ? 'Indisponible' : formatCurrency(cashAvailable)}</span>
-          </p>
-          <p className="mt-1 max-w-xl text-xs leading-5 text-slate-500">
-            Centralise tes entrées d’argent, suis leur disponibilité et distingue les revenus des emprunts et remboursements.
-          </p>
-        </div>
+      <div className="pata-page-heading flex flex-wrap items-center justify-between gap-3">
+        <h1 className="pata-page-title text-2xl font-bold text-slate-900">Revenus</h1>
         <div className="flex flex-wrap items-center gap-2">
           <AssistantShortcut label="Analyser mes revenus" prompt="Analyse mes sources de revenus dans Pata. Aide-moi à comprendre leur régularité, leur répartition et les risques de dépendance à une seule source. Propose des pistes adaptées sans modifier mes opérations." promptEn="Analyze my income sources in Pata. Help me understand how regular they are, how they are distributed and the risks of relying on a single source. Suggest practical improvements without changing my transactions." />
           <MonthPicker value={month} onChange={setMonth} className="w-full sm:w-auto" />
         </div>
       </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Revenus encaissés</p><p className="mt-1 break-words text-sm font-extrabold tabular-nums text-slate-950 sm:text-base">{formatCurrency(earnedThisMonth)}</p></div>
+        <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Sources sur la période</p><p className="mt-1 text-sm font-extrabold tabular-nums text-slate-950 sm:text-base">{monthEarningSources.length}</p></div>
+        <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Sources actives</p><p className="mt-1 text-sm font-extrabold tabular-nums text-slate-950 sm:text-base">{activeMonthSources.length}</p></div>
+        <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Disponible</p><p className="mt-1 break-words text-sm font-extrabold tabular-nums text-brand-800 sm:text-base">{availableThisMonth == null ? '—' : formatCurrency(availableThisMonth)}</p></div>
+      </div>
       <ScheduledTransactionsPanel kinds={['income', 'debt_borrowed', 'repayment_received']} isPremium={isPremium} compact />
-      <nav aria-label={isEnglish ? 'Income sections' : 'Rubriques des revenus'}  className="-mx-1 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <div className="flex min-w-max gap-2 px-1" role="tablist">
+      <nav aria-label={isEnglish ? 'Income sections' : 'Rubriques des revenus'} className="grid grid-cols-2 gap-2 sm:grid-cols-3" role="tablist">
           {[
             ['all', isEnglish ? 'All' : 'Tout'],
             ['revenues', isEnglish ? 'Income sources' : 'Revenus'],
@@ -728,11 +735,10 @@ export default function IncomePage() {
           ].map(([value, label]) => (
             <button key={value} type="button" role="tab" aria-selected={incomeSection === value}
               onClick={() => setIncomeSection(value)}
-              className={'pata-filter-pill min-h-10 shrink-0 rounded-xl border px-3.5 text-xs font-semibold transition ' + (incomeSection === value ? 'is-active border-brand-700 bg-brand-700 text-white shadow-sm' : 'border-slate-200 bg-white text-slate-600 hover:border-brand-200 hover:bg-brand-50 hover:text-brand-800')}>
+              className={'pata-filter-pill min-h-10 w-full rounded-xl border px-2 py-2 text-xs font-semibold leading-4 transition ' + (incomeSection === value ? 'is-active border-brand-700 bg-brand-700 text-white shadow-sm' : 'border-slate-200 bg-white text-slate-600 hover:border-brand-200 hover:bg-brand-50 hover:text-brand-800')}>
               {label}
             </button>
           ))}
-        </div>
       </nav>
       {(incomeSection === 'all' || incomeSection === 'revenues') && !premiumActive && (
         <div className={`pata-quota-panel rounded-xl border p-3 ${incomeQuotaReached ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-white'}`}>

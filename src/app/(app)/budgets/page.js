@@ -155,6 +155,7 @@ export default function BudgetsPage() {
 
   const totalAllocated = enriched.reduce((s, c) => s + c.allocated, 0);
   const totalSpent = enriched.reduce((s, c) => s + c.spent, 0);
+  const budgetRemaining = totalAllocated - totalSpent;
   const spendingInsights = useMemo(
     () => enriched
       .filter((category) => Number(category.spent) > 0)
@@ -312,12 +313,6 @@ export default function BudgetsPage() {
       <div className="pata-page-heading flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="pata-page-title text-2xl font-bold text-slate-900">Budgets</h1>
-          <p className="text-sm text-slate-500">
-            {formatCurrency(totalSpent)} dépensés sur {formatCurrency(totalAllocated)} alloués
-          </p>
-          <p className="mt-1 max-w-xl text-xs leading-5 text-slate-500">
-            Fixe des limites par catégorie, compare tes dépenses aux montants prévus et repère rapidement les dépassements.
-          </p>
           {!budgetPremium && <p className="mt-1 text-xs text-slate-500">Créations de budgets et modèles : {usedBudgetQuota} / 2 ce mois-ci.</p>}
         </div>
         <div className="flex w-full flex-wrap gap-2 sm:w-auto">
@@ -348,6 +343,12 @@ export default function BudgetsPage() {
             ))}
           </select>
         </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Alloué</p><p className="mt-1 break-words text-sm font-extrabold tabular-nums text-slate-950 sm:text-base">{formatCurrency(totalAllocated)}</p></div>
+        <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Dépensé</p><p className="mt-1 break-words text-sm font-extrabold tabular-nums text-slate-950 sm:text-base">{formatCurrency(totalSpent)}</p></div>
+        <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Restant</p><p className={'mt-1 break-words text-sm font-extrabold tabular-nums sm:text-base ' + (budgetRemaining < 0 ? 'text-red-700' : 'text-brand-800')}>{formatCurrency(budgetRemaining)}</p></div>
+        <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Enveloppes actives</p><p className="mt-1 text-sm font-extrabold tabular-nums text-slate-950 sm:text-base">{budgetedCategories.length}</p></div>
       </div>
 
       {(templates.length > 0 || templatesLoading) && (

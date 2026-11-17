@@ -244,7 +244,12 @@ export default function ExpensesPage() {
     return Object.entries(map).sort(([a], [b]) => (a < b ? 1 : -1));
   }, [filtered]);
 
-  const total = filtered.filter((expense) => !expense.neutralFlow).reduce((s, e) => s + (e.amount || 0), 0);
+  const periodExpenseRows = expenses.filter((expense) =>
+    !expense.neutralFlow && expense.date >= startDate && expense.date <= endDate
+  );
+  const total = periodExpenseRows.reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0);
+  const expenseDays = new Set(periodExpenseRows.map((expense) => String(expense.date || '').slice(0, 10)).filter(Boolean)).size;
+  const expenseOperations = periodExpenseRows.length;
   const typeTotals = useMemo(() => expenses
     .filter((e) => !e.neutralFlow && e.date >= startDate && e.date <= endDate)
     .reduce((totals, e) => {
@@ -497,21 +502,26 @@ export default function ExpensesPage() {
     <div className="space-y-4">
       {nextAction && <NextBestAction key={nextAction.sequence} actionKey="expense-saved" title={isEnglish ? 'Expense saved' : 'Dépense enregistrée'} description={isEnglish ? 'Check what remains in the budget for this category so you can adjust your next expenses.' : 'Vérifie ce qu’il te reste dans le budget de cette catégorie pour mieux préparer tes prochaines dépenses.'} href="/budgets" cta={isEnglish ? 'View my budgets' : 'Voir mes budgets'} />}
       <div className="pata-page-heading flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="pata-page-title text-2xl font-bold text-slate-900">Dépenses</h1>
-          <p className="text-sm text-slate-500">
-            Total des dépenses comptabilisées (hors prêts accordés) : <span className="font-semibold text-slate-800">{formatCurrency(total)}</span>
-          </p>
-          <p className="mt-1 max-w-xl text-xs leading-5 text-slate-500">
-            Enregistre tes sorties d’argent, retrouve-les par date ou catégorie et repère les postes qui pèsent sur ton budget.
-          </p>
-        </div>
+        <h1 className="pata-page-title text-2xl font-bold text-slate-900">Dépenses</h1>
         <div className="flex flex-wrap items-center gap-2">
           <AssistantShortcut label="Analyser mes dépenses" prompt="Analyse mes dépenses enregistrées dans Pata. Mets en évidence les catégories qui pèsent le plus, les évolutions utiles et les pistes réalistes pour mieux gérer mon argent. Ne modifie aucune opération sans me demander confirmation." promptEn="Analyze my recorded expenses in Pata. Highlight the categories that cost me the most, useful spending trends and realistic ways to manage my money better. Do not change any transaction without asking for my confirmation." />
           <Button onClick={openNew} data-pata-tour="expense-create" className="shadow-sm">
             <Plus size={16} /> Nouvelle dépense
           </Button>
         </div>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Total dépensé</p><p className="mt-1 break-words text-sm font-extrabold tabular-nums text-slate-950 sm:text-base">{formatCurrency(total)}</p></div>
+        <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Jours actifs</p><p className="mt-1 text-sm font-extrabold tabular-nums text-slate-950 sm:text-base">{expenseDays}</p></div>
+        <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Opérations</p><p className="mt-1 text-sm font-extrabold tabular-nums text-slate-950 sm:text-base">{expenseOperations}</p></div>
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {[
+          ['Dépenses courantes', typeTotals.consumption],
+          ['Projets', typeTotals.project],
+          ['Épargne', typeTotals.savings],
+          ['Investissements', typeTotals.investment],
+        ].map(([label, amount]) => <div key={label} className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2"><p className="text-[10px] leading-4 text-slate-500">{label}</p><p className="mt-1 break-words text-xs font-bold tabular-nums text-slate-900 sm:text-sm">{formatCurrency(amount)}</p></div>)}
       </div>
 
       {showExpenseQuota && (
@@ -569,15 +579,6 @@ export default function ExpensesPage() {
       </section>
 
       <ScheduledTransactionsPanel kinds={['expense', 'loan_given', 'debt_repayment']} isPremium={isPremium} compact />
-
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        {[
-          ['Dépenses courantes', typeTotals.consumption],
-          ['Projets', typeTotals.project],
-          ['Épargne', typeTotals.savings],
-          ['Investissements', typeTotals.investment],
-        ].map(([label, amount]) => <div key={label} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[11px] text-slate-500">{label}</p><p className="mt-1 text-sm font-bold text-slate-900">{formatCurrency(amount)}</p></div>)}
-      </div>
 
       <section className="rounded-xl border border-slate-200 bg-white p-3">
         <div className="flex flex-wrap items-center gap-2">
