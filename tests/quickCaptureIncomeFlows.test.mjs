@@ -53,7 +53,7 @@ test('Quick Capture loads account-defined categories for natural language recogn
   const component = read('src/components/QuickCaptureCoordinator.jsx');
   const captureRoute = read('src/app/api/quick-capture/route.js');
   assert.match(optionsRoute, /categoriesSnap/);
-  assert.match(optionsRoute, /categories,/);
+  assert.ok(optionsRoute.includes('receivables, categories }'));
   assert.match(component, /parseQuickCapture\(rawText, new Date\(\), \{ categories: captureOptions\.categories \}\)/);
   assert.match(component, /item\.type === 'expense'/);
   assert.match(component, /item\.type === 'income'/);
