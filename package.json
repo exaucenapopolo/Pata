@@ -29,7 +29,8 @@
     "test:quick-capture-help-notifications": "node --test tests/quickCaptureHelpNotificationTemplates.test.mjs",
     "test:android-release-version": "node --test tests/androidReleaseVersion.test.mjs",
     "test:ai-spending-guidance": "node --test tests/ai-spending-guidance.test.mjs",
-    "test:scheduled-transactions": "node --test tests/scheduledTransactions.test.mjs"
+    "test:scheduled-transactions": "node --test tests/scheduledTransactions.test.mjs",
+    "test:money-calculator": "node --test tests/decimalExpression.test.mjs"
   },
   "dependencies": {
     "@capacitor-firebase/authentication": "6.3.1",

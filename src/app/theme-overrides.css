@@ -906,3 +906,30 @@ html.dark .pata-app-shell main .rounded-xl.border.bg-white {
   .pata-app-header { padding-left: 12px; padding-right: 12px; }
   .pata-header-title { font-size: 15px; }
 }
+
+
+/* Native amount calculator surface. */
+.pata-money-keypad {
+  box-shadow: 0 -12px 50px rgba(12, 39, 25, .2);
+  overscroll-behavior: contain;
+  -webkit-tap-highlight-color: transparent;
+}
+.pata-money-keypad-backdrop { touch-action: manipulation; }
+.pata-money-key:focus-visible { outline: 2px solid #0b7657; outline-offset: 2px; }
+html.dark .pata-money-keypad {
+  color: #edf5ef !important;
+  background: #192920 !important;
+  border-color: #365344 !important;
+}
+html.dark .pata-money-keypad .bg-white { background-color: #23382c !important; }
+html.dark .pata-money-keypad .bg-\[\#eaf3ed\] { background-color: #203c2d !important; }
+html.dark .pata-money-keypad .border-emerald-100 { border-color: #365344 !important; }
+html.dark .pata-money-keypad .text-slate-900 { color: #f1f6f2 !important; }
+html.dark .pata-money-keypad .text-slate-600,
+html.dark .pata-money-keypad .text-slate-500 { color: #adbdaf !important; }
+html.dark .pata-money-keypad .bg-emerald-100 { background-color: #2b4b38 !important; }
+html.dark .pata-money-keypad .text-emerald-900 { color: #d3eddb !important; }
+@media (max-width: 639px) {
+  .pata-money-keypad { max-height: min(88dvh, 680px); overflow-y: auto; }
+  .pata-money-key { height: 48px; }
+}

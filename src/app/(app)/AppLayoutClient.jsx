@@ -21,6 +21,7 @@ import { AppLoadingScreen } from '@/components/layout/AppLoadingScreen';
 import { AppNavigationProgress } from '@/components/layout/AppNavigationProgress';
 import { PageUsageTracker } from '@/components/layout/PageUsageTracker';
 import { NativeHaptics } from '@/components/layout/NativeHaptics';
+import { MoneyKeypad } from '@/components/layout/MoneyKeypad';
 
 export default function AppLayout({ children }) {
   const { loading, user } = useAuthGuard();
@@ -35,6 +36,7 @@ export default function AppLayout({ children }) {
     <div className="pata-app-shell relative isolate min-h-[100dvh] bg-[#f0f6f1] lg:flex lg:h-[100dvh] lg:overflow-hidden">
       <AppNavigationProgress />
       <NativeHaptics />
+      <MoneyKeypad />
       <PageUsageTracker uid={user.uid} />
       <Sidebar />
       <div className="flex min-h-[100dvh] min-w-0 flex-1 flex-col lg:h-full lg:overflow-hidden">
