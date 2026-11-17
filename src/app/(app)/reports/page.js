@@ -342,7 +342,7 @@ export default function ReportsPage() {
   return (
     <div className="space-y-5">
       <header className="pata-page-heading flex flex-wrap items-end justify-between gap-3">
-        <div><h1 data-pata-tour="reports-overview" className="pata-page-title text-2xl font-bold text-slate-900">Rapports financiers</h1><p className="mt-1 text-sm text-slate-500">Une analyse détaillée de tes opérations, de tes budgets, de ton épargne et de ton portefeuille.</p></div>
+        <div data-pata-tour="reports-overview"><h1 className="pata-page-title text-2xl font-bold text-slate-900">Rapports financiers</h1><p className="mt-1 text-sm text-slate-500">Une analyse détaillée de tes opérations, de tes budgets, de ton épargne et de ton portefeuille.</p></div>
         <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={exportPdf}><FileText size={15}/> PDF</Button><Button variant="outline" onClick={exportExcel}><FileSpreadsheet size={15}/> Excel</Button></div>
       </header>
 

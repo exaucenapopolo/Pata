@@ -216,7 +216,7 @@ export default function SettingsPage() {
     <div className="mx-auto max-w-3xl space-y-5 pb-10">
       <header className="space-y-1">
         <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-brand-700">Mon espace</p>
-        <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">Paramètres</h1>
+        <h1 className="pata-page-title text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">Paramètres</h1>
         <p className="text-sm leading-5 text-slate-500">Gère ton compte et les préférences de Pata au même endroit.</p>
       </header>
 
