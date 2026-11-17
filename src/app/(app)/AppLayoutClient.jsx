@@ -22,6 +22,7 @@ import { AppNavigationProgress } from '@/components/layout/AppNavigationProgress
 import { PageUsageTracker } from '@/components/layout/PageUsageTracker';
 import { NativeHaptics } from '@/components/layout/NativeHaptics';
 import { MoneyKeypad } from '@/components/layout/MoneyKeypad';
+import { NativeDatePicker } from '@/components/layout/NativeDatePicker';
 
 export default function AppLayout({ children }) {
   const { loading, user } = useAuthGuard();
@@ -37,6 +38,7 @@ export default function AppLayout({ children }) {
       <AppNavigationProgress />
       <NativeHaptics />
       <MoneyKeypad />
+      <NativeDatePicker />
       <PageUsageTracker uid={user.uid} />
       <Sidebar />
       <div className="flex min-h-[100dvh] min-w-0 flex-1 flex-col lg:h-full lg:overflow-hidden">

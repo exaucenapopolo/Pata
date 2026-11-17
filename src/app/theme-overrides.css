@@ -935,3 +935,24 @@ html.dark .pata-money-keypad .text-emerald-900 { color: #d3eddb !important; }
   .pata-money-keypad { max-height: min(88dvh, 680px); overflow-y: auto; }
   .pata-money-key { height: 48px; }
 }
+
+/* Custom calendar shared by date forms and period selection. */
+.pata-calendar-panel {
+  box-shadow: 0 -12px 52px rgba(12, 39, 25, .2);
+  overscroll-behavior: contain;
+  max-height: min(92dvh, 760px);
+  overflow-y: auto;
+}
+.pata-calendar-surface button:focus-visible,
+.pata-calendar-panel button:focus-visible { outline: 2px solid #0b7657; outline-offset: 2px; }
+html.dark .pata-calendar-panel { background: #192920 !important; border-color: #365344 !important; }
+html.dark .pata-calendar-panel .bg-white { background: #23382c !important; }
+html.dark .pata-calendar-panel .bg-slate-100 { background: #263b30 !important; }
+html.dark .pata-calendar-panel .bg-emerald-50 { background: #203c2d !important; }
+html.dark .pata-calendar-panel .text-slate-900,
+html.dark .pata-calendar-panel .text-slate-800 { color: #edf5ef !important; }
+html.dark .pata-calendar-panel .text-slate-600,
+html.dark .pata-calendar-panel .text-slate-500 { color: #adbdaf !important; }
+html.dark .pata-calendar-panel .border-slate-200 { border-color: #365344 !important; }
+html.dark .pata-calendar-panel select { color: #edf5ef !important; }
+html.dark .pata-date-range-trigger { background: #1d2d24 !important; border-color: #365344 !important; }

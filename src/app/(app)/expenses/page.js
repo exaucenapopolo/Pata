@@ -31,6 +31,7 @@ import { checkFinancialOperation } from '@/lib/firestore/financialTargets';
 import { translateText } from '@/lib/i18n/translations';
 import { EXPENSE_CATEGORIES } from '@/lib/constants';
 import { NextBestAction } from '@/components/NextBestAction';
+import { DateRangePicker } from '@/components/ui/DateRangePicker';
 
 const todayIso = () => {
   const d = new Date();
@@ -584,9 +585,8 @@ export default function ExpensesPage() {
           <button type="button" onClick={() => setShowCustomPeriod(true)} className={`flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${showCustomPeriod ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}><Calendar size={14}/> Personnalisée</button>
           <span className="ml-auto text-[10px] font-medium text-slate-500">{filtered.length} résultat(s)</span>
         </div>
-        {showCustomPeriod && <div className="mt-2 flex flex-wrap items-center gap-2">
-          <label className="text-[11px] text-slate-500">Du <input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} className="ml-1 h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs"/></label>
-          <label className="text-[11px] text-slate-500">Au <input type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} className="ml-1 h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs"/></label>
+        {showCustomPeriod && <div className="mt-3">
+          <DateRangePicker startDate={customStart} endDate={customEnd} onChange={({ startDate, endDate }) => { setCustomStart(startDate); setCustomEnd(endDate); }} language={isEnglish ? 'en' : 'fr'} />
         </div>}
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
           <input type="search" value={filterSearch} onChange={(event) => setFilterSearch(event.target.value)} placeholder="Rechercher un motif, un lieu, une source…" aria-label="Rechercher une dépense" className="h-9 min-w-0 rounded-lg border border-slate-200 bg-white px-3 text-xs outline-none focus:border-brand-400"/>

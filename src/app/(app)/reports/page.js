@@ -6,6 +6,7 @@ import { Download, FileSpreadsheet, FileText, BarChart3, Wallet, Target, PiggyBa
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, CartesianGrid } from 'recharts';
 import { Button } from '@/components/ui/Button';
 import { MonthPicker } from '@/components/ui/MonthPicker';
+import { DateRangePicker } from '@/components/ui/DateRangePicker';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useExpenses } from '@/hooks/useExpenses';
@@ -355,7 +356,7 @@ export default function ReportsPage() {
           {periodType==='week' && <label className="text-xs font-medium text-slate-500">Semaine contenant le<input type="date" value={selectedWeekDate} onChange={(e)=>setSelectedWeekDate(e.target.value)} className="pata-field mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-800"/></label>}
           {periodType==='month' && <label className="text-xs font-medium text-slate-500">{isEnglish ? 'Month' : 'Mois'}<MonthPicker value={month} onChange={setMonth} className="mt-1 w-full"/></label>}
           {periodType==='year' && <label className="text-xs font-medium text-slate-500">Année<input type="number" min="2000" max="2100" value={year} onChange={(e)=>setYear(e.target.value)} className="pata-field mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-800"/></label>}
-          {periodType==='custom' && <><label className="text-xs font-medium text-slate-500">Du<input type="date" value={customStart} onChange={(e)=>setCustomStart(e.target.value)} className="pata-field mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-800"/></label><label className="text-xs font-medium text-slate-500">Au<input type="date" value={customEnd} onChange={(e)=>setCustomEnd(e.target.value)} className="pata-field mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-800"/></label></>}
+          {periodType==='custom' && <div className="sm:col-span-2"><DateRangePicker startDate={customStart} endDate={customEnd} onChange={({ startDate, endDate }) => { setCustomStart(startDate); setCustomEnd(endDate); }} language={isEnglish ? 'en' : 'fr'} /></div>}
         </div>
         <p className="mt-3 text-sm font-semibold text-slate-800">{range.label}</p>
         {!rangeValid && <p className="mt-1 text-xs text-red-600">La date de début doit être antérieure ou égale à la date de fin.</p>}
