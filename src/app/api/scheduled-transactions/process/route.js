@@ -90,9 +90,9 @@ async function createUnlinkedExpense(userRef, schedule, occurrenceDate, occurren
       pendingIncomeSourceName: clean(schedule.futureIncomeSourceName, 100),
       awaitingIncomeSource: true,
       locationLabel: clean(schedule.locationLabel, 160),
-      latitude: Number.isFinite(Number(schedule.latitude)) ? Number(schedule.latitude) : null,
-      longitude: Number.isFinite(Number(schedule.longitude)) ? Number(schedule.longitude) : null,
-      locationAccuracy: Number.isFinite(Number(schedule.locationAccuracy)) ? Number(schedule.locationAccuracy) : null,
+      latitude: schedule.latitude == null || schedule.latitude === '' ? null : Number.isFinite(Number(schedule.latitude)) ? Number(schedule.latitude) : null,
+      longitude: schedule.longitude == null || schedule.longitude === '' ? null : Number.isFinite(Number(schedule.longitude)) ? Number(schedule.longitude) : null,
+      locationAccuracy: schedule.locationAccuracy == null || schedule.locationAccuracy === '' ? null : Number.isFinite(Number(schedule.locationAccuracy)) ? Number(schedule.locationAccuracy) : null,
       paymentMethod: clean(schedule.paymentMethod, 30),
       details: clean(schedule.details, 160),
       scheduledTransactionId: schedule.id,
@@ -142,6 +142,12 @@ async function createScheduledIncome(userRef, schedule, occurrenceDate, occurren
       : isRepayment ? 'Remboursement reçu · ' + clean(repaymentDebt.person || 'Créance', 100)
         : clean(schedule.source, 100);
     if (!source) throw new Error('La source du revenu programmé est vide.');
+    let projectName = '';
+    if (schedule.projectId) {
+      const projectSnap = await transaction.get(userRef.collection('projects').doc(clean(schedule.projectId, 150)));
+      if (!projectSnap.exists || projectSnap.data()?.status === 'archived') throw new Error('Le projet affecté à ce revenu n’existe plus.');
+      projectName = clean(projectSnap.data()?.name, 100);
+    }
     const neutralFlow = isBorrowed;
     const statsBefore = profile.monthlyStats || {};
     const currentMonth = dateKeyInTimeZone(new Date()).slice(0, 7);
@@ -162,9 +168,12 @@ async function createScheduledIncome(userRef, schedule, occurrenceDate, occurren
         debtId,
       } : {}),
       ...(isRepayment ? { repaymentDebtId: debtId, repaymentCompleted, remaining: repaymentRemaining } : {}),
-      ...(schedule.projectId ? { projectId: clean(schedule.projectId, 150) } : {}),
+      ...(schedule.projectId ? { projectId: clean(schedule.projectId, 150), projectName } : {}),
       time: clean(schedule.time, 5),
       locationLabel: clean(schedule.locationLabel, 160),
+      latitude: schedule.latitude == null || schedule.latitude === '' ? null : Number.isFinite(Number(schedule.latitude)) ? Number(schedule.latitude) : null,
+      longitude: schedule.longitude == null || schedule.longitude === '' ? null : Number.isFinite(Number(schedule.longitude)) ? Number(schedule.longitude) : null,
+      locationAccuracy: schedule.locationAccuracy == null || schedule.locationAccuracy === '' ? null : Number.isFinite(Number(schedule.locationAccuracy)) ? Number(schedule.locationAccuracy) : null,
       paymentMethod: clean(schedule.paymentMethod, 30),
       details: clean(schedule.details, 160),
       scheduledTransactionId: schedule.id,
@@ -187,7 +196,14 @@ async function createScheduledIncome(userRef, schedule, occurrenceDate, occurren
       const repaymentRef = debtRef.collection('repayments').doc(occurrenceId);
       transaction.create(repaymentRef, { date: occurrenceDate, amount, transactionId: incomeRef.id, source: 'scheduled' });
       transaction.update(debtRef, { remaining: repaymentRemaining, status, updatedAt: FieldValue.serverTimestamp() });
-      if (repaymentCompleted) transaction.set(userRef, { activeDebtCount: FieldValue.increment(-1) }, { merge: true });
+      stats.incomes = (Number(stats.incomes) || 0) + 1;
+      stats.lastResetMonth = currentMonth;
+      transaction.set(userRef, {
+        monthlyStats: stats,
+        lifetimeIncomeAmount: FieldValue.increment(amount),
+        lifetimeIncomeCount: FieldValue.increment(1),
+        ...(repaymentCompleted ? { activeDebtCount: FieldValue.increment(-1) } : {}),
+      }, { merge: true });
     } else {
       stats.incomes = (Number(stats.incomes) || 0) + 1;
       stats.lastResetMonth = currentMonth;
@@ -226,6 +242,9 @@ async function createScheduledExpense(userRef, uid, schedule, occurrenceDate) {
     locationLabel: schedule.locationLabel || '',
     paymentMethod: schedule.paymentMethod || '',
     details: schedule.details || '',
+    latitude: schedule.latitude ?? null,
+    longitude: schedule.longitude ?? null,
+    locationAccuracy: schedule.locationAccuracy ?? null,
     scheduledTransactionId: schedule.id,
   }, {
     countQuota: false,
