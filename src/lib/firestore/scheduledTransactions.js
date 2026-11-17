@@ -36,3 +36,18 @@ export async function cancelScheduledTransaction(uid, id) {
   if (!user || user.uid !== uid) throw new Error('Session expirée. Reconnecte-toi puis réessaie.');
   return callScheduledTransactions('DELETE', { id });
 }
+
+export async function retryScheduledTransaction(uid, id) {
+  const user = auth.currentUser;
+  if (!user || user.uid !== uid) throw new Error('Session expirée. Reconnecte-toi puis réessaie.');
+  const token = await user.getIdToken();
+  const response = await fetch('/api/scheduled-transactions/process', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scheduleId: id }),
+    cache: 'no-store',
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de relancer cette opération.');
+  return result;
+}
