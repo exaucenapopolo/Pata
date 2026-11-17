@@ -38,6 +38,8 @@ import { useBudgets } from '@/hooks/useBudgets';
 import { OptionalTransactionFields } from '@/components/transactions/OptionalTransactionFields';
 import { DebtCounterpartyField } from '@/components/debts/DebtCounterpartyField';
 import { AssistantShortcut } from '@/components/ai/AssistantShortcut';
+import { ScheduledTransactionsPanel } from '@/components/transactions/ScheduledTransactionsPanel';
+import { createScheduledTransaction } from '@/lib/firestore/scheduledTransactions';
 import { checkFinancialOperation } from '@/lib/firestore/financialTargets';
 
 // 🟢 DATES LOCALES (Pas de décalage UTC)
@@ -54,7 +56,7 @@ const currentTime = () => {
   const d = new Date();
   return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 };
-const emptyIncomeForm = () => ({ id: null, amount: '', amountLocked: false, source: 'Salaire', categoryId: 'salary', image: '', note: '', date: todayIso(), projectId: '', time: currentTime(), locationLabel: '', latitude: null, longitude: null, locationAccuracy: null, paymentMethod: '', details: '', flowType: 'normal', person: '', phone: '', dueDate: '', repaymentDebtId: '', counterpartyUid: '', counterpartyType: 'person', bankName: '', bankChoice: '', bankCustomName: '' });
+const emptyIncomeForm = () => ({ id: null, amount: '', amountLocked: false, source: 'Salaire', categoryId: 'salary', image: '', note: '', date: todayIso(), projectId: '', time: currentTime(), locationLabel: '', latitude: null, longitude: null, locationAccuracy: null, paymentMethod: '', details: '', flowType: 'normal', person: '', phone: '', dueDate: '', repaymentDebtId: '', counterpartyUid: '', counterpartyType: 'person', bankName: '', bankChoice: '', bankCustomName: '', scheduleEnabled: false, recurrenceEnabled: true, scheduleFrequency: 'monthly' });
 
 const FREQUENCIES = [
   { id: 'daily', label: 'Par jour', multiplier: 30 },
@@ -605,6 +607,19 @@ export default function IncomePage() {
         locationAccuracy: form.locationAccuracy, paymentMethod: form.paymentMethod, details: form.details,
         image: form.image || '',
       };
+      if (!form.id && form.scheduleEnabled) {
+        const kind = form.flowType === 'debt_borrowed' ? 'debt_borrowed' : form.flowType === 'repayment_received' ? 'repayment_received' : 'income';
+        await createScheduledTransaction(user.uid, {
+          ...payload,
+          kind,
+          scheduleDate: form.date,
+          recurrenceEnabled: form.flowType === 'normal' && form.recurrenceEnabled === true,
+          frequency: form.scheduleFrequency || 'monthly',
+        });
+        setOpen(false);
+        setForm(emptyIncomeForm());
+        return;
+      }
       if (form.id) {
         if (form.flowType === 'debt_borrowed') await updateIncome(user.uid, form.id, { projectId: isPremium ? (form.projectId || '') : '' });
         else await updateIncome(user.uid, form.id, payload);
@@ -696,7 +711,8 @@ export default function IncomePage() {
           <MonthPicker value={month} onChange={setMonth} className="w-full sm:w-auto" />
         </div>
       </div>
-      <nav aria-label={isEnglish ? 'Income sections' : 'Rubriques des revenus'} className="-mx-1 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <ScheduledTransactionsPanel kinds={['income', 'debt_borrowed', 'repayment_received']} isPremium={isPremium} compact />
+      <nav aria-label={isEnglish ? 'Income sections' : 'Rubriques des revenus'}  className="-mx-1 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div className="flex min-w-max gap-2 px-1" role="tablist">
           {[
             ['all', isEnglish ? 'All' : 'Tout'],
@@ -1335,11 +1351,23 @@ export default function IncomePage() {
               {form.flowType === 'repayment_received' && <div><label className="mb-1 block text-sm font-medium text-slate-700">Créance remboursée</label><select required value={form.repaymentDebtId} onChange={(event) => setForm({ ...form, repaymentDebtId: event.target.value })} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="">Choisir une créance</option>{activeReceivableDebts.map((debt) => <option key={debt.id} value={debt.id}>{debt.person} · {formatCurrency(Number(debt.remaining) || 0)} restant</option>)}</select>{!activeReceivableDebts.length && <p className="mt-1 text-xs text-slate-500">Aucune créance active à encaisser.</p>}</div>}
               <Input label="Montant (FCFA)" type="number" min="0" step="1" required value={form.amount} disabled={form.amountLocked === true && !!form.id && form.flowType === 'normal'} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
               {form.amountLocked === true && !!form.id && form.flowType === 'normal' && <p className="rounded-lg bg-amber-50 p-2.5 text-[11px] leading-5 text-amber-800">Ce revenu a déjà été utilisé. Son montant initial est verrouillé. Tu peux toujours modifier son nom, sa catégorie, sa photo et ses autres informations.</p>}
-              {form.flowType === 'normal' ? <div><p className="mb-2 text-sm font-medium text-slate-700">Catégorie de revenu</p><CategoryManager type="income" value={form.categoryId} onChange={(id) => setForm((current) => ({ ...current, categoryId: id }))}/></div> : <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">Catégorie : <strong>{form.flowType === 'debt_borrowed' ? 'Dette contractée (mouvement neutre)' : 'Remboursement reçu (revenu normal)'}</strong></p>}
+              {form.flowType === 'normal' ? <div><p className="mb-2 text-sm font-medium text-slate-700">Catégorie de revenu</p><CategoryManager type="income" value={form.categoryId} onChange={(id) => setForm((current) => ({ ...current, categoryId: id, recurrenceEnabled: id === 'salary' ? true : current.categoryId === 'salary' ? false : current.recurrenceEnabled, scheduleFrequency: id === 'salary' ? 'monthly' : current.scheduleFrequency }))}/></div> : <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">Catégorie : <strong>{form.flowType === 'debt_borrowed' ? 'Dette contractée (mouvement neutre)' : 'Remboursement reçu (revenu normal)'}</strong></p>}
               {form.flowType === 'normal' && <Input label="Nom / Source" required value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} />}
               {form.flowType === 'normal' && <CloudinaryImageField value={form.image || ''} onChange={(image) => setForm((current) => ({ ...current, image }))} folder="pata/incomes" language={language} label="Photo du revenu (facultatif)"/>}
-              <Input label="Date" type="date" required value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
+              <Input label={form.scheduleEnabled ? 'Date prévue du revenu' : 'Date'} type="date" required value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
               {isPremium && ['normal', 'debt_borrowed'].includes(form.flowType) && <div><label className="mb-1 block text-sm font-medium text-slate-700">{form.flowType === 'debt_borrowed' ? 'Affecter cet emprunt à un projet (facultatif)' : 'Affecter ce revenu à un projet (facultatif)'}</label><select value={form.projectId || ''} onChange={(e) => setForm({ ...form, projectId: e.target.value })} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="">Aucun projet — fonds non affectés</option>{projects.filter((item) => item.status === 'active').map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select><p className="mt-1 text-[11px] leading-4 text-slate-500">Les fonds affectés restent réservés au projet choisi et ne sont pas proposés pour les dépenses générales.</p></div>}
+              <div className="rounded-xl border border-slate-200 p-3">
+                <label className="flex cursor-pointer items-start gap-2 text-sm font-semibold text-slate-800"><input type="checkbox" checked={form.scheduleEnabled === true} disabled={!isPremium} onChange={(event) => setForm({ ...form, scheduleEnabled: event.target.checked })} className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600"/><span>Programmer ce revenu ou cet emprunt</span></label>
+                {!isPremium && <p className="mt-2 text-xs leading-5 text-slate-500">La programmation des opérations est réservée à Pata Premium. <Link href="/premium" className="font-semibold text-brand-700 underline">Découvrir Premium</Link></p>}
+                {form.scheduleEnabled && <div className="mt-3 space-y-3 border-t border-slate-100 pt-3">
+                  <p className="text-xs leading-5 text-slate-500">Le revenu ou l’emprunt ne sera comptabilisé qu’à la date choisie. Pour un salaire, la récurrence mensuelle est activée par défaut ; tu peux la désactiver.</p>
+                  {form.flowType === 'normal' && <>
+                    <label className="flex items-center gap-2 text-xs font-medium text-slate-700"><input type="checkbox" checked={form.recurrenceEnabled === true} onChange={(event) => setForm({ ...form, recurrenceEnabled: event.target.checked })} className="h-4 w-4 rounded border-slate-300 text-brand-600"/>Rendre ce revenu récurrent</label>
+                    {form.recurrenceEnabled && <select value={form.scheduleFrequency || 'monthly'} onChange={(event) => setForm({ ...form, scheduleFrequency: event.target.value })} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="daily">Tous les jours</option><option value="weekly">Chaque semaine</option><option value="monthly">Chaque mois</option></select>}
+                  </>}
+                  {form.flowType !== 'normal' && <p className="text-xs text-slate-500">Cette opération de dette ou de remboursement sera enregistrée une seule fois à la date prévue.</p>}
+                </div>}
+              </div>
               <Input label="Note (facultatif)" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
               <OptionalTransactionFields value={form} onChange={(next) => setForm(next)} kind="income" />
             </>
