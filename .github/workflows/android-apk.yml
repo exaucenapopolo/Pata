@@ -85,6 +85,9 @@ jobs:
       - name: Vérifier le guide Quick Capture et les modèles de notifications
         run: npm run test:quick-capture-help-notifications
 
+      - name: Tester la programmation des opérations, la récurrence et les déclencheurs Quick Capture
+        run: npm run test:scheduled-transactions
+
       - name: Vérifier la fréquence des invitations Premium
         run: npm run test:premium-reminder
 
