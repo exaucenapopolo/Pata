@@ -259,7 +259,7 @@ export default function AdminPage() {
   const isEnglish = language === 'en';
   const router = useRouter();
   const [code, setCode] = useState(''); const [unlocked, setUnlocked] = useState(false); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
-  const [tab, setTab] = useState('overview'); const [overview, setOverview] = useState(null); const [users, setUsers] = useState([]); const [platformFilter, setPlatformFilter] = useState('all'); const [nextCursor, setNextCursor] = useState(null); const [questions, setQuestions] = useState(null); const [nextQuestionCursor, setNextQuestionCursor] = useState(null); const [savings, setSavings] = useState(null); const [nextSavingsCursor, setNextSavingsCursor] = useState(null); const [recipients, setRecipients] = useState([]); const [recipientSummary, setRecipientSummary] = useState(null); const [nextRecipientCursor, setNextRecipientCursor] = useState(null); const [selectedRecipientIds, setSelectedRecipientIds] = useState([]); const [recipientMode, setRecipientMode] = useState('all'); const [recipientSearch, setRecipientSearch] = useState(''); const [withdrawals, setWithdrawals] = useState([]);
+  const [tab, setTab] = useState('overview'); const [overview, setOverview] = useState(null); const [users, setUsers] = useState([]); const [platformFilter, setPlatformFilter] = useState('all'); const [nextCursor, setNextCursor] = useState(null); const [questions, setQuestions] = useState(null); const [nextQuestionCursor, setNextQuestionCursor] = useState(null); const [selectedQuestionChat, setSelectedQuestionChat] = useState(null); const [questionChatLoadingId, setQuestionChatLoadingId] = useState(''); const [savings, setSavings] = useState(null); const [nextSavingsCursor, setNextSavingsCursor] = useState(null); const [recipients, setRecipients] = useState([]); const [recipientSummary, setRecipientSummary] = useState(null); const [nextRecipientCursor, setNextRecipientCursor] = useState(null); const [selectedRecipientIds, setSelectedRecipientIds] = useState([]); const [recipientMode, setRecipientMode] = useState('all'); const [recipientSearch, setRecipientSearch] = useState(''); const [withdrawals, setWithdrawals] = useState([]);
   const [targetMonth, setTargetMonth] = useState(currentMonthKey()); const [monthlyMetrics, setMonthlyMetrics] = useState(null);
   const [targetDraft, setTargetDraft] = useState({ revenue: '', newUsers: '', activeUsers: '', premiumUsers: '', cotisationGroups: '', cotisationTransactions: '', walletDeposits: '' });
   const [targetFeedback, setTargetFeedback] = useState(''); const [cotisationGroups, setCotisationGroups] = useState([]);
@@ -414,6 +414,22 @@ export default function AdminPage() {
       setQuestions((current) => append ? { ...result, conversations: [...(current?.conversations || []), ...(result.conversations || [])] } : result);
       setNextQuestionCursor(result.nextCursor || null);
     } catch (err) { setError(err.message); } finally { setBusy(false); }
+  };
+  const loadQuestionConversation = async (chat) => {
+    if (selectedQuestionChat?.id === chat.id) {
+      setSelectedQuestionChat(null);
+      return;
+    }
+    setQuestionChatLoadingId(chat.id);
+    setError('');
+    try {
+      const result = await api(`admin/question-detail?uid=${encodeURIComponent(chat.userId)}&chatId=${encodeURIComponent(chat.id)}`);
+      setSelectedQuestionChat({ id: chat.id, messages: result.chat?.messages || [] });
+    } catch (err) {
+      setError(err.message || 'Impossible de charger cette conversation.');
+    } finally {
+      setQuestionChatLoadingId('');
+    }
   };
   const loadSavings = async (append = false) => {
     setBusy(true); setError('');
@@ -798,8 +814,9 @@ export default function AdminPage() {
       <SectionTitle title="Discussions réelles avec Mč" detail="Historique des conversations enregistrées, de la plus récente à la plus ancienne." action={<button onClick={()=>loadQuestions(false)} disabled={busy} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 px-3 text-xs font-semibold disabled:opacity-50"><RefreshCw size={14}/> Actualiser</button>}/>
       {questions&&<p className="mb-3 text-xs text-slate-500">{questions.conversationCount||0} discussions chargées sur cette page.</p>}
       <div className="space-y-4">{(questions?.conversations||[]).map(chat=><article key={chat.id} className="rounded-xl border border-slate-100 p-3">
-        <div className="mb-3 flex flex-wrap items-start justify-between gap-2"><div><p className="text-sm font-semibold">{chat.user?.displayName||'Utilisateur'}</p><p className="text-xs text-slate-500">{chat.user?.email||chat.userId} · {chat.title}</p></div><div className="text-right"><p className="text-xs font-medium">{dateLabel(chat.updatedAt||chat.createdAt)}</p><p className="text-[10px] text-slate-400">{chat.messageCount||0} messages</p></div></div>
-        <div className="max-h-96 space-y-2 overflow-y-auto rounded-lg bg-slate-50 p-2">{(chat.messages||[]).map((message,index)=><div key={index} className={`max-w-[95%] whitespace-pre-wrap rounded-lg p-2 text-xs leading-5 ${message.role==='assistant'?'mr-auto bg-white text-slate-700':'ml-auto bg-blue-50 text-slate-800'}`}><p className="mb-1 text-[10px] font-semibold text-slate-500">{message.role==='assistant'?'Mč':'Utilisateur'}</p>{message.content||'Contenu non textuel'}</div>)}</div>
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-2"><div><p className="text-sm font-semibold">{chat.user?.displayName||'Utilisateur'}</p><p className="text-xs text-slate-500">{chat.user?.email||chat.userId} · {chat.title}</p>{chat.lastMessagePreview && <p className="mt-1 line-clamp-2 text-xs text-slate-500">{chat.lastMessagePreview}</p>}</div><div className="text-right"><p className="text-xs font-medium">{dateLabel(chat.updatedAt||chat.createdAt)}</p><p className="text-[10px] text-slate-400">{chat.messageCount||0} messages</p></div></div>
+        <button type="button" onClick={() => loadQuestionConversation(chat)} disabled={questionChatLoadingId === chat.id} className="text-xs font-semibold text-brand-700 hover:underline">{questionChatLoadingId === chat.id ? 'Chargement…' : selectedQuestionChat?.id === chat.id ? 'Masquer la conversation' : 'Afficher la conversation'}</button>
+        {selectedQuestionChat?.id === chat.id && <div className="mt-3 max-h-96 space-y-2 overflow-y-auto rounded-lg bg-slate-50 p-2">{selectedQuestionChat.messages.map((message,index)=><div key={index} className={`max-w-[95%] whitespace-pre-wrap rounded-lg p-2 text-xs leading-5 ${message.role==='assistant'?'mr-auto bg-white text-slate-700':'ml-auto bg-blue-50 text-slate-800'}`}><p className="mb-1 text-[10px] font-semibold text-slate-500">{message.role==='assistant'?'Mč':'Utilisateur'}</p>{message.content||'Contenu non textuel'}</div>)}</div>}
       </article>)}
       {!questions?.conversations?.length&&<p className="py-8 text-center text-sm text-slate-500">{busy?'Chargement des conversations…':'Aucune discussion IA trouvée.'}</p>}</div>
       {nextQuestionCursor&&<button onClick={()=>loadQuestions(true)} disabled={busy} className="mt-4 inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 px-4 text-xs font-semibold disabled:opacity-50">{busy?'Chargement…':'Charger les discussions suivantes'}</button>}
