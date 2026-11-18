@@ -62,6 +62,7 @@ export default function CotisationsPage() {
   const [roleDrafts, setRoleDrafts] = useState({});
   const chatScrollRef = useRef(null);
   const chatLastMessageIdRef = useRef('');
+  const chatLastMessageCursorRef = useRef('');
   const chatLastSyncAtRef = useRef(0);
   const chatMessagePressTimerRef = useRef(null);
   const clearChatMessagePressTimer = () => {
@@ -216,6 +217,7 @@ export default function CotisationsPage() {
         setChatGroup(targetGroup);
         setChatMessages([]);
         chatLastMessageIdRef.current = '';
+        chatLastMessageCursorRef.current = '';
         chatLastSyncAtRef.current = 0;
         setChatDraft('');
         setChatError('');
@@ -339,6 +341,7 @@ export default function CotisationsPage() {
       const result = await api('cotisations/chat/messages?groupId=' + encodeURIComponent(groupId));
       setChatMessages(result.messages || []);
       chatLastMessageIdRef.current = result.lastMessageId || (result.messages?.length ? result.messages[result.messages.length - 1].id : '');
+      chatLastMessageCursorRef.current = result.lastMessageCursor || '';
       chatLastSyncAtRef.current = Date.parse(result.serverTime || '') || Date.now();
       setChatQuota(result.quota || chatQuota);
       setChatQuotaBlocked(Number(result.quota?.remaining) <= 0);
@@ -431,7 +434,11 @@ export default function CotisationsPage() {
     const refresh = async (replace = false) => {
       try {
         const afterId = replace ? '' : chatLastMessageIdRef.current;
-        const suffix = afterId ? '&afterId=' + encodeURIComponent(afterId) : '';
+        const afterCursor = replace ? '' : chatLastMessageCursorRef.current;
+        const suffix = afterId
+          ? '&afterId=' + encodeURIComponent(afterId)
+            + (afterCursor ? '&afterCreatedAt=' + encodeURIComponent(afterCursor) : '')
+          : '';
         const updatedSuffix = !replace && chatLastSyncAtRef.current
           ? '&updatedAfter=' + encodeURIComponent(Math.max(0, chatLastSyncAtRef.current - 5000))
           : '';
@@ -446,6 +453,7 @@ export default function CotisationsPage() {
           ).slice(-100);
         });
         if (result.lastMessageId) chatLastMessageIdRef.current = result.lastMessageId;
+        if (result.lastMessageCursor) chatLastMessageCursorRef.current = result.lastMessageCursor;
         chatLastSyncAtRef.current = Date.parse(result.serverTime || '') || Date.now();
         setChatQuota(result.quota || chatQuota);
         setChatQuotaBlocked(Number(result.quota?.remaining) <= 0);
@@ -456,6 +464,7 @@ export default function CotisationsPage() {
           setChatQuotaBlocked(true);
           setChatMessages([]);
           chatLastMessageIdRef.current = '';
+         chatLastMessageCursorRef.current = '';
           setChatError('');
         } else if (active) setChatError(error.message || 'Impossible d’actualiser la discussion.');
       } finally {
