@@ -131,10 +131,10 @@ service cloud.firestore {
       match /ai_chats/{chatId} {
         allow read: if owner(userId);
         allow create: if owner(userId)
-          && request.resource.data.keys().hasOnly(['title', 'messages', 'source', 'pinned', 'createdAt', 'updatedAt'])
+          && request.resource.data.keys().hasOnly(['title', 'messages', 'messageCount', 'lastMessagePreview', 'source', 'pinned', 'createdAt', 'updatedAt'])
           && request.resource.data.title is string;
         allow update: if owner(userId)
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'messages', 'pinned', 'updatedAt']);
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'messages', 'messageCount', 'lastMessagePreview', 'pinned', 'updatedAt']);
         allow delete: if owner(userId);
       }
 
