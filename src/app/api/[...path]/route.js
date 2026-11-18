@@ -3371,32 +3371,74 @@ async function handleGlobalFinanceSummary(request) {
     const expensePeriod = userRef.collection('expenses')
       .where('date', '>=', startDate).where('date', '<=', endDate);
 
-    // Read only the selected date window, then sum in memory. This uses the
-    // normal date index and does not require a composite SUM(amount) index.
-    const [incomesSnapshot, expensesSnapshot] = await Promise.all([
-      incomePeriod.get(),
-      expensePeriod.get(),
-    ]);
     const excludeNeutral = url.searchParams.get('excludeNeutral') === 'true';
-    const eligibleRows = (snapshot) => snapshot.docs.filter((document) => {
-      if (!excludeNeutral) return true;
-      return document.data()?.neutralFlow !== true;
-    });
-    const sumAmount = (rows) => rows.reduce((sum, document) =>
-      sum + (Number(document.data()?.amount) || 0), 0);
-    const totalIncome = sumAmount(eligibleRows(incomesSnapshot));
-    const totalExpense = sumAmount(eligibleRows(expensesSnapshot));
+    try {
+      // Les agrégations sont exécutées dans Firestore : aucun document de revenu
+      // ou de dépense n'est téléchargé pour calculer les totaux du widget.
+      const [incomeSummary, expenseSummary] = await Promise.all([
+        incomePeriod.aggregate({
+          total: AggregateField.sum('amount'),
+          count: AggregateField.count(),
+        }).get(),
+        expensePeriod.aggregate({
+          total: AggregateField.sum('amount'),
+          count: AggregateField.count(),
+        }).get(),
+      ]);
+      let neutralIncome = 0;
+      let neutralExpense = 0;
+      if (excludeNeutral) {
+        const [neutralIncomeSummary, neutralExpenseSummary] = await Promise.all([
+          incomePeriod.where('neutralFlow', '==', true)
+            .aggregate({ total: AggregateField.sum('amount') }).get(),
+          expensePeriod.where('neutralFlow', '==', true)
+            .aggregate({ total: AggregateField.sum('amount') }).get(),
+        ]);
+        neutralIncome = Number(neutralIncomeSummary.data()?.total) || 0;
+        neutralExpense = Number(neutralExpenseSummary.data()?.total) || 0;
+      }
 
-    return NextResponse.json({
-      success: true,
-      startDate,
-      endDate,
-      totalIncome,
-      totalExpense,
-      incomeCount: incomesSnapshot.size,
-      expenseCount: expensesSnapshot.size,
-      globalBalance: totalIncome - totalExpense,
-    });
+      const totalIncome = Math.max(0, (Number(incomeSummary.data()?.total) || 0) - neutralIncome);
+      const totalExpense = Math.max(0, (Number(expenseSummary.data()?.total) || 0) - neutralExpense);
+      return NextResponse.json({
+        success: true,
+        startDate,
+        endDate,
+        totalIncome,
+        totalExpense,
+        incomeCount: Math.max(0, Number(incomeSummary.data()?.count) || 0),
+        expenseCount: Math.max(0, Number(expenseSummary.data()?.count) || 0),
+        globalBalance: totalIncome - totalExpense,
+      });
+    } catch (aggregateError) {
+      const message = String(aggregateError?.message || aggregateError);
+      const missingIndex = aggregateError?.code === 9
+        || String(aggregateError?.code || '').toLowerCase().includes('failed-precondition')
+        || /requires an index|index is currently building/i.test(message);
+      if (!missingIndex) throw aggregateError;
+
+      // Secours temporaire si l'index composite neutralFlow + date n'est pas
+      // encore disponible. Une fois l'index créé, le chemin agrégé est utilisé.
+      console.warn('[PATA PERIOD FINANCE SUMMARY INDEX]', message.slice(0, 400));
+      const [incomesSnapshot, expensesSnapshot] = await Promise.all([
+        incomePeriod.get(),
+        expensePeriod.get(),
+      ]);
+      const total = (snapshot) => snapshot.docs.reduce((sum, document) => {
+        const data = document.data() || {};
+        return sum + (excludeNeutral && data.neutralFlow === true ? 0 : Number(data.amount) || 0);
+      }, 0);
+      return NextResponse.json({
+        success: true,
+        startDate,
+        endDate,
+        totalIncome: total(incomesSnapshot),
+        totalExpense: total(expensesSnapshot),
+        incomeCount: incomesSnapshot.size,
+        expenseCount: expensesSnapshot.size,
+        globalBalance: total(incomesSnapshot) - total(expensesSnapshot),
+      });
+    }
   } catch (error) {
     console.error('[PATA PERIOD FINANCE SUMMARY]', error.message || error);
     return errorResponse(error.message || 'Impossible de calculer le bilan de la période.', 502);
