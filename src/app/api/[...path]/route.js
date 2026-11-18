@@ -16,7 +16,7 @@ import { buildIncomePriorityReminder } from '@/lib/finance/incomePriorities.mjs'
 import { buildIncomeBudgetRecommendation } from '@/lib/finance/incomeBudgetRecommendation.mjs';
 import { buildRecurringExpenseReminders } from '@/lib/notifications/recurringExpenses.mjs';
 import { sumIncomeSpendTotals } from '@/lib/finance/incomeBalances.mjs';
-import { applyBudgetSpendDelta, buildBudgetSpendSummary, getBudgetSpendAmount, normalizeBudgetSpendSummary } from '@/lib/finance/budgetSpendSummary.mjs';
+import { BUDGET_SPEND_SUMMARY_VERSION, applyBudgetSpendDelta, buildBudgetSpendSummary, getBudgetSpendAmount, normalizeBudgetSpendSummary } from '@/lib/finance/budgetSpendSummary.mjs';
 import { chatWithGroqVision, extractBillDataWithGroqVision } from '@/lib/ai/groqVision';
 import { generateImageWithPollinations } from '@/lib/ai/pollinationsImage';
 import { classifyAIRequest, selectAIToolsForIntent, buildCompactAIContext } from '@/lib/ai/compactContext';
@@ -611,7 +611,7 @@ async function handleDebtRequestRespond(request) {
         const month = date.slice(0, 7);
         const repaymentSource = 'Remboursement reçu · ' + requesterName;
 
-        if (budgetSummarySnap?.exists && Number(budgetSummarySnap.data()?.version) === 1) {
+        if (budgetSummarySnap?.exists && Number(budgetSummarySnap.data()?.version) === BUDGET_SPEND_SUMMARY_VERSION) {
           let budgetSummary = normalizeBudgetSpendSummary(budgetSummarySnap.data(), month);
           for (const expense of expenseRows) {
             budgetSummary = applyBudgetSpendDelta(budgetSummary, {
@@ -2958,7 +2958,7 @@ async function handleNotificationScheduler(request, passNumber = 1) {
         let budgetSpendSummary = null;
         const storedExpenseSummary = expenseSummarySnap.exists ? expenseSummarySnap.data() || {} : null;
         const hasCompleteExpenseSummary = storedExpenseSummary
-          && Number(storedExpenseSummary.version) === 1
+          && Number(storedExpenseSummary.version) === BUDGET_SPEND_SUMMARY_VERSION
           && Object.prototype.hasOwnProperty.call(storedExpenseSummary, 'expenseCount')
           && Object.prototype.hasOwnProperty.call(storedExpenseSummary, 'totalAmount');
         if (hasCompleteExpenseSummary) {
