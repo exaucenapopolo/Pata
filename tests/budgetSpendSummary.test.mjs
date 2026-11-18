@@ -15,6 +15,8 @@ test('builds monthly budget totals and ignores neutral or non-consumption flows'
     { date: '2026-10-31', amount: 400, categoryId: 'food', incomeSourceId: 'salary' },
   ], '2026-11');
 
+  assert.equal(summary.expenseCount, 2);
+  assert.equal(summary.totalAmount, 150);
   assert.equal(getBudgetSpendAmount(summary, 'food', 'all'), 150);
   assert.equal(getBudgetSpendAmount(summary, 'food', 'salary'), 100);
   assert.equal(getBudgetSpendAmount(summary, 'food', 'business'), 50);
@@ -32,6 +34,8 @@ test('applies and reverses updates without changing unrelated categories or sour
     date: '2026-11-10', amount: 200, categoryId: 'transport', incomeSourceId: 'business',
   }, 1);
 
+  assert.equal(summary.expenseCount, 1);
+  assert.equal(summary.totalAmount, 200);
   assert.equal(getBudgetSpendAmount(summary, 'food', 'all'), 0);
   assert.equal(getBudgetSpendAmount(summary, 'transport', 'business'), 200);
   assert.equal(getBudgetSpendAmount(summary, 'transport', 'all'), 200);
@@ -45,4 +49,15 @@ test('legacy expenses without an expenseType count as consumption; neutral pendi
 
   assert.equal(getBudgetSpendAmount(summary, 'food'), 75);
   assert.equal(getBudgetSpendAmount(summary, 'debt_repayment'), 0);
+});
+
+test('counts eligible expenses without a category for the monthly activity summary', () => {
+  const summary = buildBudgetSpendSummary([
+    { date: '2026-11-13', amount: 45, incomeSourceId: 'salary' },
+    { date: '2026-11-14', amount: 70, categoryId: 'loan_given', incomeSourceId: 'salary', neutralFlow: true },
+  ], '2026-11');
+
+  assert.equal(summary.expenseCount, 1);
+  assert.equal(summary.totalAmount, 45);
+  assert.equal(getBudgetSpendAmount(summary, 'other', 'all'), 0);
 });
