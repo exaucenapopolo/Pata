@@ -188,7 +188,9 @@ export function buildCompactAIContext(data = {}, intent = {}) {
   if (intent.needsGoals) {
     lines.push('OBJECTIFS ET ÉPARGNE:');
     lines.push(...(data.goals || []).slice(0, 12).map((item) => {
-      const saved = (item.deposits || []).reduce((sum, deposit) => sum + (Number(deposit.amount) || 0), 0);
+      const saved = item.totalDeposited !== undefined && item.totalDeposited !== null
+        ? Math.max(0, Number(item.totalDeposited) || 0)
+        : (item.deposits || []).reduce((sum, deposit) => sum + (Number(deposit.amount) || 0), 0);
       return `ID ${item.id} | ${String(item.name || 'Objectif').slice(0, 50)} | cible ${money(item.targetAmount)} FCFA | déposé ${money(saved)} FCFA | échéance ${item.deadline || 'libre'}`;
     }));
   }
