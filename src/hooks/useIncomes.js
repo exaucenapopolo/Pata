@@ -175,11 +175,11 @@ export function useIncomes() {
 
     const unsubscribe = subscribeIncomes(user.uid, (items) => {
       const nextSignature = getIncomeSignature(items);
-      const rowsChanged = nextSignature !== currentSignature;
       currentRows = items;
       currentSignature = nextSignature;
-      // Les montants ou la liste ont changé : le cache n'est plus fiable.
-      void refreshBalances(rowsChanged);
+      // La signature fait partie de la clé du cache : une liste ou un montant
+      // différent déclenche automatiquement un nouveau calcul.
+      void refreshBalances();
     });
 
     const handleRefresh = () => { void refreshBalances(true); };
