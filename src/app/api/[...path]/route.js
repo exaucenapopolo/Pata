@@ -5324,6 +5324,66 @@ function isPremiumAccount(data = {}) {
   return Number.isFinite(expiry.getTime()) && expiry > new Date();
 }
 
+async function handleAIChats(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const url = new URL(request.url);
+    const chatId = String(url.searchParams.get('id') || '').trim().slice(0, 150);
+    const chatsRef = adminDb.collection('users').doc(uid).collection('ai_chats');
+
+    if (chatId) {
+      if (chatId.includes('/')) return errorResponse('Identifiant de discussion invalide.', 400);
+      // Le contenu complet d'une seule discussion n'est lu qu'après son ouverture.
+      const snapshot = await chatsRef.doc(chatId).get();
+      if (!snapshot.exists) return errorResponse('Cette discussion n’existe plus.', 404);
+      const data = snapshot.data() || {};
+      const messages = Array.isArray(data.messages) ? data.messages.map((message) => ({
+        role: message?.role === 'assistant' ? 'assistant' : 'user',
+        content: typeof message?.content === 'string' ? message.content : null,
+        wasAudio: message?.wasAudio === true,
+        generatedImage: typeof message?.generatedImage === 'string' ? message.generatedImage : null,
+      })) : [];
+      return NextResponse.json({
+        success: true,
+        chat: {
+          id: snapshot.id,
+          title: String(data.title || 'Discussion sans titre').slice(0, 120),
+          source: data.source === 'notification' ? 'notification' : 'assistant',
+          pinned: data.pinned === true,
+          createdAt: serializeAdminValue(data.createdAt || null),
+          updatedAt: serializeAdminValue(data.updatedAt || data.createdAt || null),
+          messageCount: Number.isFinite(Number(data.messageCount)) ? Number(data.messageCount) : messages.length,
+          messages,
+        },
+      });
+    }
+
+    // Projection Firestore : les documents complets contiennent l'historique
+    // des messages. Ne lire que les métadonnées pour dessiner la liste latérale.
+    const snapshot = await chatsRef
+      .select('title', 'source', 'pinned', 'createdAt', 'updatedAt', 'messageCount', 'lastMessagePreview')
+      .orderBy('updatedAt', 'desc')
+      .limit(100)
+      .get();
+    const chats = snapshot.docs.map((document) => {
+      const data = document.data() || {};
+      return {
+        id: document.id,
+        title: String(data.title || 'Discussion sans titre').slice(0, 120),
+        source: data.source === 'notification' ? 'notification' : 'assistant',
+        pinned: data.pinned === true,
+        createdAt: serializeAdminValue(data.createdAt || null),
+        updatedAt: serializeAdminValue(data.updatedAt || data.createdAt || null),
+        messageCount: Math.max(0, Number(data.messageCount) || 0),
+        lastMessagePreview: String(data.lastMessagePreview || '').slice(0, 140),
+      };
+    });
+    return NextResponse.json({ success: true, chats, hasMore: snapshot.size >= 100 });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de charger les discussions IA.', 401);
+  }
+}
+
 async function handleAIChat(request) {
   let reservedQuota = null;
   let uid = null;
@@ -10759,6 +10819,7 @@ const ROUTES = {
   'expenses/add':          { POST: handleAddExpense },
   'expenses/update':       { POST: handleUpdateExpense },
   'expenses/delete':       { POST: handleDeleteExpense },
+  'ai/chats':              { GET: handleAIChats },
   'ai/chat':               { POST: handleAIChat },
   'ai/image':              { POST: handleAIImage },
   'ai/vision':             { POST: handleAIVision },
