@@ -2,6 +2,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb } from '@/lib/firebase/admin';
 import { incomeMatchesMobileMoneyProvider } from '@/lib/finance/cashWithdrawal.mjs';
 import { buildRecurringExpensePatterns } from '@/lib/notifications/recurringExpenses.mjs';
+import { applyBudgetSpendDelta, buildBudgetSpendSummary, getBudgetSpendAmount, normalizeBudgetSpendSummary } from '@/lib/finance/budgetSpendSummary.mjs';
 
 const EXPENSE_CATEGORIES = [
   'food', 'transport', 'housing', 'internet', 'health', 'leisure', 'gift_donation',
@@ -253,12 +254,13 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
       .where('date', '<=', todayKey)
       .orderBy('date', 'desc')
       .limit(500);
+    const budgetSpendSummaryRef = subcol(uid, 'budgetSpendSummaries').doc(String(date).slice(0, 7));
     const budgetExpensesQuery = expensesQuery
       .where('date', '>=', selectedMonthStart)
       .where('date', '<=', selectedMonthEnd);
     const readTasks = [transaction.get(userRef), transaction.get(incomesQuery)];
     if (needsBudgetCheck) {
-      readTasks.push(transaction.get(budgetQuery), transaction.get(budgetExpensesQuery));
+      readTasks.push(transaction.get(budgetQuery), transaction.get(budgetSpendSummaryRef));
     }
     if (idempotencyRef) readTasks.push(transaction.get(idempotencyRef));
     if (newDebtRef) readTasks.push(transaction.get(subcol(uid, 'debts').where('status', 'in', ['active', 'partial', 'late'])));
@@ -268,7 +270,7 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
     const userSnap = readResults[0];
     const incomesSnap = readResults[1];
     const budgetsSnap = needsBudgetCheck ? readResults[2] : { docs: [] };
-    const budgetExpensesSnap = needsBudgetCheck ? readResults[3] : { docs: [] };
+    const budgetSpendSummarySnap = needsBudgetCheck ? readResults[3] : null;
     let readIndex = needsBudgetCheck ? 4 : 2;
     const idempotencySnap = idempotencyRef ? readResults[readIndex++] : null;
     const activeDebtsSnap = newDebtRef ? readResults[readIndex++] : null;
@@ -318,14 +320,32 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
 
     const incomes = incomesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
     let incomeSpentTotals = normalizeIncomeSpentTotals(userData.incomeSpentTotals);
+    let legacyExpensesSnap = null;
     if (userData.incomeSpentTotalsVersion !== 1) {
       // Ancien compte : une seule migration lit l'historique complet. Les écritures
       // suivantes utilisent le résumé du profil et n'ouvrent plus cette collection.
-      const legacyExpensesSnap = await transaction.get(expensesQuery);
+      legacyExpensesSnap = await transaction.get(expensesQuery);
       incomeSpentTotals = calculateIncomeSpentTotals(legacyExpensesSnap.docs.map((document) => document.data() || {}));
     }
     const balances = buildIncomeBalancesFromTotals(incomes, incomeSpentTotals);
-    const budgetExpenses = budgetExpensesSnap.docs.map((document) => document.data() || {});
+    let budgetSpendSummary = null;
+    if (needsBudgetCheck) {
+      if (budgetSpendSummarySnap?.exists
+        && Number(budgetSpendSummarySnap.data()?.version) === 1) {
+        budgetSpendSummary = normalizeBudgetSpendSummary(budgetSpendSummarySnap.data(), String(date).slice(0, 7));
+      } else if (budgetsSnap?.size > 0) {
+        // Un seul rattrapage par mois et par compte : si le résumé n'existe pas,
+        // on reconstruit les totaux une fois, puis les prochaines opérations ne
+        // relisent plus toute la collection des dépenses du mois.
+        const historySnap = legacyExpensesSnap
+          ? { docs: legacyExpensesSnap.docs.filter((document) => String(document.data()?.date || '').slice(0, 7) === String(date).slice(0, 7)) }
+          : await transaction.get(budgetExpensesQuery);
+        budgetSpendSummary = buildBudgetSpendSummary(
+          historySnap.docs.map((document) => document.data() || {}),
+          String(date).slice(0, 7),
+        );
+      }
+    }
     const selectedSource = externalFunding
       ? { id: 'external', source: cleanText(input.externalFundingLabel, 80) || 'Solde Mobile Money' }
       : sourceOverride || resolveSource(incomes, input.incomeSourceId, input.incomeSourceName);
@@ -471,11 +491,7 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
         ? amount
         : (plannedBySource.get(sourceId) || 0);
       if (planned <= 0) continue;
-      const spentBefore = budgetExpenses
-        .filter((expense) => !expense.neutralFlow && getExpenseTypeForBudget(expense) === 'consumption'
-          && expense.categoryId === categoryId
-          && (sourceId === 'all' || expense.incomeSourceId === sourceId))
-        .reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0);
+      const spentBefore = getBudgetSpendAmount(budgetSpendSummary, categoryId, sourceId);
       const limit = Number(budget.amount) || 0;
       if (limit > 0 && spentBefore + planned > limit) {
         warnings.push({
@@ -627,6 +643,23 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
       }
     }
 
+    if (budgetSpendSummary) {
+      for (const item of created) {
+        budgetSpendSummary = applyBudgetSpendDelta(budgetSpendSummary, {
+          amount: item.amount,
+          categoryId,
+          date,
+          incomeSourceId: item.incomeSourceId,
+          expenseType,
+          neutralFlow: flowType === 'loan_given' || cashWithdrawal,
+        }, 1);
+      }
+      transaction.set(budgetSpendSummaryRef, {
+        ...budgetSpendSummary,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
+
     const result = {
       success: true, amount, date, categoryId, expenseType, flowType,
       ...(newDebtRef ? { debtId: newDebtRef.id } : {}),
@@ -703,16 +736,21 @@ export async function updateExpenseForUser(uid, expenseId, input) {
       projectName = cleanText(projectSnap.data()?.name, 100);
     }
     const optionalMetadata = readOptionalTransactionMetadata(input, previousData);
-    const selectedMonthStart = String(date).slice(0, 7) + '-01';
-    const [selectedYear, selectedMonthNumber] = String(date).slice(0, 7).split('-').map(Number);
+    const newMonth = String(date).slice(0, 7);
+    const previousMonth = String(previousData.date || date).slice(0, 7);
+    const selectedMonthStart = newMonth + '-01';
+    const [selectedYear, selectedMonthNumber] = newMonth.split('-').map(Number);
     const selectedMonthEnd = new Date(Date.UTC(selectedYear, selectedMonthNumber, 0)).toISOString().slice(0, 10);
     const needsBudgetCheck = expenseType === 'consumption';
-    const [budgetSnap, budgetExpensesSnap] = needsBudgetCheck
-      ? await Promise.all([
-        transaction.get(subcol(uid, 'budgets').where('month', '==', String(date).slice(0, 7))),
-        transaction.get(expensesRef.where('date', '>=', selectedMonthStart).where('date', '<=', selectedMonthEnd)),
-      ])
-      : [{ docs: [] }, { docs: [] }];
+    const newBudgetSummaryRef = subcol(uid, 'budgetSpendSummaries').doc(newMonth);
+    const previousBudgetSummaryRef = subcol(uid, 'budgetSpendSummaries').doc(previousMonth);
+    const [budgetSnap, newBudgetSummarySnap, previousBudgetSummarySnap] = await Promise.all([
+      needsBudgetCheck
+        ? transaction.get(subcol(uid, 'budgets').where('month', '==', newMonth))
+        : Promise.resolve({ docs: [] }),
+      transaction.get(newBudgetSummaryRef),
+      previousMonth === newMonth ? Promise.resolve(null) : transaction.get(previousBudgetSummaryRef),
+    ]);
     const requestedSourceId = input.incomeSourceId === undefined
       ? (previousData.incomeSourceId || 'all') : input.incomeSourceId;
     const requestedSourceName = input.incomeSourceName === undefined
@@ -733,9 +771,30 @@ export async function updateExpenseForUser(uid, expenseId, input) {
       baseSpentTotals[previousIncomeId] = Math.max(0, (Number(baseSpentTotals[previousIncomeId]) || 0) - previousAmount);
     }
     const balances = buildIncomeBalancesFromTotals(incomes, baseSpentTotals);
-    const expenses = budgetExpensesSnap.docs
-      .filter((document) => document.id !== id)
-      .map((document) => ({ id: document.id, ...(document.data() || {}) }));
+    let newBudgetSpendSummary = newBudgetSummarySnap.exists
+      && Number(newBudgetSummarySnap.data()?.version) === 1
+      ? normalizeBudgetSpendSummary(newBudgetSummarySnap.data(), newMonth)
+      : null;
+    let previousBudgetSpendSummary = previousMonth === newMonth
+      ? newBudgetSpendSummary
+      : (previousBudgetSummarySnap?.exists && Number(previousBudgetSummarySnap.data()?.version) === 1
+        ? normalizeBudgetSpendSummary(previousBudgetSummarySnap.data(), previousMonth) : null);
+    if (!newBudgetSpendSummary && needsBudgetCheck && budgetSnap?.size > 0) {
+      const monthExpensesSnap = await transaction.get(
+        expensesRef.where('date', '>=', selectedMonthStart).where('date', '<=', selectedMonthEnd)
+      );
+      newBudgetSpendSummary = buildBudgetSpendSummary(
+        monthExpensesSnap.docs.map((document) => document.data() || {}),
+        newMonth,
+      );
+      if (previousMonth === newMonth) previousBudgetSpendSummary = newBudgetSpendSummary;
+    }
+    // Les avertissements doivent exclure la dépense qu'on est en train de modifier,
+    // comme le faisait l'ancienne requête mensuelle.
+    let summaryForBudgetCheck = newBudgetSpendSummary;
+    if (summaryForBudgetCheck && previousMonth === newMonth) {
+      summaryForBudgetCheck = applyBudgetSpendDelta(summaryForBudgetCheck, previousData, -1);
+    }
     const selectedSource = resolveSource(incomes, requestedSourceId, requestedSourceName);
     const eligibleBalances = balances.filter((income) => !income.projectId || income.projectId === projectId);
     let allocations = [];
@@ -773,11 +832,7 @@ export async function updateExpenseForUser(uid, expenseId, input) {
       const budgetSourceId = budget.incomeSourceId || 'all';
       const planned = budgetSourceId === 'all' ? amount : (plannedBySource.get(budgetSourceId) || 0);
       if (planned <= 0) continue;
-      const alreadySpent = expenses.filter((item) => getExpenseTypeForBudget(item) === 'consumption'
-        && String(item.date || '').slice(0, 7) === String(date).slice(0, 7)
-        && item.categoryId === categoryId
-        && (budgetSourceId === 'all' || item.incomeSourceId === budgetSourceId))
-        .reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+      const alreadySpent = getBudgetSpendAmount(summaryForBudgetCheck, categoryId, budgetSourceId);
       const allocated = Number(budget.amount) || 0;
       if (allocated > 0 && alreadySpent + planned > allocated) budgetWarnings.push({
         source: budgetSourceId === 'all' ? 'tous les revenus' : (incomes.find((item) => item.id === budgetSourceId)?.source || 'ce revenu'),
@@ -844,6 +899,28 @@ export async function updateExpenseForUser(uid, expenseId, input) {
       extraRecords.push({ id: extraRef.id, incomeSourceId: income.id, incomeSourceName: income.source, amount: allocated });
     });
 
+    if (previousMonth !== newMonth && previousBudgetSpendSummary) {
+      previousBudgetSpendSummary = applyBudgetSpendDelta(previousBudgetSpendSummary, previousData, -1);
+      transaction.set(previousBudgetSummaryRef, {
+        ...previousBudgetSpendSummary,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
+    if (newBudgetSpendSummary) {
+      newBudgetSpendSummary = applyBudgetSpendDelta(newBudgetSpendSummary, previousMonth === newMonth ? previousData : null, -1);
+      const nextExpenseRows = [
+        { amount: first.amount, categoryId, date, incomeSourceId: first.income.id, expenseType, neutralFlow: false },
+        ...extraRecords.map((item) => ({
+          amount: item.amount, categoryId, date, incomeSourceId: item.incomeSourceId, expenseType, neutralFlow: false,
+        })),
+      ];
+      for (const row of nextExpenseRows) newBudgetSpendSummary = applyBudgetSpendDelta(newBudgetSpendSummary, row, 1);
+      transaction.set(newBudgetSummaryRef, {
+        ...newBudgetSpendSummary,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
+
     return {
       success: true,
       expenseId: id,
@@ -877,6 +954,10 @@ export async function deleteExpenseForUser(uid, expenseId) {
     const data = snapshot.data() || {};
     if (data.flowType === 'loan_given' || data.repaymentDebtId) throw new Error('Ce mouvement est lié au module Dettes & prêts. Gère-le depuis cette rubrique pour préserver les soldes.');
     const userData = userSnapshot.exists ? userSnapshot.data() || {} : {};
+    const expenseMonth = String(data.date || '').slice(0, 7);
+    const budgetSummaryRef = expenseMonth
+      ? subcol(uid, 'budgetSpendSummaries').doc(expenseMonth) : null;
+    const budgetSummarySnap = budgetSummaryRef ? await transaction.get(budgetSummaryRef) : null;
     if (userData.incomeSpentTotalsVersion === 1) {
       const totals = normalizeIncomeSpentTotals(userData.incomeSpentTotals);
       const incomeId = String(data.incomeSourceId || '');
@@ -888,6 +969,17 @@ export async function deleteExpenseForUser(uid, expenseId) {
         incomeSpentTotalsVersion: 1,
         incomeSpentTotalsUpdatedAt: FieldValue.serverTimestamp(),
       }, { merge: true });
+    }
+    if (budgetSummarySnap?.exists && Number(budgetSummarySnap.data()?.version) === 1) {
+      const budgetSummary = applyBudgetSpendDelta(
+        normalizeBudgetSpendSummary(budgetSummarySnap.data(), expenseMonth),
+        data,
+        -1,
+      );
+      transaction.set(budgetSummaryRef, {
+        ...budgetSummary,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
     }
     transaction.create(activityRef, {
       eventType: 'deleted', entityType: 'expense', entityId: id,
