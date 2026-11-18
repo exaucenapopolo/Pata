@@ -8012,15 +8012,28 @@ function getCotisationCycleMetaForIndex(group, index) {
 async function resolveCurrentCotisationCycleMeta(groupRef, group, today = cotisationToday(), transaction = null) {
   const calendarMeta = getCotisationCycleMeta(group, today);
   if (calendarMeta.notStarted || calendarMeta.cycleIndex <= 0) return calendarMeta;
-  for (let index = 0; index < calendarMeta.cycleIndex; index += 1) {
-    const cycleKey = 'cycle-' + String(index + 1).padStart(4, '0');
-    const cycleRef = groupRef.collection('cycles').doc(cycleKey);
-    const cycleSnap = transaction ? await transaction.get(cycleRef) : await cycleRef.get();
-    if (!cycleSnap.exists || cycleSnap.data()?.status !== 'PAID') {
-      return getCotisationCycleMetaForIndex(group, index);
-    }
-  }
-  return calendarMeta;
+
+  // Les cycles sont séquentiels : le dernier cycle créé indique directement
+  // où reprendre. L'ancienne version relisait chaque cycle depuis le premier,
+  // ce qui faisait N lectures par groupe à mesure que les mois passaient.
+  const latestCycleQuery = groupRef.collection('cycles')
+    .orderBy('cycleIndex', 'desc')
+    .limit(1);
+  const latestSnapshot = transaction
+    ? await transaction.get(latestCycleQuery)
+    : await latestCycleQuery.get();
+  const latestDocument = latestSnapshot.docs?.[0];
+  if (!latestDocument) return calendarMeta;
+
+  const latestCycle = latestDocument.data() || {};
+  const parsedIndex = Number(String(latestCycle.cycleKey || latestDocument.id).replace(/^cycle-/, '')) - 1;
+  const latestIndex = Number.isInteger(Number(latestCycle.cycleIndex))
+    ? Number(latestCycle.cycleIndex)
+    : parsedIndex;
+  if (!Number.isInteger(latestIndex) || latestIndex < 0) return calendarMeta;
+
+  const nextIndex = latestCycle.status === 'PAID' ? latestIndex + 1 : latestIndex;
+  return getCotisationCycleMetaForIndex(group, Math.min(nextIndex, calendarMeta.cycleIndex));
 }
 
 function validateCotisationProviderPayment(providerResponse, payment, transId) {
@@ -8088,6 +8101,7 @@ async function confirmCotisationPayment(transId) {
       amount: nextMemberTotal,
       penaltyPaid: nextPenaltyTotal,
       totalPaid: nextMemberTotal + nextPenaltyTotal,
+      installments: Math.max(0, Number(previousContribution.installments) || 0) + 1,
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
     transaction.set(paymentHistoryRef, {
@@ -8213,9 +8227,12 @@ function cotisationAvatarURL(value) {
 
 async function hydrateCotisationMemberProfiles(memberDocuments) {
   const members = memberDocuments.map((document) => ({ uid: document.id, ...document.data() }));
+  // Les informations de profil sont copiées dans le document membre lors de
+  // l'adhésion/synchronisation. Ne relis pas tous les profils simplement parce
+  // qu'une photo est absente : le nom déjà enregistré suffit à afficher le groupe.
   const missingProfiles = members.filter((member) =>
     member.active !== false
-    && !cotisationAvatarURL(member.photoURL)
+    && !String(member.displayName || '').trim()
   );
   const profileSnapshots = await Promise.all(missingProfiles.map((member) =>
     adminDb.collection('users').doc(member.uid).get().catch(() => null)
@@ -8285,18 +8302,42 @@ async function handleCotisationsList(request) {
         : String(a.displayName || '').localeCompare(String(b.displayName || ''), 'fr'));
       const meta = await resolveCurrentCotisationCycleMeta(groupRef, group);
       const cycleRef = groupRef.collection('cycles').doc(meta.cycleKey);
-      const [cycleSnap, contributionsSnap, paymentsSnap, paidCyclesSnap] = await Promise.all([
+      const [cycleSnap, contributionsSnap, paidCyclesSnap] = await Promise.all([
         cycleRef.get(),
         cycleRef.collection('contributions').limit(50).get(),
-        cycleRef.collection('payments').orderBy('createdAt', 'desc').limit(200).get(),
-        group.startedAt ? groupRef.collection('cycles').orderBy('cycleIndex', 'desc').limit(50).get() : Promise.resolve({ docs: [] }),
+        group.startedAt
+          ? groupRef.collection('cycles').where('status', '==', 'PAID').orderBy('cycleIndex', 'desc').limit(50).get()
+          : Promise.resolve({ docs: [] }),
       ]);
       const contributions = new Map(contributionsSnap.docs.map((doc) => [doc.id, doc.data()]));
-      const paymentCounts = new Map();
-      paymentsSnap.docs.forEach((doc) => {
-        const item = doc.data();
-        paymentCounts.set(item.userId, (paymentCounts.get(item.userId) || 0) + 1);
-      });
+      const ownerCanViewMemberPayments = group.ownerId === uid;
+      const paymentCounts = new Map(contributionsSnap.docs.map((document) => [
+        document.id,
+        Math.max(0, Number(document.data()?.installments) || 0),
+      ]));
+
+      // Compatibilité des anciens cycles : calcule une seule fois les compteurs
+      // manquants avec des agrégations, puis les conserve sur les contributions.
+      // Les prochaines consultations ne reliront plus l'historique des paiements.
+      const legacyMembers = ownerCanViewMemberPayments
+        ? members.filter((member) => contributions.has(member.uid)
+          && !Object.prototype.hasOwnProperty.call(contributions.get(member.uid) || {}, 'installments'))
+        : [];
+      if (legacyMembers.length) {
+        const legacyCounts = await Promise.all(legacyMembers.map(async (member) => {
+          const countSnapshot = await cycleRef.collection('payments')
+            .where('userId', '==', member.uid)
+            .aggregate({ count: AggregateField.count() })
+            .get();
+          return { uid: member.uid, count: Math.max(0, Number(countSnapshot.data()?.count) || 0) };
+        }));
+        const migrationBatch = adminDb.batch();
+        legacyCounts.forEach(({ uid: memberUid, count }) => {
+          paymentCounts.set(memberUid, count);
+          migrationBatch.set(cycleRef.collection('contributions').doc(memberUid), { installments: count }, { merge: true });
+        });
+        await migrationBatch.commit();
+      }
       const turnMember = group.startedAt && members.length ? members[meta.cycleIndex % members.length] : null;
       const nextTurnMember = group.startedAt && members.length > 1 ? members[(meta.cycleIndex + 1) % members.length] : null;
       const receivedTurns = paidCyclesSnap.docs
@@ -8325,7 +8366,6 @@ async function handleCotisationsList(request) {
       const baseTarget = cotisationMoney(cycleSnap.data()?.baseTargetAmount) || contributionAmount * expectedMembers;
       const totalCollected = cotisationMoney(cycleSnap.data()?.totalCollected);
       const targetAmount = cotisationMoney(cycleSnap.data()?.targetAmount) || baseTarget;
-      const ownerCanViewMemberPayments = group.ownerId === uid;
       const memberRows = members.map((member) => {
         const data = contributions.get(member.uid) || {};
         const principalPaid = cotisationMoney(data.amount);
