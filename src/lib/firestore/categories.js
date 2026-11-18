@@ -5,7 +5,6 @@ import {
 import { db } from '@/lib/firebase/client';
 import { normalizeCategoryType } from '@/lib/categories/categoryType.mjs';
 import { subscribeSharedSnapshot } from './sharedSubscription';
-import { subscribeSharedSnapshot } from './sharedSubscription';
 
 const col = (uid) => collection(db, 'users', uid, 'categories');
 
