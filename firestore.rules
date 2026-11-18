@@ -132,9 +132,13 @@ service cloud.firestore {
         allow read: if owner(userId);
         allow create: if owner(userId)
           && request.resource.data.keys().hasOnly(['title', 'messages', 'messageCount', 'lastMessagePreview', 'source', 'pinned', 'createdAt', 'updatedAt'])
-          && request.resource.data.title is string;
+          && request.resource.data.title is string
+          && (!('messageCount' in request.resource.data) || (request.resource.data.messageCount is int && request.resource.data.messageCount >= 0))
+          && (!('lastMessagePreview' in request.resource.data) || (request.resource.data.lastMessagePreview is string && request.resource.data.lastMessagePreview.size() <= 140));
         allow update: if owner(userId)
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'messages', 'messageCount', 'lastMessagePreview', 'pinned', 'updatedAt']);
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'messages', 'messageCount', 'lastMessagePreview', 'pinned', 'updatedAt'])
+          && (!('messageCount' in request.resource.data) || (request.resource.data.messageCount is int && request.resource.data.messageCount >= 0))
+          && (!('lastMessagePreview' in request.resource.data) || (request.resource.data.lastMessagePreview is string && request.resource.data.lastMessagePreview.size() <= 140));
         allow delete: if owner(userId);
       }
 
