@@ -24,6 +24,11 @@ import { buildBudgetSuggestions } from '@/lib/financialPlanning';
 import { NextBestAction } from '@/components/NextBestAction';
 
 const todayMonth = () => getLocalMonth();
+const getMonthEndDate = (monthKey) => {
+  const [year, monthNumber] = String(monthKey).split('-').map(Number);
+  const lastDay = new Date(year, monthNumber, 0).getDate();
+  return String(monthKey) + '-' + String(lastDay).padStart(2, '0');
+};
 
 export default function BudgetsPage() {
   const { user } = useAuth();
@@ -43,7 +48,9 @@ export default function BudgetsPage() {
 
   const { incomes, loading: incomesLoading } = useIncomes();
   const { budgets, loading: budgetsLoading } = useBudgets(month, selectedIncome);
-  const { expenses } = useExpenses({ startDate: month + '-01', endDate: month + '-31', limit: 500 });
+  // Même requête que la page Dépenses pour le mois courant : le listener
+  // Firestore partagé évite de relire les mêmes opérations en navigation.
+  const { expenses } = useExpenses({ startDate: month + '-01', endDate: getMonthEndDate(month), limit: 1000 });
   const { categories: allExpenseCategories } = useCustomCategories('expense');
   const expenseCategories = useMemo(() => allExpenseCategories.filter((category) => category.id !== 'loan_given'), [allExpenseCategories]);
 
