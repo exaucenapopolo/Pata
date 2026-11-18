@@ -9,11 +9,15 @@ function safeMap(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
-export function isBudgetCountedExpense(expense = {}) {
+function isConsumptionExpense(expense = {}) {
   if (expense.neutralFlow === true) return false;
   const type = ['consumption', 'project', 'savings', 'investment'].includes(expense.expenseType)
     ? expense.expenseType : 'consumption';
-  return type === 'consumption' && Boolean(String(expense.categoryId || '').trim());
+  return type === 'consumption';
+}
+
+export function isBudgetCountedExpense(expense = {}) {
+  return isConsumptionExpense(expense) && Boolean(String(expense.categoryId || '').trim());
 }
 
 export function normalizeBudgetSpendSummary(value, month) {
@@ -35,6 +39,8 @@ export function normalizeBudgetSpendSummary(value, month) {
   return {
     version: BUDGET_SPEND_SUMMARY_VERSION,
     month: String(month || raw.month || ''),
+    expenseCount: Math.max(0, Math.floor(Number(raw.expenseCount) || 0)),
+    totalAmount: safeAmount(raw.totalAmount),
     categoryTotals,
     sourceCategoryTotals,
   };
@@ -52,13 +58,16 @@ export function buildBudgetSpendSummary(expenses = [], month) {
 export function applyBudgetSpendDelta(value, expense, direction = 1) {
   const month = String(value?.month || '').slice(0, 7);
   const summary = normalizeBudgetSpendSummary(value, month);
-  if (!isBudgetCountedExpense(expense)
+  if (!isConsumptionExpense(expense)
     || String(expense?.date || '').slice(0, 7) !== month) return summary;
 
   const categoryId = String(expense.categoryId || '').trim();
   const sourceId = String(expense.incomeSourceId || 'unassigned').trim() || 'unassigned';
-  const amount = safeAmount(expense.amount) * (Number(direction) < 0 ? -1 : 1);
-  if (!categoryId || !amount) return summary;
+  const multiplier = Number(direction) < 0 ? -1 : 1;
+  const amount = safeAmount(expense.amount) * multiplier;
+  summary.expenseCount = Math.max(0, summary.expenseCount + multiplier);
+  summary.totalAmount = Math.max(0, summary.totalAmount + amount);
+  if (!categoryId) return summary;
 
   const nextCategory = Math.max(0, (Number(summary.categoryTotals[categoryId]) || 0) + amount);
   if (nextCategory) summary.categoryTotals[categoryId] = nextCategory;
