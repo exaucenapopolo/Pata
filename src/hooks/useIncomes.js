@@ -89,6 +89,7 @@ export function useIncomes() {
     let currentRows = [];
     let currentSignature = '';
     let currentProfile = null;
+    let profileLoaded = false;
     let requestSequence = 0;
     lastKnownBalancesRef.current.clear();
     setIncomes([]);
@@ -199,12 +200,14 @@ export function useIncomes() {
 
     const unsubscribeProfile = subscribeUserProfile(user.uid, (profile) => {
       currentProfile = profile;
+      profileLoaded = true;
       if (!applyProfileBalances(profile) && currentRows.length) {
         // Migration des anciens profils : le résumé sera ensuite entretenu
         // transactionnellement et propagé par ce même listener.
         void refreshBalances(true);
       }
     }, (error) => {
+      profileLoaded = true;
       console.error('[PATA INCOME PROFILE SUMMARY]', error?.message || error);
       if (currentRows.length) void refreshBalances();
     });
@@ -214,7 +217,7 @@ export function useIncomes() {
       currentSignature = getIncomeSignature(items);
       // Le document profil transporte déjà les soldes : pas de requête API
       // supplémentaire lorsque son résumé est disponible.
-      if (!applyProfileBalances(currentProfile)) void refreshBalances();
+      if (profileLoaded && !applyProfileBalances(currentProfile)) void refreshBalances();
     });
 
     const handleRefresh = () => {
