@@ -5422,7 +5422,7 @@ async function handleAIChat(request) {
     const latestUserText = history[history.length - 1].content;
     const notificationMode = body.notificationMode === true;
     const normalizedLatestText = latestUserText.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-    const needsCotisationRoster = /\b(membre|membres|participant|participants|liste|qui a paye|qui a verse|versement|paiement|beneficiaire|tour|ordre|retard)\b/.test(normalizedLatestText);
+    const needsCotisationRoster = /\b(membres?|participants?|liste|qui a paye|qui a verse|beneficiaire|prochain tour|prochain beneficiaire|ordre de passage|ordre des tours|paiements des membres|versements des membres|retard des membres|membres en retard|qui est en retard)\b/.test(normalizedLatestText);
     const notificationConversationId = notificationMode
       ? String(body.notificationConversationId || body.clientRequestId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 100)
       : '';
