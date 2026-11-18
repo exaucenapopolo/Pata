@@ -1,14 +1,34 @@
 // src/lib/firestore/ai_chats.js
-import { collection, addDoc, updateDoc, doc, onSnapshot, query, orderBy, serverTimestamp, deleteDoc } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, doc, serverTimestamp, deleteDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase/client';
 
 const col = (uid) => collection(db, 'users', uid, 'ai_chats');
 
-export function subscribeChats(uid, cb) {
-  const q = query(col(uid), orderBy('updatedAt', 'desc'));
-  return onSnapshot(q, (snap) => {
-    cb(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+async function authenticatedChatRequest(user, url) {
+  if (!user) throw new Error('Utilisateur non connecté.');
+  const token = await user.getIdToken();
+  const response = await fetch(url, {
+    headers: { Authorization: 'Bearer ' + token },
   });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.success) {
+    throw new Error(result.error || 'Impossible de charger cette discussion.');
+  }
+  return result;
+}
+
+// Cette liste ne retourne que les métadonnées. Le contenu des messages est
+// récupéré séparément, après le clic sur une discussion.
+export async function fetchChats(user) {
+  const result = await authenticatedChatRequest(user, '/api/ai/chats');
+  return Array.isArray(result.chats) ? result.chats : [];
+}
+
+export async function fetchChatMessages(user, chatId) {
+  const safeId = String(chatId || '').trim();
+  if (!safeId || safeId.includes('/')) throw new Error('Identifiant de discussion invalide.');
+  const result = await authenticatedChatRequest(user, '/api/ai/chats?id=' + encodeURIComponent(safeId));
+  return result.chat;
 }
 
 export async function createChat(uid, firstMessage) {
@@ -16,6 +36,8 @@ export async function createChat(uid, firstMessage) {
   return addDoc(col(uid), {
     title,
     messages: [],
+    messageCount: 0,
+    lastMessagePreview: '',
     source: 'assistant',
     pinned: false,
     createdAt: serverTimestamp(),
@@ -58,8 +80,15 @@ export async function updateChatMessages(uid, chatId, messages) {
     return safe;
   });
 
+  const lastMessage = safeMessages[safeMessages.length - 1];
+  const lastMessagePreview = String(lastMessage?.content || (lastMessage?.generatedImage ? 'Image générée' : ''))
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 140);
   await updateDoc(doc(db, 'users', uid, 'ai_chats', chatId), {
     messages: safeMessages,
+    messageCount: safeMessages.length,
+    lastMessagePreview,
     updatedAt: serverTimestamp(),
   });
 }
