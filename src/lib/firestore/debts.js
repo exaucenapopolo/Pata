@@ -1,16 +1,18 @@
-import { collection, getDocs, limit, onSnapshot, orderBy, query } from 'firebase/firestore';
+import { collection, getDocs, limit, orderBy, query } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase/client';
+import { subscribeSharedSnapshot } from './sharedSubscription';
 
 const debtsCollection = (uid) => collection(db, 'users', uid, 'debts');
 
 export function subscribeDebts(uid, callback) {
   const debtsQuery = query(debtsCollection(uid), orderBy('createdAt', 'desc'), limit(200));
-  return onSnapshot(debtsQuery, (snapshot) => {
-    callback(snapshot.docs.map((document) => ({ id: document.id, ...document.data() })));
-  }, (error) => {
-    console.error('Debts listener error:', error);
-    callback([]);
-  });
+  return subscribeSharedSnapshot(`debts:${uid}:latest-200`, debtsQuery,
+    (snapshot) => callback(snapshot.docs.map((document) => ({ id: document.id, ...document.data() }))),
+    (error) => {
+      console.error('Debts listener error:', error);
+      callback([]);
+    }
+  );
 }
 
 export async function listDebtRepayments(uid, debtId) {
