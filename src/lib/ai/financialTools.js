@@ -849,12 +849,29 @@ export async function deleteExpenseForUser(uid, expenseId) {
   const id = cleanText(expenseId, 150);
   if (!id) throw new Error('Identifiant de dépense manquant.');
   const expenseRef = subcol(uid, 'expenses').doc(id);
+  const userRef = userRefFor(uid);
   const activityRef = subcol(uid, 'activity_log').doc();
   await adminDb.runTransaction(async (transaction) => {
-    const snapshot = await transaction.get(expenseRef);
+    const [snapshot, userSnapshot] = await Promise.all([
+      transaction.get(expenseRef),
+      transaction.get(userRef),
+    ]);
     if (!snapshot.exists) throw new Error('Dépense introuvable.');
     const data = snapshot.data() || {};
     if (data.flowType === 'loan_given' || data.repaymentDebtId) throw new Error('Ce mouvement est lié au module Dettes & prêts. Gère-le depuis cette rubrique pour préserver les soldes.');
+    const userData = userSnapshot.exists ? userSnapshot.data() || {} : {};
+    if (userData.incomeSpentTotalsVersion === 1) {
+      const totals = normalizeIncomeSpentTotals(userData.incomeSpentTotals);
+      const incomeId = String(data.incomeSourceId || '');
+      if (incomeId && incomeId !== 'external') {
+        totals[incomeId] = Math.max(0, (Number(totals[incomeId]) || 0) - Math.max(0, Number(data.amount) || 0));
+      }
+      transaction.set(userRef, {
+        incomeSpentTotals: totals,
+        incomeSpentTotalsVersion: 1,
+        incomeSpentTotalsUpdatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+    }
     transaction.create(activityRef, {
       eventType: 'deleted', entityType: 'expense', entityId: id,
       amount: Number(data.amount) || 0, date: String(data.date || '').slice(0, 10),
