@@ -10,7 +10,7 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/context/LanguageContext';
 import { getDateLocale } from '@/lib/i18n/dateLocale.mjs';
-import { subscribeChats, createChat, updateChatMessages, deleteChat, updateChatTitle, updateChatPinned } from '@/lib/firestore/ai_chats';
+import { fetchChats, fetchChatMessages, createChat, updateChatMessages, deleteChat, updateChatTitle, updateChatPinned } from '@/lib/firestore/ai_chats';
 
 const SUGGESTIONS = {
   fr: [
@@ -328,12 +328,19 @@ function getSuggestedPrompts(text = '', language = 'fr') {
   return [...new Set(suggestions)].slice(0, 2);
 }
 
+const CHAT_LIST_CACHE_TTL_MS = 45_000;
+const chatListCache = new Map();
+const chatMessagesCache = new Map();
+
 export function AssistantChat({ open, onClose, initialPrompt = "" }) {
   const { user } = useAuth();
   const { language } = useLanguage();
   const [chats, setChats] = useState([]);
+  const [chatsLoading, setChatsLoading] = useState(false);
   const [activeChatId, setActiveChatId] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [loadingChat, setLoadingChat] = useState(false);
+  const chatLoadSequenceRef = useRef(0);
   const [input, setInput] = useState('');
   const [inputError, setInputError] = useState('');
   const messageLimit = input.includes('CONTENU DU DOCUMENT :') ? 5000 : 1800;
@@ -364,9 +371,43 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
   const longPressTimer = useRef(null);
 
   useEffect(() => {
-    if (!user) return;
-    return subscribeChats(user.uid, setChats);
-  }, [user]);
+    if (!open || !user) return undefined;
+    let active = true;
+
+    const refreshChatList = async (force = false) => {
+      const cached = chatListCache.get(user.uid);
+      if (!force && cached && Date.now() - cached.fetchedAt < CHAT_LIST_CACHE_TTL_MS) {
+        setChats(cached.chats);
+        setChatsLoading(false);
+        return;
+      }
+      setChatsLoading(true);
+      try {
+        const nextChats = await fetchChats(user);
+        if (!active) return;
+        chatListCache.set(user.uid, { chats: nextChats, fetchedAt: Date.now() });
+        setChats(nextChats);
+      } catch (error) {
+        console.error('[PATA AI CHAT LIST]', error?.message || error);
+      } finally {
+        if (active) setChatsLoading(false);
+      }
+    };
+
+    void refreshChatList(false);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      const cached = chatListCache.get(user.uid);
+      if (!cached || Date.now() - cached.fetchedAt >= CHAT_LIST_CACHE_TTL_MS) {
+        void refreshChatList(true);
+      }
+    };
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      active = false;
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  }, [open, user]);
 
   useEffect(() => {
     if (open && initialPrompt) {
@@ -401,16 +442,88 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
     setShowSidebar(false);
   };
 
-  const loadChat = (chat) => {
+  const loadChat = async (chat) => {
+    if (!chat?.id) return;
+    if (activeChatId === chat.id && !loadingChat) {
+      setShowSidebar(false);
+      return;
+    }
+
+    const requestSequence = ++chatLoadSequenceRef.current;
     setActiveChatId(chat.id);
-    setMessages(chat.messages || []);
+    setMessages([]);
+    setLoadingChat(true);
     setShowSidebar(false);
+
+    const cached = chatMessagesCache.get(chat.id);
+    if (cached && Date.now() - cached.fetchedAt < CHAT_LIST_CACHE_TTL_MS) {
+      setMessages(cached.messages);
+      setLoadingChat(false);
+      return;
+    }
+
+    try {
+      const detail = await fetchChatMessages(user, chat.id);
+      if (requestSequence !== chatLoadSequenceRef.current) return;
+      const nextMessages = Array.isArray(detail?.messages) ? detail.messages : [];
+      chatMessagesCache.set(chat.id, { messages: nextMessages, fetchedAt: Date.now() });
+      setMessages(nextMessages);
+    } catch (error) {
+      if (requestSequence === chatLoadSequenceRef.current) {
+        setActiveChatId(null);
+        setMessages([]);
+        alert(error?.message || (language === 'en' ? 'Could not load this conversation.' : 'Impossible de charger cette discussion.'));
+      }
+    } finally {
+      if (requestSequence === chatLoadSequenceRef.current) setLoadingChat(false);
+    }
+  };
+
+  const persistChatMessages = async (existingChatId, firstMessage, nextMessages) => {
+    let chatId = existingChatId;
+    if (!chatId) {
+      const created = await createChat(user.uid, firstMessage);
+      chatId = created.id;
+      const title = firstMessage
+        ? String(firstMessage).slice(0, 35) + (String(firstMessage).length > 35 ? '...' : '')
+        : 'Nouvelle discussion';
+      const metadata = {
+        id: chatId, title, source: 'assistant', pinned: false,
+        createdAt: new Date(), updatedAt: new Date(),
+        messageCount: 0, lastMessagePreview: '',
+      };
+      setActiveChatId(chatId);
+      setChats((current) => {
+        const next = [metadata, ...current.filter((item) => item.id !== chatId)];
+        chatListCache.set(user.uid, { chats: next, fetchedAt: Date.now() });
+        return next;
+      });
+    }
+
+    await updateChatMessages(user.uid, chatId, nextMessages);
+    const last = nextMessages[nextMessages.length - 1];
+    const preview = String(last?.content || (last?.generatedImage ? 'Image générée' : '')).replace(/\s+/g, ' ').trim().slice(0, 140);
+    chatMessagesCache.set(chatId, { messages: nextMessages, fetchedAt: Date.now() });
+    setChats((current) => {
+      const next = current.map((item) => item.id === chatId
+        ? { ...item, updatedAt: new Date(), messageCount: nextMessages.length, lastMessagePreview: preview }
+        : item);
+      chatListCache.set(user.uid, { chats: next, fetchedAt: Date.now() });
+      return next;
+    });
+    return chatId;
   };
 
   const handleDeleteChat = async (e, chatId) => {
     e.stopPropagation();
     if (confirm(language === 'en' ? 'Delete this conversation?' : 'Supprimer cette conversation ?')) {
       await deleteChat(user.uid, chatId);
+      chatMessagesCache.delete(chatId);
+      setChats((current) => {
+        const next = current.filter((item) => item.id !== chatId);
+        chatListCache.set(user.uid, { chats: next, fetchedAt: Date.now() });
+        return next;
+      });
       if (activeChatId === chatId) startNewChat();
     }
   };
@@ -418,7 +531,13 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
   const toggleChatPinned = async (event, chat) => {
     event.stopPropagation();
     try {
-      await updateChatPinned(user.uid, chat.id, !chat.pinned);
+      const nextPinned = !chat.pinned;
+      await updateChatPinned(user.uid, chat.id, nextPinned);
+      setChats((current) => {
+        const next = current.map((item) => item.id === chat.id ? { ...item, pinned: nextPinned, updatedAt: new Date() } : item);
+        chatListCache.set(user.uid, { chats: next, fetchedAt: Date.now() });
+        return next;
+      });
     } catch (error) {
       alert(error?.message || (language === 'en' ? 'Could not update this conversation.' : 'Impossible de modifier cette discussion.'));
     }
@@ -427,6 +546,11 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
   const handleSaveTitle = async (chatId) => {
     if (titleInput.trim()) {
       await updateChatTitle(user.uid, chatId, titleInput);
+      setChats((current) => {
+        const next = current.map((item) => item.id === chatId ? { ...item, title: titleInput.trim().slice(0, 50), updatedAt: new Date() } : item);
+        chatListCache.set(user.uid, { chats: next, fetchedAt: Date.now() });
+        return next;
+      });
     }
     setEditingTitleId(null);
   };
@@ -533,12 +657,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
         const botMsg = { role: 'assistant', content: null, generatedImage: data.imageUrl };
         const updatedMessages = [...newMessages, botMsg];
         setMessages(updatedMessages);
-        if (activeChatId) await updateChatMessages(user.uid, activeChatId, updatedMessages);
-        else {
-          const newChatRef = await createChat(user.uid, rawText);
-          setActiveChatId(newChatRef.id);
-          await updateChatMessages(user.uid, newChatRef.id, updatedMessages);
-        }
+        await persistChatMessages(activeChatId, rawText, updatedMessages);
         return;
       }
 
@@ -597,12 +716,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
       const updatedMessages = [...newMessages, botMsg];
       setMessages(updatedMessages);
 
-      if (activeChatId) await updateChatMessages(user.uid, activeChatId, updatedMessages);
-      else {
-        const newChatRef = await createChat(user.uid, rawText);
-        setActiveChatId(newChatRef.id);
-        await updateChatMessages(user.uid, newChatRef.id, updatedMessages);
-      }
+      await persistChatMessages(activeChatId, rawText, updatedMessages);
 
     } catch (err) {
       setMessages([...newMessages, { role: 'assistant', content: err.message || "Désolée, une erreur est survenue." }]);
@@ -645,6 +759,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
           </div>
 
           <div className="flex-1 overflow-y-auto px-3 pb-3">
+            {chatsLoading && chats.length === 0 && <p className="px-2 py-4 text-xs text-slate-500">Chargement des titres…</p>}
             {pinnedChats.length > 0 && (
               <section className="mb-4">
                 <h3 className="sticky top-0 z-10 mb-1.5 bg-slate-50 px-2 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-amber-700">Épinglées</h3>
@@ -661,7 +776,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
                 </div>
               </section>
             )}
-            {groupedChats.length === 0 && pinnedChats.length === 0 ? (
+            {groupedChats.length === 0 && pinnedChats.length === 0 && !chatsLoading ? (
               <p className="px-2 py-4 text-xs leading-5 text-slate-500">{chatSourceFilter === 'notifications' ? 'Les échanges commencés depuis une notification apparaîtront ici.' : 'Tes conversations enregistrées apparaîtront ici, classées par date.'}</p>
             ) : groupedChats.map((group) => (
               <section key={group.key} className="mb-4">
@@ -712,7 +827,8 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
           </div>
 
           <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 pb-5 sm:p-4 sm:pb-6 space-y-4">
-            {messages.length === 0 && (
+            {loadingChat && <div className="mx-auto mt-8 flex items-center justify-center gap-2 text-sm text-slate-500"><Loader2 size={16} className="animate-spin" /> Chargement de cette discussion…</div>}
+            {messages.length === 0 && !loadingChat && (
                <div className="space-y-4 mt-4 max-w-2xl mx-auto">
                  <div className="text-center">
                    <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-brand-50 text-brand-600 mb-3">
