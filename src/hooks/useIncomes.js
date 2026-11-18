@@ -103,8 +103,8 @@ export function useIncomes() {
       const totals = new Map(
         Object.entries(profile.incomeSpentTotals || {}).map(([id, amount]) => [String(id), Number(amount) || 0])
       );
+      if (!currentRows.length) return false;
       balanceCache.set(user.uid, { signature: currentSignature, totals, fetchedAt: Date.now() });
-      if (!currentRows.length) return true;
       const nextRows = applyIncomeBalances(currentRows, totals);
       lastKnownBalancesRef.current = new Map(nextRows.map((item) => [
         item.id,
@@ -201,7 +201,7 @@ export function useIncomes() {
     const unsubscribeProfile = subscribeUserProfile(user.uid, (profile) => {
       currentProfile = profile;
       profileLoaded = true;
-      if (!applyProfileBalances(profile) && currentRows.length) {
+      if (!applyProfileBalances(profile)) {
         // Migration des anciens profils : le résumé sera ensuite entretenu
         // transactionnellement et propagé par ce même listener.
         void refreshBalances(true);
@@ -209,7 +209,7 @@ export function useIncomes() {
     }, (error) => {
       profileLoaded = true;
       console.error('[PATA INCOME PROFILE SUMMARY]', error?.message || error);
-      if (currentRows.length) void refreshBalances();
+      void refreshBalances();
     });
 
     const unsubscribe = subscribeIncomes(user.uid, (items) => {
