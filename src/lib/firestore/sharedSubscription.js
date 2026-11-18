@@ -1,5 +1,7 @@
 'use client';
 
+import { onSnapshot } from 'firebase/firestore';
+
 // Partage les mêmes listeners Firestore entre les composants et les pages.
 // Un listener reste vivant quelques minutes après le dernier désabonnement :
 // revenir rapidement sur une page réutilise les données déjà chargées au lieu
@@ -47,29 +49,17 @@ export function subscribeSharedSnapshot(key, queryOrReference, callback, onError
 
   if (!entry.unsubscribe) {
     try {
-      entry.unsubscribe = options.subscribe
-        ? options.subscribe(queryOrReference, (value) => {
-          entry.value = value;
-          entry.hasValue = true;
-          entry.error = null;
-          entry.listeners.forEach((current) => safelyNotify(current.callback, value));
-        }, (error) => {
-          entry.error = error;
-          entry.listeners.forEach((current) => {
-            if (typeof current.onError === 'function') current.onError(error);
-          });
-        })
-        : options.onSnapshot(queryOrReference, (snapshot) => {
-          entry.value = snapshot;
-          entry.hasValue = true;
-          entry.error = null;
-          entry.listeners.forEach((current) => safelyNotify(current.callback, snapshot));
-        }, (error) => {
-          entry.error = error;
-          entry.listeners.forEach((current) => {
-            if (typeof current.onError === 'function') current.onError(error);
-          });
+      entry.unsubscribe = onSnapshot(queryOrReference, (snapshot) => {
+        entry.value = snapshot;
+        entry.hasValue = true;
+        entry.error = null;
+        entry.listeners.forEach((current) => safelyNotify(current.callback, snapshot));
+      }, (error) => {
+        entry.error = error;
+        entry.listeners.forEach((current) => {
+          if (typeof current.onError === 'function') current.onError(error);
         });
+      });
     } catch (error) {
       entry.error = error;
       if (typeof onError === 'function') onError(error);
