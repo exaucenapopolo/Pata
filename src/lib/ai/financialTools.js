@@ -964,10 +964,10 @@ export async function runAutomationForUser(uid, now = new Date()) {
       const anchorDay = Number(auto.anchorDay) || dueDate.getUTCDate();
       const nextInfo = advancePastMissedRuns(dueDate, auto.frequency, now, endDate, anchorDay);
       const userRef = userRefFor(uid);
-      const [userSnap, incomesSnap, expensesSnap] = await Promise.all([
+      const expensesRef = subcol(uid, 'expenses');
+      const [userSnap, incomesSnap] = await Promise.all([
         transaction.get(userRef),
         transaction.get(subcol(uid, 'incomes')),
-        transaction.get(subcol(uid, 'expenses')),
       ]);
       if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
       const userData = userSnap.data();
@@ -978,8 +978,13 @@ export async function runAutomationForUser(uid, now = new Date()) {
       }
       const freeQuotaReached = !isPremium(userData) && (Number(monthlyStats.expenses) || 0) >= FREE_EXPENSE_LIMIT;
       const incomes = incomesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      const expenses = expensesSnap.docs.map((doc) => doc.data());
-      const balances = buildIncomeBalances(incomes, expenses);
+      let incomeSpentTotals = normalizeIncomeSpentTotals(userData.incomeSpentTotals);
+      const needsSpendMigration = userData.incomeSpentTotalsVersion !== 1;
+      if (needsSpendMigration) {
+        const legacyExpensesSnap = await transaction.get(expensesRef);
+        incomeSpentTotals = calculateIncomeSpentTotals(legacyExpensesSnap.docs.map((document) => document.data() || {}));
+      }
+      const balances = buildIncomeBalancesFromTotals(incomes, incomeSpentTotals);
       const amount = Math.round(Number(auto.amount));
       let allocations = [];
       const sourceId = auto.incomeSourceId || 'all';
@@ -1008,7 +1013,12 @@ export async function runAutomationForUser(uid, now = new Date()) {
         const expenseDate = new Intl.DateTimeFormat('en-CA', {
           timeZone: 'Africa/Douala', year: 'numeric', month: '2-digit', day: '2-digit',
         }).format(now);
-        const budgetSnapshot = await transaction.get(subcol(uid, 'budgets').where('month', '==', expenseDate.slice(0, 7)));
+        const monthStart = expenseDate.slice(0, 7) + '-01';
+        const [budgetSnapshot, monthExpensesSnapshot] = await Promise.all([
+          transaction.get(subcol(uid, 'budgets').where('month', '==', expenseDate.slice(0, 7))),
+          transaction.get(expensesRef.where('date', '>=', monthStart).where('date', '<=', expenseDate)),
+        ]);
+        const monthExpenses = monthExpensesSnapshot.docs.map((document) => document.data() || {});
         const plannedBySource = new Map();
         allocations.forEach(({ income, amount: allocated }) => plannedBySource.set(income.id, (plannedBySource.get(income.id) || 0) + allocated));
         const budgetWarnings = [];
@@ -1018,7 +1028,8 @@ export async function runAutomationForUser(uid, now = new Date()) {
           const budgetSource = budget.incomeSourceId || 'all';
           const planned = budgetSource === 'all' ? amount : (plannedBySource.get(budgetSource) || 0);
           if (planned <= 0) continue;
-          const alreadySpent = expenses.filter((item) => String(item.date || '').slice(0, 7) === expenseDate.slice(0, 7)
+          const alreadySpent = monthExpenses.filter((item) => !item.neutralFlow
+            && getExpenseTypeForBudget(item) === 'consumption'
             && item.categoryId === auto.categoryId
             && (budgetSource === 'all' || item.incomeSourceId === budgetSource))
             .reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
@@ -1066,6 +1077,9 @@ export async function runAutomationForUser(uid, now = new Date()) {
           message = `Dépense automatique enregistrée : ${amount.toLocaleString('fr-FR')} FCFA.`;
           if (!isPremium(userData)) monthlyStats.expenses = (Number(monthlyStats.expenses) || 0) + 1;
           transaction.set(userRef, {
+            incomeSpentTotals: applyIncomeSpendAllocations(incomeSpentTotals, allocations),
+            incomeSpentTotalsVersion: 1,
+            incomeSpentTotalsUpdatedAt: FieldValue.serverTimestamp(),
             lifetimeExpenseAmount: FieldValue.increment(amount),
             lifetimeExpenseCount: FieldValue.increment(1),
             ...(!isPremium(userData) ? { monthlyStats } : {}),
@@ -1085,6 +1099,13 @@ export async function runAutomationForUser(uid, now = new Date()) {
         updatedAt: FieldValue.serverTimestamp(),
       };
       transaction.update(autoRef, update);
+      if (needsSpendMigration && status !== 'EXECUTED') {
+        transaction.set(userRef, {
+          incomeSpentTotals,
+          incomeSpentTotalsVersion: 1,
+          incomeSpentTotalsUpdatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+      }
       if (status === 'EXECUTED') return 'executed';
       if (nextInfo.completed) return 'completed';
       return 'skipped';
