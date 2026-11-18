@@ -3451,10 +3451,28 @@ async function handleIncomeSpendTotals(request) {
     const incomeIds = [...new Set((Array.isArray(body.incomeIds) ? body.incomeIds : [])
       .map((value) => String(value || '').trim())
       .filter((value) => value && !value.includes('/')))].slice(0, 250);
-    const expensesRef = adminDb.collection('users').doc(uid).collection('expenses');
+    const userRef = adminDb.collection('users').doc(uid);
+    const userSnapshot = await userRef.get();
+    const userData = userSnapshot.exists ? userSnapshot.data() || {} : {};
 
-    // Preferred path: Firestore performs the SUM server-side, avoiding a read
-    // of every expense document when the composite index is available.
+    // Une fois initialisé, un seul document de profil suffit pour calculer
+    // les soldes de toutes les sources. Les écritures financières entretiennent
+    // ce résumé dans leur propre transaction.
+    if (userData.incomeSpentTotalsVersion === 1) {
+      const stored = userData.incomeSpentTotals || {};
+      return NextResponse.json({
+        success: true,
+        totals: incomeIds.map((incomeId) => ({
+          incomeId,
+          spent: Math.max(0, Number(stored[incomeId]) || 0),
+        })),
+      });
+    }
+
+    // Migration unique des anciens comptes : agrégations indexées, sans
+    // téléchargement des mouvements financiers.
+    const expensesRef = userRef.collection('expenses');
+    let totalsMap = {};
     try {
       const totals = await Promise.all(incomeIds.map(async (incomeId) => {
         const snapshot = await expensesRef
@@ -3463,7 +3481,7 @@ async function handleIncomeSpendTotals(request) {
           .get();
         return { incomeId, spent: Math.max(0, Number(snapshot.data()?.total) || 0) };
       }));
-      return NextResponse.json({ success: true, totals });
+      totalsMap = Object.fromEntries(totals.map((item) => [item.incomeId, item.spent]));
     } catch (aggregateError) {
       const message = String(aggregateError?.message || aggregateError);
       const missingIndex = aggregateError?.code === 9
@@ -3471,25 +3489,45 @@ async function handleIncomeSpendTotals(request) {
         || /requires an index|index is currently building/i.test(message);
       if (!missingIndex) throw aggregateError;
       console.warn('[PATA INCOME BALANCE AGGREGATE FALLBACK]', message.slice(0, 500));
+
+      const matchingExpenses = [];
+      for (let offset = 0; offset < incomeIds.length; offset += 30) {
+        const group = incomeIds.slice(offset, offset + 30);
+        const snapshot = await expensesRef.where('incomeSourceId', 'in', group).get();
+        matchingExpenses.push(...snapshot.docs.map((document) => document.data() || {}));
+      }
+      totalsMap = Object.fromEntries(sumIncomeSpendTotals(incomeIds, matchingExpenses)
+        .map((item) => [item.incomeId, item.spent]));
     }
 
-    // Fallback when a new Firestore installation has not finished building the
-    // composite index. The single-field "in" query needs no custom index.
-    const matchingExpenses = [];
-    for (let offset = 0; offset < incomeIds.length; offset += 30) {
-      const group = incomeIds.slice(offset, offset + 30);
-      const snapshot = await expensesRef.where('incomeSourceId', 'in', group).get();
-      matchingExpenses.push(...snapshot.docs.map((document) => document.data() || {}));
-    }
+    // Le verrou de version évite qu'une migration lente écrase une écriture
+    // concurrente. La transaction n'écrit le snapshot qu'une seule fois.
+    const finalTotals = await adminDb.runTransaction(async (transaction) => {
+      const latestUser = await transaction.get(userRef);
+      const latestData = latestUser.exists ? latestUser.data() || {} : {};
+      if (latestData.incomeSpentTotalsVersion === 1) {
+        return latestData.incomeSpentTotals || {};
+      }
+      transaction.set(userRef, {
+        incomeSpentTotals: totalsMap,
+        incomeSpentTotalsVersion: 1,
+        incomeSpentTotalsUpdatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      return totalsMap;
+    });
 
-    const totals = sumIncomeSpendTotals(incomeIds, matchingExpenses);
-    return NextResponse.json({ success: true, totals });
+    return NextResponse.json({
+      success: true,
+      totals: incomeIds.map((incomeId) => ({
+        incomeId,
+        spent: Math.max(0, Number(finalTotals[incomeId]) || 0),
+      })),
+    });
   } catch (error) {
     console.error('[PATA INCOME BALANCE SUMMARY]', error.message || error);
     return errorResponse(error.message || 'Impossible de calculer les soldes des revenus.', 502);
   }
 }
-
 async function handleIncomeExpenseSummary(request) {
   try {
     const { uid } = await authenticate(request);
