@@ -1,9 +1,10 @@
 import {
   collection, updateDoc, deleteDoc, doc,
-  onSnapshot, query, where, limit, orderBy,
+  query, where, limit, orderBy,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase/client';
 import { auth } from '@/lib/firebase/client';
+import { subscribeSharedSnapshot } from './sharedSubscription';
 
 const col = (uid) => collection(db, 'users', uid, 'budgets');
 
@@ -14,7 +15,7 @@ export function subscribeBudgets(uid, month, cb, incomeSourceId = null) {
   }
   
   const q = query(col(uid), ...constraints);
-  return onSnapshot(q, (snap) => {
+  return subscribeSharedSnapshot(`budgets:${uid}:${month}:${incomeSourceId || '*'}`, q, (snap) => {
     cb(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
   });
 }
@@ -54,7 +55,7 @@ export async function deleteBudget(uid, id) {
 
 export function subscribeAllBudgets(uid, cb) {
   const q = query(col(uid), orderBy('month', 'desc'), limit(150));
-  return onSnapshot(q, (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
+  return subscribeSharedSnapshot(`budgets:${uid}:all-latest-150`, q, (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))));
 }
 
 
