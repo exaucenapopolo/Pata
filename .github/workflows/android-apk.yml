@@ -63,6 +63,8 @@ jobs:
         run: npm run test:sms
       - name: Tester la création des rappels de factures depuis les paiements Mobile Money
         run: npm run test:sms-bill-payment
+      - name: Tester les résumés mensuels de dépenses et de budget
+        run: npm run test:budget-spend-summary
 
       - name: Vérifier les raccourcis PWA et Android
         run: npm run test:android-shortcuts
