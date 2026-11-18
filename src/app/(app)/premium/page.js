@@ -7,9 +7,8 @@ import { useProfile } from '@/hooks/useProfile';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/Button';
 import {
-  Activity, ArrowRight, ArrowUpRight, BellRing, Check, CheckCircle2,
-  ChevronDown, ChevronUp, Minus, MessageCircle, ShieldCheck,
-  Smartphone, Sparkles, Wallet, Zap
+  Activity, ArrowRight, ArrowUpRight, BellRing, Check,
+  ChevronDown, ChevronUp, Minus, ShieldCheck, Sparkles, Wallet
 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import { calculatePremiumPricing } from '@/lib/premiumPricing.mjs';
