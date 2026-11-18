@@ -1,4 +1,4 @@
-import { doc, getDoc, onSnapshot, setDoc, updateDoc, serverTimestamp, increment } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp, increment } from 'firebase/firestore';
 import { Capacitor } from '@capacitor/core';
 import { db, auth } from '@/lib/firebase/client';
 import { subscribeSharedSnapshot } from './sharedSubscription';
