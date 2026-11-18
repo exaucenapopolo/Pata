@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { subscribeIncomes } from '@/lib/firestore/incomes';
+import { subscribeUserProfile } from '@/lib/firestore/profile';
 
 // Les soldes d'un revenu ne changent que lorsqu'un revenu ou une dépense liée
 // change. On réutilise donc le dernier calcul pendant 5 minutes, et on invalide
@@ -87,12 +88,35 @@ export function useIncomes() {
     let active = true;
     let currentRows = [];
     let currentSignature = '';
+    let currentProfile = null;
     let requestSequence = 0;
     lastKnownBalancesRef.current.clear();
     setIncomes([]);
     setLoading(true);
     setBalancesReady(false);
     setBalanceError('');
+
+    const applyProfileBalances = (profile) => {
+      if (!profile || profile.incomeSpentTotalsVersion !== 1) return false;
+      currentProfile = profile;
+      const totals = new Map(
+        Object.entries(profile.incomeSpentTotals || {}).map(([id, amount]) => [String(id), Number(amount) || 0])
+      );
+      balanceCache.set(user.uid, { signature: currentSignature, totals, fetchedAt: Date.now() });
+      if (!currentRows.length) return true;
+      const nextRows = applyIncomeBalances(currentRows, totals);
+      lastKnownBalancesRef.current = new Map(nextRows.map((item) => [
+        item.id,
+        { spent: item.spent, remaining: item.remaining, isExhausted: item.isExhausted },
+      ]));
+      if (active) {
+        setIncomes(nextRows);
+        setBalancesReady(true);
+        setBalanceError('');
+        setLoading(false);
+      }
+      return true;
+    };
 
     const refreshBalances = async (force = false) => {
       const sequence = ++requestSequence;
@@ -173,21 +197,34 @@ export function useIncomes() {
       }
     };
 
-    const unsubscribe = subscribeIncomes(user.uid, (items) => {
-      const nextSignature = getIncomeSignature(items);
-      currentRows = items;
-      currentSignature = nextSignature;
-      // La signature fait partie de la clé du cache : une liste ou un montant
-      // différent déclenche automatiquement un nouveau calcul.
-      void refreshBalances();
+    const unsubscribeProfile = subscribeUserProfile(user.uid, (profile) => {
+      currentProfile = profile;
+      if (!applyProfileBalances(profile) && currentRows.length) {
+        // Migration des anciens profils : le résumé sera ensuite entretenu
+        // transactionnellement et propagé par ce même listener.
+        void refreshBalances(true);
+      }
+    }, (error) => {
+      console.error('[PATA INCOME PROFILE SUMMARY]', error?.message || error);
+      if (currentRows.length) void refreshBalances();
     });
 
-    const handleRefresh = () => { void refreshBalances(true); };
+    const unsubscribe = subscribeIncomes(user.uid, (items) => {
+      currentRows = items;
+      currentSignature = getIncomeSignature(items);
+      // Le document profil transporte déjà les soldes : pas de requête API
+      // supplémentaire lorsque son résumé est disponible.
+      if (!applyProfileBalances(currentProfile)) void refreshBalances();
+    });
+
+    const handleRefresh = () => {
+      if (!applyProfileBalances(currentProfile)) void refreshBalances(true);
+    };
     const refreshIfStaleOnReturn = () => {
       if (document.visibilityState !== 'visible') return;
       const cached = balanceCache.get(user.uid);
       if (!cached || Date.now() - cached.fetchedAt >= BALANCE_CACHE_TTL_MS) {
-        void refreshBalances(true);
+        if (!applyProfileBalances(currentProfile)) void refreshBalances(true);
       }
     };
 
@@ -198,6 +235,7 @@ export function useIncomes() {
       active = false;
       requestSequence += 1;
       unsubscribe();
+      unsubscribeProfile();
       window.removeEventListener('pata:income-balances-refresh', handleRefresh);
       document.removeEventListener('visibilitychange', refreshIfStaleOnReturn);
     };
