@@ -6,7 +6,7 @@ import { useProfile } from '@/hooks/useProfile';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/Button';
 import {
-  Activity, ArrowRight, ArrowUpRight, BellRing, Check, CheckCircle2,
+  Activity, ArrowRight, ArrowUpRight, Check, CheckCircle2,
   ChevronDown, ChevronUp, Crown, Minus, MessageCircle, ShieldCheck,
   Smartphone, Sparkles, Wallet, Zap
 } from 'lucide-react';
@@ -128,7 +128,6 @@ export default function PremiumPage() {
   const daysLeft = isPremium
     ? Math.max(0, Math.ceil((premiumUntil.getTime() - Date.now()) / 86400000))
     : 0;
-  const hasDurationDiscount = pricing.durationDiscount > 0;
 
   const handlePayWithBalance = async () => {
     setError('');
