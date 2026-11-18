@@ -1,4 +1,4 @@
-export const BUDGET_SPEND_SUMMARY_VERSION = 1;
+export const BUDGET_SPEND_SUMMARY_VERSION = 2;
 
 function safeAmount(value) {
   const amount = Number(value);
