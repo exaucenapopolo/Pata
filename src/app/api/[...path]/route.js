@@ -2970,14 +2970,29 @@ async function handleNotificationScheduler(request, passNumber = 1) {
             .where('date', '>=', monthStart)
             .where('date', '<=', today)
             .get();
-          budgetSpendSummary = buildBudgetSpendSummary(
+          const rebuiltExpenseSummary = buildBudgetSpendSummary(
             monthExpensesSnap.docs.map((document) => document.data() || {}),
             month,
           );
-          await expenseSummaryRef.set({
-            ...budgetSpendSummary,
-            updatedAt: FieldValue.serverTimestamp(),
-          }, { merge: true });
+          // La migration peut chevaucher une saisie. Relit le résumé dans une
+          // transaction : une version 2 déjà créée par une écriture récente gagne
+          // toujours sur ce snapshot historique plus ancien.
+          budgetSpendSummary = await adminDb.runTransaction(async (transaction) => {
+            const latestSummarySnap = await transaction.get(expenseSummaryRef);
+            const latestSummary = latestSummarySnap.exists ? latestSummarySnap.data() || {} : null;
+            const latestSummaryComplete = latestSummary
+              && Number(latestSummary.version) === BUDGET_SPEND_SUMMARY_VERSION
+              && Object.prototype.hasOwnProperty.call(latestSummary, 'expenseCount')
+              && Object.prototype.hasOwnProperty.call(latestSummary, 'totalAmount');
+            if (latestSummaryComplete) {
+              return normalizeBudgetSpendSummary(latestSummary, month);
+            }
+            transaction.set(expenseSummaryRef, {
+              ...rebuiltExpenseSummary,
+              updatedAt: FieldValue.serverTimestamp(),
+            }, { merge: true });
+            return rebuiltExpenseSummary;
+          });
         }
         const todayExpenses = todayExpensesSnap.docs
           .map((document) => document.data() || {})
