@@ -5553,7 +5553,12 @@ async function handleAIChat(request) {
         if (!groupSnap.exists) return null;
         const group = groupSnap.data() || {};
         const meta = await resolveCurrentCotisationCycleMeta(groupRef, group);
-        const memberCount = Math.max(0, Math.floor(Number(group.memberCount) || 0));
+        let memberCount = Math.max(0, Math.floor(Number(group.memberCount) || 0));
+        if (memberCount === 0) {
+          // Compatibilité pour les groupes historiques sans compteur stocké.
+          const countSnapshot = await groupRef.collection('members').count().get();
+          memberCount = Math.max(0, Number(countSnapshot.data()?.count) || 0);
+        }
         const expectedMembers = cotisationExpectedMembers(group, memberCount);
         const cycleRef = groupRef.collection('cycles').doc(meta.cycleKey);
         let members = [];
