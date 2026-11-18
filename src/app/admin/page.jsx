@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Activity, ArrowDownLeft, ArrowDownToLine, ArrowUpRight, Bell, CheckCircle2, ChevronRight, CircleDollarSign, Clock3, CreditCard, Database, Download, FileText, Globe, HandCoins, KeyRound, Loader2, LogOut, Mail, MessageCircle, Monitor, PiggyBank, RefreshCw, Search, Send, ShieldCheck, Smartphone, Target, Users, Wallet, XCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
@@ -272,6 +272,9 @@ export default function AdminPage() {
   const [broadcastTitle, setBroadcastTitle] = useState('Information Pata'); const [broadcastMessage, setBroadcastMessage] = useState(''); const [broadcastPath, setBroadcastPath] = useState('/dashboard'); const [broadcastImageUrl, setBroadcastImageUrl] = useState(''); const [broadcastResult, setBroadcastResult] = useState('');
   const [savedBroadcastTemplates, setSavedBroadcastTemplates] = useState([]); const [selectedBroadcastTemplateId, setSelectedBroadcastTemplateId] = useState(''); const [saveBroadcastTemplate, setSaveBroadcastTemplate] = useState(false); const [broadcastTemplatesLoading, setBroadcastTemplatesLoading] = useState(false);
   const [notificationLogs, setNotificationLogs] = useState([]); const [notificationQuotaSummary, setNotificationQuotaSummary] = useState(null); const [nextNotificationLogCursor, setNextNotificationLogCursor] = useState(null); const [notificationHistoryFilter, setNotificationHistoryFilter] = useState('all'); const [notificationHistorySearch, setNotificationHistorySearch] = useState('');
+  const monthlyMetricsCacheRef = useRef(new Map());
+  const userListCacheRef = useRef(new Map());
+  const withdrawalsCacheRef = useRef({ value: null, fetchedAt: 0 });
 
   useEffect(() => {
     if (emailCustomized) return;
@@ -327,30 +330,71 @@ export default function AdminPage() {
       setEmailStatusLoading(false);
     }
   };
-  const loadDashboard = useCallback(async () => {
+  const loadDashboard = useCallback(async (force = false) => {
     setBusy(true); setError('');
     try {
-      const [summary, userList, requests, monthly] = await Promise.all([api('admin/overview'), api(`admin/users?limit=40&platform=${platformFilter}`), api('admin/withdrawals'), api(`admin/monthly-metrics?month=${encodeURIComponent(targetMonth)}`)]);
-      setOverview(summary); setUsers(userList.users || []); setNextCursor(userList.nextCursor || null); setWithdrawals(requests.withdrawals || []);
-      setMonthlyMetrics(monthly.metrics || null); const saved = monthly.targets?.targets || {};
-      setTargetDraft(Object.fromEntries(objectiveFields.map((field) => [field.key, String(saved[field.key] ?? '')])));
+      const summary = await api('admin/overview' + (force ? '?refresh=1' : ''));
+      setOverview(summary);
       setUnlocked(true);
     } catch (err) { setError(err.message || 'Impossible de charger le tableau de bord.'); if (/session administrateur/i.test(err.message || '')) setUnlocked(false); }
     finally { setBusy(false); }
-  }, [api, platformFilter, targetMonth]);
+  }, [api]);
 
-  const loadMonthlyMetrics = async (month = targetMonth) => { setError(''); try { const result = await api(`admin/monthly-metrics?month=${encodeURIComponent(month)}`); setMonthlyMetrics(result.metrics || null); const saved = result.targets?.targets || {}; setTargetDraft(Object.fromEntries(objectiveFields.map((field) => [field.key, String(saved[field.key] ?? '')]))); setTargetFeedback(''); } catch (err) { setError(err.message || 'Impossible de charger les indicateurs mensuels.'); } };
-  const saveMonthlyTargets = async (event) => { event.preventDefault(); setBusy(true); setTargetFeedback(''); try { const targets = Object.fromEntries(objectiveFields.map((field) => [field.key, Number(targetDraft[field.key] || 0)])); await api('admin/monthly-targets', 'POST', { month: targetMonth, targets }); setTargetFeedback('Les objectifs du mois ont été enregistrés.'); await loadMonthlyMetrics(targetMonth); } catch (err) { setError(err.message || 'Impossible d’enregistrer les objectifs.'); } finally { setBusy(false); } };
+  const loadMonthlyMetrics = async (month = targetMonth, force = false) => {
+    setError('');
+    const cached = monthlyMetricsCacheRef.current.get(month);
+    if (!force && cached && Date.now() - cached.fetchedAt < 5 * 60 * 1000) {
+      setMonthlyMetrics(cached.metrics);
+      setTargetDraft(cached.targetDraft);
+      setTargetFeedback('');
+      return;
+    }
+    try {
+      const result = await api(`admin/monthly-metrics?month=${encodeURIComponent(month)}`);
+      const saved = result.targets?.targets || {};
+      const nextDraft = Object.fromEntries(objectiveFields.map((field) => [field.key, String(saved[field.key] ?? '')]));
+      const metrics = result.metrics || null;
+      monthlyMetricsCacheRef.current.set(month, { metrics, targetDraft: nextDraft, fetchedAt: Date.now() });
+      setMonthlyMetrics(metrics);
+      setTargetDraft(nextDraft);
+      setTargetFeedback('');
+    } catch (err) { setError(err.message || 'Impossible de charger les indicateurs mensuels.'); }
+  };
+  const loadWithdrawals = async (force = false) => {
+    const cached = withdrawalsCacheRef.current;
+    if (!force && cached.value && Date.now() - cached.fetchedAt < 60 * 1000) {
+      setWithdrawals(cached.value);
+      return;
+    }
+    try {
+      const result = await api('admin/withdrawals');
+      const next = result.withdrawals || [];
+      withdrawalsCacheRef.current = { value: next, fetchedAt: Date.now() };
+      setWithdrawals(next);
+    } catch (err) { setError(err.message || 'Impossible de charger les demandes de retrait.'); }
+  };
+  const saveMonthlyTargets = async (event) => { event.preventDefault(); setBusy(true); setTargetFeedback(''); try { const targets = Object.fromEntries(objectiveFields.map((field) => [field.key, Number(targetDraft[field.key] || 0)])); await api('admin/monthly-targets', 'POST', { month: targetMonth, targets }); monthlyMetricsCacheRef.current.delete(targetMonth); setTargetFeedback('Les objectifs du mois ont été enregistrés.'); await loadMonthlyMetrics(targetMonth, true); } catch (err) { setError(err.message || 'Impossible d’enregistrer les objectifs.'); } finally { setBusy(false); } };
   const loadCotisations = async (append = false, status = cotisationStatus) => { setBusy(true); setError(''); try { const cursor = append && cotisationCursor ? '&cursor=' + encodeURIComponent(cotisationCursor) : ''; const result = await api(`admin/cotisations?limit=25&status=${encodeURIComponent(status)}${cursor}`); setCotisationGroups((current) => append ? [...current, ...(result.groups || [])] : (result.groups || [])); setCotisationCursor(result.nextCursor || null); } catch (err) { setError(err.message || 'Impossible de charger les cotisations.'); } finally { setBusy(false); } };
   const contactCotisation = async (group, channel) => { const defaultMessage = 'Bonjour ' + (group.ownerName || 'Responsable') + ', nous faisons un point de suivi Pata concernant votre groupe « ' + group.name + ' ». Comment se déroule son organisation ? Notre équipe reste disponible pour vous accompagner.'; const message = window.prompt('Message à envoyer au responsable de « ' + group.name + ' » :', defaultMessage); if (message === null || !message.trim()) return; setBusy(true); setCotisationFeedback(''); setError(''); try { await api('admin/cotisations/contact', 'POST', { groupId: group.id, channel, title: 'Suivi de votre cotisation Pata', message: message.trim() }); setCotisationFeedback(channel === 'email' ? 'E-mail envoyé au responsable du groupe.' : 'Notification envoyée au responsable du groupe.'); } catch (err) { setError(err.message || 'Impossible de contacter le responsable.'); } finally { setBusy(false); } };
 
-  const loadUsersByPlatform = async (platform) => {
+  const loadUsersByPlatform = async (platform, force = false) => {
     setPlatformFilter(platform);
+    const cached = userListCacheRef.current.get(platform);
+    if (!force && cached && Date.now() - cached.fetchedAt < 60 * 1000) {
+      setUsers(cached.users);
+      setNextCursor(cached.nextCursor);
+      setSelectedUser(null);
+      setUserDetail(null);
+      return;
+    }
     setBusy(true); setError('');
     try {
       const result = await api(`admin/users?limit=40&platform=${encodeURIComponent(platform)}`);
-      setUsers(result.users || []);
-      setNextCursor(result.nextCursor || null);
+      const nextUsers = result.users || [];
+      const nextPageCursor = result.nextCursor || null;
+      userListCacheRef.current.set(platform, { users: nextUsers, nextCursor: nextPageCursor, fetchedAt: Date.now() });
+      setUsers(nextUsers);
+      setNextCursor(nextPageCursor);
       setSelectedUser(null);
       setUserDetail(null);
     } catch (err) { setError(err.message || 'Impossible de filtrer les utilisateurs.'); }
@@ -529,9 +573,9 @@ export default function AdminPage() {
   const selectedPremiumActive = Boolean(selectedPremiumExpiry && Number.isFinite(selectedPremiumExpiry.getTime()) && selectedPremiumExpiry > new Date());
   const nav = [['overview', 'Vue générale', Activity], ['objectives', 'Objectifs mensuels', Target], ['cotisations', 'Cotisations', HandCoins], ['savings', 'Épargnes & objectifs', PiggyBank], ['users', 'Utilisateurs', Users], ['questions', 'Discussions IA', MessageCircle], ['withdrawals', 'Retraits', ArrowDownToLine], ['broadcast', 'Notifications', Bell], ['notification-history', 'Historique automatique', Clock3]];
   return <main className="min-h-screen bg-slate-50 p-3 text-slate-900 sm:p-6"><div className="mx-auto max-w-7xl space-y-6">
-    <header className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5"><div><p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Pata · Administration</p><h1 className="mt-1 text-xl font-bold sm:text-2xl">Bonjour, NAPOPOLO EXAUCE</h1><p className="mt-1 text-xs text-slate-500">Gestion des comptes, de l’activité et des paiements</p></div><div className="flex gap-2"><button onClick={loadDashboard} disabled={busy} className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 px-3 text-sm font-medium hover:bg-slate-50"><RefreshCw size={15}/> Actualiser</button><button onClick={checkEmailConfiguration} disabled={emailStatusLoading} className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 px-3 text-sm font-medium hover:bg-slate-50 disabled:opacity-50">{emailStatusLoading?<Loader2 className="animate-spin" size={15}/>:<Mail size={15}/>} Vérifier e-mail</button><button onClick={logout} className="inline-flex h-10 items-center gap-2 rounded-lg bg-slate-950 px-3 text-sm font-medium text-white"><LogOut size={15}/> Quitter</button></div></header>
+    <header className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5"><div><p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Pata · Administration</p><h1 className="mt-1 text-xl font-bold sm:text-2xl">Bonjour, NAPOPOLO EXAUCE</h1><p className="mt-1 text-xs text-slate-500">Gestion des comptes, de l’activité et des paiements</p></div><div className="flex gap-2"><button onClick={() => loadDashboard(true)} disabled={busy} className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 px-3 text-sm font-medium hover:bg-slate-50"><RefreshCw size={15}/> Actualiser</button><button onClick={checkEmailConfiguration} disabled={emailStatusLoading} className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-200 px-3 text-sm font-medium hover:bg-slate-50 disabled:opacity-50">{emailStatusLoading?<Loader2 className="animate-spin" size={15}/>:<Mail size={15}/>} Vérifier e-mail</button><button onClick={logout} className="inline-flex h-10 items-center gap-2 rounded-lg bg-slate-950 px-3 text-sm font-medium text-white"><LogOut size={15}/> Quitter</button></div></header>
     {error && <div className="flex items-start justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"><span>{error}</span><button onClick={() => setError('')}><XCircle size={16}/></button></div>}
-    <nav className="flex gap-2 overflow-x-auto rounded-xl border border-slate-200 bg-white p-2">{nav.map(([id, label, Icon]) => <button key={id} onClick={() => { setTab(id); if (id === 'questions') loadQuestions(false); if (id === 'savings') loadSavings(false); if (id === 'cotisations') loadCotisations(false); if (id === 'objectives') loadMonthlyMetrics(targetMonth); if (id === 'broadcast') loadRecipients(false); if (id === 'notification-history') loadNotificationHistory(false); }} className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium ${tab === id ? 'bg-slate-950 text-white' : 'text-slate-600 hover:bg-slate-100'}`}><Icon size={16}/>{label}</button>)}</nav>
+    <nav className="flex gap-2 overflow-x-auto rounded-xl border border-slate-200 bg-white p-2">{nav.map(([id, label, Icon]) => <button key={id} onClick={() => { setTab(id); if (id === 'users') loadUsersByPlatform(platformFilter); if (id === 'withdrawals') loadWithdrawals(); if (id === 'questions') loadQuestions(false); if (id === 'savings') loadSavings(false); if (id === 'cotisations') { loadMonthlyMetrics(targetMonth); loadCotisations(false); } if (id === 'objectives') loadMonthlyMetrics(targetMonth); if (id === 'broadcast') loadRecipients(false); if (id === 'notification-history') loadNotificationHistory(false); }} className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium ${tab === id ? 'bg-slate-950 text-white' : 'text-slate-600 hover:bg-slate-100'}`}><Icon size={16}/>{label}</button>)}</nav>
     {emailStatus && tab === 'overview' && <section className={`rounded-2xl border p-4 ${emailStatus.domainsCheckAvailable && emailStatus.senderDomainVerified ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
