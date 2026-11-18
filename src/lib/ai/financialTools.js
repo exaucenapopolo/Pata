@@ -506,6 +506,14 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
       }
     }
     if (warnings.length && input.confirmBudgetOverrun !== true && !skipBudgetConfirmation) {
+      // Même si l'utilisateur doit confirmer le dépassement, conserve la
+      // migration mensuelle : sa seconde tentative ne relira pas l'historique.
+      if (budgetSpendSummary) {
+        transaction.set(budgetSpendSummaryRef, {
+          ...budgetSpendSummary,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
       const warningText = warnings.map((item) => {
         const label = item.incomeSourceId === 'all' ? 'tous les revenus' : (incomes.find((income) => income.id === item.incomeSourceId)?.source || 'ce revenu');
         return `${label} : budget ${item.allocated.toLocaleString('fr-FR')} FCFA, déjà dépensé ${item.alreadySpent.toLocaleString('fr-FR')} FCFA, après cette opération ${item.after.toLocaleString('fr-FR')} FCFA (dépassement ${item.excess.toLocaleString('fr-FR')} FCFA)`;
@@ -840,6 +848,14 @@ export async function updateExpenseForUser(uid, expenseId, input) {
       });
     }
     if (budgetWarnings.length && input.confirmBudgetOverrun !== true) {
+      // La migration du résumé doit être persistée même lorsque l'utilisateur
+      // doit confirmer le dépassement avant d'enregistrer la modification.
+      if (newBudgetSpendSummary && (!newBudgetSummarySnap.exists || Number(newBudgetSummarySnap.data()?.version) !== 1)) {
+        transaction.set(newBudgetSummaryRef, {
+          ...newBudgetSpendSummary,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
       const details = budgetWarnings.map((item) => `${item.source} : budget ${item.allocated.toLocaleString('fr-FR')} FCFA, après modification ${item.after.toLocaleString('fr-FR')} FCFA (dépassement ${item.excess.toLocaleString('fr-FR')} FCFA`).join(' ; ');
       return { success: false, confirmationRequired: true, message: `Attention : cette modification ferait dépasser un budget. ${details}. Veux-tu quand même enregistrer la modification ?`, warnings: budgetWarnings, amount, date, categoryId };
     }
@@ -909,7 +925,7 @@ export async function updateExpenseForUser(uid, expenseId, input) {
     if (newBudgetSpendSummary) {
       newBudgetSpendSummary = applyBudgetSpendDelta(newBudgetSpendSummary, previousMonth === newMonth ? previousData : null, -1);
       const nextExpenseRows = [
-        { amount: first.amount, categoryId, date, incomeSourceId: first.income.id, expenseType, neutralFlow: false },
+        { amount: first.amount, categoryId, date, incomeSourceId: first.income.id, expenseType, neutralFlow: previousData.neutralFlow === true },
         ...extraRecords.map((item) => ({
           amount: item.amount, categoryId, date, incomeSourceId: item.incomeSourceId, expenseType, neutralFlow: false,
         })),
