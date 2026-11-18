@@ -65,6 +65,12 @@ const FREQUENCIES = [
   { id: 'monthly', label: 'Par mois', multiplier: 1 },
 ];
 
+// Le détail d'un revenu est souvent rouvert plusieurs fois pendant une même
+// session. Garde la première page brièvement en mémoire et invalide-la dès
+// qu'une dépense est modifiée dans l'application.
+const incomeExpenseDetailsCache = new Map();
+const INCOME_EXPENSE_DETAILS_CACHE_MS = 30_000;
+
 const formatIncomeDate = (value) => {
   const dateValue = String(value || '').slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateValue)) return 'Date non renseignée';
@@ -112,6 +118,16 @@ export default function IncomePage() {
   const [incomeBudgetPrompt, setIncomeBudgetPrompt] = useState(null);
   const [selectedIncome, setSelectedIncome] = useState(null);
   const [incomeExpenseDetails, setIncomeExpenseDetails] = useState({ incomeId: null, loading: false, loadingMore: false, totalSpent: 0, expenseCount: 0, expenses: [], nextCursor: null, error: '' });
+  const [incomeExpenseDetailsRevision, setIncomeExpenseDetailsRevision] = useState(0);
+
+  useEffect(() => {
+    const invalidate = () => {
+      incomeExpenseDetailsCache.clear();
+      setIncomeExpenseDetailsRevision((current) => current + 1);
+    };
+    window.addEventListener('pata:income-balances-refresh', invalidate);
+    return () => window.removeEventListener('pata:income-balances-refresh', invalidate);
+  }, []);
 
   useEffect(() => {
     const isBorrowedIncome = selectedIncome?.flowType === 'debt_borrowed' || selectedIncome?.categoryId === 'debt_borrowed';
@@ -120,6 +136,13 @@ export default function IncomePage() {
       return undefined;
     }
     let active = true;
+    const cacheKey = user?.uid + ':' + selectedIncome.id;
+    const cached = incomeExpenseDetailsCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      setIncomeExpenseDetails({ ...cached.value, loading: false, loadingMore: false, error: '' });
+      return () => { active = false; };
+    }
+    incomeExpenseDetailsCache.delete(cacheKey);
     setIncomeExpenseDetails({ incomeId: selectedIncome.id, loading: true, loadingMore: false, totalSpent: 0, expenseCount: 0, expenses: [], nextCursor: null, error: '' });
     (async () => {
       try {
@@ -129,19 +152,26 @@ export default function IncomePage() {
         });
         const result = await response.json().catch(() => ({}));
         if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de charger les dépenses associées.');
-        if (active) setIncomeExpenseDetails({
-          incomeId: selectedIncome.id, loading: false, loadingMore: false,
-          totalSpent: Number(result.totalSpent) || 0,
-          expenseCount: Number(result.expenseCount) || 0,
-          expenses: Array.isArray(result.expenses) ? result.expenses : [],
-          nextCursor: result.nextCursor || null, error: '',
-        });
+        if (active) {
+          const value = {
+            incomeId: selectedIncome.id, loading: false, loadingMore: false,
+            totalSpent: Number(result.totalSpent) || 0,
+            expenseCount: Number(result.expenseCount) || 0,
+            expenses: Array.isArray(result.expenses) ? result.expenses : [],
+            nextCursor: result.nextCursor || null, error: '',
+          };
+          incomeExpenseDetailsCache.set(cacheKey, {
+            expiresAt: Date.now() + INCOME_EXPENSE_DETAILS_CACHE_MS,
+            value,
+          });
+          setIncomeExpenseDetails(value);
+        }
       } catch (loadError) {
         if (active) setIncomeExpenseDetails({ incomeId: selectedIncome.id, loading: false, loadingMore: false, totalSpent: 0, expenseCount: 0, expenses: [], nextCursor: null, error: loadError.message || 'Détail indisponible.' });
       }
     })();
     return () => { active = false; };
-  }, [selectedIncome?.id, selectedIncome?.neutralFlow, selectedIncome?.cashPocket, selectedIncome?.flowType, selectedIncome?.categoryId, user]);
+  }, [selectedIncome?.id, selectedIncome?.neutralFlow, selectedIncome?.cashPocket, selectedIncome?.flowType, selectedIncome?.categoryId, user, incomeExpenseDetailsRevision]);
   const [saving, setSaving] = useState(false);
   const [savingRules, setSavingRules] = useState(false);
   const [savingApplied, setSavingApplied] = useState(false);
@@ -695,12 +725,20 @@ export default function IncomePage() {
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok || !result.success) throw new Error(result.error || 'Impossible de charger les dépenses suivantes.');
-      setIncomeExpenseDetails((current) => current.incomeId !== selectedIncome.id ? current : ({
-        ...current,
-        loadingMore: false,
-        expenses: [...current.expenses, ...(Array.isArray(result.expenses) ? result.expenses : [])],
-        nextCursor: result.nextCursor || null,
-      }));
+      setIncomeExpenseDetails((current) => {
+        if (current.incomeId !== selectedIncome.id) return current;
+        const value = {
+          ...current,
+          loadingMore: false,
+          expenses: [...current.expenses, ...(Array.isArray(result.expenses) ? result.expenses : [])],
+          nextCursor: result.nextCursor || null,
+        };
+        incomeExpenseDetailsCache.set(user.uid + ':' + selectedIncome.id, {
+          expiresAt: Date.now() + INCOME_EXPENSE_DETAILS_CACHE_MS,
+          value,
+        });
+        return value;
+      });
     } catch (loadError) {
       setIncomeExpenseDetails((current) => ({ ...current, loadingMore: false, error: loadError.message || 'Impossible de charger les dépenses suivantes.' }));
     }
