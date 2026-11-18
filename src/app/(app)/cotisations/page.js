@@ -397,9 +397,21 @@ export default function CotisationsPage() {
       }
     };
     refresh(true);
-    const interval = window.setInterval(() => refresh(false), 15000);
-    return () => { active = false; window.clearInterval(interval); };
-  }, [chatGroup?.id, user, api, chatQuotaBlocked]);
+    // Le chat conserve un rafraîchissement régulier, mais évite les requêtes
+    // en arrière-plan et les lectures toutes les 15 secondes.
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') refresh(false);
+    }, 60000);
+    const refreshOnReturn = () => {
+      if (document.visibilityState === 'visible') refresh(false);
+    };
+    document.addEventListener('visibilitychange', refreshOnReturn);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', refreshOnReturn);
+    };
+  }, [chatGroup?.id, user, api]);
 
   useEffect(() => {
     if (!chatScrollRef.current) return;
