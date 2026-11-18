@@ -1,6 +1,7 @@
-import { doc, getDoc, setDoc, updateDoc, serverTimestamp, increment } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, setDoc, updateDoc, serverTimestamp, increment } from 'firebase/firestore';
 import { Capacitor } from '@capacitor/core';
 import { db, auth } from '@/lib/firebase/client';
+import { subscribeSharedSnapshot } from './sharedSubscription';
 
 const ref = (uid) => doc(db, 'users', uid);
 
@@ -17,7 +18,21 @@ async function syncProfileActivity(user) {
   });
 }
 
-export async function ensureUserProfile(user) {
+const ensureProfilePromises = new Map();
+
+export function ensureUserProfile(user) {
+  if (!user) return Promise.resolve(null);
+  const existing = ensureProfilePromises.get(user.uid);
+  if (existing) return existing;
+  const promise = ensureUserProfileInternal(user).catch((error) => {
+    ensureProfilePromises.delete(user.uid);
+    throw error;
+  });
+  ensureProfilePromises.set(user.uid, promise);
+  return promise;
+}
+
+async function ensureUserProfileInternal(user) {
   if (!user) return null;
   const userRef = ref(user.uid);
   const snap = await getDoc(userRef);
@@ -72,6 +87,13 @@ export async function ensureUserProfile(user) {
     }
   }
   return { id: user.uid, ...existing, ...patch, created };
+}
+
+export function subscribeUserProfile(uid, callback, onError) {
+  if (!uid) return () => {};
+  return subscribeSharedSnapshot(`profile:${uid}`, ref(uid), (snapshot) => {
+    callback(snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null);
+  }, onError);
 }
 
 export async function getUserProfile(uid) {
