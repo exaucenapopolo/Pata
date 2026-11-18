@@ -2578,6 +2578,10 @@ async function handleNotificationScheduler(request, passNumber = 1) {
       return NextResponse.json({ success: true, skippedOutsideEveningWindow: true, localTimeZone: 'Africa/Douala' });
     }
     const month = today.slice(0, 7);
+    const doualaDayStart = new Date(today + 'T00:00:00+01:00');
+    const doualaNextDayStart = new Date(doualaDayStart.getTime() + 86400000);
+    const todayStartIso = doualaDayStart.toISOString();
+    const nextDayStartIso = doualaNextDayStart.toISOString();
     const usersSnapshot = await adminDb.collection('users').get();
     const appUrl = getPataAppUrl(request);
     let sent = 0;
@@ -2946,7 +2950,12 @@ async function handleNotificationScheduler(request, passNumber = 1) {
         const [expenseSummarySnap, budgetsSnap, automationsSnap, goalsSnap, todayExpensesSnap, monthIncomesSnap, weeklyReportsSnap, recurringPatternsSnap] = await Promise.all([
           expenseSummaryRef.get(),
           userDoc.ref.collection('budgets').where('month', '==', month).get(),
-          userDoc.ref.collection('automations').get(),
+          // Les historiques antérieurs n'interviennent pas dans les rappels du jour.
+          // lastRunAt est enregistré en ISO ; le filtre borne la requête à Douala.
+          userDoc.ref.collection('automations')
+            .where('lastRunAt', '>=', todayStartIso)
+            .where('lastRunAt', '<', nextDayStartIso)
+            .get(),
           userDoc.ref.collection('goals').limit(20).get(),
           userExpensesRef.where('date', '==', today).get(),
           userDoc.ref.collection('incomes').where('date', '>=', monthStart).where('date', '<=', today).get(),
