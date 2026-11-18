@@ -412,6 +412,8 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
   useEffect(() => {
     if (open && initialPrompt) {
       setInput(String(initialPrompt).slice(0, 5000)); setInputError('');
+      chatLoadSequenceRef.current += 1;
+      setLoadingChat(false);
       setActiveChatId(null);
       setMessages([]);
       setShowSidebar(false);
@@ -433,6 +435,8 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
   }, [input]);
 
   const startNewChat = () => {
+    chatLoadSequenceRef.current += 1;
+    setLoadingChat(false);
     setChatSourceFilter('assistant');
     setActiveChatId(null);
     setMessages([]);
