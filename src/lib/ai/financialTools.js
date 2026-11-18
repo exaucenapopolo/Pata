@@ -355,6 +355,7 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
       }
       allocations = [{ income, amount }];
     }
+    const nextIncomeSpentTotals = applyIncomeSpendAllocations(incomeSpentTotals, allocations);
 
     if (flowType === 'repayment' && repaymentDebtSnap?.exists) {
       const linkedDebt = repaymentDebtSnap.data() || {};
@@ -423,6 +424,11 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
           dueDate: String(linkedDebt.dueDate || ''),
           createdAt: FieldValue.serverTimestamp(),
         });
+        transaction.set(userRef, {
+          incomeSpentTotals: nextIncomeSpentTotals,
+          incomeSpentTotalsVersion: 1,
+          incomeSpentTotalsUpdatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
         return {
           success: true,
           amount,
@@ -553,9 +559,28 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
     }
     if (!['loan_given', 'cash_withdrawal'].includes(flowType)) {
       if (countQuota && !isPremium(userData)) nextStats = { ...nextStats, expenses: (Number(nextStats.expenses) || 0) + 1, lastResetMonth: currentMonth };
-      transaction.set(userRef, { lifetimeExpenseAmount: FieldValue.increment(amount), lifetimeExpenseCount: FieldValue.increment(1), ...(countQuota && !isPremium(userData) ? { monthlyStats: nextStats } : {}), ...(repaymentCompleted ? { activeDebtCount: FieldValue.increment(-1) } : {}) }, { merge: true });
+      transaction.set(userRef, {
+        incomeSpentTotals: nextIncomeSpentTotals,
+        incomeSpentTotalsVersion: 1,
+        incomeSpentTotalsUpdatedAt: FieldValue.serverTimestamp(),
+        lifetimeExpenseAmount: FieldValue.increment(amount),
+        lifetimeExpenseCount: FieldValue.increment(1),
+        ...(countQuota && !isPremium(userData) ? { monthlyStats: nextStats } : {}),
+        ...(repaymentCompleted ? { activeDebtCount: FieldValue.increment(-1) } : {}),
+      }, { merge: true });
     } else if (newDebtRef) {
-      transaction.set(userRef, { activeDebtCount: activeDebtCount + 1 }, { merge: true });
+      transaction.set(userRef, {
+        incomeSpentTotals: nextIncomeSpentTotals,
+        incomeSpentTotalsVersion: 1,
+        incomeSpentTotalsUpdatedAt: FieldValue.serverTimestamp(),
+        activeDebtCount: activeDebtCount + 1,
+      }, { merge: true });
+    } else {
+      transaction.set(userRef, {
+        incomeSpentTotals: nextIncomeSpentTotals,
+        incomeSpentTotalsVersion: 1,
+        incomeSpentTotalsUpdatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
     }
 
     // Apprend les paiements mensuels à partir de l'historique déjà chargé
