@@ -1,15 +1,16 @@
 import {
   collection, addDoc, updateDoc, deleteDoc, doc,
-  onSnapshot, query, orderBy, serverTimestamp,
+  query, orderBy, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase/client';
 import { normalizeCategoryType } from '@/lib/categories/categoryType.mjs';
+import { subscribeSharedSnapshot } from './sharedSubscription';
 
 const col = (uid) => collection(db, 'users', uid, 'categories');
 
 export function subscribeCategories(uid, cb) {
   const q = query(col(uid), orderBy('createdAt', 'asc'));
-  return onSnapshot(q, (snap) => {
+  return subscribeSharedSnapshot(`categories:${uid}:all`, q, (snap) => {
     cb(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
   });
 }
