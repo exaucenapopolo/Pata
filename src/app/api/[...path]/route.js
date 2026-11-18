@@ -8287,13 +8287,128 @@ async function handleCotisationProfileSync(request) {
 async function handleCotisationsList(request) {
   try {
     const { uid } = await authenticate(request);
-    const membershipsSnap = await adminDb.collection('users').doc(uid).collection('cotisationMemberships').limit(100).get();
-    const memberships = membershipsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    const url = new URL(request.url);
+    const detailsGroupId = String(url.searchParams.get('groupId') || '').trim().slice(0, 150);
+    let memberships = [];
+    const membershipsRef = adminDb.collection('users').doc(uid).collection('cotisationMemberships');
+    if (detailsGroupId) {
+      if (detailsGroupId.includes('/')) return errorResponse('Groupe invalide.', 400);
+      const membershipSnap = await membershipsRef.doc(detailsGroupId).get();
+      if (!membershipSnap.exists) return errorResponse('Tu ne fais pas partie de ce groupe.', 403);
+      memberships = [{ id: membershipSnap.id, ...membershipSnap.data() }];
+    } else {
+      const membershipsSnap = await membershipsRef.limit(100).get();
+      memberships = membershipsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    }
+
     const groups = await Promise.all(memberships.map(async (membership) => {
       const groupRef = adminDb.collection('cotisationGroups').doc(membership.groupId || membership.id);
       const groupSnap = await groupRef.get();
       if (!groupSnap.exists) return null;
       const group = groupSnap.data();
+
+      // La liste initiale ne charge que les données nécessaires aux cartes.
+      // Les membres, contributions et tours historiques sont lus à l'ouverture.
+      if (!detailsGroupId) {
+        const meta = await resolveCurrentCotisationCycleMeta(groupRef, group);
+        const cycleRef = groupRef.collection('cycles').doc(meta.cycleKey);
+        const [cycleSnap, myContributionSnap, myMemberSnap] = await Promise.all([
+          cycleRef.get(),
+          cycleRef.collection('contributions').doc(uid).get(),
+          groupRef.collection('members').doc(uid).get(),
+        ]);
+        const cycle = cycleSnap.data() || {};
+        const myContribution = myContributionSnap.data() || {};
+        const myMember = myMemberSnap.data() || {};
+        const memberCount = Math.max(0, Math.floor(Number(group.memberCount) || 0));
+        const expectedMembers = cotisationExpectedMembers(group, memberCount);
+        const contributionAmount = cotisationMoney(group.contributionAmount);
+        const baseTarget = cotisationMoney(cycle.baseTargetAmount) || contributionAmount * expectedMembers;
+        const totalCollected = cotisationMoney(cycle.totalCollected);
+        const targetAmount = cotisationMoney(cycle.targetAmount) || baseTarget;
+        const myPaid = cotisationMoney(myContribution.amount);
+        const myPenaltyPaid = cotisationMoney(myContribution.penaltyPaid);
+        const cycleStatus = !group.startedAt ? 'NOT_STARTED'
+          : cycle.status || (totalCollected >= targetAmount && targetAmount > 0 ? 'READY' : 'OPEN');
+        const lateFeeDue = group.startedAt && cotisationIsLate(group, meta)
+          && myPaid < contributionAmount && !myPenaltyPaid ? cotisationLateFee(group) : 0;
+
+        let turnMember = null;
+        let nextTurnMember = null;
+        if (group.startedAt && memberCount > 0) {
+          const currentPosition = (meta.cycleIndex % memberCount) + 1;
+          const nextPosition = ((meta.cycleIndex + 1) % memberCount) + 1;
+          const positions = [...new Set([currentPosition, nextPosition])];
+          const turnMembersSnapshot = await groupRef.collection('members')
+            .where('turnOrder', 'in', positions)
+            .get();
+          const byPosition = new Map(turnMembersSnapshot.docs.map((document) => {
+            const member = { uid: document.id, ...document.data() };
+            return [Number(member.turnOrder), member];
+          }));
+          turnMember = byPosition.get(currentPosition) || null;
+          nextTurnMember = byPosition.get(nextPosition) || null;
+        }
+
+        let myMemberPendingPayment = null;
+        if (myMember.pendingPaymentTransId) {
+          const pendingSnap = await adminDb.collection('cotisationPayments').doc(myMember.pendingPaymentTransId).get();
+          if (pendingSnap.exists && pendingSnap.data()?.status === 'PENDING') {
+            const payment = pendingSnap.data();
+            myMemberPendingPayment = {
+              transId: payment.transId, checkoutUrl: payment.checkoutUrl,
+              amount: cotisationMoney(payment.amount), penaltyAmount: cotisationMoney(payment.penaltyAmount),
+              fee: cotisationMoney(payment.fee), grossAmount: cotisationMoney(payment.grossAmount),
+            };
+          }
+        }
+
+        const orderDefined = Boolean(group.orderConfirmedAt) && memberCount >= 2;
+        return {
+          id: groupRef.id, name: group.name, description: String(group.description || ''),
+          imageURL: typeof group.imageURL === 'string' ? group.imageURL : '',
+          ownerId: group.ownerId, isOwner: group.ownerId === uid,
+          createdAt: serializeAdminValue(group.createdAt || null),
+          isPinned: membership.pinned === true,
+          contributionAmount, frequency: group.frequency, startDate: group.startDate,
+          status: group.status || 'active', dueDay: group.dueDay || null,
+          expectedMembers, graceDays: cotisationMoney(group.graceDays),
+          lateFeeType: group.lateFeeType || 'none', lateFeeValue: cotisationMoney(group.lateFeeValue),
+          lateFeeLabel: cotisationPenaltyLabel(group),
+          startedAt: Boolean(group.startedAt),
+          responsibilityAccepted: group.responsibilityAcceptedBy === uid,
+          inviteToken: group.ownerId === uid ? group.inviteToken : null,
+          // Les membres seront chargés à la demande, à l'ouverture de cette carte.
+          members: [], memberCount, maxMembers: expectedMembers,
+          orderDefined,
+          canStart: group.ownerId === uid && !group.startedAt && orderDefined
+            && !meta.notStarted && memberCount >= 2 && memberCount === expectedMembers,
+          currentCycle: {
+            ...meta, targetAmount, baseTarget, totalCollected,
+            remainingTotal: Math.max(0, targetAmount - totalCollected),
+            status: cycleStatus, pendingPayment: myMemberPendingPayment,
+            beneficiaryUid: turnMember?.uid || null,
+            beneficiaryName: turnMember?.displayName || 'Membre',
+            beneficiaryPhotoURL: cotisationAvatarURL(turnMember?.photoURL || ''),
+            beneficiaryPosition: turnMember?.turnOrder || null,
+            nextBeneficiaryUid: nextTurnMember?.uid || null,
+            nextBeneficiaryName: nextTurnMember?.displayName || 'Membre',
+            nextBeneficiaryPhotoURL: cotisationAvatarURL(nextTurnMember?.photoURL || ''),
+            nextBeneficiaryPosition: nextTurnMember?.turnOrder || null,
+            receivedTurns: [],
+            isMyTurn: turnMember?.uid === uid,
+            myPaid: myPaid + myPenaltyPaid,
+            myPrincipalPaid: myPaid, myPenaltyPaid,
+            myRemaining: Math.max(0, contributionAmount - myPaid),
+            lateFeeDue,
+            myTotalToPay: Math.max(0, contributionAmount - myPaid) + lateFeeDue,
+            canWithdraw: Boolean(group.startedAt) && turnMember?.uid === uid
+              && targetAmount > 0 && totalCollected >= targetAmount
+              && ['READY', 'OPEN'].includes(cycleStatus),
+          },
+        };
+      }
+
       const membersSnap = await groupRef.collection('members').orderBy('joinedAt', 'asc').limit(50).get();
       const members = await hydrateCotisationMemberProfiles(membersSnap.docs);
       const hasAssignedOrder = Boolean(group.orderConfirmedAt) && members.length > 0 && members.every((member) => Number.isInteger(Number(member.turnOrder)) && Number(member.turnOrder) >= 1);
@@ -10412,6 +10527,7 @@ const ROUTES = {
   'cotisations/pay': { POST: handleCotisationPay },
   'cotisations/withdraw': { POST: handleCotisationWithdrawalRequest },
   'cotisations/list': { GET: handleCotisationsList },
+  'cotisations/details': { GET: handleCotisationsList },
   'cotisations/widget': { GET: handleCotisationsWidget },
   'withdrawals/list': { GET: handleUserWithdrawalHistory },
   'projects/update': { POST: handleUpdateProject },
