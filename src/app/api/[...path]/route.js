@@ -16,6 +16,7 @@ import { buildIncomePriorityReminder } from '@/lib/finance/incomePriorities.mjs'
 import { buildIncomeBudgetRecommendation } from '@/lib/finance/incomeBudgetRecommendation.mjs';
 import { buildRecurringExpenseReminders } from '@/lib/notifications/recurringExpenses.mjs';
 import { sumIncomeSpendTotals } from '@/lib/finance/incomeBalances.mjs';
+import { applyBudgetSpendDelta, normalizeBudgetSpendSummary } from '@/lib/finance/budgetSpendSummary.mjs';
 import { chatWithGroqVision, extractBillDataWithGroqVision } from '@/lib/ai/groqVision';
 import { generateImageWithPollinations } from '@/lib/ai/pollinationsImage';
 import { classifyAIRequest, selectAIToolsForIntent, buildCompactAIContext } from '@/lib/ai/compactContext';
@@ -44,6 +45,16 @@ async function authenticate(request) {
 }
 
 function errorResponse(message, status = 400) {
+  const detail = String(message || '');
+  if (/requires an index|failed-precondition|index is currently building|create.*index/i.test(detail)) {
+    const match = detail.match(/https:\/\/console\.firebase\.google\.com\/[^\s"'<>]+/i);
+    const directLink = match?.[0]?.replace(/[),.;]+$/, '') || null;
+    console.error('[PATA FIRESTORE INDEX REQUIRED]', {
+      directLink,
+      message: detail.slice(0, 1800),
+      manualGuide: 'https://console.firebase.google.com/project/_/firestore/indexes',
+    });
+  }
   return NextResponse.json({ success: false, error: message }, { status });
 }
 
@@ -530,9 +541,12 @@ async function handleDebtRequestRespond(request) {
         const sourceDebtRef = requesterRef.collection('debts').doc(sourceDebtId);
         const targetDebtRef = recipientRef.collection('debts').doc(targetDebtId);
         const expenseRefs = repaymentExpenseIds.map((id) => requesterRef.collection('expenses').doc(id));
-        const [recipientSnap, requesterSnap, sourceDebtSnap, targetDebtSnap, ...expenseSnaps] = await Promise.all([
+        const expenseMonth = String(requestData.date || getDoualaToday()).slice(0, 7);
+        const budgetSummaryRef = requesterRef.collection('budgetSpendSummaries').doc(expenseMonth);
+        const [recipientSnap, requesterSnap, sourceDebtSnap, targetDebtSnap, budgetSummarySnap, ...expenseSnaps] = await Promise.all([
           transaction.get(recipientRef), transaction.get(requesterRef),
           transaction.get(sourceDebtRef), transaction.get(targetDebtRef),
+          decision === 'accept' ? transaction.get(budgetSummaryRef) : Promise.resolve(null),
           ...expenseRefs.map((ref) => transaction.get(ref)),
         ]);
         if (!recipientSnap.exists || !requesterSnap.exists || !sourceDebtSnap.exists || !targetDebtSnap.exists || expenseSnaps.some((snap) => !snap.exists)) {
@@ -596,6 +610,21 @@ async function handleDebtRequestRespond(request) {
         const requesterName = String(requestData.requesterName || sourceDebt.person || 'Utilisateur Pata').slice(0, 100);
         const month = date.slice(0, 7);
         const repaymentSource = 'Remboursement reçu · ' + requesterName;
+
+        if (budgetSummarySnap?.exists && Number(budgetSummarySnap.data()?.version) === 1) {
+          let budgetSummary = normalizeBudgetSpendSummary(budgetSummarySnap.data(), month);
+          for (const expense of expenseRows) {
+            budgetSummary = applyBudgetSpendDelta(budgetSummary, {
+              ...expense,
+              neutralFlow: false,
+              expenseType: expense.expenseType || 'consumption',
+            }, 1);
+          }
+          transaction.set(budgetSummaryRef, {
+            ...budgetSummary,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        }
 
         transaction.update(sourceDebtRef, { remaining, status: nextStatus, updatedAt: FieldValue.serverTimestamp() });
         transaction.update(targetDebtRef, { remaining, status: nextStatus, updatedAt: FieldValue.serverTimestamp() });
