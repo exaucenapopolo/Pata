@@ -1,16 +1,18 @@
-import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
+import { collection, orderBy, query } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase/client';
+import { subscribeSharedSnapshot } from './sharedSubscription';
 
 const projectsCollection = (uid) => collection(db, 'users', uid, 'projects');
 
 export function subscribeProjects(uid, callback) {
   const projectsQuery = query(projectsCollection(uid), orderBy('createdAt', 'desc'));
-  return onSnapshot(projectsQuery, (snapshot) => {
-    callback(snapshot.docs.map((document) => ({ id: document.id, ...document.data() })));
-  }, (error) => {
-    console.error('Projects listener error:', error);
-    callback([]);
-  });
+  return subscribeSharedSnapshot(`projects:${uid}:all`, projectsQuery,
+    (snapshot) => callback(snapshot.docs.map((document) => ({ id: document.id, ...document.data() }))),
+    (error) => {
+      console.error('Projects listener error:', error);
+      callback([]);
+    }
+  );
 }
 
 async function postProjectAction(path, payload) {
