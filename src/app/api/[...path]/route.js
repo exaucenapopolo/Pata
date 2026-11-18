@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import androidVersion from '../../../../public/android-version.json';
 import { createHash, createHmac, timingSafeEqual, randomBytes, randomInt, scryptSync } from 'node:crypto';
 import { adminAuth, adminDb, adminMessaging } from '@/lib/firebase/admin';
-import { FieldValue, FieldPath, AggregateField } from 'firebase-admin/firestore';
+import { FieldValue, FieldPath, AggregateField, Timestamp } from 'firebase-admin/firestore';
 import { isNotificationUnread } from '@/lib/notifications/notificationState.mjs';
 import { getNextAdminPremiumUntil, validateAdminPremiumAmount } from '@/lib/adminPremiumPolicy.mjs';
 import { calculatePremiumPricing } from '@/lib/premiumPricing.mjs';
@@ -8946,14 +8946,30 @@ async function handleCotisationChatMessages(request) {
     const quota = summarizeCotisationChatQuota(usageSnap.data() || {});
     const messagesRef = groupRef.collection('chatMessages');
     const afterId = String(url.searchParams.get('afterId') || '').trim().slice(0, 150);
+    const afterCreatedAt = String(url.searchParams.get('afterCreatedAt') || '').trim();
     let snapshot = null;
     let reset = !afterId;
     if (afterId) {
-      const cursorSnap = await messagesRef.doc(afterId).get();
-      if (cursorSnap.exists) {
-        snapshot = await messagesRef.orderBy('createdAt', 'asc').startAfter(cursorSnap).limit(50).get();
+      const timestampMatch = afterCreatedAt.match(/^(\d{1,12}):(\d{1,9})$/);
+      if (timestampMatch) {
+        // Le curseur transporte la précision Timestamp exacte : pas besoin de
+        // relire le document de référence à chaque interrogation du chat.
+        const cursorTimestamp = new Timestamp(Number(timestampMatch[1]), Number(timestampMatch[2]));
+        snapshot = await messagesRef
+          .orderBy('createdAt', 'asc')
+          .orderBy(FieldPath.documentId(), 'asc')
+          .startAfter(cursorTimestamp, afterId)
+          .limit(50)
+          .get();
       } else {
-        reset = true;
+        // Compatibilité avec les anciennes versions de l'application qui
+        // n'envoient pas encore le Timestamp de leur dernier message.
+        const cursorSnap = await messagesRef.doc(afterId).get();
+        if (cursorSnap.exists) {
+          snapshot = await messagesRef.orderBy('createdAt', 'asc').startAfter(cursorSnap).limit(50).get();
+        } else {
+          reset = true;
+        }
       }
     }
     if (reset) snapshot = await messagesRef.orderBy('createdAt', 'desc').limit(30).get();
@@ -9006,8 +9022,14 @@ async function handleCotisationChatMessages(request) {
     const lastMessageId = reset
       ? (messages[messages.length - 1]?.id || '')
       : ((snapshot?.docs || []).slice(-1)[0]?.id || afterId);
+    const lastMessageDocument = lastMessageId ? documentsById.get(lastMessageId) : null;
+    const lastMessageTimestamp = lastMessageDocument?.data()?.createdAt;
+    const lastMessageCursor = Number.isInteger(lastMessageTimestamp?.seconds)
+      && Number.isInteger(lastMessageTimestamp?.nanoseconds)
+      ? String(lastMessageTimestamp.seconds) + ':' + String(lastMessageTimestamp.nanoseconds)
+      : (!reset ? afterCreatedAt : '');
     return NextResponse.json({
-      success: true, messages, quota, reset, lastMessageId,
+      success: true, messages, quota, reset, lastMessageId, lastMessageCursor,
       serverTime: new Date().toISOString(),
       retentionDays: 30, maxMessageLength: 1000,
     });
