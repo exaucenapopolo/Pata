@@ -4,6 +4,68 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { subscribeIncomes } from '@/lib/firestore/incomes';
 
+// Les soldes d'un revenu ne changent que lorsqu'un revenu ou une dépense liée
+// change. On réutilise donc le dernier calcul pendant 5 minutes, et on invalide
+// immédiatement ce cache lorsqu'une écriture locale est confirmée.
+const BALANCE_CACHE_TTL_MS = 5 * 60 * 1000;
+const balanceCache = new Map();
+const balanceRequests = new Map();
+
+function getIncomeSignature(rows) {
+  return rows
+    .map((item) => `${item.id}:${Number(item.amount) || 0}`)
+    .sort()
+    .join('|');
+}
+
+async function fetchIncomeBalances(user, incomeIds, signature) {
+  const requestKey = user.uid + ':' + signature;
+  const existingRequest = balanceRequests.get(requestKey);
+  if (existingRequest) return existingRequest;
+
+  const request = (async () => {
+    const token = await user.getIdToken();
+    const response = await fetch('/api/incomes/spent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+      body: JSON.stringify({ incomeIds }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.success || !Array.isArray(result.totals)) {
+      throw new Error(result.error || 'Impossible de calculer les soldes des revenus.');
+    }
+
+    const totals = new Map(result.totals.map((item) => [
+      String(item.incomeId),
+      Number(item.spent),
+    ]));
+    const missingId = incomeIds.find((id) => !totals.has(id) || !Number.isFinite(totals.get(id)));
+    if (missingId) throw new Error('Le calcul des dépenses a renvoyé un résultat incomplet.');
+    return totals;
+  })();
+
+  balanceRequests.set(requestKey, request);
+  try {
+    return await request;
+  } finally {
+    if (balanceRequests.get(requestKey) === request) balanceRequests.delete(requestKey);
+  }
+}
+
+function applyIncomeBalances(rows, totals) {
+  return rows.map((item) => {
+    const spent = Math.max(0, Number(totals.get(item.id)) || 0);
+    const remaining = Math.max(0, (Number(item.amount) || 0) - spent);
+    return {
+      ...item,
+      spent,
+      remaining,
+      isExhausted: remaining === 0 && spent > 0,
+      balanceAvailable: true,
+    };
+  });
+}
+
 export function useIncomes() {
   const { user } = useAuth();
   const [incomes, setIncomes] = useState([]);
@@ -24,6 +86,7 @@ export function useIncomes() {
 
     let active = true;
     let currentRows = [];
+    let currentSignature = '';
     let requestSequence = 0;
     lastKnownBalancesRef.current.clear();
     setIncomes([]);
@@ -31,7 +94,7 @@ export function useIncomes() {
     setBalancesReady(false);
     setBalanceError('');
 
-    const refreshBalances = async () => {
+    const refreshBalances = async (force = false) => {
       const sequence = ++requestSequence;
       if (!currentRows.length) {
         if (active) {
@@ -44,47 +107,41 @@ export function useIncomes() {
         return;
       }
 
-      try {
-        const token = await user.getIdToken();
-        const incomeIds = currentRows.map((item) => item.id).filter(Boolean);
-        const idBatches = [];
-        // Firestore "in" queries accept at most 30 values.
-        for (let offset = 0; offset < incomeIds.length; offset += 30) {
-          idBatches.push(incomeIds.slice(offset, offset + 30));
-        }
+      const incomeIds = currentRows.map((item) => item.id).filter(Boolean);
+      const signature = currentSignature;
+      const cached = balanceCache.get(user.uid);
+      const cacheMatches = cached?.signature === signature;
+      const cacheIsFresh = cacheMatches && Date.now() - cached.fetchedAt < BALANCE_CACHE_TTL_MS;
 
-        const batchResults = await Promise.all(idBatches.map(async (ids) => {
-          const response = await fetch('/api/incomes/spent', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-            body: JSON.stringify({ incomeIds: ids }),
-          });
-          const result = await response.json().catch(() => ({}));
-          if (!response.ok || !result.success || !Array.isArray(result.totals)) {
-            throw new Error(result.error || 'Impossible de calculer les soldes des revenus.');
-          }
-          return result.totals;
-        }));
-
-        if (!active || sequence !== requestSequence) return;
-        const spentById = new Map(batchResults.flat().map((item) => [
-          String(item.incomeId),
-          Number(item.spent),
+      if (!force && cacheIsFresh) {
+        const cachedRows = applyIncomeBalances(currentRows, cached.totals);
+        lastKnownBalancesRef.current = new Map(cachedRows.map((item) => [
+          item.id,
+          { spent: item.spent, remaining: item.remaining, isExhausted: item.isExhausted },
         ]));
-        const missingId = incomeIds.find((id) => !spentById.has(id) || !Number.isFinite(spentById.get(id)));
-        if (missingId) throw new Error('Le calcul des dépenses a renvoyé un résultat incomplet.');
+        if (active) {
+          setIncomes(cachedRows);
+          setBalancesReady(true);
+          setBalanceError('');
+          setLoading(false);
+        }
+        return;
+      }
 
-        const nextRows = currentRows.map((item) => {
-          const spent = Math.max(0, spentById.get(item.id));
-          const remaining = Math.max(0, (Number(item.amount) || 0) - spent);
-          return {
-            ...item,
-            spent,
-            remaining,
-            isExhausted: remaining === 0 && spent > 0,
-            balanceAvailable: true,
-          };
-        });
+      // Affiche tout de suite le dernier solde connu pendant l'actualisation.
+      if (cacheMatches && active) {
+        const cachedRows = applyIncomeBalances(currentRows, cached.totals);
+        setIncomes(cachedRows);
+        setBalancesReady(true);
+        setLoading(false);
+      }
+
+      try {
+        const totals = await fetchIncomeBalances(user, incomeIds, signature);
+        if (!active || sequence !== requestSequence) return;
+
+        balanceCache.set(user.uid, { signature, totals, fetchedAt: Date.now() });
+        const nextRows = applyIncomeBalances(currentRows, totals);
         lastKnownBalancesRef.current = new Map(nextRows.map((item) => [
           item.id,
           { spent: item.spent, remaining: item.remaining, isExhausted: item.isExhausted },
@@ -97,7 +154,7 @@ export function useIncomes() {
         console.error('[PATA INCOME BALANCES]', error?.message || error);
         if (!active || sequence !== requestSequence) return;
 
-        // Never reset spent to zero when a balance refresh fails.
+        // Ne jamais remettre un solde à zéro si son actualisation échoue.
         const nextRows = currentRows.map((item) => {
           const known = lastKnownBalancesRef.current.get(item.id);
           if (known) return { ...item, ...known, balanceAvailable: true };
@@ -117,17 +174,32 @@ export function useIncomes() {
     };
 
     const unsubscribe = subscribeIncomes(user.uid, (items) => {
+      const nextSignature = getIncomeSignature(items);
+      const rowsChanged = nextSignature !== currentSignature;
       currentRows = items;
-      void refreshBalances();
+      currentSignature = nextSignature;
+      // Les montants ou la liste ont changé : le cache n'est plus fiable.
+      void refreshBalances(rowsChanged);
     });
-    const handleRefresh = () => { void refreshBalances(); };
+
+    const handleRefresh = () => { void refreshBalances(true); };
+    const refreshIfStaleOnReturn = () => {
+      if (document.visibilityState !== 'visible') return;
+      const cached = balanceCache.get(user.uid);
+      if (!cached || Date.now() - cached.fetchedAt >= BALANCE_CACHE_TTL_MS) {
+        void refreshBalances(true);
+      }
+    };
+
     window.addEventListener('pata:income-balances-refresh', handleRefresh);
+    document.addEventListener('visibilitychange', refreshIfStaleOnReturn);
 
     return () => {
       active = false;
       requestSequence += 1;
       unsubscribe();
       window.removeEventListener('pata:income-balances-refresh', handleRefresh);
+      document.removeEventListener('visibilitychange', refreshIfStaleOnReturn);
     };
   }, [user]);
 
