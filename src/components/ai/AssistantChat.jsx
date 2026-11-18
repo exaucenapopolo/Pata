@@ -328,9 +328,31 @@ function getSuggestedPrompts(text = '', language = 'fr') {
   return [...new Set(suggestions)].slice(0, 2);
 }
 
-const CHAT_LIST_CACHE_TTL_MS = 45_000;
+// Les titres changent rarement ailleurs que sur cet appareil. Un cache de cinq
+// minutes évite de relire 100 métadonnées à chaque ouverture du panneau.
+const CHAT_LIST_CACHE_TTL_MS = 5 * 60_000;
 const chatListCache = new Map();
 const chatMessagesCache = new Map();
+const MAX_CACHED_CHAT_TRANSCRIPTS = 8;
+
+function getCachedChatMessages(uid, chatId) {
+  const key = String(uid) + ':' + String(chatId);
+  const cached = chatMessagesCache.get(key);
+  if (!cached) return null;
+  chatMessagesCache.delete(key);
+  chatMessagesCache.set(key, cached);
+  return cached;
+}
+
+function setCachedChatMessages(uid, chatId, messages) {
+  const key = String(uid) + ':' + String(chatId);
+  chatMessagesCache.delete(key);
+  chatMessagesCache.set(key, { messages, fetchedAt: Date.now() });
+  while (chatMessagesCache.size > MAX_CACHED_CHAT_TRANSCRIPTS) {
+    const oldestKey = chatMessagesCache.keys().next().value;
+    chatMessagesCache.delete(oldestKey);
+  }
+}
 
 export function AssistantChat({ open, onClose, initialPrompt = "" }) {
   const { user } = useAuth();
@@ -459,7 +481,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
     setLoadingChat(true);
     setShowSidebar(false);
 
-    const cached = chatMessagesCache.get(chat.id);
+    const cached = getCachedChatMessages(user.uid, chat.id);
     if (cached && Date.now() - cached.fetchedAt < CHAT_LIST_CACHE_TTL_MS) {
       setMessages(cached.messages);
       setLoadingChat(false);
@@ -470,7 +492,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
       const detail = await fetchChatMessages(user, chat.id);
       if (requestSequence !== chatLoadSequenceRef.current) return;
       const nextMessages = Array.isArray(detail?.messages) ? detail.messages : [];
-      chatMessagesCache.set(chat.id, { messages: nextMessages, fetchedAt: Date.now() });
+      setCachedChatMessages(user.uid, chat.id, nextMessages);
       setMessages(nextMessages);
     } catch (error) {
       if (requestSequence === chatLoadSequenceRef.current) {
@@ -507,7 +529,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
     await updateChatMessages(user.uid, chatId, nextMessages);
     const last = nextMessages[nextMessages.length - 1];
     const preview = String(last?.content || (last?.generatedImage ? 'Image générée' : '')).replace(/\s+/g, ' ').trim().slice(0, 140);
-    chatMessagesCache.set(chatId, { messages: nextMessages, fetchedAt: Date.now() });
+    setCachedChatMessages(user.uid, chatId, nextMessages);
     setChats((current) => {
       const next = current.map((item) => item.id === chatId
         ? { ...item, updatedAt: new Date(), messageCount: nextMessages.length, lastMessagePreview: preview }
@@ -522,7 +544,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
     e.stopPropagation();
     if (confirm(language === 'en' ? 'Delete this conversation?' : 'Supprimer cette conversation ?')) {
       await deleteChat(user.uid, chatId);
-      chatMessagesCache.delete(chatId);
+      chatMessagesCache.delete(user.uid + ':' + chatId);
       setChats((current) => {
         const next = current.filter((item) => item.id !== chatId);
         chatListCache.set(user.uid, { chats: next, fetchedAt: Date.now() });
