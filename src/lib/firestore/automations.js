@@ -1,11 +1,13 @@
 // src/lib/firestore/automations.js
-import { collection, addDoc, deleteDoc, doc, onSnapshot, query, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, deleteDoc, doc, query, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase/client';
+import { subscribeSharedSnapshot } from './sharedSubscription';
 
 const col = (uid) => collection(db, 'users', uid, 'automations');
 
 export function subscribeAutomations(uid, cb) {
-  return onSnapshot(query(col(uid)), (snap) => {
+  const q = query(col(uid));
+  return subscribeSharedSnapshot(`automations:${uid}:all`, q, (snap) => {
     cb(snap.docs.map(d => ({ id: d.id, ...d.data() })));
   });
 }
