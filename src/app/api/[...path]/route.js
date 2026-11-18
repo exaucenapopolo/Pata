@@ -16,7 +16,7 @@ import { buildIncomePriorityReminder } from '@/lib/finance/incomePriorities.mjs'
 import { buildIncomeBudgetRecommendation } from '@/lib/finance/incomeBudgetRecommendation.mjs';
 import { buildRecurringExpenseReminders } from '@/lib/notifications/recurringExpenses.mjs';
 import { sumIncomeSpendTotals } from '@/lib/finance/incomeBalances.mjs';
-import { applyBudgetSpendDelta, normalizeBudgetSpendSummary } from '@/lib/finance/budgetSpendSummary.mjs';
+import { applyBudgetSpendDelta, buildBudgetSpendSummary, getBudgetSpendAmount, normalizeBudgetSpendSummary } from '@/lib/finance/budgetSpendSummary.mjs';
 import { chatWithGroqVision, extractBillDataWithGroqVision } from '@/lib/ai/groqVision';
 import { generateImageWithPollinations } from '@/lib/ai/pollinationsImage';
 import { classifyAIRequest, selectAIToolsForIntent, buildCompactAIContext } from '@/lib/ai/compactContext';
@@ -2941,24 +2941,51 @@ async function handleNotificationScheduler(request, passNumber = 1) {
       }
       try {
         const monthStart = `${month}-01`;
-        const [monthExpensesSnap, budgetsSnap, automationsSnap, goalsSnap, monthIncomesSnap, weeklyReportsSnap, recurringPatternsSnap] = await Promise.all([
-          userDoc.ref.collection('expenses').where('date', '>=', monthStart).where('date', '<=', today).get(),
+        const userExpensesRef = userDoc.ref.collection('expenses');
+        const expenseSummaryRef = userDoc.ref.collection('budgetSpendSummaries').doc(month);
+        const [expenseSummarySnap, budgetsSnap, automationsSnap, goalsSnap, todayExpensesSnap, monthIncomesSnap, weeklyReportsSnap, recurringPatternsSnap] = await Promise.all([
+          expenseSummaryRef.get(),
           userDoc.ref.collection('budgets').where('month', '==', month).get(),
           userDoc.ref.collection('automations').get(),
           userDoc.ref.collection('goals').limit(20).get(),
+          userExpensesRef.where('date', '==', today).get(),
           userDoc.ref.collection('incomes').where('date', '>=', monthStart).where('date', '<=', today).get(),
           userDoc.ref.collection('weekly_reports').orderBy('weekStart', 'desc').limit(1).get(),
           userData.hasRecurringExpensePatterns === true
             ? userDoc.ref.collection('recurringExpenses').where('active', '==', true).limit(30).get()
             : Promise.resolve({ docs: [] }),
         ]);
-        const allMonthExpenses = monthExpensesSnap.docs.map((doc) => doc.data());
-        const todayExpenses = allMonthExpenses.filter((item) => item.date === today && !item.neutralFlow && (!item.expenseType || item.expenseType === 'consumption'));
-        const monthExpenses = allMonthExpenses.filter((item) => !item.neutralFlow && (!item.expenseType || item.expenseType === 'consumption'));
+        let budgetSpendSummary = null;
+        const storedExpenseSummary = expenseSummarySnap.exists ? expenseSummarySnap.data() || {} : null;
+        const hasCompleteExpenseSummary = storedExpenseSummary
+          && Number(storedExpenseSummary.version) === 1
+          && Object.prototype.hasOwnProperty.call(storedExpenseSummary, 'expenseCount')
+          && Object.prototype.hasOwnProperty.call(storedExpenseSummary, 'totalAmount');
+        if (hasCompleteExpenseSummary) {
+          budgetSpendSummary = normalizeBudgetSpendSummary(storedExpenseSummary, month);
+        } else {
+          // Migration de compatibilité : lecture complète une seule fois par mois.
+          // Le résumé est ensuite entretenu par les transactions dépenses.
+          const monthExpensesSnap = await userExpensesRef
+            .where('date', '>=', monthStart)
+            .where('date', '<=', today)
+            .get();
+          budgetSpendSummary = buildBudgetSpendSummary(
+            monthExpensesSnap.docs.map((document) => document.data() || {}),
+            month,
+          );
+          await expenseSummaryRef.set({
+            ...budgetSpendSummary,
+            updatedAt: FieldValue.serverTimestamp(),
+          }, { merge: true });
+        }
+        const todayExpenses = todayExpensesSnap.docs
+          .map((document) => document.data() || {})
+          .filter((item) => !item.neutralFlow && (!item.expenseType || item.expenseType === 'consumption'));
+        const monthExpenseCount = budgetSpendSummary.expenseCount;
         const totalToday = todayExpenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-        const categoryTotals = {};
+        const categoryTotals = { ...budgetSpendSummary.categoryTotals };
         const todayCategoryTotals = {};
-        monthExpenses.forEach((item) => { categoryTotals[item.categoryId || 'other'] = (categoryTotals[item.categoryId || 'other'] || 0) + (Number(item.amount) || 0); });
         todayExpenses.forEach((item) => { todayCategoryTotals[item.categoryId || 'other'] = (todayCategoryTotals[item.categoryId || 'other'] || 0) + (Number(item.amount) || 0); });
         const localTodayDate = new Date(today + 'T12:00:00.000Z');
         localTodayDate.setUTCDate(localTodayDate.getUTCDate() - ((localTodayDate.getUTCDay() + 6) % 7));
@@ -2970,7 +2997,11 @@ async function handleNotificationScheduler(request, passNumber = 1) {
         const categoryLabels = { food: 'Alimentation', transport: 'Transport', housing: 'Logement', internet: 'Internet', health: 'Santé', leisure: 'Loisirs', investment: 'Investissement', contribution: 'Cotisations', savings: 'Épargne', other: 'Autres' };
         const budgets = budgetsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
         const overBudget = budgets.map((budget) => {
-          const spent = monthExpenses.filter((expense) => expense.categoryId === budget.categoryId && (budget.incomeSourceId === 'all' || !budget.incomeSourceId || expense.incomeSourceId === budget.incomeSourceId)).reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0);
+          const spent = getBudgetSpendAmount(
+            budgetSpendSummary,
+            budget.categoryId,
+            budget.incomeSourceId || 'all',
+          );
           return { categoryId: budget.categoryId, allocated: Number(budget.amount) || 0, spent, over: spent - (Number(budget.amount) || 0) };
         }).filter((item) => item.allocated > 0 && item.over > 0).sort((a, b) => b.over - a.over)[0];
         const runsToday = automationsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() })).filter((item) => {
@@ -3156,7 +3187,7 @@ async function handleNotificationScheduler(request, passNumber = 1) {
             profileUpdate: { lastReengagementDate: today },
           });
         }
-        if (!monthExpenses.length && !realIncomeRows.length
+        if (monthExpenseCount <= 0 && !realIncomeRows.length
           && daysBetweenDateKeys(String(userData.lastOnboardingReminderDate || '').slice(0, 10), today) >= 7) {
           candidates.push({
             key: 'first-entries:' + today, topic: 'first_entries', priority: 12,
