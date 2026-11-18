@@ -323,7 +323,6 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
       incomeSpentTotals = calculateIncomeSpentTotals(legacyExpensesSnap.docs.map((document) => document.data() || {}));
     }
     const balances = buildIncomeBalancesFromTotals(incomes, incomeSpentTotals);
-    const recentExpenses = recentHistorySnap.docs.map((document) => document.data() || {});
     const budgetExpenses = budgetExpensesSnap.docs.map((document) => document.data() || {});
     const selectedSource = externalFunding
       ? { id: 'external', source: cleanText(input.externalFundingLabel, 80) || 'Solde Mobile Money' }
