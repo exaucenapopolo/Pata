@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { Bell, Check, ChevronDown, ExternalLink, Loader2, RefreshCw, X } from 'lucide-react';
@@ -98,6 +98,8 @@ export function NotificationInbox() {
   const [error, setError] = useState('');
   const [markingAll, setMarkingAll] = useState(false);
   const [portalTarget, setPortalTarget] = useState(null);
+  const nextCursorRef = useRef(null);
+  const lastRefreshAtRef = useRef(0);
 
   const unreadCount = useMemo(() => items.filter((item) => !item.isRead).length, [items]);
   const readCount = useMemo(() => items.filter((item) => item.isRead).length, [items]);
@@ -110,9 +112,11 @@ export function NotificationInbox() {
     if (!user) {
       setItems([]);
       setNextCursor(null);
+      nextCursorRef.current = null;
       setHasMore(false);
       return;
     }
+    lastRefreshAtRef.current = Date.now();
     if (!silent) {
       if (append) setLoadingMore(true);
       else setLoading(true);
@@ -120,7 +124,7 @@ export function NotificationInbox() {
     try {
       const token = await user.getIdToken();
       const params = new URLSearchParams({ limit: '50' });
-      if (append && nextCursor) params.set('cursor', nextCursor);
+      if (append && nextCursorRef.current) params.set('cursor', nextCursorRef.current);
       const response = await fetch('/api/notifications/inbox?' + params.toString(), {
         method: 'GET',
         cache: 'no-store',
@@ -130,7 +134,8 @@ export function NotificationInbox() {
       if (!response.ok || !result.success) throw new Error(result.error || labels.refreshError);
       const incoming = Array.isArray(result.notifications) ? result.notifications : [];
       setItems((current) => append ? mergeNotifications(current, incoming) : incoming);
-      setNextCursor(result.nextCursor || null);
+      nextCursorRef.current = result.nextCursor || null;
+      setNextCursor(nextCursorRef.current);
       setHasMore(Boolean(result.hasMore));
       setError('');
     } catch (requestError) {
@@ -141,7 +146,7 @@ export function NotificationInbox() {
         setLoadingMore(false);
       }
     }
-  }, [user, nextCursor]);
+  }, [user]);
 
   useEffect(() => {
     setPortalTarget(document.body);
@@ -150,21 +155,35 @@ export function NotificationInbox() {
   useEffect(() => {
     if (!user) {
       setItems([]);
+      nextCursorRef.current = null;
+      setNextCursor(null);
       return undefined;
     }
     void loadNotifications();
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') void loadNotifications(true);
-    }, 45000);
     const refreshOnFocus = () => {
-      if (document.visibilityState === 'visible') void loadNotifications(true);
+      // Le push assure la livraison immédiate. Le contenu de la boîte est
+      // relu au retour dans l'application, pas toutes les 45 secondes en continu.
+      if (document.visibilityState === 'visible'
+        && Date.now() - lastRefreshAtRef.current >= 60000) {
+        void loadNotifications(true);
+      }
     };
     document.addEventListener('visibilitychange', refreshOnFocus);
+    window.addEventListener('focus', refreshOnFocus);
     return () => {
-      window.clearInterval(timer);
       document.removeEventListener('visibilitychange', refreshOnFocus);
+      window.removeEventListener('focus', refreshOnFocus);
     };
   }, [user, loadNotifications]);
+
+  useEffect(() => {
+    if (!user || !open) return undefined;
+    if (Date.now() - lastRefreshAtRef.current >= 30000) void loadNotifications(true);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void loadNotifications(true);
+    }, 180000);
+    return () => window.clearInterval(timer);
+  }, [user, open, loadNotifications]);
 
   const markAsRead = async (notification) => {
     if (!user || !notification?.id || notification.isRead || markingId) return;
