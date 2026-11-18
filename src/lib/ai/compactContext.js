@@ -117,7 +117,7 @@ export function buildCompactAIContext(data = {}, intent = {}) {
     lines.push(...incomes.slice(0, 25).map((item) => {
       const spent = expenses.filter((expense) => expense.incomeSourceId === item.id).reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0);
       const sourceType = item.flowType === 'debt_borrowed' || item.neutralFlow ? 'emprunt (flux neutre)' : 'revenu ordinaire';
-      return `ID ${item.id} | ${String(item.source || 'Revenu').slice(0, 55)} | type ${sourceType} | reçu ${money(item.amount)} FCFA | sorties associées récupérées ${money(spent)} FCFA | date ${dateLabel(item.date)}`;
+      return `ID ${item.id} | ${String(item.source || 'Revenu').slice(0, 55)} | type ${sourceType} | reçu ${money(item.amount)} FCFA | sorties associées dans l'extrait chargé ${money(spent)} FCFA | date ${dateLabel(item.date)}`;
     }));
   }
   if (intent.needsExpenses) {
