@@ -312,6 +312,7 @@ export default function CotisationsPage() {
     setChatGroup(group);
     setChatMessages([]);
     chatLastMessageIdRef.current = '';
+    chatLastMessageCursorRef.current = '';
     setChatDraft('');
     setChatError('');
     setChatQuotaBlocked(false);
