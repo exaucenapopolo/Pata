@@ -2912,8 +2912,7 @@ async function handleNotificationScheduler(request, passNumber = 1) {
       }
       try {
         const monthStart = `${month}-01`;
-        const [todayExpensesSnap, monthExpensesSnap, budgetsSnap, automationsSnap, goalsSnap, monthIncomesSnap, weeklyReportsSnap, recurringPatternsSnap] = await Promise.all([
-          userDoc.ref.collection('expenses').where('date', '==', today).get(),
+        const [monthExpensesSnap, budgetsSnap, automationsSnap, goalsSnap, monthIncomesSnap, weeklyReportsSnap, recurringPatternsSnap] = await Promise.all([
           userDoc.ref.collection('expenses').where('date', '>=', monthStart).where('date', '<=', today).get(),
           userDoc.ref.collection('budgets').where('month', '==', month).get(),
           userDoc.ref.collection('automations').get(),
@@ -2924,8 +2923,9 @@ async function handleNotificationScheduler(request, passNumber = 1) {
             ? userDoc.ref.collection('recurringExpenses').where('active', '==', true).limit(30).get()
             : Promise.resolve({ docs: [] }),
         ]);
-        const todayExpenses = todayExpensesSnap.docs.map((doc) => doc.data()).filter((item) => !item.neutralFlow && (!item.expenseType || item.expenseType === 'consumption'));
-        const monthExpenses = monthExpensesSnap.docs.map((doc) => doc.data()).filter((item) => !item.neutralFlow && (!item.expenseType || item.expenseType === 'consumption'));
+        const allMonthExpenses = monthExpensesSnap.docs.map((doc) => doc.data());
+        const todayExpenses = allMonthExpenses.filter((item) => item.date === today && !item.neutralFlow && (!item.expenseType || item.expenseType === 'consumption'));
+        const monthExpenses = allMonthExpenses.filter((item) => !item.neutralFlow && (!item.expenseType || item.expenseType === 'consumption'));
         const totalToday = todayExpenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
         const categoryTotals = {};
         const todayCategoryTotals = {};
