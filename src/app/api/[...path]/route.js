@@ -3407,15 +3407,19 @@ async function handleGlobalFinanceSummary(request) {
       ]);
       let neutralIncome = 0;
       let neutralExpense = 0;
+      let neutralIncomeCount = 0;
+      let neutralExpenseCount = 0;
       if (excludeNeutral) {
         const [neutralIncomeSummary, neutralExpenseSummary] = await Promise.all([
           incomePeriod.where('neutralFlow', '==', true)
-            .aggregate({ total: AggregateField.sum('amount') }).get(),
+            .aggregate({ total: AggregateField.sum('amount'), count: AggregateField.count() }).get(),
           expensePeriod.where('neutralFlow', '==', true)
-            .aggregate({ total: AggregateField.sum('amount') }).get(),
+            .aggregate({ total: AggregateField.sum('amount'), count: AggregateField.count() }).get(),
         ]);
         neutralIncome = Number(neutralIncomeSummary.data()?.total) || 0;
         neutralExpense = Number(neutralExpenseSummary.data()?.total) || 0;
+        neutralIncomeCount = Number(neutralIncomeSummary.data()?.count) || 0;
+        neutralExpenseCount = Number(neutralExpenseSummary.data()?.count) || 0;
       }
 
       const totalIncome = Math.max(0, (Number(incomeSummary.data()?.total) || 0) - neutralIncome);
@@ -3426,8 +3430,8 @@ async function handleGlobalFinanceSummary(request) {
         endDate,
         totalIncome,
         totalExpense,
-        incomeCount: Math.max(0, Number(incomeSummary.data()?.count) || 0),
-        expenseCount: Math.max(0, Number(expenseSummary.data()?.count) || 0),
+        incomeCount: Math.max(0, (Number(incomeSummary.data()?.count) || 0) - neutralIncomeCount),
+        expenseCount: Math.max(0, (Number(expenseSummary.data()?.count) || 0) - neutralExpenseCount),
         globalBalance: totalIncome - totalExpense,
       });
     } catch (aggregateError) {
@@ -3454,8 +3458,8 @@ async function handleGlobalFinanceSummary(request) {
         endDate,
         totalIncome: total(incomesSnapshot),
         totalExpense: total(expensesSnapshot),
-        incomeCount: incomesSnapshot.size,
-        expenseCount: expensesSnapshot.size,
+        incomeCount: incomesSnapshot.docs.filter((document) => !excludeNeutral || document.data()?.neutralFlow !== true).length,
+        expenseCount: expensesSnapshot.docs.filter((document) => !excludeNeutral || document.data()?.neutralFlow !== true).length,
         globalBalance: total(incomesSnapshot) - total(expensesSnapshot),
       });
     }
