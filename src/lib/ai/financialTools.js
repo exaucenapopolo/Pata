@@ -237,6 +237,7 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
   const [selectedYear, selectedMonthNumber] = String(date).slice(0, 7).split('-').map(Number);
   const selectedMonthEnd = new Date(Date.UTC(selectedYear, selectedMonthNumber, 0)).toISOString().slice(0, 10);
   const expenseCollection = subcol(uid, 'expenses');
+  const needsBudgetCheck = flowType !== 'loan_given' && !cashWithdrawal && expenseType === 'consumption';
   const newDebtRef = flowType === 'loan_given' ? subcol(uid, 'debts').doc() : null;
   const repaymentDebtRef = flowType === 'repayment' ? subcol(uid, 'debts').doc(repaymentDebtId) : null;
   const smsImportId = cleanText(input.smsImportId, 80);
@@ -255,19 +256,20 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
     const budgetExpensesQuery = expensesQuery
       .where('date', '>=', selectedMonthStart)
       .where('date', '<=', selectedMonthEnd);
-    const readTasks = [
-      transaction.get(userRef),
-      transaction.get(incomesQuery),
-      transaction.get(budgetQuery),
-      transaction.get(budgetExpensesQuery),
-    ];
+    const readTasks = [transaction.get(userRef), transaction.get(incomesQuery)];
+    if (needsBudgetCheck) {
+      readTasks.push(transaction.get(budgetQuery), transaction.get(budgetExpensesQuery));
+    }
     if (idempotencyRef) readTasks.push(transaction.get(idempotencyRef));
     if (newDebtRef) readTasks.push(transaction.get(subcol(uid, 'debts').where('status', 'in', ['active', 'partial', 'late'])));
     if (repaymentDebtRef) readTasks.push(transaction.get(repaymentDebtRef));
     if (cashWalletRef) readTasks.push(transaction.get(cashWalletRef));
     const readResults = await Promise.all(readTasks);
-    const [userSnap, incomesSnap, budgetsSnap, budgetExpensesSnap] = readResults;
-    let readIndex = 5;
+    const userSnap = readResults[0];
+    const incomesSnap = readResults[1];
+    const budgetsSnap = needsBudgetCheck ? readResults[2] : { docs: [] };
+    const budgetExpensesSnap = needsBudgetCheck ? readResults[3] : { docs: [] };
+    let readIndex = needsBudgetCheck ? 4 : 2;
     const idempotencySnap = idempotencyRef ? readResults[readIndex++] : null;
     const activeDebtsSnap = newDebtRef ? readResults[readIndex++] : null;
     const repaymentDebtSnap = repaymentDebtRef ? readResults[readIndex++] : null;
