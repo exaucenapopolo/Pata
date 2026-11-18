@@ -56,6 +56,16 @@ export function subscribeSharedSnapshot(key, queryOrReference, callback, onError
         entry.listeners.forEach((current) => safelyNotify(current.callback, snapshot));
       }, (error) => {
         entry.error = error;
+        const detail = String(error?.message || error || '');
+        if (error?.code === 'failed-precondition' || /requires an index|index is currently building/i.test(detail)) {
+          const match = detail.match(/https:\/\/console\.firebase\.google\.com\/[^\s"'<>]+/i);
+          console.error('[PATA FIRESTORE INDEX REQUIRED]', {
+            queryKey: cacheKey,
+            directLink: match?.[0]?.replace(/[),.;]+$/, '') || null,
+            message: detail.slice(0, 1800),
+            manualGuide: 'https://console.firebase.google.com/project/_/firestore/indexes',
+          });
+        }
         entry.listeners.forEach((current) => {
           if (typeof current.onError === 'function') current.onError(error);
         });
