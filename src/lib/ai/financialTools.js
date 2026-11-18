@@ -2,7 +2,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb } from '@/lib/firebase/admin';
 import { incomeMatchesMobileMoneyProvider } from '@/lib/finance/cashWithdrawal.mjs';
 import { buildRecurringExpensePatterns } from '@/lib/notifications/recurringExpenses.mjs';
-import { applyBudgetSpendDelta, buildBudgetSpendSummary, getBudgetSpendAmount, normalizeBudgetSpendSummary } from '@/lib/finance/budgetSpendSummary.mjs';
+import { BUDGET_SPEND_SUMMARY_VERSION, applyBudgetSpendDelta, buildBudgetSpendSummary, getBudgetSpendAmount, normalizeBudgetSpendSummary } from '@/lib/finance/budgetSpendSummary.mjs';
 
 const EXPENSE_CATEGORIES = [
   'food', 'transport', 'housing', 'internet', 'health', 'leisure', 'gift_donation',
@@ -331,12 +331,11 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
     let budgetSpendSummary = null;
     if (needsBudgetCheck) {
       if (budgetSpendSummarySnap?.exists
-        && Number(budgetSpendSummarySnap.data()?.version) === 1) {
+        && Number(budgetSpendSummarySnap.data()?.version) === BUDGET_SPEND_SUMMARY_VERSION) {
         budgetSpendSummary = normalizeBudgetSpendSummary(budgetSpendSummarySnap.data(), String(date).slice(0, 7));
-      } else if (budgetsSnap?.size > 0) {
-        // Un seul rattrapage par mois et par compte : si le résumé n'existe pas,
-        // on reconstruit les totaux une fois, puis les prochaines opérations ne
-        // relisent plus toute la collection des dépenses du mois.
+      } else {
+        // Initialise le résumé même sans enveloppe budgétaire : le traitement
+        // quotidien des notifications pourra lui aussi éviter l'historique complet.
         const historySnap = legacyExpensesSnap
           ? { docs: legacyExpensesSnap.docs.filter((document) => String(document.data()?.date || '').slice(0, 7) === String(date).slice(0, 7)) }
           : await transaction.get(budgetExpensesQuery);
@@ -780,14 +779,17 @@ export async function updateExpenseForUser(uid, expenseId, input) {
     }
     const balances = buildIncomeBalancesFromTotals(incomes, baseSpentTotals);
     let newBudgetSpendSummary = newBudgetSummarySnap.exists
-      && Number(newBudgetSummarySnap.data()?.version) === 1
+      && Number(newBudgetSummarySnap.data()?.version) === BUDGET_SPEND_SUMMARY_VERSION
       ? normalizeBudgetSpendSummary(newBudgetSummarySnap.data(), newMonth)
       : null;
     let previousBudgetSpendSummary = previousMonth === newMonth
       ? newBudgetSpendSummary
-      : (previousBudgetSummarySnap?.exists && Number(previousBudgetSummarySnap.data()?.version) === 1
+      : (previousBudgetSummarySnap?.exists && Number(previousBudgetSummarySnap.data()?.version) === BUDGET_SPEND_SUMMARY_VERSION
         ? normalizeBudgetSpendSummary(previousBudgetSummarySnap.data(), previousMonth) : null);
-    if (!newBudgetSpendSummary && needsBudgetCheck && budgetSnap?.size > 0) {
+    const previousWasConsumption = previousData.neutralFlow !== true
+      && getExpenseTypeForBudget(previousData) === 'consumption';
+    if (!newBudgetSpendSummary && previousData.neutralFlow !== true
+      && (needsBudgetCheck || previousWasConsumption)) {
       const monthExpensesSnap = await transaction.get(
         expensesRef.where('date', '>=', selectedMonthStart).where('date', '<=', selectedMonthEnd)
       );
@@ -986,7 +988,7 @@ export async function deleteExpenseForUser(uid, expenseId) {
         incomeSpentTotalsUpdatedAt: FieldValue.serverTimestamp(),
       }, { merge: true });
     }
-    if (budgetSummarySnap?.exists && Number(budgetSummarySnap.data()?.version) === 1) {
+    if (budgetSummarySnap?.exists && Number(budgetSummarySnap.data()?.version) === BUDGET_SPEND_SUMMARY_VERSION) {
       const budgetSummary = applyBudgetSpendDelta(
         normalizeBudgetSpendSummary(budgetSummarySnap.data(), expenseMonth),
         data,
