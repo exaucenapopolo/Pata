@@ -651,10 +651,9 @@ export async function updateExpenseForUser(uid, expenseId, input) {
   const userRef = userRefFor(uid);
 
   return adminDb.runTransaction(async (transaction) => {
-    const [expenseSnap, incomesSnap, expensesSnap, userSnap] = await Promise.all([
+    const [expenseSnap, incomesSnap, userSnap] = await Promise.all([
       transaction.get(expenseRef),
       transaction.get(incomesRef),
-      transaction.get(expensesRef),
       transaction.get(userRef),
     ]);
     if (!expenseSnap.exists) throw new Error('Dépense introuvable.');
@@ -690,18 +689,36 @@ export async function updateExpenseForUser(uid, expenseId, input) {
       projectName = cleanText(projectSnap.data()?.name, 100);
     }
     const optionalMetadata = readOptionalTransactionMetadata(input, previousData);
-    const budgetSnap = await transaction.get(subcol(uid, 'budgets').where('month', '==', String(date).slice(0, 7)));
+    const selectedMonthStart = String(date).slice(0, 7) + '-01';
+    const [selectedYear, selectedMonthNumber] = String(date).slice(0, 7).split('-').map(Number);
+    const selectedMonthEnd = new Date(Date.UTC(selectedYear, selectedMonthNumber, 0)).toISOString().slice(0, 10);
+    const [budgetSnap, budgetExpensesSnap] = await Promise.all([
+      transaction.get(subcol(uid, 'budgets').where('month', '==', String(date).slice(0, 7))),
+      transaction.get(expensesRef.where('date', '>=', selectedMonthStart).where('date', '<=', selectedMonthEnd)),
+    ]);
     const requestedSourceId = input.incomeSourceId === undefined
       ? (previousData.incomeSourceId || 'all') : input.incomeSourceId;
     const requestedSourceName = input.incomeSourceName === undefined
       ? (previousData.incomeSourceName || (requestedSourceId === 'all' ? 'Tous les revenus' : ''))
       : input.incomeSourceName;
 
+    const userData = userSnap.exists ? userSnap.data() || {} : {};
     const incomes = incomesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-    const expenses = expensesSnap.docs
-      .filter((doc) => doc.id !== id)
-      .map((doc) => ({ id: doc.id, ...doc.data() }));
-    const balances = buildIncomeBalances(incomes, expenses);
+    let incomeSpentTotals = normalizeIncomeSpentTotals(userData.incomeSpentTotals);
+    if (userData.incomeSpentTotalsVersion !== 1) {
+      const legacyExpensesSnap = await transaction.get(expensesRef);
+      incomeSpentTotals = calculateIncomeSpentTotals(legacyExpensesSnap.docs.map((document) => document.data() || {}));
+    }
+    const baseSpentTotals = { ...incomeSpentTotals };
+    const previousIncomeId = String(previousData.incomeSourceId || '');
+    const previousAmount = Math.max(0, Number(previousData.amount) || 0);
+    if (previousIncomeId && previousIncomeId !== 'external') {
+      baseSpentTotals[previousIncomeId] = Math.max(0, (Number(baseSpentTotals[previousIncomeId]) || 0) - previousAmount);
+    }
+    const balances = buildIncomeBalancesFromTotals(incomes, baseSpentTotals);
+    const expenses = budgetExpensesSnap.docs
+      .filter((document) => document.id !== id)
+      .map((document) => ({ id: document.id, ...(document.data() || {}) }));
     const selectedSource = resolveSource(incomes, requestedSourceId, requestedSourceName);
     const eligibleBalances = balances.filter((income) => !income.projectId || income.projectId === projectId);
     let allocations = [];
@@ -782,6 +799,13 @@ export async function updateExpenseForUser(uid, expenseId, input) {
         updatedAt: FieldValue.serverTimestamp(),
       });
     }
+
+    const nextIncomeSpentTotals = applyIncomeSpendAllocations(baseSpentTotals, allocations);
+    transaction.set(userRef, {
+      incomeSpentTotals: nextIncomeSpentTotals,
+      incomeSpentTotalsVersion: 1,
+      incomeSpentTotalsUpdatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
 
     const extraRecords = [];
     allocations.slice(1).forEach(({ income, amount: allocated }, index) => {
