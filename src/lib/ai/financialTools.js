@@ -143,6 +143,51 @@ function buildIncomeBalances(incomes, expenses) {
   });
 }
 
+function normalizeIncomeSpentTotals(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const totals = {};
+  for (const [rawId, rawAmount] of Object.entries(value)) {
+    const id = String(rawId || '').trim();
+    const amount = Number(rawAmount);
+    if (!id || id.includes('/') || !Number.isFinite(amount)) continue;
+    totals[id] = Math.max(0, Math.round(amount));
+  }
+  return totals;
+}
+
+function calculateIncomeSpentTotals(expenses = []) {
+  const totals = {};
+  for (const expense of expenses) {
+    const incomeId = String(expense?.incomeSourceId || '').trim();
+    const amount = Number(expense?.amount);
+    if (!incomeId || incomeId === 'external' || incomeId.includes('/') || !Number.isFinite(amount) || amount <= 0) continue;
+    totals[incomeId] = (Number(totals[incomeId]) || 0) + amount;
+  }
+  return normalizeIncomeSpentTotals(totals);
+}
+
+function buildIncomeBalancesFromTotals(incomes, spentTotals = {}) {
+  return incomes.map((income) => {
+    const spent = Math.max(0, Number(spentTotals[income.id]) || 0);
+    return {
+      ...income,
+      spent,
+      remaining: Math.max(0, (Number(income.amount) || 0) - spent),
+    };
+  });
+}
+
+function applyIncomeSpendAllocations(spentTotals, allocations, direction = 1) {
+  const next = { ...normalizeIncomeSpentTotals(spentTotals) };
+  for (const allocation of allocations || []) {
+    const incomeId = String(allocation?.income?.id || '').trim();
+    const amount = Number(allocation?.amount);
+    if (!incomeId || incomeId === 'external' || incomeId.includes('/') || !Number.isFinite(amount)) continue;
+    next[incomeId] = Math.max(0, (Number(next[incomeId]) || 0) + direction * amount);
+  }
+  return next;
+}
+
 function getExpenseTypeForBudget(expense) {
   return ['consumption', 'project', 'savings', 'investment'].includes(expense?.expenseType)
     ? expense.expenseType : 'consumption';
