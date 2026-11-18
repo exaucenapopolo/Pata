@@ -1,7 +1,8 @@
 import {
-  collection, onSnapshot, query, orderBy, where, limit
+  collection, query, orderBy, where, limit
 } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase/client';
+import { subscribeSharedSnapshot } from './sharedSubscription';
 
 const col = (uid) => collection(db, 'users', uid, 'expenses');
 
@@ -22,7 +23,8 @@ export function subscribeExpenses(uid, cb, options = {}) {
   if (endDate) constraints.push(where('date', '<=', String(endDate).slice(0, 10)));
   constraints.push(orderBy('date', 'desc'), limit(Math.max(50, Math.min(1000, Number(options.limit) || 500))));
   const q = query(col(uid), ...constraints);
-  return onSnapshot(q, (snap) => {
+  const cacheKey = `expenses:${uid}:${startDate || '*'}:${endDate || '*'}:${options.days || '*'}:${options.limit || 500}`;
+  return subscribeSharedSnapshot(cacheKey, q, (snap) => {
     cb(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
   });
 }
