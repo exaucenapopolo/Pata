@@ -6056,9 +6056,16 @@ async function calculateAdminSavingsOverview() {
   }
 }
 
+const adminOverviewCache = { value: null, expiresAt: 0 };
+const ADMIN_OVERVIEW_CACHE_TTL_MS = 2 * 60 * 1000;
+
 async function handleAdminOverview(request) {
   try {
     await requireAdmin(request);
+    const forceRefresh = new URL(request.url).searchParams.get('refresh') === '1';
+    if (!forceRefresh && adminOverviewCache.value && adminOverviewCache.expiresAt > Date.now()) {
+      return NextResponse.json(adminOverviewCache.value);
+    }
     const nowIso = new Date().toISOString();
     const users = adminDb.collection('users');
     const withdrawals = adminDb.collection('withdrawalRequests');
@@ -6074,8 +6081,8 @@ async function handleAdminOverview(request) {
       aggregateTotal(adminDb.collection('subscriptionAccountingAdjustments')),
       aggregateTotal(withdrawals.where('status', '==', 'PAID')),
       aggregateTotal(withdrawals.where('status', 'in', ['PENDING_REVIEW', 'PROCESSING', 'RECONCILIATION_REQUIRED'])),
-      // Include legacy profiles even when createdAt is not present.
-      users.orderBy(FieldPath.documentId()).limit(100).get().catch(() => ({ docs: [] })),
+      // The overview only displays eight recent signups: avoid scanning 100 user documents.
+      users.orderBy('createdAt', 'desc').limit(8).get().catch(() => ({ docs: [] })),
       adminDb.collection('deposits').orderBy('createdAt', 'desc').limit(8).get().catch(() => ({ docs: [] })),
       withdrawals.orderBy('createdAt', 'desc').limit(12).get().catch(() => ({ docs: [] })),
       users.orderBy('balance', 'desc').limit(5).get().catch(() => ({ docs: [] })),
@@ -6103,10 +6110,8 @@ async function handleAdminOverview(request) {
           return null;
         }),
     ]);
-    const recentUsers = latestUsers.docs.map(safeAdminUser)
-      .sort((a, b) => (Date.parse(b.createdAt || b.lastSeenAt || 0) || 0) - (Date.parse(a.createdAt || a.lastSeenAt || 0) || 0))
-      .slice(0, 8);
-    return NextResponse.json({
+    const recentUsers = latestUsers.docs.map(safeAdminUser);
+    const payload = {
       success: true,
       stats: {
         totalUsers: userTotals.count,
@@ -6155,7 +6160,10 @@ async function handleAdminOverview(request) {
         incomes: topIncomes.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })),
       },
       note: 'Les compteurs de plateforme et les comptes à classer utilisent des agrégations Firestore. Les anciens profils sont classés à leur prochaine authentification ; aucun balayage global de tous les comptes n’est effectué. Les historiques détaillés restent chargés uniquement à la demande.',
-    });
+    };
+    adminOverviewCache.value = payload;
+    adminOverviewCache.expiresAt = Date.now() + ADMIN_OVERVIEW_CACHE_TTL_MS;
+    return NextResponse.json(payload);
   } catch (error) {
     return errorResponse(error.message || 'Accès administrateur refusé.', 401);
   }
