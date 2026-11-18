@@ -6912,7 +6912,9 @@ async function handleAdminUserDetail(request) {
     const userRef = adminDb.collection('users').doc(uid);
     const [userDoc, chatsSnap, expensesSnap, incomesSnap, goalsSnap, notificationsSnap, billsSnap, debtsSnap, budgetsSnap, subscriptionPaymentsSnap] = await Promise.all([
       userRef.get(),
-      userRef.collection('ai_chats').orderBy('updatedAt', 'desc').limit(12).get().catch(() => ({ docs: [] })),
+      userRef.collection('ai_chats')
+        .select('title', 'source', 'pinned', 'createdAt', 'updatedAt', 'messageCount', 'lastMessagePreview')
+        .orderBy('updatedAt', 'desc').limit(12).get().catch(() => ({ docs: [] })),
       userRef.collection('expenses').orderBy('date', 'desc').limit(10).get().catch(() => ({ docs: [] })),
       userRef.collection('incomes').orderBy('date', 'desc').limit(10).get().catch(() => ({ docs: [] })),
       userRef.collection('goals').orderBy('createdAt', 'desc').limit(30).get().catch(() => ({ docs: [] })),
@@ -6923,7 +6925,19 @@ async function handleAdminUserDetail(request) {
       adminDb.collection('subscriptionPayments').where('userId', '==', uid).limit(20).get().catch(() => ({ docs: [] })),
     ]);
     if (!userDoc.exists) return errorResponse('Compte introuvable.', 404);
-    const chats = chatsSnap.docs.map((document) => ({ id: document.id, ...serializeAdminValue(document.data()) }));
+    const chats = chatsSnap.docs.map((document) => {
+      const data = document.data() || {};
+      return {
+        id: document.id,
+        title: String(data.title || 'Discussion sans titre').slice(0, 120),
+        source: data.source === 'notification' ? 'notification' : 'assistant',
+        pinned: data.pinned === true,
+        createdAt: serializeAdminValue(data.createdAt || null),
+        updatedAt: serializeAdminValue(data.updatedAt || data.createdAt || null),
+        messageCount: Math.max(0, Number(data.messageCount) || 0),
+        lastMessagePreview: String(data.lastMessagePreview || '').slice(0, 140),
+      };
+    });
     const goals = [];
     for (let offset = 0; offset < goalsSnap.docs.length; offset += 10) {
       const group = goalsSnap.docs.slice(offset, offset + 10);
@@ -7047,6 +7061,30 @@ async function handleAdminUserDetail(request) {
     });
   } catch (error) {
     return errorResponse(error.message || 'Impossible de charger ce compte.', 401);
+  }
+}
+
+async function handleAdminUserChat(request) {
+  try {
+    await requireAdmin(request);
+    const url = new URL(request.url);
+    const uid = String(url.searchParams.get('uid') || '').trim().slice(0, 150);
+    const chatId = String(url.searchParams.get('chatId') || '').trim().slice(0, 150);
+    if (!uid || uid.includes('/') || !chatId || chatId.includes('/')) {
+      return errorResponse('Compte ou discussion invalide.', 400);
+    }
+    const snapshot = await adminDb.collection('users').doc(uid).collection('ai_chats').doc(chatId).get();
+    if (!snapshot.exists) return errorResponse('Cette discussion n’existe plus.', 404);
+    const data = snapshot.data() || {};
+    const messages = Array.isArray(data.messages) ? data.messages.map((message) => ({
+      role: message?.role === 'assistant' ? 'assistant' : 'user',
+      content: String(message?.content || message?.text || '').slice(0, 5000),
+      wasAudio: message?.wasAudio === true,
+      generatedImage: typeof message?.generatedImage === 'string' ? message.generatedImage : null,
+    })) : [];
+    return NextResponse.json({ success: true, chat: { id: snapshot.id, messages } });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de charger cette discussion.', 401);
   }
 }
 
@@ -10718,6 +10756,7 @@ const ROUTES = {
   'admin/notification-templates': { GET: handleAdminNotificationTemplates },
   'admin/users': { GET: handleAdminUsers },
   'admin/user-detail': { GET: handleAdminUserDetail },
+  'admin/user-chat': { GET: handleAdminUserChat },
   'admin/premium/change': { POST: handleAdminPremiumChange },
   'admin/questions': { GET: handleAdminPopularQuestions },
   'admin/withdrawals': { GET: handleAdminWithdrawals },
