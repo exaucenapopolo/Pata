@@ -1,9 +1,11 @@
 'use client';
 
+import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 
 export function PWAInstallButton() {
+  const pathname = usePathname() || '';
   const [promptEvent, setPromptEvent] = useState(null);
   const [ios, setIos] = useState(false);
   const [installed, setInstalled] = useState(false);
@@ -36,7 +38,7 @@ export function PWAInstallButton() {
     } catch { setHelp(true); }
   };
 
-  if (installed) return null;
+  if (installed || pathname === '/premium') return null;
   return (
     <>
       <button type="button" onClick={install} className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#0b5c46]/20 bg-white px-3.5 text-sm font-semibold text-[#0b5c46] transition hover:bg-[#f2f7f4]">
