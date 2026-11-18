@@ -1,10 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { doc, onSnapshot } from 'firebase/firestore';
 import { useAuth } from '@/hooks/useAuth';
-import { db } from '@/lib/firebase/client';
-import { ensureUserProfile, updateUserProfile } from '@/lib/firestore/profile';
+import { ensureUserProfile, subscribeUserProfile, updateUserProfile } from '@/lib/firestore/profile';
 import { setPreferredCurrency } from '@/lib/utils';
 
 export function useProfile() {
@@ -20,14 +18,21 @@ export function useProfile() {
 
     ensureUserProfile(user).then(() => {
       if (!active) return;
-      unsub = onSnapshot(doc(db, 'users', user.uid), (snap) => {
-        if (snap.exists()) {
-          const nextProfile = { id: snap.id, ...snap.data() };
+      unsub = subscribeUserProfile(user.uid, (nextProfile) => {
+        if (nextProfile) {
           setProfile(nextProfile);
           setPreferredCurrency(nextProfile.currency || 'XAF', nextProfile.currencyRates || null);
+        } else {
+          setProfile(null);
         }
         setLoading(false);
+      }, (error) => {
+        console.error('[PATA PROFILE LISTENER]', error);
+        setLoading(false);
       });
+    }).catch((error) => {
+      console.error('[PATA ENSURE PROFILE]', error);
+      if (active) setLoading(false);
     });
 
     return () => {
