@@ -258,7 +258,6 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
     const readTasks = [
       transaction.get(userRef),
       transaction.get(incomesQuery),
-      transaction.get(recentHistoryQuery),
       transaction.get(budgetQuery),
       transaction.get(budgetExpensesQuery),
     ];
@@ -267,7 +266,7 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
     if (repaymentDebtRef) readTasks.push(transaction.get(repaymentDebtRef));
     if (cashWalletRef) readTasks.push(transaction.get(cashWalletRef));
     const readResults = await Promise.all(readTasks);
-    const [userSnap, incomesSnap, recentHistorySnap, budgetsSnap, budgetExpensesSnap] = readResults;
+    const [userSnap, incomesSnap, budgetsSnap, budgetExpensesSnap] = readResults;
     let readIndex = 5;
     const idempotencySnap = idempotencyRef ? readResults[readIndex++] : null;
     const activeDebtsSnap = newDebtRef ? readResults[readIndex++] : null;
@@ -284,6 +283,14 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
     }
 
     const userData = userSnap.data();
+    const recurringScanTimestamp = toDate(userData.recurringExpensePatternsScannedAt);
+    const recurringScanDue = !recurringScanTimestamp
+      || Date.now() - recurringScanTimestamp.getTime() >= 7 * 24 * 60 * 60 * 1000;
+    let recentExpenses = [];
+    if (recurringScanDue && !cashWithdrawal && flowType === 'normal' && expenseType === 'consumption') {
+      const recentHistorySnap = await transaction.get(recentHistoryQuery);
+      recentExpenses = recentHistorySnap.docs.map((document) => document.data() || {});
+    }
     if (premiumOnly && !isPremium(userData)) throw new Error('Cette saisie rapide est réservée à Pata Premium. Ton abonnement doit être actif pour continuer.');
     const activeDebtCount = Number.isSafeInteger(Number(userData.activeDebtCount)) && userData.activeDebtCount !== null
       ? Number(userData.activeDebtCount) : (activeDebtsSnap?.size || 0);
@@ -586,8 +593,9 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
     // Apprend les paiements mensuels à partir de l'historique déjà chargé
     // dans cette transaction : aucune lecture Firestore supplémentaire.
     if (!cashWithdrawal && flowType === 'normal' && expenseType === 'consumption') {
-      const recentHistory = recentExpenses.map((expense) => ({ ...expense }));
-      recentHistory.push({
+      if (recurringScanDue) {
+        const recentHistory = recentExpenses.map((expense) => ({ ...expense }));
+        recentHistory.push({
         amount,
         categoryId,
         date,
@@ -598,17 +606,22 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
         flowType,
         neutralFlow: false,
       });
-      const patterns = buildRecurringExpensePatterns(recentHistory, { referenceDate: todayDouala() });
-      if (patterns.length) {
-        for (const pattern of patterns) {
-          transaction.set(userRef.collection('recurringExpenses').doc(pattern.id), {
-            ...pattern,
-            updatedAt: FieldValue.serverTimestamp(),
-          }, { merge: true });
+        const patterns = buildRecurringExpensePatterns(recentHistory, { referenceDate: todayDouala() });
+        if (patterns.length) {
+          for (const pattern of patterns) {
+            transaction.set(userRef.collection('recurringExpenses').doc(pattern.id), {
+              ...pattern,
+              updatedAt: FieldValue.serverTimestamp(),
+            }, { merge: true });
+          }
         }
         transaction.set(userRef, {
-          hasRecurringExpensePatterns: true,
-          recurringExpensePatternsUpdatedAt: FieldValue.serverTimestamp(),
+          recurringExpensePatternsScannedAt: FieldValue.serverTimestamp(),
+          recurringExpensePatternsScanVersion: 1,
+          ...(patterns.length ? {
+            hasRecurringExpensePatterns: true,
+            recurringExpensePatternsUpdatedAt: FieldValue.serverTimestamp(),
+          } : {}),
         }, { merge: true });
       }
     }
