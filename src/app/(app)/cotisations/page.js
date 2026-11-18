@@ -22,6 +22,11 @@ const statusLabels = {
   PENDING_REVIEW_USER: 'En attente de validation', REJECTED: 'Refusé', PENDING: 'En attente',
 };
 
+// Cache de navigation : les cartes et l'historique ne sont pas relus lorsque
+// l'utilisateur revient rapidement sur l'écran. Toute écriture API invalide ce cache.
+const cotisationPageCache = new Map();
+const COTISATION_PAGE_CACHE_TTL_MS = 30 * 1000;
+
 export default function CotisationsPage() {
   const { user } = useAuth();
   const [groups, setGroups] = useState([]);
@@ -113,6 +118,7 @@ export default function CotisationsPage() {
       ...(payload ? { body: JSON.stringify(payload) } : {}),
     });
     const data = await response.json().catch(() => ({}));
+    if (method !== 'GET') cotisationPageCache.delete(user.uid);
     if (!response.ok || data.success === false) {
       const requestError = new Error(data.error || 'Une erreur est survenue.');
       requestError.status = response.status;
@@ -122,8 +128,16 @@ export default function CotisationsPage() {
     return data;
   }, [user]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     if (!user) return;
+    const cached = cotisationPageCache.get(user.uid);
+    if (!force && cached && Date.now() - cached.fetchedAt < COTISATION_PAGE_CACHE_TTL_MS) {
+      setGroups(cached.groups);
+      setPinnedGroups(cached.groups.filter((group) => group.isPinned).map((group) => group.id));
+      setHistory(cached.history);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const [groupsResult, historyResult] = await Promise.all([
@@ -144,9 +158,15 @@ export default function CotisationsPage() {
         }
       }
 
+      const nextHistory = (historyResult.withdrawals || []).filter((item) => item.withdrawalType === 'cotisation');
       setGroups(nextGroups);
       setPinnedGroups(nextGroups.filter((group) => group.isPinned).map((group) => group.id));
-      setHistory((historyResult.withdrawals || []).filter((item) => item.withdrawalType === 'cotisation'));
+      setHistory(nextHistory);
+      cotisationPageCache.set(user.uid, {
+        fetchedAt: Date.now(),
+        groups: nextGroups,
+        history: nextHistory,
+      });
     } catch (err) {
       setError(err.message || 'Impossible de charger les cotisations.');
     } finally {
@@ -876,7 +896,7 @@ export default function CotisationsPage() {
       </Modal>
 
       <section className="space-y-4">
-        <div className="flex items-center justify-between gap-3"><h2 className="text-lg font-bold text-slate-900">Mes groupes</h2><button type="button" onClick={load} className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-700"><RefreshCw size={13}/> Actualiser</button></div>
+        <div className="flex items-center justify-between gap-3"><h2 className="text-lg font-bold text-slate-900">Mes groupes</h2><button type="button" onClick={() => load(true)} className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-700"><RefreshCw size={13}/> Actualiser</button></div>
         {loading ? <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500">Chargement des groupes…</div>
           : groups.length === 0 ? <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-5 py-10 text-center"><Users size={28} className="mx-auto text-slate-400"/><h3 className="mt-3 text-sm font-bold text-slate-900">Aucun groupe pour le moment</h3><p className="mx-auto mt-1 max-w-md text-xs leading-5 text-slate-500">Crée ton premier groupe ou rejoins celui d’un proche à partir de son lien d’invitation.</p></div>
           : orderedGroups.map((group) => {
