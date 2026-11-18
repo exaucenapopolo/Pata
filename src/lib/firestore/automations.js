@@ -2,7 +2,6 @@
 import { collection, addDoc, deleteDoc, doc, query, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase/client';
 import { subscribeSharedSnapshot } from './sharedSubscription';
-import { subscribeSharedSnapshot } from './sharedSubscription';
 
 const col = (uid) => collection(db, 'users', uid, 'automations');
 
