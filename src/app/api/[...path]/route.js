@@ -5412,6 +5412,8 @@ async function handleAIChat(request) {
     }
     const latestUserText = history[history.length - 1].content;
     const notificationMode = body.notificationMode === true;
+    const normalizedLatestText = latestUserText.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const needsCotisationRoster = /\b(membre|membres|participant|participants|liste|qui a paye|qui a verse|versement|paiement|beneficiaire|tour|ordre|retard)\b/.test(normalizedLatestText);
     const notificationConversationId = notificationMode
       ? String(body.notificationConversationId || body.clientRequestId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 100)
       : '';
@@ -5547,52 +5549,98 @@ async function handleAIChat(request) {
       cotisationData = (await Promise.all(cotisationMembershipsSnap.docs.map(async (membershipDoc) => {
         const membership = membershipDoc.data() || {};
         const groupRef = adminDb.collection('cotisationGroups').doc(String(membership.groupId || membershipDoc.id));
-        const [groupSnap, membersSnap] = await Promise.all([
-          groupRef.get(),
-          groupRef.collection('members').limit(50).get(),
-        ]);
+        const groupSnap = await groupRef.get();
         if (!groupSnap.exists) return null;
         const group = groupSnap.data() || {};
-        let members = membersSnap.docs
-          .map((memberDoc) => ({ uid: memberDoc.id, ...memberDoc.data() }))
-          .filter((member) => member.active !== false);
-        const hasAssignedOrder = Boolean(group.orderConfirmedAt) && members.length > 0
-          && members.every((member) => Number.isInteger(Number(member.turnOrder)) && Number(member.turnOrder) >= 1);
-        members.sort((a, b) => hasAssignedOrder
-          ? Number(a.turnOrder) - Number(b.turnOrder)
-          : String(a.displayName || '').localeCompare(String(b.displayName || ''), 'fr'));
         const meta = await resolveCurrentCotisationCycleMeta(groupRef, group);
+        const memberCount = Math.max(0, Math.floor(Number(group.memberCount) || 0));
+        const expectedMembers = cotisationExpectedMembers(group, memberCount);
         const cycleRef = groupRef.collection('cycles').doc(meta.cycleKey);
-        const [cycleSnap, contributionsSnap] = await Promise.all([
-          cycleRef.get(),
-          cycleRef.collection('contributions').limit(50).get(),
-        ]);
-        const contributionMap = new Map(contributionsSnap.docs.map((doc) => [doc.id, doc.data()]));
-        const myMember = members.find((member) => member.uid === uid);
-        const mine = contributionMap.get(uid) || {};
+        let members = [];
+        let memberContributions = [];
+        let myMember = null;
+        let mine = {};
+        let cycleSnap = null;
+        let turnMember = null;
+
+        if (needsCotisationRoster) {
+          // Lecture détaillée réservée aux questions sur les participants et leurs paiements.
+          const [membersSnap, cycleSnapshot, contributionsSnap] = await Promise.all([
+            groupRef.collection('members').limit(50).get(),
+            cycleRef.get(),
+            cycleRef.collection('contributions').limit(50).get(),
+          ]);
+          members = membersSnap.docs
+            .map((memberDoc) => ({ uid: memberDoc.id, ...memberDoc.data() }))
+            .filter((member) => member.active !== false);
+          const hasAssignedOrder = Boolean(group.orderConfirmedAt) && members.length > 0
+            && members.every((member) => Number.isInteger(Number(member.turnOrder)) && Number(member.turnOrder) >= 1);
+          members.sort((a, b) => hasAssignedOrder
+            ? Number(a.turnOrder) - Number(b.turnOrder)
+            : String(a.displayName || '').localeCompare(String(b.displayName || ''), 'fr'));
+          const contributionMap = new Map(contributionsSnap.docs.map((doc) => [doc.id, doc.data()]));
+          myMember = members.find((member) => member.uid === uid) || null;
+          mine = contributionMap.get(uid) || {};
+          turnMember = group.startedAt && members.length ? members[meta.cycleIndex % members.length] : null;
+          memberContributions = members.map((member) => {
+            const value = contributionMap.get(member.uid) || {};
+            const principal = cotisationMoney(value.amount);
+            const penalty = cotisationMoney(value.penaltyPaid);
+            return {
+              position: Number(member.turnOrder) || null,
+              displayName: String(member.displayName || 'Membre'),
+              principalPaid: principal,
+              penaltyPaid: penalty,
+              remainingPrincipal: Math.max(0, cotisationMoney(group.contributionAmount) - principal),
+            };
+          });
+          cycleSnap = cycleSnapshot;
+        } else {
+          // Par défaut, on ne lit que le profil du membre courant, son versement
+          // et les quelques fiches nécessaires pour identifier le bénéficiaire.
+          const [myMemberSnap, cycleSnapshot, myContributionSnap] = await Promise.all([
+            groupRef.collection('members').doc(uid).get(),
+            cycleRef.get(),
+            cycleRef.collection('contributions').doc(uid).get(),
+          ]);
+          myMember = myMemberSnap.exists ? { uid, ...myMemberSnap.data() } : null;
+          mine = myContributionSnap.data() || {};
+          cycleSnap = cycleSnapshot;
+          if (group.startedAt && memberCount > 0) {
+            const currentPosition = (meta.cycleIndex % memberCount) + 1;
+            const nextPosition = ((meta.cycleIndex + 1) % memberCount) + 1;
+            const positions = [...new Set([currentPosition, nextPosition])];
+            const turnMembersSnap = await groupRef.collection('members')
+              .where('turnOrder', 'in', positions)
+              .get();
+            const membersByPosition = new Map(turnMembersSnap.docs.map((document) => {
+              const member = { uid: document.id, ...document.data() };
+              return [Number(member.turnOrder), member];
+            }));
+            turnMember = membersByPosition.get(currentPosition) || null;
+          }
+          if (myMember) {
+            const principal = cotisationMoney(mine.amount);
+            const penalty = cotisationMoney(mine.penaltyPaid);
+            memberContributions = [{
+              position: Number(myMember.turnOrder) || null,
+              displayName: String(myMember.displayName || 'Moi'),
+              principalPaid: principal,
+              penaltyPaid: penalty,
+              remainingPrincipal: Math.max(0, cotisationMoney(group.contributionAmount) - principal),
+            }];
+          }
+        }
+
         const myPaid = cotisationMoney(mine.amount);
         const myPenaltyPaid = cotisationMoney(mine.penaltyPaid);
         const currentUserPenaltyDue = cotisationIsLate(group, meta)
           && myPaid < cotisationMoney(group.contributionAmount) && !myPenaltyPaid
           ? cotisationLateFee(group) : 0;
-        const turnMember = group.startedAt && members.length ? members[meta.cycleIndex % members.length] : null;
-      const nextTurnMember = group.startedAt && members.length > 1 ? members[(meta.cycleIndex + 1) % members.length] : null;
-        const memberContributions = members.map((member) => {
-          const value = contributionMap.get(member.uid) || {};
-          const principal = cotisationMoney(value.amount);
-          const penalty = cotisationMoney(value.penaltyPaid);
-          return {
-            position: Number(member.turnOrder) || null,
-            displayName: String(member.displayName || 'Membre'),
-            principalPaid: principal,
-            penaltyPaid: penalty,
-            remainingPrincipal: Math.max(0, cotisationMoney(group.contributionAmount) - principal),
-          };
-        });
-        const expectedMembers = cotisationExpectedMembers(group, members.length);
-        const baseTarget = cotisationMoney(cycleSnap.data()?.baseTargetAmount) || cotisationMoney(group.contributionAmount) * expectedMembers;
-        const totalCollected = cotisationMoney(cycleSnap.data()?.totalCollected);
-        const targetAmount = cotisationMoney(cycleSnap.data()?.targetAmount) || baseTarget;
+        const baseTarget = cotisationMoney(cycleSnap?.data()?.baseTargetAmount)
+          || cotisationMoney(group.contributionAmount) * expectedMembers;
+        const totalCollected = cotisationMoney(cycleSnap?.data()?.totalCollected);
+        const targetAmount = cotisationMoney(cycleSnap?.data()?.targetAmount) || baseTarget;
         return {
           id: groupRef.id,
           name: group.name || membership.name || 'Cotisation',
@@ -5601,7 +5649,7 @@ async function handleAIChat(request) {
           frequency: cotisationFrequencyLabel(group.frequency),
           contributionAmount: cotisationMoney(group.contributionAmount),
           expectedMembers,
-          memberCount: members.length,
+          memberCount,
           dueAt: meta.dueAt,
           graceDays: cotisationMoney(group.graceDays),
           lateFeeLabel: cotisationPenaltyLabel(group),
@@ -5615,7 +5663,7 @@ async function handleAIChat(request) {
           basePot: baseTarget,
           totalCollected,
           remainingToCollect: Math.max(0, targetAmount - totalCollected),
-          cycleStatus: cycleSnap.data()?.status || (!group.startedAt ? 'NOT_STARTED' : 'OPEN'),
+          cycleStatus: cycleSnap?.data()?.status || (!group.startedAt ? 'NOT_STARTED' : 'OPEN'),
           members: memberContributions,
         };
       }))).filter(Boolean);
