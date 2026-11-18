@@ -997,6 +997,7 @@ export async function runAutomationForUser(uid, now = new Date()) {
       const incomes = incomesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       let incomeSpentTotals = normalizeIncomeSpentTotals(userData.incomeSpentTotals);
       const needsSpendMigration = userData.incomeSpentTotalsVersion !== 1;
+      let spendSummaryPersisted = !needsSpendMigration;
       if (needsSpendMigration) {
         const legacyExpensesSnap = await transaction.get(expensesRef);
         incomeSpentTotals = calculateIncomeSpentTotals(legacyExpensesSnap.docs.map((document) => document.data() || {}));
@@ -1101,6 +1102,7 @@ export async function runAutomationForUser(uid, now = new Date()) {
             lifetimeExpenseCount: FieldValue.increment(1),
             ...(!isPremium(userData) ? { monthlyStats } : {}),
           }, { merge: true });
+          spendSummaryPersisted = true;
         }
         }
       }
@@ -1116,7 +1118,7 @@ export async function runAutomationForUser(uid, now = new Date()) {
         updatedAt: FieldValue.serverTimestamp(),
       };
       transaction.update(autoRef, update);
-      if (needsSpendMigration && status !== 'EXECUTED') {
+      if (needsSpendMigration && !spendSummaryPersisted) {
         transaction.set(userRef, {
           incomeSpentTotals,
           incomeSpentTotalsVersion: 1,
