@@ -706,10 +706,13 @@ export async function updateExpenseForUser(uid, expenseId, input) {
     const selectedMonthStart = String(date).slice(0, 7) + '-01';
     const [selectedYear, selectedMonthNumber] = String(date).slice(0, 7).split('-').map(Number);
     const selectedMonthEnd = new Date(Date.UTC(selectedYear, selectedMonthNumber, 0)).toISOString().slice(0, 10);
-    const [budgetSnap, budgetExpensesSnap] = await Promise.all([
-      transaction.get(subcol(uid, 'budgets').where('month', '==', String(date).slice(0, 7))),
-      transaction.get(expensesRef.where('date', '>=', selectedMonthStart).where('date', '<=', selectedMonthEnd)),
-    ]);
+    const needsBudgetCheck = expenseType === 'consumption';
+    const [budgetSnap, budgetExpensesSnap] = needsBudgetCheck
+      ? await Promise.all([
+        transaction.get(subcol(uid, 'budgets').where('month', '==', String(date).slice(0, 7))),
+        transaction.get(expensesRef.where('date', '>=', selectedMonthStart).where('date', '<=', selectedMonthEnd)),
+      ])
+      : [{ docs: [] }, { docs: [] }];
     const requestedSourceId = input.incomeSourceId === undefined
       ? (previousData.incomeSourceId || 'all') : input.incomeSourceId;
     const requestedSourceName = input.incomeSourceName === undefined
