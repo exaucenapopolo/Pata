@@ -550,6 +550,26 @@ async function handleDebtRequestRespond(request) {
         if (decision === 'reject') {
           transaction.update(requestRef, { status: 'rejected', rejectedAt: FieldValue.serverTimestamp() });
           expenseRefs.forEach((expenseRef) => transaction.delete(expenseRef));
+
+          // Les dépenses en attente ont déjà réduit les soldes disponibles.
+          // Si le remboursement est refusé et supprimé, rétablis ces montants
+          // dans le résumé du profil du demandeur.
+          const requesterData = requesterSnap.data() || {};
+          if (requesterData.incomeSpentTotalsVersion === 1) {
+            const totals = { ...(requesterData.incomeSpentTotals || {}) };
+            expenseRows.forEach((expense) => {
+              const incomeId = String(expense.incomeSourceId || '');
+              const amount = Math.max(0, Number(expense.amount) || 0);
+              if (incomeId && incomeId !== 'external' && !incomeId.includes('/')) {
+                totals[incomeId] = Math.max(0, (Number(totals[incomeId]) || 0) - amount);
+              }
+            });
+            transaction.set(requesterRef, {
+              incomeSpentTotals: totals,
+              incomeSpentTotalsVersion: 1,
+              incomeSpentTotalsUpdatedAt: FieldValue.serverTimestamp(),
+            }, { merge: true });
+          }
           return {
             requestType: 'repayment',
             status: 'rejected',
