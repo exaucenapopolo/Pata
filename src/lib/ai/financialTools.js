@@ -229,6 +229,13 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
   const expensesQuery = subcol(uid, 'expenses');
   const now = new Date();
   const currentMonth = monthKey(now);
+  const todayKey = todayDouala();
+  const historyStart = new Date(`${todayKey}T12:00:00.000Z`);
+  historyStart.setUTCDate(historyStart.getUTCDate() - 150);
+  const recentHistoryStart = historyStart.toISOString().slice(0, 10);
+  const selectedMonthStart = String(date).slice(0, 7) + '-01';
+  const [selectedYear, selectedMonthNumber] = String(date).slice(0, 7).split('-').map(Number);
+  const selectedMonthEnd = new Date(Date.UTC(selectedYear, selectedMonthNumber, 0)).toISOString().slice(0, 10);
   const expenseCollection = subcol(uid, 'expenses');
   const newDebtRef = flowType === 'loan_given' ? subcol(uid, 'debts').doc() : null;
   const repaymentDebtRef = flowType === 'repayment' ? subcol(uid, 'debts').doc(repaymentDebtId) : null;
@@ -240,14 +247,28 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
 
   return adminDb.runTransaction(async (transaction) => {
     const budgetQuery = subcol(uid, 'budgets').where('month', '==', String(date).slice(0, 7));
-    const readTasks = [transaction.get(userRef), transaction.get(incomesQuery), transaction.get(expensesQuery), transaction.get(budgetQuery)];
+    const recentHistoryQuery = expensesQuery
+      .where('date', '>=', recentHistoryStart)
+      .where('date', '<=', todayKey)
+      .orderBy('date', 'desc')
+      .limit(500);
+    const budgetExpensesQuery = expensesQuery
+      .where('date', '>=', selectedMonthStart)
+      .where('date', '<=', selectedMonthEnd);
+    const readTasks = [
+      transaction.get(userRef),
+      transaction.get(incomesQuery),
+      transaction.get(recentHistoryQuery),
+      transaction.get(budgetQuery),
+      transaction.get(budgetExpensesQuery),
+    ];
     if (idempotencyRef) readTasks.push(transaction.get(idempotencyRef));
     if (newDebtRef) readTasks.push(transaction.get(subcol(uid, 'debts').where('status', 'in', ['active', 'partial', 'late'])));
     if (repaymentDebtRef) readTasks.push(transaction.get(repaymentDebtRef));
     if (cashWalletRef) readTasks.push(transaction.get(cashWalletRef));
     const readResults = await Promise.all(readTasks);
-    const [userSnap, incomesSnap, expensesSnap, budgetsSnap] = readResults;
-    let readIndex = 4;
+    const [userSnap, incomesSnap, recentHistorySnap, budgetsSnap, budgetExpensesSnap] = readResults;
+    let readIndex = 5;
     const idempotencySnap = idempotencyRef ? readResults[readIndex++] : null;
     const activeDebtsSnap = newDebtRef ? readResults[readIndex++] : null;
     const repaymentDebtSnap = repaymentDebtRef ? readResults[readIndex++] : null;
@@ -287,8 +308,16 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
     }
 
     const incomes = incomesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-    const expenses = expensesSnap.docs.map((doc) => doc.data());
-    const balances = buildIncomeBalances(incomes, expenses);
+    let incomeSpentTotals = normalizeIncomeSpentTotals(userData.incomeSpentTotals);
+    if (userData.incomeSpentTotalsVersion !== 1) {
+      // Ancien compte : une seule migration lit l'historique complet. Les écritures
+      // suivantes utilisent le résumé du profil et n'ouvrent plus cette collection.
+      const legacyExpensesSnap = await transaction.get(expensesQuery);
+      incomeSpentTotals = calculateIncomeSpentTotals(legacyExpensesSnap.docs.map((document) => document.data() || {}));
+    }
+    const balances = buildIncomeBalancesFromTotals(incomes, incomeSpentTotals);
+    const recentExpenses = recentHistorySnap.docs.map((document) => document.data() || {});
+    const budgetExpenses = budgetExpensesSnap.docs.map((document) => document.data() || {});
     const selectedSource = externalFunding
       ? { id: 'external', source: cleanText(input.externalFundingLabel, 80) || 'Solde Mobile Money' }
       : sourceOverride || resolveSource(incomes, input.incomeSourceId, input.incomeSourceName);
@@ -428,9 +457,8 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
         ? amount
         : (plannedBySource.get(sourceId) || 0);
       if (planned <= 0) continue;
-      const spentBefore = expenses
+      const spentBefore = budgetExpenses
         .filter((expense) => !expense.neutralFlow && getExpenseTypeForBudget(expense) === 'consumption'
-          && String(expense.date || '').slice(0, 7) === String(date).slice(0, 7)
           && expense.categoryId === categoryId
           && (sourceId === 'all' || expense.incomeSourceId === sourceId))
         .reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0);
@@ -533,10 +561,7 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
     // Apprend les paiements mensuels à partir de l'historique déjà chargé
     // dans cette transaction : aucune lecture Firestore supplémentaire.
     if (!cashWithdrawal && flowType === 'normal' && expenseType === 'consumption') {
-      const recentHistory = expensesSnap.docs.map((document) => ({
-        id: document.id,
-        ...(document.data() || {}),
-      }));
+      const recentHistory = recentExpenses.map((expense) => ({ ...expense }));
       recentHistory.push({
         amount,
         categoryId,
