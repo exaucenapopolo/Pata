@@ -265,6 +265,7 @@ export default function AdminPage() {
   const [targetFeedback, setTargetFeedback] = useState(''); const [cotisationGroups, setCotisationGroups] = useState([]);
   const [cotisationCursor, setCotisationCursor] = useState(null); const [cotisationStatus, setCotisationStatus] = useState('all'); const [cotisationFeedback, setCotisationFeedback] = useState('');
   const [selectedUser, setSelectedUser] = useState(null); const [userDetail, setUserDetail] = useState(null); const [search, setSearch] = useState(''); const [templateChoice, setTemplateChoice] = useState('');
+  const [selectedAdminChat, setSelectedAdminChat] = useState(null); const [adminChatLoadingId, setAdminChatLoadingId] = useState('');
   const [adminNotificationSlot, setAdminNotificationSlot] = useState('evening1'); const [notificationSendingId, setNotificationSendingId] = useState(''); const [notificationSendResult, setNotificationSendResult] = useState('');
   const [premiumDialog, setPremiumDialog] = useState(''); const [premiumMonths, setPremiumMonths] = useState(1); const [premiumCountAsRevenue, setPremiumCountAsRevenue] = useState(false); const [premiumAmount, setPremiumAmount] = useState('2500'); const [premiumRecordRefund, setPremiumRecordRefund] = useState(false); const [premiumRefundAmount, setPremiumRefundAmount] = useState(''); const [premiumReason, setPremiumReason] = useState(''); const [premiumFeedback, setPremiumFeedback] = useState('');
   const [emailStatus, setEmailStatus] = useState(null); const [emailStatusLoading, setEmailStatusLoading] = useState(false); const [emailTestLoading, setEmailTestLoading] = useState(false); const [emailTestResult, setEmailTestResult] = useState('');
@@ -445,7 +446,24 @@ export default function AdminPage() {
     finally { setBusy(false); }
   };
 
-  const openUser = async (entry) => { setSelectedUser(entry); setUserDetail(null); setTemplateChoice(templates[0].label); setEmailSubject(getTemplateField(templates[0], 'subject', language)); setEmailMessage(getTemplateField(templates[0], 'body', language)); setEmailCustomized(false); setEmailTemplateKey('welcome'); setEmailResult(''); setNotificationSendResult(''); setAdminNotificationSlot('evening1'); try { setUserDetail(await api(`admin/user-detail?uid=${encodeURIComponent(entry.id)}`)); } catch (err) { setError(err.message); } };
+  const openUser = async (entry) => { setSelectedUser(entry); setUserDetail(null); setSelectedAdminChat(null); setAdminChatLoadingId(''); setTemplateChoice(templates[0].label); setEmailSubject(getTemplateField(templates[0], 'subject', language)); setEmailMessage(getTemplateField(templates[0], 'body', language)); setEmailCustomized(false); setEmailTemplateKey('welcome'); setEmailResult(''); setNotificationSendResult(''); setAdminNotificationSlot('evening1'); try { setUserDetail(await api(`admin/user-detail?uid=${encodeURIComponent(entry.id)}`)); } catch (err) { setError(err.message); } };
+  const loadAdminUserChat = async (chat) => {
+    if (selectedAdminChat?.id === chat.id) {
+      setSelectedAdminChat(null);
+      return;
+    }
+    if (!selectedUser?.id) return;
+    setAdminChatLoadingId(chat.id);
+    setError('');
+    try {
+      const result = await api(`admin/user-chat?uid=${encodeURIComponent(selectedUser.id)}&chatId=${encodeURIComponent(chat.id)}`);
+      setSelectedAdminChat({ id: chat.id, messages: result.chat?.messages || [] });
+    } catch (err) {
+      setError(err.message || 'Impossible de charger cette discussion.');
+    } finally {
+      setAdminChatLoadingId('');
+    }
+  };
   const openPremiumDialog = (action) => {
     setPremiumDialog(action);
     setPremiumMonths(1);
@@ -733,9 +751,18 @@ export default function AdminPage() {
         </div>
         <div className="mt-5 grid gap-4 xl:grid-cols-3">
           <div className="rounded-xl bg-white p-3"><h4 className="mb-3 text-sm font-semibold">Discussions avec Mč</h4><div className="max-h-[34rem] space-y-3 overflow-y-auto">
-            {(userDetail.chats || []).map((chat) => <div key={chat.id} className="rounded-lg border border-slate-100 p-3"><p className="mb-2 text-[10px] text-slate-400">{dateLabel(chat.updatedAt || chat.createdAt)} · {(chat.messages || []).length} messages</p>
-              {(Array.isArray(chat.messages) ? chat.messages : []).slice(-20).map((message,index)=><p key={index} className={`mb-2 whitespace-pre-wrap rounded-lg p-2 text-xs leading-5 ${message.role==='assistant'?'bg-slate-100 text-slate-700':'bg-blue-50 text-slate-800'}`}><strong>{message.role==='assistant'?'Mč':'Utilisateur'} : </strong>{String(message.content||message.text||'').slice(0,1800)}</p>)}
-              {!chat.messages?.length && <p className="text-xs text-slate-400">Aucun message détaillé conservé.</p>}</div>)}
+            {(userDetail.chats || []).map((chat) => <div key={chat.id} className="rounded-lg border border-slate-100 p-3">
+              <p className="text-xs font-semibold text-slate-800">{chat.title || 'Discussion sans titre'}</p>
+              <p className="my-1 text-[10px] text-slate-400">{dateLabel(chat.updatedAt || chat.createdAt)} · {Number(chat.messageCount) || 0} messages</p>
+              {chat.lastMessagePreview && <p className="mb-2 line-clamp-2 text-[11px] text-slate-500">{chat.lastMessagePreview}</p>}
+              <button type="button" onClick={() => loadAdminUserChat(chat)} disabled={adminChatLoadingId === chat.id} className="text-[11px] font-semibold text-brand-700 hover:underline">
+                {adminChatLoadingId === chat.id ? 'Chargement…' : selectedAdminChat?.id === chat.id ? 'Masquer les messages' : 'Afficher les messages'}
+              </button>
+              {selectedAdminChat?.id === chat.id && <div className="mt-3 max-h-72 space-y-2 overflow-y-auto border-t border-slate-100 pt-3">
+                {selectedAdminChat.messages.map((message,index)=><p key={index} className={`whitespace-pre-wrap rounded-lg p-2 text-xs leading-5 ${message.role==='assistant'?'bg-slate-100 text-slate-700':'bg-blue-50 text-slate-800'}`}><strong>{message.role==='assistant'?'Mč':'Utilisateur'} : </strong>{String(message.content||message.text||'').slice(0,1800)}</p>)}
+                {!selectedAdminChat.messages.length && <p className="text-xs text-slate-400">Aucun message détaillé conservé.</p>}
+              </div>}
+            </div>)}
             {!userDetail.chats?.length && <p className="text-xs text-slate-400">Aucune conversation conservée pour ce compte.</p>}
           </div></div>
           <div className="rounded-xl bg-white p-3"><h4 className="mb-3 text-sm font-semibold">Épargnes et objectifs</h4><div className="mb-3 space-y-1 text-xs text-slate-500"><p>Argent protégé : <strong className="text-slate-900">{userDetail.savingsSummaryAvailable===false?'Vérification impossible':money(userDetail.totalSavingsInGoals)}</strong></p><p>Épargne personnelle : <strong className="text-slate-900">{money(userDetail.cashSavingsInGoals)}</strong></p><p>Emprunts présents : <strong className="text-slate-900">{money(userDetail.borrowedSavingsInGoals)}</strong></p></div><div className="max-h-[34rem] space-y-3 overflow-y-auto">
