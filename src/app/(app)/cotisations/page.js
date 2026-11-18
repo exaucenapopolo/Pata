@@ -36,6 +36,9 @@ export default function CotisationsPage() {
   const [editingGroupId, setEditingGroupId] = useState('');
   const [pinnedGroups, setPinnedGroups] = useState([]);
   const [expandedGroups, setExpandedGroups] = useState({});
+  const [detailsLoadingGroupId, setDetailsLoadingGroupId] = useState('');
+  const expandedGroupIdRef = useRef('');
+  const detailsRequestsRef = useRef(new Set());
   const [photoEditingGroup, setPhotoEditingGroup] = useState(null);
   const [groupPhotoDraft, setGroupPhotoDraft] = useState('');
   const [chatGroup, setChatGroup] = useState(null);
@@ -127,8 +130,22 @@ export default function CotisationsPage() {
         api('cotisations/list'),
         api('withdrawals/list'),
       ]);
-      setGroups(groupsResult.groups || []);
-      setPinnedGroups((groupsResult.groups || []).filter((group) => group.isPinned).map((group) => group.id));
+      let nextGroups = Array.isArray(groupsResult.groups) ? groupsResult.groups : [];
+
+      // Si un groupe est ouvert, actualise ses détails uniquement à lui.
+      const activeDetailGroupId = expandedGroupIdRef.current;
+      if (activeDetailGroupId && nextGroups.some((group) => group.id === activeDetailGroupId)) {
+        const detailResult = await api('cotisations/details?groupId=' + encodeURIComponent(activeDetailGroupId));
+        const detail = (detailResult.groups || [])[0];
+        if (detail) {
+          nextGroups = nextGroups.map((group) => group.id === activeDetailGroupId
+            ? { ...group, ...detail, detailsLoaded: true }
+            : group);
+        }
+      }
+
+      setGroups(nextGroups);
+      setPinnedGroups(nextGroups.filter((group) => group.isPinned).map((group) => group.id));
       setHistory((historyResult.withdrawals || []).filter((item) => item.withdrawalType === 'cotisation'));
     } catch (err) {
       setError(err.message || 'Impossible de charger les cotisations.');
@@ -137,15 +154,44 @@ export default function CotisationsPage() {
     }
   }, [api, user]);
 
+  const openGroupDetails = useCallback(async (group) => {
+    if (!group?.id) return;
+    expandedGroupIdRef.current = group.id;
+    if (group.detailsLoaded) {
+      setExpandedGroups((current) => ({ ...current, [group.id]: true }));
+      return;
+    }
+    if (detailsRequestsRef.current.has(group.id)) return;
+
+    detailsRequestsRef.current.add(group.id);
+    setDetailsLoadingGroupId(group.id);
+    setError('');
+    try {
+      const result = await api('cotisations/details?groupId=' + encodeURIComponent(group.id));
+      const details = (result.groups || [])[0];
+      if (!details) throw new Error('Impossible de charger les détails de ce groupe.');
+      setGroups((current) => current.map((item) => item.id === group.id
+        ? { ...item, ...details, detailsLoaded: true }
+        : item));
+      setExpandedGroups((current) => ({ ...current, [group.id]: true }));
+    } catch (detailError) {
+      expandedGroupIdRef.current = '';
+      setError(detailError.message || 'Impossible de charger les détails de ce groupe.');
+    } finally {
+      detailsRequestsRef.current.delete(group.id);
+      setDetailsLoadingGroupId('');
+    }
+  }, [api]);
+
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     if (typeof window === 'undefined' || !groups.length) return;
     const groupId = new URLSearchParams(window.location.search).get('group');
     if (!groupId || !groups.some((group) => group.id === groupId)) return;
-    setExpandedGroups((current) => ({ ...current, [groupId]: true }));
+    const targetGroup = groups.find((item) => item.id === groupId);
+    if (targetGroup) void openGroupDetails(targetGroup);
     document.getElementById('cotisation-' + groupId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     if (new URLSearchParams(window.location.search).get('chat') === '1') {
-      const targetGroup = groups.find((item) => item.id === groupId);
       if (targetGroup) {
         setChatGroup(targetGroup);
         setChatMessages([]);
@@ -165,7 +211,7 @@ export default function CotisationsPage() {
       params.delete('chat');
       window.history.replaceState(null, '', window.location.pathname + (params.toString() ? '?' + params.toString() : ''));
     }
-  }, [groups]);
+  }, [groups, openGroupDetails]);
   const orderedGroups = useMemo(() => [...groups].sort((x,y)=>{const xp=pinnedGroups.includes(x.id)?1:0,yp=pinnedGroups.includes(y.id)?1:0;if(xp!==yp)return yp-xp;return (Date.parse(y.createdAt||0)||0)-(Date.parse(x.createdAt||0)||0);}),[groups,pinnedGroups]);
   const togglePinned = async (group) => {
     const pinned = !pinnedGroups.includes(group.id);
@@ -844,7 +890,7 @@ export default function CotisationsPage() {
                   {group.imageURL ? <img src={group.imageURL} alt={'Photo de ' + group.name} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.02]" referrerPolicy="no-referrer"/> : <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 text-5xl font-bold text-slate-400">{(group.name || 'G').slice(0, 1).toUpperCase()}</div>}
                   <span className="absolute bottom-3 right-3 rounded-full bg-slate-950/55 px-3 py-1.5 text-[10px] font-semibold text-white">{group.isOwner ? 'Appuyer pour afficher ou changer la photo' : 'Afficher la photo'}</span>
                 </button>
-                <button type="button" onClick={() => setExpandedGroups((current) => ({ ...current, [group.id]: true }))} className="block w-full p-4 text-left transition hover:bg-slate-50 sm:p-5">
+                <button type="button" onClick={() => openGroupDetails(group)} disabled={detailsLoadingGroupId === group.id} className="block w-full p-4 text-left transition hover:bg-slate-50 sm:p-5 disabled:opacity-70">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2"><h3 className="text-lg font-bold tracking-tight text-slate-950">{group.name}</h3>{group.isOwner && <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-800"><Crown size={11}/> Chef de la cotisation</span>}{group.startedAt && <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-semibold text-blue-700">En cours</span>}</div>
@@ -880,7 +926,10 @@ export default function CotisationsPage() {
                   <p className="mt-1 text-[11px] text-slate-500">Reste à réunir : {currency(cycle.remainingTotal)} · Échéance : {cycle.dueAt}</p>
                 </div>
               </div>
-              {expandedGroups[group.id] && <Modal open onClose={() => setExpandedGroups((old) => ({ ...old, [group.id]: false }))} title={group.name + ' — Détails'} className="h-full max-h-full max-w-none rounded-t-3xl sm:h-auto sm:max-h-[90dvh] sm:max-w-4xl sm:rounded-3xl">
+              {expandedGroups[group.id] && <Modal open onClose={() => {
+                expandedGroupIdRef.current = '';
+                setExpandedGroups((old) => ({ ...old, [group.id]: false }));
+              }} title={group.name + ' — Détails'} className="h-full max-h-full max-w-none rounded-t-3xl sm:h-auto sm:max-h-[90dvh] sm:max-w-4xl sm:rounded-3xl">
               <div className="space-y-3">
                 {group.description && <div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Description du groupe</p><p className="mt-1 whitespace-pre-wrap text-sm leading-5 text-slate-700">{group.description}</p></div>}
                 <div className="grid min-w-0 gap-4 overflow-x-hidden p-0.5 sm:p-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)]">
