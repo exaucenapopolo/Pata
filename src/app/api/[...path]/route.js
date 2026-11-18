@@ -7094,7 +7094,9 @@ async function handleAdminPopularQuestions(request) {
     const url = new URL(request.url);
     const limit = Math.max(5, Math.min(30, Number(url.searchParams.get('limit')) || 20));
     const cursor = String(url.searchParams.get('cursor') || '').slice(0, 500);
-    let query = adminDb.collectionGroup('ai_chats').orderBy('updatedAt', 'desc');
+    let query = adminDb.collectionGroup('ai_chats')
+      .select('title', 'source', 'pinned', 'createdAt', 'updatedAt', 'messageCount', 'lastMessagePreview')
+      .orderBy('updatedAt', 'desc');
     if (cursor) {
       let cursorPath = '';
       try { cursorPath = Buffer.from(cursor, 'base64url').toString('utf8'); } catch { /* invalid cursor */ }
@@ -7114,19 +7116,14 @@ async function handleAdminPopularQuestions(request) {
         const userSnap = userRef ? await userRef.get().catch(() => null) : null;
         const userData = userSnap?.exists ? userSnap.data() : {};
         const chatData = chatDoc.data() || {};
-        const messages = Array.isArray(chatData.messages) ? chatData.messages : [];
         return {
           id: chatDoc.id, userId: userRef?.id || '',
           user: { displayName: userData.displayName || 'Utilisateur', email: userData.email || '', phone: userData.phone || '' },
           title: String(chatData.title || 'Discussion sans titre').slice(0, 120),
           createdAt: serializeAdminValue(chatData.createdAt || null),
           updatedAt: serializeAdminValue(chatData.updatedAt || chatData.createdAt || null),
-          messageCount: messages.length,
-          messages: messages.map((message) => ({
-            role: message?.role === 'assistant' ? 'assistant' : 'user',
-            content: String(message?.content || message?.text || '').slice(0, 5000),
-            createdAt: serializeAdminValue(message?.createdAt || message?.timestamp || null),
-          })),
+          messageCount: Math.max(0, Number(chatData.messageCount) || 0),
+          lastMessagePreview: String(chatData.lastMessagePreview || '').slice(0, 140),
         };
       }));
       conversations.push(...items);
@@ -7138,6 +7135,30 @@ async function handleAdminPopularQuestions(request) {
     });
   } catch (error) {
     return errorResponse(error.message || 'Impossible de charger les discussions IA.', 401);
+  }
+}
+
+async function handleAdminQuestionDetail(request) {
+  try {
+    await requireAdmin(request);
+    const url = new URL(request.url);
+    const uid = String(url.searchParams.get('uid') || '').trim().slice(0, 150);
+    const chatId = String(url.searchParams.get('chatId') || '').trim().slice(0, 150);
+    if (!uid || uid.includes('/') || !chatId || chatId.includes('/')) {
+      return errorResponse('Compte ou discussion invalide.', 400);
+    }
+    const snapshot = await adminDb.collection('users').doc(uid).collection('ai_chats').doc(chatId).get();
+    if (!snapshot.exists) return errorResponse('Cette discussion n’existe plus.', 404);
+    const data = snapshot.data() || {};
+    const messages = Array.isArray(data.messages) ? data.messages.map((message) => ({
+      role: message?.role === 'assistant' ? 'assistant' : 'user',
+      content: String(message?.content || message?.text || '').slice(0, 5000),
+      wasAudio: message?.wasAudio === true,
+      generatedImage: typeof message?.generatedImage === 'string' ? message.generatedImage : null,
+    })) : [];
+    return NextResponse.json({ success: true, chat: { id: snapshot.id, messages } });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible de charger cette conversation.', 401);
   }
 }
 
@@ -10759,6 +10780,7 @@ const ROUTES = {
   'admin/user-chat': { GET: handleAdminUserChat },
   'admin/premium/change': { POST: handleAdminPremiumChange },
   'admin/questions': { GET: handleAdminPopularQuestions },
+  'admin/question-detail': { GET: handleAdminQuestionDetail },
   'admin/withdrawals': { GET: handleAdminWithdrawals },
   'admin/withdrawal/approve': { POST: handleAdminApproveWithdrawal },
   'admin/withdrawal/reject': { POST: handleAdminRejectWithdrawal },
