@@ -344,9 +344,9 @@ async function getWeekendFinancialSummary(userRef, dateKey) {
     const categoryId = String(item.categoryId || 'other');
     byCategory.set(categoryId, (byCategory.get(categoryId) || 0) + (Number(item.amount) || 0));
     const day = String(item.date || '');
-    const row = byDay.get(day) || { date: day, amount: 0, count: 0 };
+    const row = byDay.get(day) || { date: day, amount: 0, expenses: [] };
     row.amount += Number(item.amount) || 0;
-    row.count += 1;
+    row.expenses.push(item);
     byDay.set(day, row);
   });
   return {
@@ -359,7 +359,12 @@ async function getWeekendFinancialSummary(userRef, dateKey) {
     byCategory: [...byCategory.entries()]
       .map(([categoryId, amount]) => ({ categoryId, amount }))
       .sort((a, b) => b.amount - a.amount),
-    byDay: [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date)),
+    byDay: [...byDay.values()]
+      .map(({ expenses: dayExpenses, ...day }) => ({
+        ...day,
+        count: countExpenseOperations(dayExpenses),
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date)),
   };
 }
 
