@@ -61,3 +61,38 @@ test('counts eligible expenses without a category for the monthly activity summa
   assert.equal(summary.totalAmount, 45);
   assert.equal(getBudgetSpendAmount(summary, 'other', 'all'), 0);
 });
+
+test('counts a shared consumption once but preserves its full amount by source', () => {
+  const summary = buildBudgetSpendSummary([
+    { id: 'meal-root', sharedExpenseId: 'meal-root', amount: 1000, date: '2026-11-15', categoryId: 'food', incomeSourceId: 'salary' },
+    { id: 'meal-part-2', sharedExpenseId: 'meal-root', amount: 600, date: '2026-11-15', categoryId: 'food', incomeSourceId: 'business' },
+    { id: 'meal-part-3', sharedExpenseId: 'meal-root', amount: 400, date: '2026-11-15', categoryId: 'food', incomeSourceId: 'side' },
+    { id: 'second-meal', amount: 1200, date: '2026-11-15', categoryId: 'food', incomeSourceId: 'salary' },
+    { id: 'third-meal', amount: 800, date: '2026-11-15', categoryId: 'food', incomeSourceId: 'salary' },
+  ], '2026-11');
+
+  assert.equal(summary.expenseCount, 3);
+  assert.equal(summary.totalAmount, 4000);
+  assert.equal(getBudgetSpendAmount(summary, 'food', 'all'), 4000);
+  assert.equal(getBudgetSpendAmount(summary, 'food', 'salary'), 3000);
+  assert.equal(getBudgetSpendAmount(summary, 'food', 'business'), 600);
+  assert.equal(getBudgetSpendAmount(summary, 'food', 'side'), 400);
+});
+
+test('applies all shared allocations while incrementing the operation count only once', () => {
+  let summary = buildBudgetSpendSummary([], '2026-11');
+  const allocations = [
+    { amount: 500, categoryId: 'food', date: '2026-11-19', incomeSourceId: 'salary' },
+    { amount: 300, categoryId: 'food', date: '2026-11-19', incomeSourceId: 'business' },
+    { amount: 200, categoryId: 'food', date: '2026-11-19', incomeSourceId: 'side' },
+  ];
+  allocations.forEach((row, index) => {
+    summary = applyBudgetSpendDelta(summary, row, 1, { countOperation: index === 0 });
+  });
+
+  assert.equal(summary.expenseCount, 1);
+  assert.equal(summary.totalAmount, 1000);
+  assert.equal(getBudgetSpendAmount(summary, 'food', 'salary'), 500);
+  assert.equal(getBudgetSpendAmount(summary, 'food', 'business'), 300);
+  assert.equal(getBudgetSpendAmount(summary, 'food', 'side'), 200);
+});

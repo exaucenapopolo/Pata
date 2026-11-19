@@ -1,4 +1,6 @@
-export const BUDGET_SPEND_SUMMARY_VERSION = 2;
+import { countExpenseOperations } from './expenseOperations.mjs';
+
+export const BUDGET_SPEND_SUMMARY_VERSION = 3;
 
 function safeAmount(value) {
   const amount = Number(value);
@@ -47,15 +49,20 @@ export function normalizeBudgetSpendSummary(value, month) {
 }
 
 export function buildBudgetSpendSummary(expenses = [], month) {
+  const eligibleRows = (expenses || []).filter((expense) =>
+    String(expense?.date || '').slice(0, 7) === String(month || '') && isConsumptionExpense(expense)
+  );
   let summary = normalizeBudgetSpendSummary(null, month);
-  for (const expense of expenses || []) {
-    if (String(expense?.date || '').slice(0, 7) !== String(month || '')) continue;
-    summary = applyBudgetSpendDelta(summary, expense, 1);
+  // Keep every allocation in category/source totals, but count the parent
+  // transaction only once even when it has several income-source rows.
+  for (const expense of eligibleRows) {
+    summary = applyBudgetSpendDelta(summary, expense, 1, { countOperation: false });
   }
+  summary.expenseCount = countExpenseOperations(eligibleRows);
   return summary;
 }
 
-export function applyBudgetSpendDelta(value, expense, direction = 1) {
+export function applyBudgetSpendDelta(value, expense, direction = 1, options = {}) {
   const month = String(value?.month || '').slice(0, 7);
   const summary = normalizeBudgetSpendSummary(value, month);
   if (!isConsumptionExpense(expense)
@@ -65,7 +72,9 @@ export function applyBudgetSpendDelta(value, expense, direction = 1) {
   const sourceId = String(expense.incomeSourceId || 'unassigned').trim() || 'unassigned';
   const multiplier = Number(direction) < 0 ? -1 : 1;
   const amount = safeAmount(expense.amount) * multiplier;
-  summary.expenseCount = Math.max(0, summary.expenseCount + multiplier);
+  if (options.countOperation !== false) {
+    summary.expenseCount = Math.max(0, summary.expenseCount + multiplier);
+  }
   summary.totalAmount = Math.max(0, summary.totalAmount + amount);
   if (!categoryId) return summary;
 
