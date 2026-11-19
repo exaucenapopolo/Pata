@@ -16,7 +16,7 @@ import { useProfile } from '@/hooks/useProfile';
 import { useProjects } from '@/hooks/useProjects';
 import { createProject, updateProject, deleteProject } from '@/lib/firestore/projects';
 import { useExpenses } from '@/hooks/useExpenses';
-import { countExpenseOperations } from '@/lib/finance/expenseOperations.mjs';
+import { countExpenseOperations, getExpenseOperationKeys } from '@/lib/finance/expenseOperations.mjs';
 import { useIncomes } from '@/hooks/useIncomes';
 import { useDebts } from '@/hooks/useDebts';
 import { ScheduledTransactionsPanel } from '@/components/transactions/ScheduledTransactionsPanel';
@@ -282,7 +282,9 @@ export default function ExpensesPage() {
   };
 
   const openEdit = useCallback((exp) => {
-    const parentId = exp?.splitFromExpenseId || (exp?.sharedExpenseId && operation.sharedExpenseId !== operation.id ? operation.sharedExpenseId : '');
+    const operationKeys = getExpenseOperationKeys(expenses);
+    const rowIndex = expenses.findIndex((item) => item.id === exp?.id);
+    const parentId = rowIndex >= 0 ? operationKeys[rowIndex] : (exp?.splitFromExpenseId || exp?.sharedExpenseId || '');
     const operation = parentId ? (expenses.find((item) => item.id === parentId) || exp) : exp;
     setForm({
       id: operation.id,
@@ -306,7 +308,8 @@ export default function ExpensesPage() {
     });
     setError('');
     setOpen(true);
-  }, []);
+  }, [expenses]);
+
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);

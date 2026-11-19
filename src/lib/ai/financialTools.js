@@ -3,6 +3,7 @@ import { adminDb } from '@/lib/firebase/admin';
 import { incomeMatchesMobileMoneyProvider } from '@/lib/finance/cashWithdrawal.mjs';
 import { buildRecurringExpensePatterns } from '@/lib/notifications/recurringExpenses.mjs';
 import { BUDGET_SPEND_SUMMARY_VERSION, applyBudgetSpendDelta, buildBudgetSpendSummary, getBudgetSpendAmount, normalizeBudgetSpendSummary } from '@/lib/finance/budgetSpendSummary.mjs';
+import { getExpenseOperationKeys } from '@/lib/finance/expenseOperations.mjs';
 
 const EXPENSE_CATEGORIES = [
   'food', 'transport', 'housing', 'internet', 'health', 'leisure', 'gift_donation',
@@ -711,19 +712,27 @@ export async function updateExpenseForUser(uid, expenseId, input) {
   const userRef = userRefFor(uid);
 
   return adminDb.runTransaction(async (transaction) => {
-    const splitChildrenQuery = expensesRef.where('splitFromExpenseId', '==', id);
-    const [expenseSnap, incomesSnap, userSnap, splitChildrenSnap] = await Promise.all([
+    const [expenseSnap, incomesSnap, userSnap] = await Promise.all([
       transaction.get(expenseRef),
       transaction.get(incomesRef),
       transaction.get(userRef),
-      transaction.get(splitChildrenQuery),
     ]);
     if (!expenseSnap.exists) throw new Error('Dépense introuvable.');
 
     const previousData = expenseSnap.data();
+    const sameDateRowsSnap = previousData.date
+      ? await transaction.get(expensesRef.where('date', '==', String(previousData.date).slice(0, 10)))
+      : { docs: [] };
+    const sameDateRows = sameDateRowsSnap.docs.map((document) => ({ id: document.id, ...(document.data() || {}) }));
+    const sameDateOperationKeys = getExpenseOperationKeys(sameDateRows);
+    const editedRowIndex = sameDateRows.findIndex((row) => row.id === id);
+    const operationKey = editedRowIndex >= 0 ? sameDateOperationKeys[editedRowIndex] : id;
+    if (operationKey !== id) {
+      throw new Error('Cette ligne fait partie d’une dépense partagée. Modifie la dépense principale pour conserver toute sa répartition.');
+    }
     const previousParts = [
       { id, ...previousData },
-      ...splitChildrenSnap.docs.map((document) => ({ id: document.id, ...(document.data() || {}) })),
+      ...sameDateRows.filter((row, index) => row.id !== id && sameDateOperationKeys[index] === operationKey),
     ];
     const scheduledTransactionId = cleanText(previousData.scheduledTransactionId, 150);
     const scheduledTransactionRef = scheduledTransactionId
@@ -921,7 +930,7 @@ export async function updateExpenseForUser(uid, expenseId, input) {
     }, { merge: true });
 
     const extraRecords = [];
-    splitChildrenSnap.docs.forEach((document) => transaction.delete(document.ref));
+    previousParts.slice(1).forEach((part) => transaction.delete(expensesRef.doc(part.id)));
     allocations.slice(1).forEach(({ income, amount: allocated }, index) => {
       const extraRef = expensesRef.doc();
       transaction.create(extraRef, {
@@ -1014,16 +1023,25 @@ export async function deleteExpenseForUser(uid, expenseId) {
   const expensesRef = subcol(uid, 'expenses');
   const activityRef = subcol(uid, 'activity_log').doc();
   await adminDb.runTransaction(async (transaction) => {
-    const [snapshot, userSnapshot, splitChildrenSnap] = await Promise.all([
+    const [snapshot, userSnapshot] = await Promise.all([
       transaction.get(expenseRef),
       transaction.get(userRef),
-      transaction.get(expensesRef.where('splitFromExpenseId', '==', id)),
     ]);
     if (!snapshot.exists) throw new Error('Dépense introuvable.');
     const data = snapshot.data() || {};
+    const sameDateRowsSnap = data.date
+      ? await transaction.get(expensesRef.where('date', '==', String(data.date).slice(0, 10)))
+      : { docs: [] };
+    const sameDateRows = sameDateRowsSnap.docs.map((document) => ({ id: document.id, ...(document.data() || {}) }));
+    const sameDateOperationKeys = getExpenseOperationKeys(sameDateRows);
+    const deletedRowIndex = sameDateRows.findIndex((row) => row.id === id);
+    const operationKey = deletedRowIndex >= 0 ? sameDateOperationKeys[deletedRowIndex] : id;
+    if (operationKey !== id) {
+      throw new Error('Cette ligne fait partie d’une dépense partagée. Supprime la dépense principale pour supprimer toute sa répartition.');
+    }
     const relatedRows = [
       { id, ...data },
-      ...splitChildrenSnap.docs.map((document) => ({ id: document.id, ...(document.data() || {}) })),
+      ...sameDateRows.filter((row, index) => row.id !== id && sameDateOperationKeys[index] === operationKey),
     ];
     if (data.flowType === 'loan_given' || data.repaymentDebtId) throw new Error('Ce mouvement est lié au module Dettes & prêts. Gère-le depuis cette rubrique pour préserver les soldes.');
     const userData = userSnapshot.exists ? userSnapshot.data() || {} : {};
@@ -1067,7 +1085,7 @@ export async function deleteExpenseForUser(uid, expenseId) {
       label: cleanText(data.note, 120) || 'Dépense',
       deletedAt: FieldValue.serverTimestamp(),
     });
-    splitChildrenSnap.docs.forEach((document) => transaction.delete(document.ref));
+    relatedRows.slice(1).forEach((row) => transaction.delete(expensesRef.doc(row.id)));
     transaction.delete(expenseRef);
   });
   return { success: true, expenseId: id, message: 'Dépense supprimée.' };
