@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 260" fill="none" role="img" aria-labelledby="title desc">
+<title id="title">Pata Premium</title><desc id="desc">Tirelire blanche aux détails vert profond, avec une pièce et une couronne dorées.</desc>
+<defs>
+ <linearGradient id="ceramic" x1="67" y1="55" x2="260" y2="231" gradientUnits="userSpaceOnUse"><stop stop-color="#fff"/><stop offset=".55" stop-color="#f5faf6"/><stop offset="1" stop-color="#d8e7dc"/></linearGradient>
+ <linearGradient id="green" x1="105" y1="185" x2="226" y2="250" gradientUnits="userSpaceOnUse"><stop stop-color="#18ae7e"/><stop offset=".55" stop-color="#087454"/><stop offset="1" stop-color="#034b3b"/></linearGradient>
+ <linearGradient id="gold" x1="208" y1="16" x2="280" y2="99" gradientUnits="userSpaceOnUse"><stop stop-color="#fff2b4"/><stop offset=".35" stop-color="#f4c94d"/><stop offset=".72" stop-color="#d99718"/><stop offset="1" stop-color="#a96b0b"/></linearGradient>
+ <linearGradient id="coin" x1="66" y1="28" x2="119" y2="92" gradientUnits="userSpaceOnUse"><stop stop-color="#fff1ad"/><stop offset=".48" stop-color="#efb72c"/><stop offset="1" stop-color="#b7780d"/></linearGradient>
+ <linearGradient id="snout" x1="223" y1="130" x2="276" y2="185" gradientUnits="userSpaceOnUse"><stop stop-color="#fff"/><stop offset="1" stop-color="#dcebe1"/></linearGradient>
+ <filter id="shadow" x="32" y="53" width="278" height="209" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="8"/></filter>
+ <filter id="crownShadow" x="190" y="4" width="112" height="105" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="4"/></filter>
+</defs>
+<ellipse cx="169" cy="240" rx="109" ry="12" fill="#063e30" opacity=".12" filter="url(#shadow)"/>
+<!-- ears and slot -->
+<path d="M82 105C63 84 61 59 74 49C88 39 104 58 114 88L119 109Z" fill="url(#ceramic)" stroke="#d0e0d5" stroke-width="3"/>
+<path d="M91 88C81 69 82 58 88 56C95 54 103 72 106 88" stroke="#d8e8de" stroke-width="5" stroke-linecap="round"/>
+<path d="M125 86C140 77 159 76 175 84" stroke="#0a4b39" stroke-width="10" stroke-linecap="round"/>
+<path d="M130 83C144 76 160 77 172 82" stroke="#062f26" stroke-width="3" stroke-linecap="round"/>
+<!-- coin -->
+<ellipse cx="101" cy="55" rx="25" ry="33" transform="rotate(-18 101 55)" fill="url(#coin)" stroke="#ad740f" stroke-width="2.5"/>
+<ellipse cx="101" cy="55" rx="18" ry="25" transform="rotate(-18 101 55)" stroke="#fff0a5" stroke-width="1.7"/>
+<path d="M102 37V72M109 43C105 36 94 39 94 47C94 56 110 51 110 62C110 70 99 72 94 66" stroke="#956009" stroke-width="3.3" stroke-linecap="round"/>
+<!-- body -->
+<path d="M61 161C57 126 82 97 120 91C145 68 184 67 210 87C247 88 276 117 278 153C281 187 260 216 231 228C208 241 181 243 155 237C126 249 91 236 77 215C65 202 60 183 61 161Z" fill="url(#ceramic)" stroke="#cbded1" stroke-width="3"/>
+<path d="M81 142C87 114 108 100 132 96" stroke="#fff" stroke-width="8" stroke-linecap="round" opacity=".95"/>
+<path d="M108 221C136 235 180 237 215 223" stroke="#bcd2c3" stroke-width="2.4" stroke-linecap="round" opacity=".8"/>
+<!-- front ear -->
+<path d="M188 91C194 65 210 50 224 55C236 60 232 82 218 108L205 122Z" fill="url(#ceramic)" stroke="#cfdfd4" stroke-width="3"/>
+<path d="M205 89C212 70 221 64 224 68C226 73 219 88 213 99" stroke="#d5e6db" stroke-width="5" stroke-linecap="round"/>
+<!-- feet -->
+<path d="M98 208C101 228 98 238 107 243C117 248 132 245 140 237L143 222Z" fill="url(#ceramic)" stroke="#cbded1" stroke-width="2"/>
+<path d="M101 237C111 245 130 245 140 237L139 244C130 251 111 251 104 246Z" fill="url(#green)"/>
+<path d="M196 220C200 237 198 247 208 250C218 254 235 250 240 241L235 218Z" fill="url(#ceramic)" stroke="#cbded1" stroke-width="2"/>
+<path d="M201 245C214 252 231 249 239 240L241 247C232 257 210 259 204 252Z" fill="url(#green)"/>
+<!-- tail -->
+<path d="M64 168C44 168 35 153 42 143C50 132 66 141 62 151C59 158 49 157 49 151" stroke="#d7e5dc" stroke-width="8" stroke-linecap="round"/>
+<path d="M64 168C44 168 35 153 42 143C50 132 66 141 62 151" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+<!-- snout and expression -->
+<ellipse cx="247" cy="162" rx="34" ry="27" fill="url(#snout)" stroke="#cbded1" stroke-width="2.5"/>
+<ellipse cx="236" cy="163" rx="3.7" ry="6.3" fill="#087454"/><ellipse cx="257" cy="163" rx="3.7" ry="6.3" fill="#087454"/>
+<ellipse cx="206" cy="135" rx="4.2" ry="5.2" fill="#0d4738"/>
+<path d="M209 184C219 194 232 195 241 189" stroke="#087454" stroke-width="2.8" stroke-linecap="round"/>
+<path d="M224 143C237 132 256 133 267 143" stroke="#fff" stroke-width="4" stroke-linecap="round" opacity=".9"/>
+<!-- crown -->
+<path d="M214 96L205 53L226 68L240 28L255 69L281 49L274 97C257 105 232 105 214 96Z" fill="#87550b" opacity=".12" filter="url(#crownShadow)"/>
+<path d="M214 91L205 51L226 67L240 27L255 68L282 48L274 93C256 102 231 102 214 91Z" fill="url(#gold)" stroke="#a96c0c" stroke-width="2.3" stroke-linejoin="round"/>
+<path d="M212 87C232 98 255 99 276 90" stroke="#fff0a2" stroke-width="3" stroke-linecap="round" opacity=".9"/>
+<circle cx="205" cy="51" r="6.2" fill="url(#gold)" stroke="#ad720e" stroke-width="1.5"/><circle cx="240" cy="27" r="6.4" fill="url(#gold)" stroke="#ad720e" stroke-width="1.5"/><circle cx="282" cy="48" r="6.2" fill="url(#gold)" stroke="#ad720e" stroke-width="1.5"/>
+</svg>

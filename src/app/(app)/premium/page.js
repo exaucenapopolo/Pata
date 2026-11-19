@@ -201,12 +201,12 @@ export default function PremiumPage() {
     <div className="pata-premium-page mx-auto flex w-full max-w-[440px] flex-col gap-3 pb-2">
       <header className="flex flex-col items-center text-center">
         <Image
-          src="/pata-premium-piggy.webp"
-          alt="Illustration Pata Premium"
-          width={160}
-          height={160}
+          src="/pata-premium-piggy.svg"
+          alt="Tirelire Pata Premium avec pièce et couronne dorées"
+          width={170}
+          height={145}
           priority
-          className="h-[76px] w-[76px] object-contain"
+          className="h-[100px] w-[118px] object-contain"
         />
         <h1 className="mt-0.5 text-[26px] font-extrabold leading-8 tracking-[-.045em] text-slate-950 dark:text-white">
           Passer à <span className="text-brand-700 dark:text-emerald-300">Premium</span>
