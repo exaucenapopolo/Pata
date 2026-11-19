@@ -340,7 +340,7 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
           ? { docs: legacyExpensesSnap.docs.filter((document) => String(document.data()?.date || '').slice(0, 7) === String(date).slice(0, 7)) }
           : await transaction.get(budgetExpensesQuery);
         budgetSpendSummary = buildBudgetSpendSummary(
-          historySnap.docs.map((document) => document.data() || {}),
+          historySnap.docs.map((document) => ({ id: document.id, ...(document.data() || {}) })),
           String(date).slice(0, 7),
         );
       }
@@ -528,11 +528,12 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
       };
     }
 
+    const sharedExpenseId = allocations.length > 1 ? expenseCollection.doc().id : '';
     const created = [];
     allocations.forEach(({ income, amount: allocated }, index) => {
       const expenseRef = externalFunding && smsImportId
         ? expenseCollection.doc(smsImportId)
-        : expenseCollection.doc();
+        : (sharedExpenseId && index === 0 ? expenseCollection.doc(sharedExpenseId) : expenseCollection.doc());
       transaction.create(expenseRef, {
         amount: allocated,
         categoryId,
@@ -549,6 +550,11 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
         projectId: expenseType === 'project' ? projectId : null,
         projectName: expenseType === 'project' ? projectName : null,
         ...(smsImportId ? { smsImportId } : {}),
+        ...(sharedExpenseId ? {
+          sharedExpenseId,
+          sharedExpensePart: index + 1,
+          ...(index > 0 ? { splitFromExpenseId: sharedExpenseId } : {}),
+        } : {}),
         ...optionalMetadata,
         createdAt: FieldValue.serverTimestamp(),
         ...(input.automationId ? { automationId: input.automationId } : {}),
@@ -651,7 +657,7 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
     }
 
     if (budgetSpendSummary) {
-      for (const item of created) {
+      for (const [index, item] of created.entries()) {
         budgetSpendSummary = applyBudgetSpendDelta(budgetSpendSummary, {
           amount: item.amount,
           categoryId,
@@ -659,7 +665,7 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
           incomeSourceId: item.incomeSourceId,
           expenseType,
           neutralFlow: flowType === 'loan_given' || cashWithdrawal,
-        }, 1);
+        }, 1, { countOperation: index === 0 });
       }
       transaction.set(budgetSpendSummaryRef, {
         ...budgetSpendSummary,
@@ -705,14 +711,20 @@ export async function updateExpenseForUser(uid, expenseId, input) {
   const userRef = userRefFor(uid);
 
   return adminDb.runTransaction(async (transaction) => {
-    const [expenseSnap, incomesSnap, userSnap] = await Promise.all([
+    const splitChildrenQuery = expensesRef.where('splitFromExpenseId', '==', id);
+    const [expenseSnap, incomesSnap, userSnap, splitChildrenSnap] = await Promise.all([
       transaction.get(expenseRef),
       transaction.get(incomesRef),
       transaction.get(userRef),
+      transaction.get(splitChildrenQuery),
     ]);
     if (!expenseSnap.exists) throw new Error('Dépense introuvable.');
 
     const previousData = expenseSnap.data();
+    const previousParts = [
+      { id, ...previousData },
+      ...splitChildrenSnap.docs.map((document) => ({ id: document.id, ...(document.data() || {}) })),
+    ];
     const scheduledTransactionId = cleanText(previousData.scheduledTransactionId, 150);
     const scheduledTransactionRef = scheduledTransactionId
       ? subcol(uid, 'scheduledTransactions').doc(scheduledTransactionId)
@@ -772,10 +784,12 @@ export async function updateExpenseForUser(uid, expenseId, input) {
       incomeSpentTotals = calculateIncomeSpentTotals(legacyExpensesSnap.docs.map((document) => document.data() || {}));
     }
     const baseSpentTotals = { ...incomeSpentTotals };
-    const previousIncomeId = String(previousData.incomeSourceId || '');
-    const previousAmount = Math.max(0, Number(previousData.amount) || 0);
-    if (previousIncomeId && previousIncomeId !== 'external') {
-      baseSpentTotals[previousIncomeId] = Math.max(0, (Number(baseSpentTotals[previousIncomeId]) || 0) - previousAmount);
+    for (const previousPart of previousParts) {
+      const previousIncomeId = String(previousPart.incomeSourceId || '');
+      const previousAmount = Math.max(0, Number(previousPart.amount) || 0);
+      if (previousIncomeId && previousIncomeId !== 'external') {
+        baseSpentTotals[previousIncomeId] = Math.max(0, (Number(baseSpentTotals[previousIncomeId]) || 0) - previousAmount);
+      }
     }
     const balances = buildIncomeBalancesFromTotals(incomes, baseSpentTotals);
     let newBudgetSpendSummary = newBudgetSummarySnap.exists
@@ -794,7 +808,7 @@ export async function updateExpenseForUser(uid, expenseId, input) {
         expensesRef.where('date', '>=', selectedMonthStart).where('date', '<=', selectedMonthEnd)
       );
       newBudgetSpendSummary = buildBudgetSpendSummary(
-        monthExpensesSnap.docs.map((document) => document.data() || {}),
+        monthExpensesSnap.docs.map((document) => ({ id: document.id, ...(document.data() || {}) })),
         newMonth,
       );
       if (previousMonth === newMonth) previousBudgetSpendSummary = newBudgetSpendSummary;
@@ -803,7 +817,14 @@ export async function updateExpenseForUser(uid, expenseId, input) {
     // comme le faisait l'ancienne requête mensuelle.
     let summaryForBudgetCheck = newBudgetSpendSummary;
     if (summaryForBudgetCheck && previousMonth === newMonth) {
-      summaryForBudgetCheck = applyBudgetSpendDelta(summaryForBudgetCheck, previousData, -1);
+      for (const [index, previousPart] of previousParts.entries()) {
+        summaryForBudgetCheck = applyBudgetSpendDelta(
+          summaryForBudgetCheck,
+          previousPart,
+          -1,
+          { countOperation: index === 0 },
+        );
+      }
     }
     const selectedSource = resolveSource(incomes, requestedSourceId, requestedSourceName);
     const eligibleBalances = balances.filter((income) => !income.projectId || income.projectId === projectId);
@@ -852,7 +873,7 @@ export async function updateExpenseForUser(uid, expenseId, input) {
     if (budgetWarnings.length && input.confirmBudgetOverrun !== true) {
       // La migration du résumé doit être persistée même lorsque l'utilisateur
       // doit confirmer le dépassement avant d'enregistrer la modification.
-      if (newBudgetSpendSummary && (!newBudgetSummarySnap.exists || Number(newBudgetSummarySnap.data()?.version) !== 1)) {
+      if (newBudgetSpendSummary && (!newBudgetSummarySnap.exists || Number(newBudgetSummarySnap.data()?.version) !== BUDGET_SPEND_SUMMARY_VERSION)) {
         transaction.set(newBudgetSummaryRef, {
           ...newBudgetSpendSummary,
           updatedAt: FieldValue.serverTimestamp(),
@@ -874,6 +895,8 @@ export async function updateExpenseForUser(uid, expenseId, input) {
       expenseType,
       projectId: expenseType === 'project' ? projectId : null,
       projectName: expenseType === 'project' ? projectName : null,
+      sharedExpenseId: allocations.length > 1 ? id : FieldValue.delete(),
+      sharedExpensePart: allocations.length > 1 ? 1 : FieldValue.delete(),
       ...optionalMetadata,
       updatedAt: FieldValue.serverTimestamp(),
     });
@@ -898,6 +921,7 @@ export async function updateExpenseForUser(uid, expenseId, input) {
     }, { merge: true });
 
     const extraRecords = [];
+    splitChildrenSnap.docs.forEach((document) => transaction.delete(document.ref));
     allocations.slice(1).forEach(({ income, amount: allocated }, index) => {
       const extraRef = expensesRef.doc();
       transaction.create(extraRef, {
@@ -910,6 +934,8 @@ export async function updateExpenseForUser(uid, expenseId, input) {
         expenseType,
         projectId: expenseType === 'project' ? projectId : null,
         projectName: expenseType === 'project' ? projectName : null,
+        sharedExpenseId: id,
+        sharedExpensePart: index + 2,
         ...optionalMetadata,
         createdAt: previousData.createdAt || FieldValue.serverTimestamp(),
         splitFromExpenseId: id,
@@ -918,21 +944,44 @@ export async function updateExpenseForUser(uid, expenseId, input) {
     });
 
     if (previousMonth !== newMonth && previousBudgetSpendSummary) {
-      previousBudgetSpendSummary = applyBudgetSpendDelta(previousBudgetSpendSummary, previousData, -1);
+      for (const [index, previousPart] of previousParts.entries()) {
+        previousBudgetSpendSummary = applyBudgetSpendDelta(
+          previousBudgetSpendSummary,
+          previousPart,
+          -1,
+          { countOperation: index === 0 },
+        );
+      }
       transaction.set(previousBudgetSummaryRef, {
         ...previousBudgetSpendSummary,
         updatedAt: FieldValue.serverTimestamp(),
       });
     }
     if (newBudgetSpendSummary) {
-      newBudgetSpendSummary = applyBudgetSpendDelta(newBudgetSpendSummary, previousMonth === newMonth ? previousData : null, -1);
+      if (previousMonth === newMonth) {
+        for (const [index, previousPart] of previousParts.entries()) {
+          newBudgetSpendSummary = applyBudgetSpendDelta(
+            newBudgetSpendSummary,
+            previousPart,
+            -1,
+            { countOperation: index === 0 },
+          );
+        }
+      }
       const nextExpenseRows = [
         { amount: first.amount, categoryId, date, incomeSourceId: first.income.id, expenseType, neutralFlow: previousData.neutralFlow === true },
         ...extraRecords.map((item) => ({
           amount: item.amount, categoryId, date, incomeSourceId: item.incomeSourceId, expenseType, neutralFlow: false,
         })),
       ];
-      for (const row of nextExpenseRows) newBudgetSpendSummary = applyBudgetSpendDelta(newBudgetSpendSummary, row, 1);
+      for (const [index, row] of nextExpenseRows.entries()) {
+        newBudgetSpendSummary = applyBudgetSpendDelta(
+          newBudgetSpendSummary,
+          row,
+          1,
+          { countOperation: index === 0 },
+        );
+      }
       transaction.set(newBudgetSummaryRef, {
         ...newBudgetSpendSummary,
         updatedAt: FieldValue.serverTimestamp(),
@@ -962,14 +1011,20 @@ export async function deleteExpenseForUser(uid, expenseId) {
   if (!id) throw new Error('Identifiant de dépense manquant.');
   const expenseRef = subcol(uid, 'expenses').doc(id);
   const userRef = userRefFor(uid);
+  const expensesRef = subcol(uid, 'expenses');
   const activityRef = subcol(uid, 'activity_log').doc();
   await adminDb.runTransaction(async (transaction) => {
-    const [snapshot, userSnapshot] = await Promise.all([
+    const [snapshot, userSnapshot, splitChildrenSnap] = await Promise.all([
       transaction.get(expenseRef),
       transaction.get(userRef),
+      transaction.get(expensesRef.where('splitFromExpenseId', '==', id)),
     ]);
     if (!snapshot.exists) throw new Error('Dépense introuvable.');
     const data = snapshot.data() || {};
+    const relatedRows = [
+      { id, ...data },
+      ...splitChildrenSnap.docs.map((document) => ({ id: document.id, ...(document.data() || {}) })),
+    ];
     if (data.flowType === 'loan_given' || data.repaymentDebtId) throw new Error('Ce mouvement est lié au module Dettes & prêts. Gère-le depuis cette rubrique pour préserver les soldes.');
     const userData = userSnapshot.exists ? userSnapshot.data() || {} : {};
     const expenseMonth = String(data.date || '').slice(0, 7);
@@ -978,9 +1033,11 @@ export async function deleteExpenseForUser(uid, expenseId) {
     const budgetSummarySnap = budgetSummaryRef ? await transaction.get(budgetSummaryRef) : null;
     if (userData.incomeSpentTotalsVersion === 1) {
       const totals = normalizeIncomeSpentTotals(userData.incomeSpentTotals);
-      const incomeId = String(data.incomeSourceId || '');
-      if (incomeId && incomeId !== 'external') {
-        totals[incomeId] = Math.max(0, (Number(totals[incomeId]) || 0) - Math.max(0, Number(data.amount) || 0));
+      for (const row of relatedRows) {
+        const incomeId = String(row.incomeSourceId || '');
+        if (incomeId && incomeId !== 'external') {
+          totals[incomeId] = Math.max(0, (Number(totals[incomeId]) || 0) - Math.max(0, Number(row.amount) || 0));
+        }
       }
       transaction.set(userRef, {
         incomeSpentTotals: totals,
@@ -989,11 +1046,15 @@ export async function deleteExpenseForUser(uid, expenseId) {
       }, { merge: true });
     }
     if (budgetSummarySnap?.exists && Number(budgetSummarySnap.data()?.version) === BUDGET_SPEND_SUMMARY_VERSION) {
-      const budgetSummary = applyBudgetSpendDelta(
-        normalizeBudgetSpendSummary(budgetSummarySnap.data(), expenseMonth),
-        data,
-        -1,
-      );
+      let budgetSummary = normalizeBudgetSpendSummary(budgetSummarySnap.data(), expenseMonth);
+      for (const [index, row] of relatedRows.entries()) {
+        budgetSummary = applyBudgetSpendDelta(
+          budgetSummary,
+          row,
+          -1,
+          { countOperation: index === 0 },
+        );
+      }
       transaction.set(budgetSummaryRef, {
         ...budgetSummary,
         updatedAt: FieldValue.serverTimestamp(),
@@ -1006,6 +1067,7 @@ export async function deleteExpenseForUser(uid, expenseId) {
       label: cleanText(data.note, 120) || 'Dépense',
       deletedAt: FieldValue.serverTimestamp(),
     });
+    splitChildrenSnap.docs.forEach((document) => transaction.delete(document.ref));
     transaction.delete(expenseRef);
   });
   return { success: true, expenseId: id, message: 'Dépense supprimée.' };
@@ -1190,6 +1252,14 @@ export async function runAutomationForUser(uid, now = new Date()) {
             },
           };
         });
+        const automatedSharedExpenseId = plannedExpenses.length > 1 ? plannedExpenses[0].ref.id : '';
+        if (automatedSharedExpenseId) {
+          plannedExpenses.forEach((item, index) => {
+            item.data.sharedExpenseId = automatedSharedExpenseId;
+            item.data.sharedExpensePart = index + 1;
+            if (index > 0) item.data.splitFromExpenseId = automatedSharedExpenseId;
+          });
+        }
         // Reads are completed before writes. A retry sees the original record instead of charging twice.
         const existingRuns = await Promise.all(plannedExpenses.map((item) => transaction.get(item.ref)));
         const existingCount = existingRuns.filter((snapshot) => snapshot.exists).length;
