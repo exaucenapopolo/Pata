@@ -16,6 +16,7 @@ import { buildIncomePriorityReminder } from '@/lib/finance/incomePriorities.mjs'
 import { buildIncomeBudgetRecommendation } from '@/lib/finance/incomeBudgetRecommendation.mjs';
 import { buildRecurringExpenseReminders } from '@/lib/notifications/recurringExpenses.mjs';
 import { sumIncomeSpendTotals } from '@/lib/finance/incomeBalances.mjs';
+import { countExpenseOperations } from '@/lib/finance/expenseOperations.mjs';
 import { BUDGET_SPEND_SUMMARY_VERSION, applyBudgetSpendDelta, buildBudgetSpendSummary, getBudgetSpendAmount, normalizeBudgetSpendSummary } from '@/lib/finance/budgetSpendSummary.mjs';
 import { chatWithGroqVision, extractBillDataWithGroqVision } from '@/lib/ai/groqVision';
 import { generateImageWithPollinations } from '@/lib/ai/pollinationsImage';
@@ -353,7 +354,7 @@ async function getWeekendFinancialSummary(userRef, dateKey) {
     expenseTotal,
     incomeTotal,
     net: incomeTotal - expenseTotal,
-    expenseCount: expenses.length,
+    expenseCount: countExpenseOperations(expenses),
     incomeCount: incomes.length,
     byCategory: [...byCategory.entries()]
       .map(([categoryId, amount]) => ({ categoryId, amount }))
@@ -3004,8 +3005,9 @@ async function handleNotificationScheduler(request, passNumber = 1) {
           });
         }
         const todayExpenses = todayExpensesSnap.docs
-          .map((document) => document.data() || {})
+          .map((document) => ({ id: document.id, ...(document.data() || {}) }))
           .filter((item) => !item.neutralFlow && (!item.expenseType || item.expenseType === 'consumption'));
+        const todayExpenseCount = countExpenseOperations(todayExpenses);
         const monthExpenseCount = budgetSpendSummary.expenseCount;
         const totalToday = todayExpenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
         const categoryTotals = { ...budgetSpendSummary.categoryTotals };
@@ -3140,7 +3142,7 @@ async function handleNotificationScheduler(request, passNumber = 1) {
           candidates.push({
             key: 'no-income-today:' + today, topic: 'no_income_today', priority: 58,
             title: 'Aucun revenu enregistré aujourd’hui',
-            body: 'Tu as noté ' + todayExpenses.length + ' dépense(s) aujourd’hui, mais aucun revenu ordinaire pour le moment. Si tu as reçu un revenu et que tu ne l’as pas encore saisi, ajoute-le dans Pata afin que ton bilan du jour soit complet.',
+            body: 'Tu as noté ' + todayExpenseCount + ' dépense(s) aujourd’hui, mais aucun revenu ordinaire pour le moment. Si tu as reçu un revenu et que tu ne l’as pas encore saisi, ajoute-le dans Pata afin que ton bilan du jour soit complet.',
             target: '/incomes', source: 'no_income_today',
             profileUpdate: { lastNoIncomeRetentionDate: today },
           });
@@ -3221,11 +3223,11 @@ async function handleNotificationScheduler(request, passNumber = 1) {
             profileUpdate: { lastOnboardingReminderDate: today },
           });
         }
-        if (todayExpenses.length && !candidates.some((item) => item.topic === 'category_advice')) {
+        if (todayExpenseCount && !candidates.some((item) => item.topic === 'category_advice')) {
           candidates.push({
             key: 'daily-expense-summary:' + today, topic: 'daily_expense_summary', priority: 42,
             title: 'Ton activité du jour',
-            body: 'Tu as enregistré ' + todayExpenses.length + ' dépense(s) aujourd’hui, pour ' + totalToday.toLocaleString('fr-FR') + ' FCFA. Consulte le détail et garde ton suivi à jour.',
+            body: 'Tu as enregistré ' + todayExpenseCount + ' dépense(s) aujourd’hui, pour ' + totalToday.toLocaleString('fr-FR') + ' FCFA. Consulte le détail et garde ton suivi à jour.',
             target: '/expenses', source: 'daily_expense_summary',
           });
         }

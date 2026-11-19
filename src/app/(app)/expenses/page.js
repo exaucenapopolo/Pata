@@ -16,6 +16,7 @@ import { useProfile } from '@/hooks/useProfile';
 import { useProjects } from '@/hooks/useProjects';
 import { createProject, updateProject, deleteProject } from '@/lib/firestore/projects';
 import { useExpenses } from '@/hooks/useExpenses';
+import { countExpenseOperations } from '@/lib/finance/expenseOperations.mjs';
 import { useIncomes } from '@/hooks/useIncomes';
 import { useDebts } from '@/hooks/useDebts';
 import { ScheduledTransactionsPanel } from '@/components/transactions/ScheduledTransactionsPanel';
@@ -249,7 +250,7 @@ export default function ExpensesPage() {
   );
   const total = periodExpenseRows.reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0);
   const expenseDays = new Set(periodExpenseRows.map((expense) => String(expense.date || '').slice(0, 10)).filter(Boolean)).size;
-  const expenseOperations = periodExpenseRows.length;
+  const expenseOperations = countExpenseOperations(periodExpenseRows);
   const typeTotals = useMemo(() => expenses
     .filter((e) => !e.neutralFlow && e.date >= startDate && e.date <= endDate)
     .reduce((totals, e) => {
@@ -281,25 +282,27 @@ export default function ExpensesPage() {
   };
 
   const openEdit = useCallback((exp) => {
+    const parentId = exp?.splitFromExpenseId || (exp?.sharedExpenseId && operation.sharedExpenseId !== operation.id ? operation.sharedExpenseId : '');
+    const operation = parentId ? (expenses.find((item) => item.id === parentId) || exp) : exp;
     setForm({
-      id: exp.id,
-      amount: String(exp.amount),
-      categoryId: exp.categoryId,
-      expenseType: exp.expenseType || 'consumption',
-      projectId: exp.projectId || '',
-      date: exp.date,
-      time: exp.time || '',
-      note: exp.note || '',
-      locationLabel: exp.locationLabel || '',
-      latitude: exp.latitude ?? null,
-      longitude: exp.longitude ?? null,
-      locationAccuracy: exp.locationAccuracy ?? null,
-      paymentMethod: exp.paymentMethod || '',
-      details: exp.details || '',
-      incomeSourceId: exp.incomeSourceId || 'all',
-      incomeSourceName: exp.incomeSourceName || 'Tous les revenus',
-      futureIncomeSourceName: exp.pendingIncomeSourceName || '',
-      flowType: exp.flowType || 'normal', person: exp.person || '', phone: exp.phone || '', dueDate: exp.dueDate || '', repaymentDebtId: exp.repaymentDebtId || '', counterpartyUid: exp.counterpartyUid || '',
+      id: operation.id,
+      amount: String(operation.amount),
+      categoryId: operation.categoryId,
+      expenseType: operation.expenseType || 'consumption',
+      projectId: operation.projectId || '',
+      date: operation.date,
+      time: operation.time || '',
+      note: operation.note || '',
+      locationLabel: operation.locationLabel || '',
+      latitude: operation.latitude ?? null,
+      longitude: operation.longitude ?? null,
+      locationAccuracy: operation.locationAccuracy ?? null,
+      paymentMethod: operation.paymentMethod || '',
+      details: operation.details || '',
+      incomeSourceId: operation.incomeSourceId || 'all',
+      incomeSourceName: operation.incomeSourceName || 'Tous les revenus',
+      futureIncomeSourceName: operation.pendingIncomeSourceName || '',
+      flowType: operation.flowType || 'normal', person: operation.person || '', phone: operation.phone || '', dueDate: operation.dueDate || '', repaymentDebtId: operation.repaymentDebtId || '', counterpartyUid: operation.counterpartyUid || '',
     });
     setError('');
     setOpen(true);
