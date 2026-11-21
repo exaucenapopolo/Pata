@@ -138,7 +138,7 @@ test('selects at most two different priorities without duplicating a topic', () 
 
 test('alerte prudemment sur un budget qui risque d’être dépassé au rythme actuel', () => {
   const notification = buildCategoryBudgetForecastNotification({
-    dateKey: '2026-11-15',
+    dateKey: '2026-11-06',
     budgets: [{ month: '2026-11', categoryId: 'food', amount: 20000, incomeSourceId: 'all' }],
     categoryTotals: { food: 12000 },
     categoryLabels: { food: 'Alimentation' },
