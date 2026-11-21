@@ -60,7 +60,7 @@ test('les mises à jour de Quick Capture alimentent le même cache que le widget
   assert.match(coordinator, /type: draft\.type === 'income' \? 'income' : 'expense'/);
 });
 
-test('le widget financier se rafraîchit en arrière-plan avec le compte Premium courant', () => {
+test('le widget financier réutilise son cache local sans requêtes réseau redondantes', () => {
   const prepare = read('native/android/prepare-android.mjs');
   const provider = read('native/android/com/pata/app/PataQuickCaptureWidgetProvider.java');
   const worker = read('native/android/com/pata/app/PataFinanceWidgetWorker.java');
@@ -68,12 +68,9 @@ test('le widget financier se rafraîchit en arrière-plan avec le compte Premium
   const dashboard = read('src/app/(app)/dashboard/page.js');
   assert.ok(prepare.includes("'PataFinanceWidgetWorker.java'"));
   assert.ok(provider.includes('PataFinanceWidgetWorker.schedule(context)'));
-  assert.ok(worker.includes('/finance/global-summary'));
-  assert.ok(worker.includes('/debts/list'));
-  assert.ok(worker.includes('NetworkType.CONNECTED'));
-  assert.ok(worker.includes('premium_enabled'));
-  assert.ok(worker.includes('owner_uid'));
-  assert.ok(plugin.includes('account_session_mismatch'));
+  assert.ok(provider.includes('getSharedPreferences(PREFS, Context.MODE_PRIVATE)'));
+  assert.ok(worker.includes('PataQuickCaptureWidgetProvider.updateWidgets(context, manager, ids)'));
+  assert.doesNotMatch(worker, /HttpURLConnection|global-summary|debts\\/list|NetworkType/);
   assert.ok(plugin.includes('PataFinanceWidgetWorker.schedule(getContext())'));
   assert.ok(dashboard.includes('uid: user.uid'));
 });
