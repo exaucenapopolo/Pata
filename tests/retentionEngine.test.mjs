@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import {
   MAX_DAILY_RETENTION_NOTIFICATIONS,
   MAX_DAILY_NON_ESSENTIAL_NOTIFICATIONS,
@@ -249,4 +250,13 @@ test('signale une journée de dépenses inhabituelle uniquement avec assez de do
   assert.equal(buildUnusualSpendingNotification({
     dateKey: '2026-11-21', todayTotal: 3000, monthTotal: 30000,
   }), null);
+});
+
+
+test('la notification de récupération ouvre aussi la checklist après une navigation interne', () => {
+  const page = fs.readFileSync('src/app/(app)/expenses/page.js', 'utf8');
+  assert.match(page, /useSearchParams/);
+  assert.match(page, /const searchParams = useSearchParams\(\)/);
+  assert.match(page, /searchParams\.get\('recovery'\) === '1'/);
+  assert.match(page, /\}, \[searchParams\]\)/);
 });

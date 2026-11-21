@@ -2,6 +2,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Plus, Trash2, Wallet, Pencil, Landmark, Calendar, Repeat, Clock3, MapPin, FolderPlus, Info, Briefcase } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -66,6 +67,7 @@ const emptyForm = () => ({
 });
 
 export default function ExpensesPage() {
+  const searchParams = useSearchParams();
   const { user } = useAuth();
   const { language } = useLanguage();
   const isEnglish = language === 'en';
@@ -128,7 +130,7 @@ export default function ExpensesPage() {
   useEffect(() => {
     const openFromShortcut = () => { setForm(emptyForm()); setError(''); setOpen(true); };
     window.addEventListener('pata:expense-new', openFromShortcut);
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(searchParams.toString());
     if (params.get('recovery') === '1') {
       setRecoveryChecks([false, false, false, false]);
       setRecoveryChecklistOpen(true);
@@ -145,7 +147,7 @@ export default function ExpensesPage() {
       window.history.replaceState(null, '', window.location.pathname + (remaining ? '?' + remaining : ''));
     }
     return () => window.removeEventListener('pata:expense-new', openFromShortcut);
-  }, []);
+  }, [searchParams]);
 
   const projectIdSignature = projects.map((project) => project.id).filter(Boolean).sort().join('|');
   useEffect(() => {
