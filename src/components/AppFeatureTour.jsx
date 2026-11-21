@@ -52,11 +52,11 @@ function AppFeatureTourContent({ startRequest }) {
   const { user } = useAuth();
   const { language } = useLanguage();
   const isEnglish = language === 'en';
-  const steps = fullGuide ? (isEnglish ? TOUR_STEPS.en : TOUR_STEPS.fr) : (isEnglish ? FIRST_TOUR_STEPS.en : FIRST_TOUR_STEPS.fr);
   const pathname = usePathname();
   const router = useRouter();
   const [active, setActive] = useState(false);
   const [fullGuide, setFullGuide] = useState(false);
+  const steps = fullGuide ? (isEnglish ? TOUR_STEPS.en : TOUR_STEPS.fr) : (isEnglish ? FIRST_TOUR_STEPS.en : FIRST_TOUR_STEPS.fr);
   const [stepIndex, setStepIndex] = useState(0);
   const [targetRect, setTargetRect] = useState(null);
   const [viewport, setViewport] = useState({ width: 360, height: 800 });
