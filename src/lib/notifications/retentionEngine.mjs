@@ -223,6 +223,7 @@ export function buildSmallPurchaseNotification({
   dateKey,
   threshold = 1000,
   minimumCount = 3,
+  categoryLabels = {},
 } = {}) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return null;
   const limit = Math.max(1, Number(threshold) || 1000);
@@ -249,7 +250,7 @@ export function buildSmallPurchaseNotification({
     title: 'Tes petits achats s’additionnent',
     body: 'Tu as enregistré ' + rows.length + ' petits achats de ' + limit.toLocaleString('fr-FR')
       + ' FCFA ou moins aujourd’hui, pour un total de ' + formatFCFA(total)
-      + (topCategory ? '. La catégorie la plus fréquente est « ' + topCategory[0] + ' ». ' : '. ')
+      + (topCategory ? '. La catégorie la plus fréquente est « ' + String(categoryLabels[topCategory[0]] || topCategory[0]) + ' ». ' : '. ')
       + 'Vérifie le détail et décide si certains achats peuvent être mieux planifiés.',
     target: '/expenses',
     source: 'small_purchase_pattern',

@@ -9,7 +9,7 @@ import { calculatePremiumPricing } from '@/lib/premiumPricing.mjs';
 import { completeWithGroq } from '@/lib/ai/groqClient';
 import { normalizeWebPushSubscription, webPushSubscriptionId, sendPataWebPush, isExpiredWebPushError } from '@/lib/notifications/webPush.mjs';
 import { dispatchPushNotification } from '@/lib/notifications/dispatcher.mjs';
-import { claimDailyRetentionSlot, claimDailyRetentionPassSlot, claimDailyNonEssentialSlot, buildCategoryAdviceNotification, buildCategoryBudgetForecastNotification, buildExpenseRecoveryNotification, buildSmallPurchaseNotification, buildUnusualSpendingNotification, selectRetentionCandidates, getDoualaDateKey as getRetentionDoualaDateKey, isWithinDoualaEveningWindow } from '@/lib/notifications/retentionEngine.mjs';
+import { claimDailyRetentionSlot, claimDailyRetentionPassSlot, claimDailyNonEssentialSlot, buildCategoryAdviceNotification, buildCategoryBudgetForecastNotification, buildExpenseRecoveryNotification, buildSmallPurchaseNotification, buildUnusualSpendingNotification, claimDailySmartSlot, selectRetentionCandidates, getDoualaDateKey as getRetentionDoualaDateKey, isWithinDoualaEveningWindow } from '@/lib/notifications/retentionEngine.mjs';
 import { AI_TOOLS, createExpenseForUser, updateExpenseForUser, deleteExpenseForUser, deleteIncomeForUser, executeAITool, runAutomationForUser, generateWeeklyReportForUser } from '@/lib/ai/financialTools';
 import { generateAudioWithGemini } from '@/lib/ai/geminiTTS';
 import { buildIncomePriorityReminder } from '@/lib/finance/incomePriorities.mjs';
@@ -3156,7 +3156,7 @@ async function handleNotificationScheduler(request, passNumber = 1) {
             ...categoryAdvice,
           });
         }
-        const smallPurchaseAlert = buildSmallPurchaseNotification({ expenses: todayExpenses, dateKey: today });
+        const smallPurchaseAlert = buildSmallPurchaseNotification({ expenses: todayExpenses, dateKey: today, categoryLabels });
         if (smallPurchaseAlert) smartCandidates.push(smallPurchaseAlert);
         const unusualSpendingAlert = buildUnusualSpendingNotification({
           todayTotal: totalToday,
@@ -3306,6 +3306,11 @@ async function handleNotificationScheduler(request, passNumber = 1) {
         // Elles ne consomment aucun des deux créneaux de rétention du soir ni les trois messages non essentiels.
         const selectedSmartCandidate = selectRetentionCandidates(smartCandidates, 1)[0];
         if (selectedSmartCandidate) {
+          const smartQuota = claimDailySmartSlot({
+            date: userData.lastSmartFinancialNotificationDate,
+            key: userData.lastSmartFinancialNotificationTopic,
+          }, today, selectedSmartCandidate.key);
+          if (smartQuota.allowed) {
           const smartNotificationId = 'smart-finance-' + today;
           const smartNotificationRef = userDoc.ref.collection('notifications').doc(smartNotificationId);
           const smartNotification = {
@@ -3341,7 +3346,12 @@ async function handleNotificationScheduler(request, passNumber = 1) {
             if (!claimCode.includes('already-exists') && claimCode !== '6') throw claimError;
           }
           if (smartClaimed) {
-            const smartPush = await sendPataPushToUser(userDoc.ref, smartNotification, appUrl, userData);
+            let smartPush = { fcmSent: 0, webPushSent: 0, attempted: 0 };
+            try {
+              smartPush = await sendPataPushToUser(userDoc.ref, smartNotification, appUrl, userData);
+            } catch (smartPushError) {
+              console.warn('[PATA SMART FINANCIAL PUSH]', userDoc.id, smartPushError.message || smartPushError);
+            }
             const smartDelivered = smartPush.fcmSent + smartPush.webPushSent;
             const smartEmailSent = smartDelivered === 0 && selectedSmartCandidate.allowEmail !== false
               ? await sendRetentionEmailFallback({
@@ -3364,6 +3374,7 @@ async function handleNotificationScheduler(request, passNumber = 1) {
             });
             if (smartDelivered > 0 || smartEmailSent) sent += 1;
             else failed += 1;
+          }
           }
         }
 
