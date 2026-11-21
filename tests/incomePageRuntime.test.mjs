@@ -116,3 +116,29 @@ test('la liste des dépenses possède des filtres de catégorie, de date, de mon
   assert.match(expensePage, /filterSearch/);
   assert.match(expensePage, /EXPENSE_CATEGORIES\.map/);
 });
+
+test('une dette en argent ne finance des dépenses que si l’utilisateur a confirmé avoir reçu de l’argent', () => {
+  const expensePage = fs.readFileSync(new URL('../src/app/(app)/expenses/page.js', import.meta.url), 'utf8');
+  const financialTools = fs.readFileSync(new URL('../src/lib/ai/financialTools.js', import.meta.url), 'utf8');
+  const apiRoute = fs.readFileSync(new URL('../src/app/api/[...path]/route.js', import.meta.url), 'utf8');
+
+  assert.match(incomePage, /availableAsFunding: form\.flowType === 'debt_borrowed' && form\.availableAsFunding === true/);
+  assert.match(incomePage, /checked=\{form\.availableAsFunding === true\}/);
+  assert.match(incomePage, /checked=\{form\.availableAsFunding !== true\}/);
+  assert.match(expensePage, /income\.flowType === 'debt_borrowed' && income\.availableAsFunding === true/);
+  assert.match(financialTools, /income\.flowType === 'debt_borrowed' && income\.availableAsFunding === true/);
+  assert.match(apiRoute, /const availableAsFunding = flowType === 'debt_borrowed' && body\.availableAsFunding === true/);
+  assert.match(apiRoute, /availableAsFunding,\s*debtId: newDebtRef\.id/);
+});
+
+test('la nature du revenu reste modifiable, mais son montant est verrouillé après une dépense liée', () => {
+  const apiRoute = fs.readFileSync(new URL('../src/app/api/[...path]/route.js', import.meta.url), 'utf8');
+
+  assert.match(incomePage, /amountLocked: Number\(income\.spent\) > 0/);
+  assert.match(incomePage, /disabled=\{form\.amountLocked === true && !!form\.id\}/);
+  assert.match(incomePage, /<option value="normal">Revenu normal<\/option>/);
+  assert.match(incomePage, /<option value="debt_borrowed">Dette contractée/);
+  assert.match(apiRoute, /if \(alreadySpent && amount !== currentAmount\)/);
+  assert.match(apiRoute, /previous\.flowType === 'debt_borrowed' && Boolean\(previous\.debtId\)/);
+  assert.match(apiRoute, /convertedToIncome: true/);
+});
