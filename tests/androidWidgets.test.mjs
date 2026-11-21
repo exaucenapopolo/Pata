@@ -93,7 +93,7 @@ test('le widget de saisie rapide propose dépense, revenu et voix sans remplacer
   assert.ok(prepare.includes("pata_quick_actions_widget.xml"));
   assert.ok(prepare.includes("pata_quick_actions_widget_info.xml"));
   for (const id of ['pata_quick_action_expense', 'pata_quick_action_income', 'pata_quick_action_voice']) {
-    assert.match(layout, new RegExp('android:id="@\\\\+id/' + id + '"'));
+    assert.match(layout, new RegExp('android:id="@\\+id/' + id + '"'));
     assert.ok(provider.includes(id));
   }
   assert.match(info, /android:updatePeriodMillis="0"/);
