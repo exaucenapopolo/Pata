@@ -350,8 +350,13 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
       ? { id: 'external', source: cleanText(input.externalFundingLabel, 80) || 'Solde Mobile Money' }
       : sourceOverride || resolveSource(incomes, input.incomeSourceId, input.incomeSourceName);
 
-    const eligibleBalances = balances.filter((income) => (!income.projectId || income.projectId === projectId)
-      && (!cashWithdrawal || (income.cashPocket !== true && income.neutralFlow !== true && incomeMatchesMobileMoneyProvider(income, cashWithdrawalProvider))));
+    const eligibleBalances = balances.filter((income) => {
+      const isBorrowedFunding = income.flowType === 'debt_borrowed' && income.availableAsFunding === true;
+      const isUsableSource = income.neutralFlow !== true || isBorrowedFunding;
+      return isUsableSource
+        && (!income.projectId || income.projectId === projectId)
+        && (!cashWithdrawal || (income.cashPocket !== true && !isBorrowedFunding && isUsableSource && incomeMatchesMobileMoneyProvider(income, cashWithdrawalProvider)));
+    });
 
     let allocations;
     if (externalFunding) {
@@ -375,7 +380,7 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
         remaining -= allocated;
       }
     } else {
-      const income = (cashWithdrawal ? eligibleBalances : balances).find((item) => item.id === selectedSource.id);
+      const income = eligibleBalances.find((item) => item.id === selectedSource.id);
       if (!income) throw new Error('Cette source de revenu n’existe plus. Vérifie-la avant de réessayer.');
       if (income.projectId && income.projectId !== projectId) throw new Error('Ce revenu est réservé à un autre projet.');
       if (amount > income.remaining) {
@@ -836,7 +841,8 @@ export async function updateExpenseForUser(uid, expenseId, input) {
       }
     }
     const selectedSource = resolveSource(incomes, requestedSourceId, requestedSourceName);
-    const eligibleBalances = balances.filter((income) => !income.projectId || income.projectId === projectId);
+    const eligibleBalances = balances.filter((income) => (income.neutralFlow !== true || (income.flowType === 'debt_borrowed' && income.availableAsFunding === true))
+      && (!income.projectId || income.projectId === projectId));
     let allocations = [];
 
     if (selectedSource.id === 'all') {
@@ -853,7 +859,7 @@ export async function updateExpenseForUser(uid, expenseId, input) {
         remaining -= allocated;
       }
     } else {
-      const income = balances.find((item) => item.id === selectedSource.id);
+      const income = eligibleBalances.find((item) => item.id === selectedSource.id);
       if (!income) throw new Error('Cette source de revenu n’existe plus. Vérifie-la avant de réessayer.');
       if (income.projectId && income.projectId !== projectId) throw new Error('Ce revenu est réservé à un autre projet.');
       if (amount > income.remaining) {
