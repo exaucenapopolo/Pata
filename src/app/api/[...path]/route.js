@@ -3699,6 +3699,11 @@ async function handleCreateIncome(request) {
     const phone = String(body.phone || '').trim().slice(0, 30);
     const dueDate = String(body.dueDate || '').trim();
     const repaymentDebtId = String(body.repaymentDebtId || '').trim().slice(0, 150);
+    if (flowType === 'debt_borrowed'
+      && Object.prototype.hasOwnProperty.call(body, 'availableAsFunding')
+      && typeof body.availableAsFunding !== 'boolean') {
+      return errorResponse('Indique si tu as reçu de l’argent ou des biens/services à crédit.', 400);
+    }
     const availableAsFunding = flowType === 'debt_borrowed' && body.availableAsFunding === true;
     const source = String(body.source || (flowType === 'debt_borrowed' ? person : 'Revenu')).trim().slice(0, 100);
     const categoryId = String(body.categoryId || (flowType === 'debt_borrowed' ? 'debt_borrowed' : flowType === 'repayment_received' ? 'debt_repayment_received' : 'salary')).trim().slice(0, 80);
@@ -3996,7 +4001,15 @@ async function handleUpdateIncome(request) {
       ? (counterpartyType === 'bank' ? bankName : String(body.person || '').trim().slice(0, 100)) : '';
     const dueDate = requestedFlowType === 'debt_borrowed'
       ? String(body.dueDate === undefined ? initialIncome.dueDate || '' : body.dueDate || '').trim() : '';
-    const availableAsFunding = requestedFlowType === 'debt_borrowed' && body.availableAsFunding === true;
+    const hasFundingChoice = Object.prototype.hasOwnProperty.call(body, 'availableAsFunding');
+    if (requestedFlowType === 'debt_borrowed' && hasFundingChoice && typeof body.availableAsFunding !== 'boolean') {
+      return errorResponse('Choisis si tu as reçu de l’argent ou des biens/services à crédit.', 400);
+    }
+    if (requestedFlowType === 'debt_borrowed' && initialIncome.flowType !== 'debt_borrowed' && !hasFundingChoice) {
+      return errorResponse('Indique si tu as reçu de l’argent ou des biens/services à crédit.', 400);
+    }
+    const availableAsFunding = requestedFlowType === 'debt_borrowed'
+      && (hasFundingChoice ? body.availableAsFunding === true : initialIncome.availableAsFunding === true);
     const source = requestedFlowType === 'debt_borrowed'
       ? person
       : String(body.source === undefined ? initialIncome.source || '' : body.source || '').trim().slice(0, 100);
