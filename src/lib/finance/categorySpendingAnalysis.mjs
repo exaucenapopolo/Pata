@@ -22,6 +22,7 @@ export function buildCategorySpendingAnalysis({
   expenses = [],
   categories = [],
   budgets = [],
+  targets = [],
   today = new Date().toISOString().slice(0, 10),
   smallPurchaseThreshold = 1000,
 } = {}) {
@@ -32,6 +33,9 @@ export function buildCategorySpendingAnalysis({
   const daysInMonth = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
   const elapsedDays = Number(currentDate.slice(8, 10));
   const threshold = Math.max(1, amountOf(smallPurchaseThreshold));
+  const weekStartDate = new Date(currentDate + 'T12:00:00.000Z');
+  weekStartDate.setUTCDate(weekStartDate.getUTCDate() - ((weekStartDate.getUTCDay() + 6) % 7));
+  const weekStart = weekStartDate.toISOString().slice(0, 10);
   const totals = new Map();
 
   for (const expense of expenses) {
@@ -45,9 +49,11 @@ export function buildCategorySpendingAnalysis({
     const id = String(expense?.categoryId || 'other');
     const item = totals.get(id) || {
       id, name: formatName(id, categories), total: 0, count: 0,
-      smallCount: 0, smallTotal: 0, days: new Set(), largest: [],
+      smallCount: 0, smallTotal: 0, todayTotal: 0, weekTotal: 0, days: new Set(), largest: [],
     };
     item.total += amount;
+    if (date === currentDate) item.todayTotal += amount;
+    if (date >= weekStart) item.weekTotal += amount;
     item.count += 1;
     item.days.add(date);
     if (amount <= threshold) {
@@ -68,6 +74,17 @@ export function buildCategorySpendingAnalysis({
       && (!entry.incomeSourceId || entry.incomeSourceId === 'all'));
     const enoughData = elapsedDays >= 3 && item.days.size >= 3;
     const projected = enoughData ? Math.round(item.total / elapsedDays * daysInMonth) : null;
+    const target = targets.find((entry) => entry.categoryId === item.id
+      && ['daily', 'weekly', 'monthly'].includes(entry.period)
+      && amountOf(entry.amount) > 0) || null;
+    const targetActual = !target ? null : target.period === 'daily'
+      ? item.todayTotal : target.period === 'weekly' ? item.weekTotal : item.total;
+    const targetInfo = target ? {
+      period: target.period,
+      amount: amountOf(target.amount),
+      actual: targetActual,
+      status: targetActual > amountOf(target.amount) ? 'over' : 'within',
+    } : null;
     const budgetAmount = budget ? amountOf(budget.amount) : null;
     const dailyBudgetPace = budgetAmount == null ? null : Math.ceil(budgetAmount / daysInMonth);
     const weeklyBudgetPace = dailyBudgetPace == null ? null : dailyBudgetPace * 7;
@@ -79,6 +96,9 @@ export function buildCategorySpendingAnalysis({
       average: Math.round(item.total / Math.max(1, item.count)),
       smallCount: item.smallCount,
       smallTotal: item.smallTotal,
+      todayTotal: item.todayTotal,
+      weekTotal: item.weekTotal,
+      target: targetInfo,
       daysObserved: item.days.size,
       projected,
       projectionReliable: enoughData,

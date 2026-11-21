@@ -29,6 +29,21 @@ test('analyse les petites dépenses, les opérations importantes et la projectio
   assert.equal(result[0].largest[0].description, 'Courses');
 });
 
+test('compare les objectifs facultatifs quotidiens, hebdomadaires et mensuels aux opérations réelles', () => {
+  const result = buildCategorySpendingAnalysis({
+    today: '2026-11-15',
+    targets: [{ categoryId: 'food', period: 'weekly', amount: 5000 }],
+    expenses: [
+      { date: '2026-11-09', amount: 1000, categoryId: 'food' },
+      { date: '2026-11-11', amount: 2000, categoryId: 'food' },
+      { date: '2026-11-15', amount: 3000, categoryId: 'food' },
+    ],
+  });
+  assert.equal(result[0].target.period, 'weekly');
+  assert.equal(result[0].target.actual, 5000);
+  assert.equal(result[0].target.status, 'within');
+});
+
 test('ne projette pas une tendance à partir de trop peu de jours de dépenses', () => {
   const result = buildCategorySpendingAnalysis({
     today: '2026-11-04',
