@@ -194,7 +194,8 @@ export default function ExpensesPage() {
 
   const totalGlobalBalance = useMemo(
     () => balancesReady && incomesWithBalance.every((income) => income.balanceAvailable)
-      ? incomesWithBalance.reduce((sum, income) => sum + income.remaining, 0)
+      ? incomesWithBalance.filter((income) => !income.neutralFlow || (income.flowType === 'debt_borrowed' && income.availableAsFunding === true))
+        .reduce((sum, income) => sum + income.remaining, 0)
       : null,
     [balancesReady, incomesWithBalance]
   );
@@ -273,7 +274,11 @@ export default function ExpensesPage() {
   const activeProjects = projectTotals.filter((project) => project.status !== 'completed' && project.status !== 'archived');
   const completedProjects = projectTotals.filter((project) => project.status === 'completed' || project.status === 'archived');
   const displayedProjects = showCompletedProjects ? [...activeProjects, ...completedProjects] : activeProjects;
-  const eligibleIncomesForExpense = sortedIncomesForSelect.filter((income) => income.balanceAvailable && (!income.projectId || income.projectId === (form.expenseType === 'project' ? form.projectId : '')));
+  const eligibleIncomesForExpense = sortedIncomesForSelect.filter((income) =>
+    income.balanceAvailable
+    && (!income.neutralFlow || (income.flowType === 'debt_borrowed' && income.availableAsFunding === true))
+    && (!income.projectId || income.projectId === (form.expenseType === 'project' ? form.projectId : ''))
+  );
 
   const openNew = () => {
     setForm(emptyForm());
@@ -751,7 +756,7 @@ export default function ExpensesPage() {
                   disabled={inc.isExhausted && form.incomeSourceId !== inc.id}
                   className={inc.isExhausted ? 'text-slate-400' : ''}
                 >
-                  {inc.cashPocket ? 'Espèces · ' + (inc.cashPocketProvider === 'mtn_momo' ? 'MTN MoMo' : 'Orange Money') : inc.source} ({formatCurrency(inc.remaining)} restant) {inc.isExhausted ? '— Épuisé' : ''}
+                  {inc.cashPocket ? 'Espèces · ' + (inc.cashPocketProvider === 'mtn_momo' ? 'MTN MoMo' : 'Orange Money') : inc.flowType === 'debt_borrowed' ? 'Emprunt reçu · ' + (inc.source || inc.person || 'Créancier') : inc.source} ({formatCurrency(inc.remaining)} restant) {inc.isExhausted ? '— Épuisé' : ''}
                 </option>
               ))}
             </select>
