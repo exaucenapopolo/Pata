@@ -160,6 +160,9 @@ export async function POST(request) {
       if (kind === 'income' && !payload.source) throw new Error('Indique le nom ou la source du revenu à programmer.');
       if (kind === 'debt_borrowed') {
         payload.person = payload.counterpartyType === 'bank' ? payload.bankName : payload.person;
+        if (Object.prototype.hasOwnProperty.call(body, 'availableAsFunding') && typeof body.availableAsFunding !== 'boolean') {
+          throw new Error('Choisis si tu recevras de l’argent ou des biens/services à crédit.');
+        }
         payload.availableAsFunding = body.availableAsFunding === true;
         if (!payload.person || !isValidDateKey(payload.dueDate)) throw new Error('Pour programmer un emprunt, indique le créancier et la date d’échéance.');
         payload.source = payload.person;
