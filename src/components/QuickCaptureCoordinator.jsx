@@ -38,7 +38,7 @@ function restoreOfflineCaptureDraft(item, confirmationMessage = '') {
     incomeBankName: String(payload.incomeBankName || ''),
     incomePhone: String(payload.incomePhone || ''),
     incomeDueDate: String(payload.incomeDueDate || ''),
-    incomeAvailableAsFunding: payload.incomeAvailableAsFunding === true,
+    incomeAvailableAsFunding: typeof payload.incomeAvailableAsFunding === 'boolean' ? payload.incomeAvailableAsFunding : null,
     billName: String(payload.name || ''),
     billType: String(payload.billType || 'other'),
     dueDate: String(payload.dueDate || ''),
@@ -196,7 +196,7 @@ export function QuickCaptureCoordinator() {
       incomeBankName: '',
       incomePhone: '',
       incomeDueDate: parsed.dueDate || '',
-      incomeAvailableAsFunding: false,
+      incomeAvailableAsFunding: null,
       note: extracted
         ? [extracted.merchantName, extracted.description, extracted.invoiceNumber ? 'Facture ' + extracted.invoiceNumber : ''].filter(Boolean).join(' · ').slice(0, 250)
         : parsed.note || '',
@@ -534,7 +534,7 @@ export function QuickCaptureCoordinator() {
         incomeBankName: draft.incomeBankName || '',
         incomePhone: draft.incomePhone || '',
         incomeDueDate: draft.incomeDueDate || '',
-        incomeAvailableAsFunding: draft.incomeAvailableAsFunding === true,
+        incomeAvailableAsFunding: draft.incomeAvailableAsFunding,
         incomeSourceId: draft.incomeSourceId || 'all',
         incomeSourceName: draft.incomeSourceName || '',
         idempotencyKey: draft.id,
@@ -756,7 +756,7 @@ export function QuickCaptureCoordinator() {
               categoryId: current.type === 'debt_borrowed' ? 'debt_borrowed' : current.type === 'repayment_received' ? 'debt_repayment_received' : current.type !== 'income' ? 'other_income' : current.categoryId,
               incomePerson: current.incomePerson || current.person || '',
               incomeDueDate: current.incomeDueDate || current.dueDate || '',
-              incomeAvailableAsFunding: current.incomeAvailableAsFunding === true,
+              incomeAvailableAsFunding: current.incomeAvailableAsFunding,
             }))} className={'flex min-w-0 items-center justify-center gap-1 rounded-xl border px-1.5 py-3 text-[11px] font-semibold ' + (draft.type === 'income' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><ArrowDownLeft size={14}/> Revenu</button>
             <button type="button" onClick={() => setDraft((current) => ({ ...current, type: 'debt_borrowed', manualTypeOverride: true, categoryId: 'debt_borrowed', person: current.person || current.incomePerson || '', dueDate: current.incomeDueDate || current.dueDate || '' }))} className={'flex min-w-0 items-center justify-center gap-1 rounded-xl border px-1 py-3 text-[10px] font-semibold ' + (draft.type === 'debt_borrowed' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><HandCoins size={14}/> Emprunt</button>
             <button type="button" onClick={() => setDraft((current) => ({ ...current, type: 'bill', manualTypeOverride: true, categoryId: current.type === 'bill' ? current.categoryId : current.expenseCategoryId || 'other' }))} className={'flex min-w-0 items-center justify-center gap-1 rounded-xl border px-1.5 py-3 text-[11px] font-semibold ' + (draft.type === 'bill' ? 'border-emerald-600 bg-emerald-50 text-emerald-900' : 'border-slate-200 text-slate-600')}><ReceiptText size={14}/> Facture</button>
@@ -778,7 +778,7 @@ export function QuickCaptureCoordinator() {
              <div className="rounded-xl bg-slate-50 p-3 text-[11px] leading-5 text-slate-700">
                 <p className="mb-2 font-semibold">Qu’as-tu réellement reçu ?</p>
                 <label className="flex cursor-pointer items-start gap-2"><input type="radio" name="quick-borrowed-funding" checked={draft.incomeAvailableAsFunding === true} onChange={() => setDraft((current) => ({ ...current, incomeAvailableAsFunding: true }))} className="mt-0.5"/><span><strong>De l’argent</strong><span className="block leading-5 text-slate-500">La somme m’a été remise. Elle pourra financer mes dépenses, sans devenir un revenu gagné.</span></span></label>
-                <label className="mt-3 flex cursor-pointer items-start gap-2"><input type="radio" name="quick-borrowed-funding" checked={draft.incomeAvailableAsFunding !== true} onChange={() => setDraft((current) => ({ ...current, incomeAvailableAsFunding: false }))} className="mt-0.5"/><span><strong>Des biens ou services à crédit</strong><span className="block leading-5 text-slate-500">J’ai déjà pris ou consommé quelque chose. La dette reste suivie, sans augmenter mon argent disponible.</span></span></label>
+                <label className="mt-3 flex cursor-pointer items-start gap-2"><input type="radio" name="quick-borrowed-funding" checked={draft.incomeAvailableAsFunding === false} onChange={() => setDraft((current) => ({ ...current, incomeAvailableAsFunding: false }))} className="mt-0.5"/><span><strong>Des biens ou services à crédit</strong><span className="block leading-5 text-slate-500">J’ai déjà pris ou consommé quelque chose. La dette reste suivie, sans augmenter mon argent disponible.</span></span></label>
               </div>
            </>}
            {draft.type === 'debt_repayment' && <label className="block text-xs font-semibold text-slate-700">Dette à rembourser
