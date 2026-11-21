@@ -1,7 +1,12 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, initializeAuth, indexedDBLocalPersistence } from 'firebase/auth';
 import { Capacitor } from '@capacitor/core';
-import { getFirestore } from 'firebase/firestore';
+import {
+  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -28,8 +33,38 @@ function createFirebaseAuth() {
   return getAuth(app);
 }
 
+function createFirestore() {
+  // Le rendu serveur Next.js ne dispose pas d'IndexedDB : il garde le cache mémoire.
+  // Dans le navigateur/PWA, le cache persistant conserve les documents déjà lus
+  // et les écritures Firestore en attente, y compris après fermeture de l'application.
+  if (typeof window === 'undefined' || typeof indexedDB === 'undefined') {
+    return getFirestore(app);
+  }
+
+  try {
+    return initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+      }),
+    });
+  } catch (error) {
+    // Une instance peut déjà exister (HMR ou environnement de navigateur incompatible).
+    // On garde alors Firestore utilisable avec son cache mémoire plutôt que de bloquer Pata.
+    if (
+      error?.code === 'failed-precondition'
+      || error?.code === 'firestore/failed-precondition'
+      || error?.code === 'already-initialized'
+      || error?.code === 'firestore/failed-precondition'
+    ) {
+      return getFirestore(app);
+    }
+    console.warn('[PATA FIRESTORE PERSISTENCE]', error?.message || error);
+    return getFirestore(app);
+  }
+}
+
 export const auth = createFirebaseAuth();
-export const db = getFirestore(app);
+export const db = createFirestore();
 
 export async function initAnalytics() {
   if (typeof window === 'undefined') return null;
