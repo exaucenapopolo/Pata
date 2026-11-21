@@ -1566,7 +1566,7 @@ export const AI_TOOLS = [
     type: 'function',
     function: {
       name: 'add_debt',
-      description: 'Enregistrer une nouvelle dette contractée. Elle crée un suivi Dettes & prêts et une entrée de trésorerie neutre, jamais un revenu gagné. Le créancier peut être une personne physique ou une banque. Associe un projet uniquement si l’utilisateur le demande et si son ID exact est fourni.',
+      description: 'Enregistrer une nouvelle dette contractée. Avant de créer, demande à l’utilisateur s’il a reçu de l’argent réellement utilisable ou des biens/services à crédit. Elle crée un suivi Dettes & prêts et ne devient jamais un revenu gagné. Le créancier peut être une personne physique ou une banque. Associe un projet uniquement si l’utilisateur le demande et si son ID exact est fourni.',
       parameters: {
         type: 'object',
         properties: {
@@ -1577,7 +1577,7 @@ export const AI_TOOLS = [
           date: { type: 'string', description: 'Date de réception YYYY-MM-DD si précisée.' },
           projectId: { type: 'string', description: 'ID exact du projet, uniquement si demandé.' }, note: { type: 'string' },
         },
-        required: ['amount', 'counterpartyType', 'dueDate'],
+        required: ['amount', 'counterpartyType', 'dueDate', 'availableAsFunding'],
       },
     },
   },
@@ -1741,7 +1741,8 @@ async function addDebt(uid, args, idempotencyKey = null, premiumOnly = false) {
   const creditorName = cleanText(counterpartyType === 'bank' ? (args.bankName || args.person) : args.person, 100);
   if (!creditorName) throw new Error(counterpartyType === 'bank' ? 'Indique le nom de la banque créancière.' : 'Indique le nom de la personne qui t’a prêté cet argent.');
   const dueDate = String(args.dueDate || '').trim();
-  const availableAsFunding = args.availableAsFunding === true;
+  if (typeof args.availableAsFunding !== 'boolean') throw new Error('Avant d’enregistrer cette dette, précise si tu as reçu de l’argent ou des biens/services à crédit.');
+  const availableAsFunding = args.availableAsFunding;
   if (dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) throw new Error('La date d’échéance de cette dette est invalide.');
 
   const date = /^\d{4}-\d{2}-\d{2}$/.test(String(args.date || '')) ? String(args.date) : todayDouala();
