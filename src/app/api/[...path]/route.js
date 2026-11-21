@@ -9,7 +9,7 @@ import { calculatePremiumPricing } from '@/lib/premiumPricing.mjs';
 import { completeWithGroq } from '@/lib/ai/groqClient';
 import { normalizeWebPushSubscription, webPushSubscriptionId, sendPataWebPush, isExpiredWebPushError } from '@/lib/notifications/webPush.mjs';
 import { dispatchPushNotification } from '@/lib/notifications/dispatcher.mjs';
-import { claimDailyRetentionSlot, claimDailyRetentionPassSlot, claimDailyNonEssentialSlot, buildCategoryAdviceNotification, selectRetentionCandidates, getDoualaDateKey as getRetentionDoualaDateKey, isWithinDoualaEveningWindow } from '@/lib/notifications/retentionEngine.mjs';
+import { claimDailyRetentionSlot, claimDailyRetentionPassSlot, claimDailyNonEssentialSlot, buildCategoryAdviceNotification, buildExpenseRecoveryNotification, selectRetentionCandidates, getDoualaDateKey as getRetentionDoualaDateKey, isWithinDoualaEveningWindow } from '@/lib/notifications/retentionEngine.mjs';
 import { AI_TOOLS, createExpenseForUser, updateExpenseForUser, deleteExpenseForUser, deleteIncomeForUser, executeAITool, runAutomationForUser, generateWeeklyReportForUser } from '@/lib/ai/financialTools';
 import { generateAudioWithGemini } from '@/lib/ai/geminiTTS';
 import { buildIncomePriorityReminder } from '@/lib/finance/incomePriorities.mjs';
@@ -3073,6 +3073,13 @@ async function handleNotificationScheduler(request, passNumber = 1) {
         }
 
         const candidates = [];
+        const expenseRecoveryReminder = buildExpenseRecoveryNotification({
+          dateKey: today,
+          monthExpenseCount,
+          todayExpenseCount,
+          lastCheckDate: userData.lastExpenseRecoveryCheckDate,
+        });
+        if (expenseRecoveryReminder) candidates.push(expenseRecoveryReminder);
         const recurringReminders = buildRecurringExpenseReminders(
           recurringPatternsSnap.docs.map((document) => ({ id: document.id, ...document.data() })),
           today,
