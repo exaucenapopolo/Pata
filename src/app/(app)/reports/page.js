@@ -20,6 +20,7 @@ import { useDeposits } from '@/hooks/useDeposits';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { useWeeklyReport } from '@/hooks/useWeeklyReport';
 import { convertCurrencyAmount, formatCurrency, formatDate, getPreferredCurrencyCode, getPreferredLocale, resolveCategory, normalizeExpenseCategoryId } from '@/lib/utils';
+import { buildCategorySpendingAnalysis } from '@/lib/finance/categorySpendingAnalysis.mjs';
 
 const iso = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 const monthFirst = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-01`;
@@ -238,6 +239,15 @@ export default function ReportsPage() {
     return [...map.values()].sort((a, b) => b.value - a.value);
   }, [financialExpenses, customCategories]);
 
+  const categorySpendingAnalysis = useMemo(() => buildCategorySpendingAnalysis({
+    expenses: periodExpenses,
+    categories: customCategories,
+    budgets,
+    today: iso(new Date()),
+  }), [periodExpenses, customCategories, budgets]);
+
+  const isCurrentMonthReport = periodType === 'month' && month === iso(new Date()).slice(0, 7);
+
   const sourceData = useMemo(() => {
     const map = new Map();
     financialIncomes.forEach((income) => {
@@ -299,7 +309,7 @@ export default function ReportsPage() {
   const askAssistant = () => {
     const prompt = isEnglish
       ? `Provide an in-depth analysis of my financial report for ${range.label}. Income: ${totalIncome} XAF (excluding borrowed debt). Expenses: ${totalExpense} XAF (excluding loans given). Actual balance change, including loans and debts: ${cashBalanceMovement} XAF. Everyday expenses: ${expenseTypeTotals.consumption} XAF. Project outflows: ${expenseTypeTotals.project} XAF. Savings: ${expenseTypeTotals.savings} XAF. Investments: ${expenseTypeTotals.investment} XAF. Cash movement difference: ${net} XAF. Everyday expenses by category: ${categoryData.map((item) => `${item.name}: ${item.value} XAF`).join('; ')}. Budgets: ${budgetAnalysis.map((item) => `${item.category} (${item.month}): ${item.spent}/${item.allocated} XAF`).join('; ')}. Goals: ${goalAnalysis.map((item) => `${item.name}: ${item.saved == null ? 'indisponible' : item.saved}/${item.target} XAF`).join('; ')}. Wallet balance: ${Number(profile?.balance)||0} XAF. Highlight trends, risks and practical actions. Do not invent data or modify my transactions.`
-      : `Réalise une analyse approfondie de mon rapport financier pour la période ${range.label}. Revenus : ${totalIncome} FCFA (hors dette contractée). Dépenses : ${totalExpense} FCFA (hors prêts accordés). Variation réelle du solde, prêts et dettes compris : ${cashBalanceMovement} FCFA. Dépenses courantes : ${expenseTypeTotals.consumption} FCFA. Projets : ${expenseTypeTotals.project} FCFA. Épargne : ${expenseTypeTotals.savings} FCFA. Investissements : ${expenseTypeTotals.investment} FCFA. Différence de trésorerie : ${net} FCFA. Dépenses courantes par catégorie : ${categoryData.map((item) => `${item.name}: ${item.value} FCFA`).join('; ')}. Budgets : ${budgetAnalysis.map((item) => `${item.category} (${item.month}) : ${item.spent}/${item.allocated} FCFA`).join('; ')}. Objectifs : ${goalAnalysis.map((item) => `${item.name}: ${item.saved == null ? 'indisponible' : item.saved}/${item.target} FCFA`).join('; ')}. Solde du portefeuille : ${Number(profile?.balance)||0} FCFA. Fais ressortir les tendances, risques et actions concrètes sans inventer de données ni modifier mes opérations.`;
+      : `Réalise une analyse approfondie de mon rapport financier pour la période ${range.label}. Revenus : ${totalIncome} FCFA (hors dette contractée). Dépenses : ${totalExpense} FCFA (hors prêts accordés). Variation réelle du solde, prêts et dettes compris : ${cashBalanceMovement} FCFA. Dépenses courantes : ${expenseTypeTotals.consumption} FCFA. Projets : ${expenseTypeTotals.project} FCFA. Épargne : ${expenseTypeTotals.savings} FCFA. Investissements : ${expenseTypeTotals.investment} FCFA. Différence de trésorerie : ${net} FCFA. Dépenses courantes par catégorie : \${categoryData.map((item) => \`\${item.name}: \${item.value} FCFA\`).join('; ')}. Détails observés par catégorie : \${categorySpendingAnalysis.map((item) => \`\${item.name}: \${item.total} FCFA sur \${item.count} achats, moyenne \${item.average} FCFA, petits achats <=1000 FCFA: \${item.smallCount} pour \${item.smallTotal} FCFA, projection mensuelle \${item.projected == null ? 'insuffisamment de données' : item.projected + ' FCFA'}, budget \${item.budget == null ? 'non défini' : item.budget + ' FCFA'}, opérations principales: \${item.largest.map((entry) => entry.description + ' ' + entry.amount + ' FCFA').join(', ')}\`).join('; ')}. Budgets : ${budgetAnalysis.map((item) => `${item.category} (${item.month}) : ${item.spent}/${item.allocated} FCFA`).join('; ')}. Objectifs : ${goalAnalysis.map((item) => `${item.name}: ${item.saved == null ? 'indisponible' : item.saved}/${item.target} FCFA`).join('; ')}. Solde du portefeuille : ${Number(profile?.balance)||0} FCFA. Fais ressortir les tendances, risques et actions concrètes sans inventer de données ni modifier mes opérations.`;
     window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt } }));
   };
 
@@ -550,6 +560,31 @@ export default function ReportsPage() {
           {sourceData.length ? <div className="space-y-3">{sourceData.map((item)=> <div key={item.name}><div className="mb-1 flex justify-between gap-3 text-sm"><span>{item.name}</span><strong>{formatCurrency(item.value)}</strong></div><div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-600" style={{width:`${totalIncome?Math.min(100,item.value/totalIncome*100):0}%`}}/></div></div>)}</div> : <EmptyState icon={TrendingUp} title="Aucun revenu sur cette période"/>}
         </Card>
       </div>
+
+      <Card>
+        <div className="mb-1 flex items-center justify-between gap-3">
+          <CardTitle>Prévision et explication par catégorie</CardTitle>
+          <span className="text-xs text-slate-400">Données déjà chargées</span>
+        </div>
+        <p className="mb-4 text-xs text-slate-500">La projection utilise les opérations disponibles. Elle reste masquée lorsque trop peu de jours ont été observés.</p>
+        {isCurrentMonthReport && categorySpendingAnalysis.length ? (
+          <div className="space-y-4">
+            {categorySpendingAnalysis.slice(0, 6).map((item) => (
+              <div key={item.id} className="border-b border-slate-100 pb-3 last:border-0 last:pb-0">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div><p className="text-sm font-semibold text-slate-800">{item.name}</p><p className="text-xs text-slate-500">{item.count} achat(s) · moyenne {formatCurrency(item.average)}</p></div>
+                  <strong className="text-sm">{formatCurrency(item.total)}</strong>
+                </div>
+                {item.smallCount > 0 && <p className="mt-1 text-xs text-slate-600">{item.smallCount} petit(s) achat(s) de 1 000 FCFA ou moins : {formatCurrency(item.smallTotal)}</p>}
+                <p className="mt-1 text-xs text-slate-600">{item.projectionReliable ? `Projection fin de mois : ${formatCurrency(item.projected)}` : 'Projection indisponible : pas encore assez de jours observés.'}</p>
+                {item.budget != null && <p className={`mt-1 text-xs font-medium ${item.budgetStatus === 'at-risk' ? 'text-amber-700' : 'text-emerald-700'}`}>{item.budgetStatus === 'at-risk' ? 'Risque de dépasser' : item.budgetStatus === 'on-track' ? 'Budget actuellement respecté selon le rythme observé' : 'Prévision non disponible'} · enveloppe {formatCurrency(item.budget)}</p>}
+                {item.largest.slice(0, 2).map((entry, index) => <p key={entry.date + entry.amount + index} className="mt-1 text-xs text-slate-500">{entry.date} · {entry.description} : {formatCurrency(entry.amount)}</p>)}
+              </div>
+            ))}
+          </div>
+        ) : <p className="text-sm text-slate-500">{isCurrentMonthReport ? 'Aucune dépense courante à analyser pour le moment.' : 'Choisis le mois en cours pour consulter les prévisions par catégorie.'}</p>}
+        <button type="button" onClick={askAssistant} className="mt-4 text-sm font-semibold text-blue-700 hover:underline">Demander à Pata pourquoi mes dépenses évoluent ainsi</button>
+      </Card>
 
       <Card>
         <div className="mb-3 flex items-center justify-between"><CardTitle>Respect des budgets</CardTitle><span className="text-xs text-slate-400">{periodBudgets.length} enveloppe(s)</span></div>
