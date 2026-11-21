@@ -6,6 +6,7 @@ import {
   MIN_NON_ESSENTIAL_GAP_MS,
   buildCategoryAdviceNotification,
   buildExpenseRecoveryNotification,
+  buildCategoryBudgetForecastNotification,
   claimDailyNonEssentialSlot,
   claimDailyRetentionSlot,
   claimDailyRetentionPassSlot,
@@ -133,6 +134,29 @@ test('selects at most two different priorities without duplicating a topic', () 
     { key: 'debt', topic: 'debts', title: 'Dette', body: 'Texte', priority: 70 }
   ]);
   assert.deepEqual(selected.map((item) => item.key), ['bill', 'debt']);
+});
+
+test('alerte prudemment sur un budget qui risque d’être dépassé au rythme actuel', () => {
+  const notification = buildCategoryBudgetForecastNotification({
+    dateKey: '2026-11-15',
+    budgets: [{ month: '2026-11', categoryId: 'food', amount: 20000, incomeSourceId: 'all' }],
+    categoryTotals: { food: 12000 },
+    categoryLabels: { food: 'Alimentation' },
+  });
+  assert.equal(notification.topic, 'category_budget_forecast');
+  assert.match(notification.body, /pourrait atteindre environ/);
+  assert.match(notification.body, /60.?000 FCFA/);
+  assert.match(notification.body, /estimation, pas une dépense certaine/);
+  assert.equal(buildCategoryBudgetForecastNotification({
+    dateKey: '2026-11-02',
+    budgets: [{ month: '2026-11', categoryId: 'food', amount: 20000 }],
+    categoryTotals: { food: 5000 },
+  }), null);
+  assert.equal(buildCategoryBudgetForecastNotification({
+    dateKey: '2026-11-15',
+    budgets: [{ month: '2026-11', categoryId: 'food', amount: 20000 }],
+    categoryTotals: { food: 25000 },
+  }), null);
 });
 
 test('propose une vérification des dépenses oubliées sans supposer qu’une dépense a été faite', () => {
