@@ -32,7 +32,8 @@ export async function GET(request) {
     const incomes = incomesSnap.docs
       .filter((doc) => {
         const data = doc.data() || {};
-        return data.neutralFlow !== true && data.cashPocket !== true
+        return (data.neutralFlow !== true || (data.flowType === 'debt_borrowed' && data.availableAsFunding === true))
+          && data.cashPocket !== true
           && data.balanceAvailable !== false && Number(data.amount) > 0;
       })
       .map((doc) => {
@@ -42,6 +43,7 @@ export async function GET(request) {
           source: String(data.source || 'Revenu sans nom').slice(0, 100),
           date: String(data.date || '').slice(0, 10),
           amount: Math.max(0, Number(data.amount) || 0),
+          availableAsFunding: data.flowType === 'debt_borrowed' && data.availableAsFunding === true,
         };
       });
     const mapDebt = (doc) => {
