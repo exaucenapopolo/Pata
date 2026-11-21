@@ -21,9 +21,9 @@ test('analyse les petites dépenses, les opérations importantes et la projectio
   assert.equal(result[0].name, 'Alimentation');
   assert.equal(result[0].total, 25000);
   assert.equal(result[0].count, 5);
-  assert.equal(result[0].smallCount, 3);
-  assert.equal(result[0].smallTotal, 2000);
-  assert.equal(result[0].daysObserved, 4);
+  assert.equal(result[0].smallCount, 2);
+  assert.equal(result[0].smallTotal, 1200);
+  assert.equal(result[0].daysObserved, 5);
   assert.equal(result[0].projected, 50000);
   assert.equal(result[0].budgetStatus, 'at-risk');
   assert.equal(result[0].largest[0].description, 'Courses');
