@@ -218,6 +218,84 @@ export function buildExpenseRecoveryNotification({
   };
 }
 
+export function buildSmallPurchaseNotification({
+  expenses = [],
+  dateKey,
+  threshold = 1000,
+  minimumCount = 3,
+} = {}) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return null;
+  const limit = Math.max(1, Number(threshold) || 1000);
+  const rows = (Array.isArray(expenses) ? expenses : []).filter((item) => {
+    if (!item || item.neutralFlow === true || item.flowType === 'loan_given'
+      || item.categoryId === 'loan_given' || item.categoryId === 'debt_repayment'
+      || (item.expenseType && item.expenseType !== 'consumption')) return false;
+    return String(item.date || '').slice(0, 10) === dateKey
+      && Number(item.amount) > 0 && Number(item.amount) <= limit;
+  });
+  if (rows.length < Math.max(2, Number(minimumCount) || 3)) return null;
+  const total = rows.reduce((sum, item) => sum + Math.round(Number(item.amount) || 0), 0);
+  if (!total) return null;
+  const categoryCounts = new Map();
+  rows.forEach((item) => {
+    const id = String(item.categoryId || 'other');
+    categoryCounts.set(id, (categoryCounts.get(id) || 0) + 1);
+  });
+  const topCategory = [...categoryCounts.entries()].sort((a, b) => b[1] - a[1])[0];
+  return {
+    key: 'small-purchases:' + dateKey,
+    topic: 'small_purchases',
+    priority: 74,
+    title: 'Tes petits achats s’additionnent',
+    body: 'Tu as enregistré ' + rows.length + ' petits achats de ' + limit.toLocaleString('fr-FR')
+      + ' FCFA ou moins aujourd’hui, pour un total de ' + formatFCFA(total)
+      + (topCategory ? '. La catégorie la plus fréquente est « ' + topCategory[0] + ' ». ' : '. ')
+      + 'Vérifie le détail et décide si certains achats peuvent être mieux planifiés.',
+    target: '/expenses',
+    source: 'small_purchase_pattern',
+    categoryId: topCategory?.[0] || '',
+    personalize: false,
+  };
+}
+
+export function buildUnusualSpendingNotification({
+  todayTotal = 0,
+  monthTotal = 0,
+  dateKey,
+  minimumAmount = 5000,
+  multiplier = 2,
+} = {}) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return null;
+  const day = Number(dateKey.slice(8, 10));
+  const today = Math.max(0, Number(todayTotal) || 0);
+  const month = Math.max(0, Number(monthTotal) || 0);
+  if (day < 4 || today < Math.max(1, Number(minimumAmount) || 5000) || month <= today) return null;
+  const previousDailyAverage = (month - today) / (day - 1);
+  const factor = Math.max(1.25, Number(multiplier) || 2);
+  if (!previousDailyAverage || today < previousDailyAverage * factor) return null;
+  return {
+    key: 'unusual-spending:' + dateKey,
+    topic: 'unusual_spending',
+    priority: 88,
+    title: 'Tes dépenses sont plus élevées aujourd’hui',
+    body: 'Tu as enregistré ' + formatFCFA(today) + ' aujourd’hui, contre une moyenne d’environ '
+      + formatFCFA(Math.round(previousDailyAverage)) + ' par jour sur les jours précédents de ce mois. '
+      + 'C’est une hausse selon les opérations saisies. Vérifie le détail pour voir ce qui l’explique.',
+    target: '/expenses',
+    source: 'unusual_daily_spending',
+    personalize: false,
+  };
+}
+
+export function claimDailySmartSlot(state = {}, dateKey, notificationKey) {
+  const key = String(notificationKey || '').trim();
+  if (!dateKey || !key) return { allowed: false, reason: 'invalid', state: { ...state } };
+  if (state.date === dateKey && state.key) {
+    return { allowed: false, reason: 'daily_limit', state: { date: dateKey, key: String(state.key) } };
+  }
+  return { allowed: true, reason: 'reserved', state: { date: dateKey, key } };
+}
+
 export function buildCategoryAdviceNotification({
   categoryId,
   categoryLabel,

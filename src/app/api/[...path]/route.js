@@ -9,7 +9,7 @@ import { calculatePremiumPricing } from '@/lib/premiumPricing.mjs';
 import { completeWithGroq } from '@/lib/ai/groqClient';
 import { normalizeWebPushSubscription, webPushSubscriptionId, sendPataWebPush, isExpiredWebPushError } from '@/lib/notifications/webPush.mjs';
 import { dispatchPushNotification } from '@/lib/notifications/dispatcher.mjs';
-import { claimDailyRetentionSlot, claimDailyRetentionPassSlot, claimDailyNonEssentialSlot, buildCategoryAdviceNotification, buildCategoryBudgetForecastNotification, buildExpenseRecoveryNotification, selectRetentionCandidates, getDoualaDateKey as getRetentionDoualaDateKey, isWithinDoualaEveningWindow } from '@/lib/notifications/retentionEngine.mjs';
+import { claimDailyRetentionSlot, claimDailyRetentionPassSlot, claimDailyNonEssentialSlot, buildCategoryAdviceNotification, buildCategoryBudgetForecastNotification, buildExpenseRecoveryNotification, buildSmallPurchaseNotification, buildUnusualSpendingNotification, selectRetentionCandidates, getDoualaDateKey as getRetentionDoualaDateKey, isWithinDoualaEveningWindow } from '@/lib/notifications/retentionEngine.mjs';
 import { AI_TOOLS, createExpenseForUser, updateExpenseForUser, deleteExpenseForUser, deleteIncomeForUser, executeAITool, runAutomationForUser, generateWeeklyReportForUser } from '@/lib/ai/financialTools';
 import { generateAudioWithGemini } from '@/lib/ai/geminiTTS';
 import { buildIncomePriorityReminder } from '@/lib/finance/incomePriorities.mjs';
@@ -3073,13 +3073,14 @@ async function handleNotificationScheduler(request, passNumber = 1) {
         }
 
         const candidates = [];
+        const smartCandidates = [];
         const expenseRecoveryReminder = buildExpenseRecoveryNotification({
           dateKey: today,
           monthExpenseCount,
           todayExpenseCount,
           lastCheckDate: userData.lastExpenseRecoveryCheckDate,
         });
-        if (expenseRecoveryReminder) candidates.push(expenseRecoveryReminder);
+        if (expenseRecoveryReminder) smartCandidates.push(expenseRecoveryReminder);
         const recurringReminders = buildRecurringExpenseReminders(
           recurringPatternsSnap.docs.map((document) => ({ id: document.id, ...document.data() })),
           today,
@@ -3112,7 +3113,7 @@ async function handleNotificationScheduler(request, passNumber = 1) {
           categoryLabels,
           alreadyNotifiedKey: userData.lastBudgetForecastKey || '',
         });
-        if (categoryBudgetForecast) candidates.push(categoryBudgetForecast);
+        if (categoryBudgetForecast) smartCandidates.push(categoryBudgetForecast);
         if (automationIssues.length) {
           const issue = automationIssues[0];
           const lastIssueDate = String(userData.lastAutomationRetentionDate || '').slice(0, 10);
@@ -3149,12 +3150,20 @@ async function handleNotificationScheduler(request, passNumber = 1) {
             todayAmount: todayCategoryTotals[monthlyTopCategory[0]],
             dateKey: today,
           });
-          if (categoryAdvice) candidates.push({
+          if (categoryAdvice) smartCandidates.push({
             key: 'category-advice:' + today + ':' + monthlyTopCategory[0],
             topic: 'category_advice', priority: 86,
             ...categoryAdvice,
           });
         }
+        const smallPurchaseAlert = buildSmallPurchaseNotification({ expenses: todayExpenses, dateKey: today });
+        if (smallPurchaseAlert) smartCandidates.push(smallPurchaseAlert);
+        const unusualSpendingAlert = buildUnusualSpendingNotification({
+          todayTotal: totalToday,
+          monthTotal: Number(budgetSpendSummary.totalAmount) || 0,
+          dateKey: today,
+        });
+        if (unusualSpendingAlert) smartCandidates.push(unusualSpendingAlert);
         const incomeRows = monthIncomesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
         const realIncomeRows = incomeRows.filter((item) => !item.neutralFlow && item.flowType !== 'debt_borrowed');
         const todayRealIncomeRows = realIncomeRows.filter((item) => String(item.date || '') === today && (!item.flowType || item.flowType === 'normal'));
@@ -3293,6 +3302,71 @@ async function handleNotificationScheduler(request, passNumber = 1) {
             target: '/dashboard', source: 'daily_checkin',
           });
         }
+        // Les alertes financières intelligentes ont leur propre quota quotidien.
+        // Elles ne consomment aucun des deux créneaux de rétention du soir ni les trois messages non essentiels.
+        const selectedSmartCandidate = selectRetentionCandidates(smartCandidates, 1)[0];
+        if (selectedSmartCandidate) {
+          const smartNotificationId = 'smart-finance-' + today;
+          const smartNotificationRef = userDoc.ref.collection('notifications').doc(smartNotificationId);
+          const smartNotification = {
+            title: selectedSmartCandidate.title,
+            body: selectedSmartCandidate.body,
+            target: selectedSmartCandidate.target || '/reports',
+            url: selectedSmartCandidate.target || '/reports',
+            source: selectedSmartCandidate.source || 'smart_financial',
+            categoryId: selectedSmartCandidate.topic || 'smart_financial',
+            tag: 'pata-smart-finance-' + today + '-' + String(selectedSmartCandidate.topic || 'insight'),
+            personalize: selectedSmartCandidate.personalize === true,
+          };
+          let smartClaimed = false;
+          try {
+            // Document ID stable : create() réserve le quota de façon atomique sans lecture Firestore supplémentaire.
+            await smartNotificationRef.create({
+              title: smartNotification.title,
+              body: smartNotification.body,
+              target: smartNotification.target,
+              source: smartNotification.source,
+              categoryId: smartNotification.categoryId,
+              date: today,
+              delivered: 0,
+              pushSent: 0,
+              emailSent: false,
+              read: false,
+              readAt: null,
+              createdAt: FieldValue.serverTimestamp(),
+            });
+            smartClaimed = true;
+          } catch (claimError) {
+            const claimCode = String(claimError?.code || '').toLowerCase();
+            if (!claimCode.includes('already-exists') && claimCode !== '6') throw claimError;
+          }
+          if (smartClaimed) {
+            const smartPush = await sendPataPushToUser(userDoc.ref, smartNotification, appUrl, userData);
+            const smartDelivered = smartPush.fcmSent + smartPush.webPushSent;
+            const smartEmailSent = smartDelivered === 0 && selectedSmartCandidate.allowEmail !== false
+              ? await sendRetentionEmailFallback({
+                userData,
+                title: smartNotification.title,
+                body: smartNotification.body,
+                target: smartNotification.target,
+                category: 'Conseil financier intelligent',
+                idempotencyKey: 'pata-smart-finance-' + userDoc.id + '-' + today,
+              })
+              : false;
+            await persistAutomaticNotificationDelivery(userDoc.ref, userData, smartNotificationId, smartNotification, {
+              date: today, pushSent: smartDelivered, emailSent: smartEmailSent, priority: selectedSmartCandidate.priority,
+            });
+            await userDoc.ref.update({
+              lastSmartFinancialNotificationDate: today,
+              lastSmartFinancialNotificationTopic: String(selectedSmartCandidate.topic || ''),
+              lastNotificationAt: FieldValue.serverTimestamp(),
+              ...(selectedSmartCandidate.profileUpdate || {}),
+            });
+            if (smartDelivered > 0 || smartEmailSent) sent += 1;
+            else failed += 1;
+          }
+        }
+
         const previousPassCandidateKey = eveningPass === 2
           ? String(userData.eveningRetentionPass1CandidateKey || '')
           : '';

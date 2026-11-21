@@ -7,6 +7,9 @@ import {
   buildCategoryAdviceNotification,
   buildExpenseRecoveryNotification,
   buildCategoryBudgetForecastNotification,
+  buildSmallPurchaseNotification,
+  buildUnusualSpendingNotification,
+  claimDailySmartSlot,
   claimDailyNonEssentialSlot,
   claimDailyRetentionSlot,
   claimDailyRetentionPassSlot,
@@ -199,4 +202,51 @@ test('rotates category advice and builds a message with actual monthly and daily
   assert.match(notification.body, /placards|courses|repas|prix|enveloppe/i);
   assert.equal(notification.target, '/reports');
   assert.equal(buildCategoryAdviceNotification({ categoryId: 'food', monthlyAmount: 0, todayAmount: 100, dateKey: '2026-11-14' }), null);
+});
+
+
+test('garde les notifications financières intelligentes dans un quota indépendant', () => {
+  assert.equal(claimDailySmartSlot({}, '2026-11-21', 'expense-recovery').allowed, true);
+  const first = claimDailySmartSlot({}, '2026-11-21', 'expense-recovery');
+  const second = claimDailySmartSlot(first.state, '2026-11-21', 'small-purchases');
+  const nextDay = claimDailySmartSlot(first.state, '2026-11-22', 'small-purchases');
+  assert.equal(second.allowed, false);
+  assert.equal(second.reason, 'daily_limit');
+  assert.equal(nextDay.allowed, true);
+  assert.equal(MAX_DAILY_RETENTION_NOTIFICATIONS, 2);
+  assert.equal(MAX_DAILY_NON_ESSENTIAL_NOTIFICATIONS, 3);
+});
+
+test('détecte plusieurs petits achats réels sans compter les prêts ou sorties neutres', () => {
+  const notification = buildSmallPurchaseNotification({
+    dateKey: '2026-11-21',
+    expenses: [
+      { date: '2026-11-21', amount: 300, categoryId: 'food' },
+      { date: '2026-11-21', amount: 500, categoryId: 'food' },
+      { date: '2026-11-21', amount: 700, categoryId: 'transport' },
+      { date: '2026-11-21', amount: 900, categoryId: 'food', neutralFlow: true },
+      { date: '2026-11-21', amount: 600, categoryId: 'loan_given', flowType: 'loan_given' },
+    ],
+  });
+  assert.equal(notification.topic, 'small_purchases');
+  assert.match(notification.body, /3 petits achats/);
+  assert.match(notification.body, /1 ?500|1 500|1,500/);
+  assert.equal(buildSmallPurchaseNotification({ dateKey: '2026-11-21', expenses: [] }), null);
+});
+
+test('signale une journée de dépenses inhabituelle uniquement avec assez de données', () => {
+  const notification = buildUnusualSpendingNotification({
+    dateKey: '2026-11-21',
+    todayTotal: 12000,
+    monthTotal: 30000,
+    multiplier: 2,
+  });
+  assert.equal(notification.topic, 'unusual_spending');
+  assert.match(notification.body, /12 ?000|12 000|12,000/);
+  assert.equal(buildUnusualSpendingNotification({
+    dateKey: '2026-11-03', todayTotal: 12000, monthTotal: 30000,
+  }), null);
+  assert.equal(buildUnusualSpendingNotification({
+    dateKey: '2026-11-21', todayTotal: 3000, monthTotal: 30000,
+  }), null);
 });
