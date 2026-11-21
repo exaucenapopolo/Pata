@@ -271,6 +271,7 @@ export async function POST(request) {
       if (!person) return errorResponse('Il me manque le nom de la personne auprès de qui tu as contracté cette dette.', 422, { needsReview: true, recognized: parsed });
       const result = await executeAITool(uid, 'add_debt', {
         amount, person, date, dueDate: dueDate || undefined, note,
+          availableAsFunding: body.incomeAvailableAsFunding === true,
       }, [], {
         idempotencyKey: 'quick_capture_' + idempotencyKey,
         premiumOnly: true,
@@ -439,6 +440,7 @@ export async function POST(request) {
           bankName,
           phone: cleanText(body.incomePhone || '', 30),
           dueDate: body.incomeDueDate || dueDate,
+          availableAsFunding: body.incomeAvailableAsFunding === true,
           repaymentDebtId,
           date,
           month: date.slice(0, 7),
