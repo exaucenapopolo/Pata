@@ -4120,7 +4120,8 @@ async function handleUpdateIncome(request) {
       }
 
       if (wasBorrowed) {
-        if (previous.linkStatus === 'accepted' || (previous.counterpartyUid && previous.linkStatus === 'pending')) {
+        const debtLink = debtSnap?.exists ? debtSnap.data() || {} : {};
+        if (debtLink.linkStatus === 'accepted' || (debtLink.counterpartyUid && debtLink.linkStatus === 'pending')) {
           throw new Error('Cette dette est liée à un autre compte Pata. Délie-la ou contacte le support avant de changer sa nature.');
         }
         if (!debtSnap?.exists) throw new Error('Le dossier de dette associé est introuvable.');
