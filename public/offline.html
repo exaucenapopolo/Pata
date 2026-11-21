@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#075b43">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Pata — Hors connexion</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f8f6; color: #16231e; }
+    * { box-sizing: border-box; }
+    body { min-height: 100vh; min-height: 100dvh; margin: 0; display: grid; place-items: center; padding: 24px; }
+    main { width: min(100%, 440px); padding: 32px 26px; border: 1px solid #e1e9e4; border-radius: 24px; background: #fff; box-shadow: 0 18px 60px rgba(15, 55, 38, .07); }
+    .mark { display: grid; width: 52px; height: 52px; place-items: center; border-radius: 16px; background: #e7f3ec; color: #075b43; font-size: 25px; font-weight: 800; }
+    h1 { margin: 22px 0 10px; font-size: 25px; letter-spacing: -.6px; }
+    p { margin: 0; color: #637168; font-size: 14px; line-height: 1.75; }
+    .hint { margin-top: 18px; padding: 14px 15px; border-radius: 14px; background: #f4f8f5; color: #52635a; font-size: 13px; line-height: 1.65; }
+    .actions { display: grid; gap: 10px; margin-top: 22px; }
+    a, button { display: flex; min-height: 48px; align-items: center; justify-content: center; border: 0; border-radius: 13px; font: inherit; font-size: 14px; font-weight: 700; text-decoration: none; cursor: pointer; }
+    a { background: #075b43; color: #fff; }
+    button { background: #eef3ef; color: #294438; }
+    .foot { margin-top: 22px; color: #91a097; font-size: 11px; text-align: center; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="mark" aria-label="Pata">P</div>
+    <h1>Tu es hors connexion</h1>
+    <p>Cette page n’est pas encore disponible sur cet appareil. Certaines pages et les données Firestore déjà consultées peuvent rester accessibles hors connexion.</p>
+    <div class="hint">Tes opérations enregistrées localement seront synchronisées lorsque la connexion reviendra. Les paiements, l’assistante IA et les fonctions qui utilisent le serveur nécessitent toujours Internet.</div>
+    <div class="actions">
+      <a href="/dashboard">Réessayer d’ouvrir Pata</a>
+      <button type="button" onclick="window.location.reload()">Réessayer cette page</button>
+    </div>
+    <div class="foot">Pata · Gestion financière personnelle</div>
+  </main>
+</body>
+</html>
