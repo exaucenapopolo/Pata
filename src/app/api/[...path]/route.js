@@ -4045,6 +4045,8 @@ async function handleUpdateIncome(request) {
       const userData = userSnap.data() || {};
       const currentMonth = getDoualaMonthKey();
       const stats = normalizeMonthlyStatsForMonth(userData.monthlyStats || {}, currentMonth);
+      const previousMonth = String(previous.month || previous.date || '').slice(0, 7);
+      const affectsCurrentMonth = previousMonth === currentMonth;
       let validatedProjectName = String(previous.projectName || '').slice(0, 100);
 
       const previousProjectId = String(previous.projectId || '');
@@ -4110,9 +4112,9 @@ async function handleUpdateIncome(request) {
           updatedAt: FieldValue.serverTimestamp(),
         });
         if (!wasBorrowed) {
-          stats.incomes = Math.max(0, (Number(stats.incomes) || 0) - 1);
+          if (affectsCurrentMonth) stats.incomes = Math.max(0, (Number(stats.incomes) || 0) - 1);
           transaction.update(userRef, {
-            monthlyStats: stats,
+            ...(affectsCurrentMonth ? { monthlyStats: stats } : {}),
             lifetimeIncomeAmount: FieldValue.increment(-currentAmount),
             lifetimeIncomeCount: FieldValue.increment(-1),
           });
@@ -4159,10 +4161,12 @@ async function handleUpdateIncome(request) {
         updatedAt: FieldValue.serverTimestamp(),
       });
       if (wasBorrowed) {
-        stats.incomes = (Number(stats.incomes) || 0) + 1;
-        stats.lastResetMonth = currentMonth;
+        if (affectsCurrentMonth) {
+          stats.incomes = (Number(stats.incomes) || 0) + 1;
+          stats.lastResetMonth = currentMonth;
+        }
         transaction.update(userRef, {
-          monthlyStats: stats,
+          ...(affectsCurrentMonth ? { monthlyStats: stats } : {}),
           lifetimeIncomeAmount: FieldValue.increment(amount),
           lifetimeIncomeCount: FieldValue.increment(1),
         });
