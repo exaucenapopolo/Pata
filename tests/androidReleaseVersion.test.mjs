@@ -9,12 +9,12 @@ test('la mise à jour Android utilise un code supérieur à la version distribu�
   const version = JSON.parse(read('public/android-version.json'));
   const prepare = read('native/android/prepare-android.mjs');
   const workflow = read('.github/workflows/android-apk.yml');
-  assert.equal(version.version, '1.2.2');
+  assert.equal(version.version, '1.2.3');
   assert.equal(version.versionCode, 23);
-  assert.match(prepare, /versionCode 23/);
-  assert.match(prepare, /versionName "1.2.2"/);
-  assert.match(workflow, /tag_name: android-v1.2.2/);
-  assert.match(workflow, /name: Pata Android 1.2.2/);
+  assert.match(prepare, /versionCode 24/);
+  assert.match(prepare, /versionName "1.2.3"/);
+  assert.match(workflow, /tag_name: android-v1.2.3/);
+  assert.match(workflow, /name: Pata Android 1.2.3/);
 });
 
 test('le contrôle de mise à jour attend la disponibilité du nouvel APK signé', () => {
