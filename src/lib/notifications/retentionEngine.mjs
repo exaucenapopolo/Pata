@@ -151,6 +151,30 @@ function formatFCFA(value) {
   return Math.max(0, Number(value) || 0).toLocaleString('fr-FR') + ' FCFA';
 }
 
+export function buildExpenseRecoveryNotification({
+  dateKey,
+  monthExpenseCount = 0,
+  todayExpenseCount = 0,
+  lastCheckDate = '',
+} = {}) {
+  const total = Math.max(0, Math.floor(Number(monthExpenseCount) || 0));
+  const todayCount = Math.max(0, Math.floor(Number(todayExpenseCount) || 0));
+  const lastCheck = dayNumber(lastCheckDate);
+  const currentDay = dayNumber(dateKey);
+  if (!dateKey || total < 3 || todayCount > 0 || !currentDay) return null;
+  if (lastCheck && currentDay - lastCheck < 3) return null;
+  return {
+    key: 'expense-recovery:' + dateKey,
+    topic: 'expense_recovery',
+    priority: 46,
+    title: 'As-tu oublié une dépense aujourd’hui ?',
+    body: 'Tu as déjà enregistré des dépenses ce mois-ci, mais aucune pour aujourd’hui. Si ta journée a été sans dépense, tout va bien. Sinon, vérifie en 4 points : 1) repas et achats au marché ; 2) taxi, moto et déplacements ; 3) boissons, forfaits et petits achats ; 4) factures ou paiements effectués. Ajoute uniquement ce que tu as réellement payé.',
+    target: '/expenses',
+    source: 'expense_recovery_check',
+    profileUpdate: { lastExpenseRecoveryCheckDate: dateKey },
+  };
+}
+
 export function buildCategoryAdviceNotification({
   categoryId,
   categoryLabel,
