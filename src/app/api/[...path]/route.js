@@ -6187,6 +6187,38 @@ async function handleAIVision(request) {
 
 /* ═══════════════════ ACTIVITÉ DU COMPTE & STATISTIQUES ═══════════════════ */
 
+async function handleCategoryTargets(request) {
+  try {
+    const decoded = await authenticate(request);
+    const body = await request.json().catch(() => ({}));
+    if (!Array.isArray(body.targets) || body.targets.length > 50) {
+      return errorResponse('Liste d’objectifs invalide.', 400);
+    }
+    const seen = new Set();
+    const targets = [];
+    for (const item of body.targets) {
+      const categoryId = String(item?.categoryId || '').trim().slice(0, 80);
+      const period = String(item?.period || '');
+      const amount = Number(item?.amount);
+      const key = categoryId + ':' + period;
+      if (!categoryId || !['daily', 'weekly', 'monthly'].includes(period)
+        || !Number.isSafeInteger(amount) || amount <= 0 || amount > 1000000000
+        || seen.has(key)) {
+        return errorResponse('Un objectif contient une catégorie, une période ou un montant invalide.', 400);
+      }
+      seen.add(key);
+      targets.push({ categoryId, period, amount, updatedAt: new Date().toISOString() });
+    }
+    await adminDb.collection('users').doc(decoded.uid).update({
+      categoryTargets: targets,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    return NextResponse.json({ success: true, count: targets.length });
+  } catch (error) {
+    return errorResponse(error.message || 'Impossible d’enregistrer les objectifs.', 400);
+  }
+}
+
 async function handleProfileActivity(request) {
   try {
     const decoded = await authenticate(request);
@@ -11070,6 +11102,7 @@ const ROUTES = {
   'cotisations/pay-referral': { POST: handleCotisationReferralPayment },
   'android/download': { POST: handleAndroidDownloadEvent },
   'profile/activity': { POST: handleProfileActivity },
+  'profile/category-targets': { POST: handleCategoryTargets },
   'analytics/income-created': { POST: handleIncomeAnalyticsEvent },
   'automations/run':       { POST: handleAutomationsRun },
   'automations/scheduler': { GET: handleAutomationsScheduler, POST: handleAutomationsScheduler },

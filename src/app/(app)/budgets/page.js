@@ -18,6 +18,7 @@ import { useBudgets } from '@/hooks/useBudgets';
 import { useExpenses } from '@/hooks/useExpenses';
 import { useIncomes } from '@/hooks/useIncomes';
 import { upsertBudget, upsertBudgets, deleteBudget, getBudgetTemplates, saveBudgetTemplate, applyBudgetTemplate, removeBudgetTemplate, setBudgetPinned } from '@/lib/firestore/budgets';
+import { saveCategoryTargets } from '@/lib/firestore/profile';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { formatCurrency, getLocalMonth, normalizeExpenseCategoryId } from '@/lib/utils';
 import { buildBudgetSuggestions } from '@/lib/financialPlanning';
@@ -34,7 +35,7 @@ export default function BudgetsPage() {
   const { user } = useAuth();
   const { language } = useLanguage();
   const isEnglish = language === 'en';
-  const { profile, save: saveProfile } = useProfile();
+  const { profile } = useProfile();
   const [month, setMonth] = useState(todayMonth());
   const [selectedIncome, setSelectedIncome] = useState('all');
 
@@ -213,7 +214,7 @@ export default function BudgetsPage() {
     setSavingTarget(true);
     setTargetMessage('');
     try {
-      await saveProfile({ categoryTargets: nextTargets });
+      await saveCategoryTargets(user.uid, nextTargets);
       setTargetMessage(isEnglish ? 'Category target saved.' : 'Objectif de catégorie enregistré.');
     } catch (error) {
       setTargetMessage(error.message || (isEnglish ? 'Could not save this target.' : 'Impossible d’enregistrer cet objectif.'));

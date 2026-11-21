@@ -101,6 +101,20 @@ export async function getUserProfile(uid) {
   return snap.exists() ? { id: snap.id, ...snap.data() } : null;
 }
 
+export async function saveCategoryTargets(uid, targets) {
+  const user = auth.currentUser;
+  if (!user || user.uid !== uid) throw new Error('Session expirée. Reconnecte-toi puis réessaie.');
+  const token = await user.getIdToken();
+  const response = await fetch('/api/profile/category-targets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+    body: JSON.stringify({ targets }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.success) throw new Error(result.error || 'Impossible d’enregistrer les objectifs.');
+  return result;
+}
+
 export async function updateUserProfile(uid, patch) {
   const update = { ...patch, updatedAt: serverTimestamp() };
   if (Object.prototype.hasOwnProperty.call(patch, 'photoURL')) {
