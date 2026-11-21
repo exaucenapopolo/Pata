@@ -159,3 +159,10 @@ test('aucune nature de dette n’est présélectionnée pour une dette nouvelle 
   assert.match(apiRoute, /hasOwnProperty\.call\(body, 'availableAsFunding'\)/);
   assert.match(apiRoute, /Choisis si tu as reçu de l’argent ou des biens\/services à crédit/);
 });
+
+
+test('un prêt en argent confirmé entre comptes rend aussi le financement disponible chez l’emprunteur', () => {
+  const apiRoute = fs.readFileSync(new URL('../src/app/api/[...path]/route.js', import.meta.url), 'utf8');
+  assert.match(apiRoute, /kind === 'lent' \? \{ availableAsFunding: true \}/);
+  assert.match(apiRoute, /flowType: 'debt_borrowed',[\s\S]{0,100}availableAsFunding: true/);
+});
