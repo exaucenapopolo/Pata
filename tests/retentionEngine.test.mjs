@@ -166,7 +166,7 @@ test('propose une vérification des dépenses oubliées sans supposer qu’une d
     todayExpenseCount: 0,
   });
   assert.equal(notification.topic, 'expense_recovery');
-  assert.equal(notification.target, '/expenses');
+  assert.equal(notification.target, '/expenses?recovery=1');
   assert.match(notification.body, /marché/);
   assert.match(notification.body, /taxi, moto/);
   assert.match(notification.body, /Ajoute uniquement ce que tu as réellement payé/);

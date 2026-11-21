@@ -212,7 +212,7 @@ export function buildExpenseRecoveryNotification({
     priority: 46,
     title: 'As-tu oublié une dépense aujourd’hui ?',
     body: 'Tu as déjà enregistré des dépenses ce mois-ci, mais aucune pour aujourd’hui. Si ta journée a été sans dépense, tout va bien. Sinon, vérifie en 4 points : 1) repas et achats au marché ; 2) taxi, moto et déplacements ; 3) boissons, forfaits et petits achats ; 4) factures ou paiements effectués. Ajoute uniquement ce que tu as réellement payé.',
-    target: '/expenses',
+    target: '/expenses?recovery=1',
     source: 'expense_recovery_check',
     profileUpdate: { lastExpenseRecoveryCheckDate: dateKey },
   };

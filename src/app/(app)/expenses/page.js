@@ -113,6 +113,8 @@ export default function ExpensesPage() {
   const [projectDeleteMode, setProjectDeleteMode] = useState('detach');
   const [projectDeleting, setProjectDeleting] = useState(false);
   const [open, setOpen] = useState(false);
+  const [recoveryChecklistOpen, setRecoveryChecklistOpen] = useState(false);
+  const [recoveryChecks, setRecoveryChecks] = useState([false, false, false, false]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [deleteId, setDeleteId] = useState(null);
@@ -127,11 +129,20 @@ export default function ExpensesPage() {
     const openFromShortcut = () => { setForm(emptyForm()); setError(''); setOpen(true); };
     window.addEventListener('pata:expense-new', openFromShortcut);
     const params = new URLSearchParams(window.location.search);
+    if (params.get('recovery') === '1') {
+      setRecoveryChecks([false, false, false, false]);
+      setRecoveryChecklistOpen(true);
+    }
     if (params.get('new') === '1') {
       const flowType = params.get('flowType') || 'normal';
       setForm({ ...emptyForm(), flowType: ['loan_given', 'repayment'].includes(flowType) ? flowType : 'normal', repaymentDebtId: params.get('debtId') || '', categoryId: flowType === 'loan_given' ? 'loan_given' : flowType === 'repayment' ? 'debt_repayment' : 'food' });
       setError(''); setOpen(true);
-      window.history.replaceState(null, '', window.location.pathname);
+    }
+    if (params.has('new') || params.has('recovery')) {
+      params.delete('new');
+      params.delete('recovery');
+      const remaining = params.toString();
+      window.history.replaceState(null, '', window.location.pathname + (remaining ? '?' + remaining : ''));
     }
     return () => window.removeEventListener('pata:expense-new', openFromShortcut);
   }, []);
@@ -681,6 +692,27 @@ export default function ExpensesPage() {
           ))}
         </div>
       )}
+
+      <Modal open={recoveryChecklistOpen} onClose={() => setRecoveryChecklistOpen(false)} title="Vérifier les dépenses oubliées">
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600">Parcours ces quatre points. Coche seulement ce que tu as vérifié ; Pata ne crée aucune opération automatiquement.</p>
+          {[
+            'Repas, boissons et achats au marché',
+            'Déplacements : taxi, moto, bus ou carburant',
+            'Forfaits, mégas et petits achats du quotidien',
+            'Factures, paiements et autres sorties d’argent',
+          ].map((label, index) => (
+            <label key={label} className="flex items-start gap-3 rounded-xl border border-slate-200 p-3 text-sm text-slate-700">
+              <input type="checkbox" checked={recoveryChecks[index]} onChange={(event) => setRecoveryChecks((current) => current.map((value, itemIndex) => itemIndex === index ? event.target.checked : value))} className="mt-0.5 h-4 w-4 rounded border-slate-300" />
+              <span>{label}</span>
+            </label>
+          ))}
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="secondary" onClick={() => setRecoveryChecklistOpen(false)}>J’ai terminé</Button>
+            <Button onClick={() => { setRecoveryChecklistOpen(false); openNew(); }}>Ajouter une dépense oubliée</Button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal open={open} onClose={() => setOpen(false)} title={form.id ? 'Modifier la dépense' : 'Nouvelle dépense'}>
         <form onSubmit={onSubmit} className="space-y-4">
