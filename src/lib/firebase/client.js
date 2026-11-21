@@ -52,9 +52,7 @@ function createFirestore() {
     // On garde alors Firestore utilisable avec son cache mémoire plutôt que de bloquer Pata.
     if (
       error?.code === 'failed-precondition'
-      || error?.code === 'firestore/failed-precondition'
       || error?.code === 'already-initialized'
-      || error?.code === 'firestore/failed-precondition'
     ) {
       return getFirestore(app);
     }
