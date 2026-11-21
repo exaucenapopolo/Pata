@@ -131,11 +131,11 @@ export default function ExpensesPage() {
     const openFromShortcut = () => { setForm(emptyForm()); setError(''); setOpen(true); };
     window.addEventListener('pata:expense-new', openFromShortcut);
     const params = new URLSearchParams(searchParams.toString());
-    if (params.get('recovery') === '1') {
+    if (searchParams.get('recovery') === '1') {
       setRecoveryChecks([false, false, false, false]);
       setRecoveryChecklistOpen(true);
     }
-    if (params.get('new') === '1') {
+    if (searchParams.get('new') === '1') {
       const flowType = params.get('flowType') || 'normal';
       setForm({ ...emptyForm(), flowType: ['loan_given', 'repayment'].includes(flowType) ? flowType : 'normal', repaymentDebtId: params.get('debtId') || '', categoryId: flowType === 'loan_given' ? 'loan_given' : flowType === 'repayment' ? 'debt_repayment' : 'food' });
       setError(''); setOpen(true);
