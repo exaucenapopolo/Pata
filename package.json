@@ -22,6 +22,7 @@
     "test:quick-capture": "node --test tests/quickCaptureParser.test.mjs",
     "test:premium-reminder": "node --test tests/premiumReminderPolicy.test.mjs",
     "test:android-widgets": "node --test tests/androidWidgets.test.mjs",
+    "test:app-tour": "node --test tests/appFeatureTour.test.mjs",
     "test:android-ai-notification": "node --test tests/androidAINotification.test.mjs",
     "test:notification-format": "node --test tests/notificationFormat.test.mjs",
     "test:offline-quick-capture": "node --test tests/offlineQuickCapture.test.mjs",
