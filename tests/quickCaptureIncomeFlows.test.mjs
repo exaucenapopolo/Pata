@@ -91,3 +91,16 @@ test('une dette programmée conserve le choix argent reçu ou biens à crédit',
   assert.match(createRoute, /payload\.availableAsFunding = body\.availableAsFunding === true/);
   assert.match(processRoute, /availableAsFunding: schedule\.availableAsFunding === true/);
 });
+
+test('Quick Capture ne présélectionne aucune réponse et bloque une dette sans choix', () => {
+  const component = read('src/components/QuickCaptureCoordinator.jsx');
+  const route = read('src/app/api/quick-capture/route.js');
+  const scheduledRoute = read('src/app/api/scheduled-transactions/route.js');
+  const debtTools = read('src/lib/ai/financialTools.js');
+
+  assert.match(component, /incomeAvailableAsFunding: null/);
+  assert.match(component, /checked=\{draft\.incomeAvailableAsFunding === false\}/);
+  assert.match(route, /typeof body\.incomeAvailableAsFunding !== 'boolean'/);
+  assert.match(scheduledRoute, /typeof body\.availableAsFunding !== 'boolean'/);
+  assert.match(debtTools, /required: \['amount', 'counterpartyType', 'dueDate', 'availableAsFunding'\]/);
+});
