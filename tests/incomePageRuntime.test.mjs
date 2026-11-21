@@ -134,7 +134,7 @@ test('une dette en argent ne finance des dépenses que si l’utilisateur a conf
 test('la nature du revenu reste modifiable, mais son montant est verrouillé après une dépense liée', () => {
   const apiRoute = fs.readFileSync(new URL('../src/app/api/[...path]/route.js', import.meta.url), 'utf8');
 
-  assert.match(incomePage, /amountLocked: Number\(income\.spent\) > 0/);
+  assert.match(incomePage, /amountLocked: income\.balanceAvailable !== true \|\| Number\(income\.spent\) > 0/);
   assert.match(incomePage, /disabled=\{form\.amountLocked === true && !!form\.id\}/);
   assert.match(incomePage, /<option value="normal">Revenu normal<\/option>/);
   assert.match(incomePage, /<option value="debt_borrowed">Dette contractée/);
