@@ -133,8 +133,8 @@ public class PataQuickCaptureActivity extends Activity {
     private void startVoiceCapture() {
         Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "fr-CM");
-        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "fr-CM");
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "fr-FR");
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "fr-FR");
         intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Décris ta dépense ou ton revenu");
         try {
             startActivityForResult(intent, VOICE_REQUEST_CODE);

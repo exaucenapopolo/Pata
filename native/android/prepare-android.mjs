@@ -184,8 +184,8 @@ if (!manifest.includes('PataQuickActionsWidgetProvider')) {
     '            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>',
     '            <meta-data android:name="android.appwidget.provider" android:resource="@xml/pata_quick_actions_widget_info" />',
     '        </receiver>',
-  ].join('\\n');
-  manifest = manifest.replace('</application>', quickActionsReceiver + '\\n    </application>');
+  ].join('\n');
+  manifest = manifest.replace('</application>', quickActionsReceiver + '\n    </application>');
 }
 if (!manifest.includes('PataCotisationWidgetProvider')) {
   const cotisationWidgetReceiver = [
