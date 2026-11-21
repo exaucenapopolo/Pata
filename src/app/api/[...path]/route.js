@@ -9,7 +9,7 @@ import { calculatePremiumPricing } from '@/lib/premiumPricing.mjs';
 import { completeWithGroq } from '@/lib/ai/groqClient';
 import { normalizeWebPushSubscription, webPushSubscriptionId, sendPataWebPush, isExpiredWebPushError } from '@/lib/notifications/webPush.mjs';
 import { dispatchPushNotification } from '@/lib/notifications/dispatcher.mjs';
-import { claimDailyRetentionSlot, claimDailyRetentionPassSlot, claimDailyNonEssentialSlot, buildCategoryAdviceNotification, buildExpenseRecoveryNotification, selectRetentionCandidates, getDoualaDateKey as getRetentionDoualaDateKey, isWithinDoualaEveningWindow } from '@/lib/notifications/retentionEngine.mjs';
+import { claimDailyRetentionSlot, claimDailyRetentionPassSlot, claimDailyNonEssentialSlot, buildCategoryAdviceNotification, buildCategoryBudgetForecastNotification, buildExpenseRecoveryNotification, selectRetentionCandidates, getDoualaDateKey as getRetentionDoualaDateKey, isWithinDoualaEveningWindow } from '@/lib/notifications/retentionEngine.mjs';
 import { AI_TOOLS, createExpenseForUser, updateExpenseForUser, deleteExpenseForUser, deleteIncomeForUser, executeAITool, runAutomationForUser, generateWeeklyReportForUser } from '@/lib/ai/financialTools';
 import { generateAudioWithGemini } from '@/lib/ai/geminiTTS';
 import { buildIncomePriorityReminder } from '@/lib/finance/incomePriorities.mjs';
@@ -3105,6 +3105,14 @@ async function handleNotificationScheduler(request, passNumber = 1) {
             emailCategory: categoryName,
           });
         }
+        const categoryBudgetForecast = buildCategoryBudgetForecastNotification({
+          budgets,
+          categoryTotals,
+          dateKey: today,
+          categoryLabels,
+          alreadyNotifiedKey: userData.lastBudgetForecastKey || '',
+        });
+        if (categoryBudgetForecast) candidates.push(categoryBudgetForecast);
         if (automationIssues.length) {
           const issue = automationIssues[0];
           const lastIssueDate = String(userData.lastAutomationRetentionDate || '').slice(0, 10);
