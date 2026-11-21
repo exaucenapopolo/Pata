@@ -18,10 +18,11 @@ service cloud.firestore {
       allow update: if owner(userId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'displayName', 'currency', 'currencyRates', 'currencyRateUpdatedAt',
-          'theme', 'budgetRules', 'photoURL', 'emailRemindersEnabled', 'dailySummaryEmailEnabled', 'updatedAt'
+          'theme', 'budgetRules', 'categoryTargets', 'photoURL', 'emailRemindersEnabled', 'dailySummaryEmailEnabled', 'updatedAt'
         ])
         && (!('emailRemindersEnabled' in request.resource.data) || request.resource.data.emailRemindersEnabled is bool)
-        && (!('dailySummaryEmailEnabled' in request.resource.data) || request.resource.data.dailySummaryEmailEnabled is bool);
+        && (!('dailySummaryEmailEnabled' in request.resource.data) || request.resource.data.dailySummaryEmailEnabled is bool)
+        && (!('categoryTargets' in request.resource.data) || (request.resource.data.categoryTargets is list && request.resource.data.categoryTargets.size() <= 50));
       allow delete: if false;
 
       match /incomes/{incomeId} {
