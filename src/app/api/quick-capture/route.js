@@ -142,6 +142,10 @@ export async function POST(request) {
       if (type === 'debt_borrowed' && !dueDate) {
         return errorResponse('Indique également la date à laquelle tu dois rembourser cet emprunt.', 422, { needsReview: true, recognized: parsed });
       }
+      if (type === 'debt_borrowed' && Object.prototype.hasOwnProperty.call(body, 'incomeAvailableAsFunding')
+        && typeof body.incomeAvailableAsFunding !== 'boolean') {
+        return errorResponse('Choisis si tu as reçu de l’argent ou des biens/services à crédit.', 422, { needsReview: true, recognized: parsed });
+      }
       let repaymentDebtId = '';
       if (type === 'debt_repayment') {
         const person = cleanText(parsed?.person || body.person || '', 100);
@@ -183,6 +187,7 @@ export async function POST(request) {
         incomeSourceId: 'all',
         incomeSourceName: 'Toutes les sources disponibles',
         flowType: type === 'loan_given' ? 'loan_given' : type === 'debt_borrowed' ? 'debt_borrowed' : type === 'debt_repayment' ? 'repayment' : 'normal',
+        ...(type === 'debt_borrowed' ? { availableAsFunding: body.incomeAvailableAsFunding === true } : {}),
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       };
