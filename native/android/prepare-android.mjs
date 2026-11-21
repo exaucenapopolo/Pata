@@ -259,6 +259,9 @@ if (mainShareActivity) {
     extraShareFilters.push('            <intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="text/*" /></intent-filter>');
     extraShareFilters.push('            <intent-filter><action android:name="android.intent.action.SEND_MULTIPLE" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="text/*" /></intent-filter>');
   }
+  for (const mimeType of ['image/*', 'application/pdf', 'text/*']) {
+    extraShareFilters.push('            <intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="' + mimeType + '" /></intent-filter>');
+  }
   if (extraShareFilters.length) {
     const updatedShareActivity = mainShareActivity[0].replace('</activity>', extraShareFilters.join('\n') + '\n        </activity>');
     manifest = manifest.replace(mainShareActivity[0], updatedShareActivity);

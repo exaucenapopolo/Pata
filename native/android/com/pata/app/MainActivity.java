@@ -59,13 +59,16 @@ public class MainActivity extends BridgeActivity {
     private void captureSharedIntent(Intent intent) {
         if (intent == null) return;
         String action = intent.getAction();
-        if (!Intent.ACTION_SEND.equals(action) && !Intent.ACTION_SEND_MULTIPLE.equals(action)) return;
+        if (!Intent.ACTION_SEND.equals(action) && !Intent.ACTION_SEND_MULTIPLE.equals(action)
+            && !Intent.ACTION_VIEW.equals(action)) return;
 
         String mimeType = intent.getType();
         CharSequence sharedText = intent.getCharSequenceExtra(Intent.EXTRA_TEXT);
         Uri streamUri = null;
         try {
-            if (Intent.ACTION_SEND.equals(action)) {
+            if (Intent.ACTION_VIEW.equals(action)) {
+                streamUri = intent.getData();
+            } else if (Intent.ACTION_SEND.equals(action)) {
                 Object extra = intent.getParcelableExtra(Intent.EXTRA_STREAM);
                 if (extra instanceof Uri) streamUri = (Uri) extra;
             } else {

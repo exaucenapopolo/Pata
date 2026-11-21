@@ -117,6 +117,9 @@ test('le partage Android accepte les images, PDF et fichiers texte sans élargir
   assert.match(prepare, /android:mimeType="image\/\*"/);
   assert.match(prepare, /android:mimeType="application\/pdf"/);
   assert.match(prepare, /android:mimeType="text\/\*"/);
+  assert.match(prepare, /android.intent.action.VIEW/);
+  assert.match(main, /Intent\.ACTION_VIEW/);
+  assert.match(main, /intent\.getData\(\)/);
   assert.match(main, /isSupportedSharedFileMime/);
   assert.match(main, /normalized\.startsWith\("text\/"\)/);
   assert.match(plugin, /mime\.toLowerCase\(Locale\.ROOT\)\.startsWith\("text\/"\)/);
