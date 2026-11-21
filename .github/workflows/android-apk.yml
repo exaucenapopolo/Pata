@@ -4,22 +4,12 @@ on:
   push:
     branches: [main]
     paths:
-      - "package.json"
-      - "src/app/**"
-      - "src/components/**"
-      - "src/context/**"
-      - "src/lib/**"
-      - "capacitor.config.json"
       - "native/android/**"
-      - "src/components/transactions/OptionalTransactionFields.jsx"
-      - "public/android-version.json"
-      - "src/app/api/sms-import/**"
-      - "src/app/telecharger/**"
-      - "src/components/SmsImport*.jsx"
-      - "src/components/AndroidUpdateChecker.jsx"
-      - "src/lib/sms/**"
+      - "capacitor.config.json"
+      - "src/lib/native/**"
       - "src/lib/sms/nativePlugin.js"
-      - "tests/**"
+      - "src/lib/quickCapture/native/**"
+      - "public/android-version.json"
       - ".github/workflows/android-apk.yml"
   workflow_dispatch:
     inputs:
