@@ -93,12 +93,12 @@ test('le widget de saisie rapide propose dépense, revenu et voix sans remplacer
   assert.ok(prepare.includes("pata_quick_actions_widget.xml"));
   assert.ok(prepare.includes("pata_quick_actions_widget_info.xml"));
   for (const id of ['pata_quick_action_expense', 'pata_quick_action_income', 'pata_quick_action_voice']) {
-    assert.match(layout, new RegExp('android:id="@\\+id/' + id + '"'));
+    assert.ok(layout.includes('android:id="@+id/' + id + '"'), 'missing quick action view id: ' + id);
     assert.ok(provider.includes(id));
   }
   assert.match(info, /android:updatePeriodMillis="0"/);
   assert.match(activity, /RecognizerIntent\.ACTION_RECOGNIZE_SPEECH/);
-  assert.match(activity, /fr-CM/);
+  assert.match(activity, /fr-FR/);
   assert.match(activity, /"expense"\.equals\(captureMode\)/);
   assert.match(activity, /"income"\.equals\(captureMode\)/);
 });
