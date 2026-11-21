@@ -81,7 +81,7 @@ public class MainActivity extends BridgeActivity {
         if (streamUri != null) {
             String resolvedMime = getContentResolver().getType(streamUri);
             if (resolvedMime == null) resolvedMime = mimeType;
-            if (resolvedMime != null && (resolvedMime.startsWith("image/") || "application/pdf".equalsIgnoreCase(resolvedMime))) {
+            if (isSupportedSharedFileMime(resolvedMime)) {
                 saveSharedFile(streamUri, resolvedMime, editor);
             } else {
                 String oldPath = prefs.getString("shared_file_path", "");
@@ -100,6 +100,14 @@ public class MainActivity extends BridgeActivity {
             getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                 .putString(SHARED_TEXT, sharedText.toString()).apply();
         }
+    }
+
+    private boolean isSupportedSharedFileMime(String mimeType) {
+        if (mimeType == null) return false;
+        String normalized = mimeType.trim().toLowerCase(java.util.Locale.ROOT);
+        return normalized.startsWith("image/")
+            || normalized.startsWith("text/")
+            || "application/pdf".equals(normalized);
     }
 
     private void saveSharedFile(Uri uri, String mimeType, SharedPreferences.Editor editor) {

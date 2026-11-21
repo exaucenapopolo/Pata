@@ -62,6 +62,7 @@ for (const file of [
   'PataAIConversationWorker.java',
   'PataQuickCaptureReceiver.java',
   'PataQuickCaptureWidgetProvider.java',
+  'PataQuickActionsWidgetProvider.java',
   'PataFinanceWidgetWorker.java',
   'PataCotisationWidgetProvider.java',
   'PataCotisationWidgetWorker.java',
@@ -120,6 +121,8 @@ fs.copyFileSync(path.join(root, 'native/android/res/values/pata_colors.xml'), pa
 fs.copyFileSync(path.join(root, 'public/android-chrome-192x192.png'), path.join(largeIconDir, 'pata_notification_large.png'));
 for (const [source, destination] of [
   ['native/android/res/layout/pata_quick_capture_widget.xml', 'android/app/src/main/res/layout/pata_quick_capture_widget.xml'],
+  ['native/android/res/layout/pata_quick_actions_widget.xml', 'android/app/src/main/res/layout/pata_quick_actions_widget.xml'],
+  ['native/android/res/xml/pata_quick_actions_widget_info.xml', 'android/app/src/main/res/xml/pata_quick_actions_widget_info.xml'],
   ['native/android/res/drawable/pata_widget_background.xml', 'android/app/src/main/res/drawable/pata_widget_background.xml'],
   ['native/android/res/drawable/pata_widget_card.xml', 'android/app/src/main/res/drawable/pata_widget_card.xml'],
   ['native/android/res/drawable/ic_pata_widget_mic.xml', 'android/app/src/main/res/drawable/ic_pata_widget_mic.xml'],
@@ -174,6 +177,15 @@ if (!manifest.includes('PataQuickCaptureWidgetProvider')) {
     '        </receiver>',
   ].join('\n');
   manifest = manifest.replace('</application>', widgetReceiver + '\n    </application>');
+}
+if (!manifest.includes('PataQuickActionsWidgetProvider')) {
+  const quickActionsReceiver = [
+    '        <receiver android:name="com.pata.app.PataQuickActionsWidgetProvider" android:enabled="true" android:exported="true">',
+    '            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>',
+    '            <meta-data android:name="android.appwidget.provider" android:resource="@xml/pata_quick_actions_widget_info" />',
+    '        </receiver>',
+  ].join('\\n');
+  manifest = manifest.replace('</application>', quickActionsReceiver + '\\n    </application>');
 }
 if (!manifest.includes('PataCotisationWidgetProvider')) {
   const cotisationWidgetReceiver = [
@@ -243,6 +255,10 @@ if (mainShareActivity) {
     extraShareFilters.push('            <intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="application/pdf" /></intent-filter>');
     extraShareFilters.push('            <intent-filter><action android:name="android.intent.action.SEND_MULTIPLE" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="application/pdf" /></intent-filter>');
   }
+  if (!manifest.includes('android:mimeType="text/*"')) {
+    extraShareFilters.push('            <intent-filter><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="text/*" /></intent-filter>');
+    extraShareFilters.push('            <intent-filter><action android:name="android.intent.action.SEND_MULTIPLE" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="text/*" /></intent-filter>');
+  }
   if (extraShareFilters.length) {
     const updatedShareActivity = mainShareActivity[0].replace('</activity>', extraShareFilters.join('\n') + '\n        </activity>');
     manifest = manifest.replace(mainShareActivity[0], updatedShareActivity);
@@ -254,6 +270,8 @@ fs.writeFileSync(manifestPath, manifest);
 const requiredShortcutResources = [
   'android/app/src/main/res/xml/pata_shortcuts.xml',
   'android/app/src/main/res/xml/pata_quick_widget_info.xml',
+  'android/app/src/main/res/layout/pata_quick_actions_widget.xml',
+  'android/app/src/main/res/xml/pata_quick_actions_widget_info.xml',
   'android/app/src/main/res/layout/pata_cotisation_widget.xml',
   'android/app/src/main/res/xml/pata_cotisation_widget_info.xml',
   'android/app/src/main/res/layout/pata_quick_capture_widget.xml',
@@ -311,4 +329,4 @@ if (fs.existsSync(gradlePath)) {
   gradle = gradle.replace(/versionName\s+["'][^"']+["']/, 'versionName "1.2.2"');
   fs.writeFileSync(gradlePath, gradle);
 }
-console.log('Pata Android 1.2.2 : emprunts, historique Mč, sauvegarde hors connexion et widget financier.');
+console.log('Pata Android 1.2.2 : widgets financiers et saisie rapide, partage de documents et saisie vocale.');

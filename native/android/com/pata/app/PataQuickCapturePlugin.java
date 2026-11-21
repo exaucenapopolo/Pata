@@ -36,6 +36,9 @@ import androidx.activity.result.ActivityResult;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Locale;
 import org.json.JSONArray;
@@ -446,45 +449,56 @@ public class PataQuickCapturePlugin extends Plugin {
                 return;
             }
             try {
-                byte[] bytes;
-                if ("application/pdf".equalsIgnoreCase(mime)) {
-                    try (ParcelFileDescriptor descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY);
-                         PdfRenderer renderer = new PdfRenderer(descriptor)) {
-                        if (renderer.getPageCount() < 1) throw new IllegalStateException("PDF vide.");
-                        PdfRenderer.Page page = renderer.openPage(0);
-                        int width = page.getWidth();
-                        int height = page.getHeight();
-                        float scale = Math.min(1f, 1800f / Math.max(width, height));
-                        Bitmap bitmap = Bitmap.createBitmap(Math.max(1, (int) (width * scale)),
-                            Math.max(1, (int) (height * scale)), Bitmap.Config.ARGB_8888);
-                        bitmap.eraseColor(android.graphics.Color.WHITE);
-                        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
-                        page.close();
-                        ByteArrayOutputStream output = new ByteArrayOutputStream();
-                        bitmap.compress(Bitmap.CompressFormat.JPEG, 84, output);
-                        bitmap.recycle();
-                        bytes = output.toByteArray();
-                        result.put("pageCount", renderer.getPageCount());
-                        result.put("mimeType", "image/jpeg");
+                if (mime != null && mime.toLowerCase(Locale.ROOT).startsWith("text/")) {
+                    if (file.length() > 1024L * 1024L) throw new IllegalStateException("Fichier texte trop volumineux.");
+                    try (InputStream input = new FileInputStream(file);
+                         ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+                        byte[] buffer = new byte[8192];
+                        int count;
+                        while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+                        result.put("text", new String(output.toByteArray(), StandardCharsets.UTF_8));
                     }
                 } else {
-                    Bitmap bitmap = BitmapFactory.decodeFile(path);
-                    if (bitmap == null) throw new IllegalStateException("Image illisible.");
-                    int width = bitmap.getWidth();
-                    int height = bitmap.getHeight();
-                    float scale = Math.min(1f, 1800f / Math.max(width, height));
-                    Bitmap resized = scale < 1f
-                        ? Bitmap.createScaledBitmap(bitmap, Math.max(1, (int) (width * scale)), Math.max(1, (int) (height * scale)), true)
-                        : bitmap;
-                    ByteArrayOutputStream output = new ByteArrayOutputStream();
-                    resized.compress(Bitmap.CompressFormat.JPEG, 84, output);
-                    if (resized != bitmap) resized.recycle();
-                    bitmap.recycle();
-                    bytes = output.toByteArray();
-                    result.put("mimeType", "image/jpeg");
+                    byte[] bytes;
+                    if ("application/pdf".equalsIgnoreCase(mime)) {
+                        try (ParcelFileDescriptor descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY);
+                             PdfRenderer renderer = new PdfRenderer(descriptor)) {
+                            if (renderer.getPageCount() < 1) throw new IllegalStateException("PDF vide.");
+                            PdfRenderer.Page page = renderer.openPage(0);
+                            int width = page.getWidth();
+                            int height = page.getHeight();
+                            float scale = Math.min(1f, 1800f / Math.max(width, height));
+                            Bitmap bitmap = Bitmap.createBitmap(Math.max(1, (int) (width * scale)),
+                                Math.max(1, (int) (height * scale)), Bitmap.Config.ARGB_8888);
+                            bitmap.eraseColor(android.graphics.Color.WHITE);
+                            page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
+                            page.close();
+                            ByteArrayOutputStream output = new ByteArrayOutputStream();
+                            bitmap.compress(Bitmap.CompressFormat.JPEG, 84, output);
+                            bitmap.recycle();
+                            bytes = output.toByteArray();
+                            result.put("pageCount", renderer.getPageCount());
+                            result.put("mimeType", "image/jpeg");
+                        }
+                    } else {
+                        Bitmap bitmap = BitmapFactory.decodeFile(path);
+                        if (bitmap == null) throw new IllegalStateException("Image illisible.");
+                        int width = bitmap.getWidth();
+                        int height = bitmap.getHeight();
+                        float scale = Math.min(1f, 1800f / Math.max(width, height));
+                        Bitmap resized = scale < 1f
+                            ? Bitmap.createScaledBitmap(bitmap, Math.max(1, (int) (width * scale)), Math.max(1, (int) (height * scale)), true)
+                            : bitmap;
+                        ByteArrayOutputStream output = new ByteArrayOutputStream();
+                        resized.compress(Bitmap.CompressFormat.JPEG, 84, output);
+                        if (resized != bitmap) resized.recycle();
+                        bitmap.recycle();
+                        bytes = output.toByteArray();
+                        result.put("mimeType", "image/jpeg");
+                    }
+                    String base64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP);
+                    result.put("fileBase64", base64);
                 }
-                String base64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP);
-                result.put("fileBase64", base64);
             } catch (Exception error) {
                 result.put("fileError", "Le fichier partagé n’a pas pu être préparé pour l’analyse.");
                 call.resolve(result);

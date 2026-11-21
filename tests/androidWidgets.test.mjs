@@ -83,6 +83,39 @@ test('le widget est vidé et son rafraîchissement annulé à la déconnexion ou
   assert.ok(plugin.includes('public void clearFinanceWidget'));
 });
 
+test('le widget de saisie rapide propose dépense, revenu et voix sans remplacer le widget financier', () => {
+  const prepare = read('native/android/prepare-android.mjs');
+  const provider = read('native/android/com/pata/app/PataQuickActionsWidgetProvider.java');
+  const layout = read('native/android/res/layout/pata_quick_actions_widget.xml');
+  const info = read('native/android/res/xml/pata_quick_actions_widget_info.xml');
+  const activity = read('native/android/com/pata/app/PataQuickCaptureActivity.java');
+  assert.ok(prepare.includes("'PataQuickActionsWidgetProvider.java'"));
+  assert.ok(prepare.includes("pata_quick_actions_widget.xml"));
+  assert.ok(prepare.includes("pata_quick_actions_widget_info.xml"));
+  for (const id of ['pata_quick_action_expense', 'pata_quick_action_income', 'pata_quick_action_voice']) {
+    assert.match(layout, new RegExp('android:id="@\\\\+id/' + id + '"'));
+    assert.ok(provider.includes(id));
+  }
+  assert.match(info, /android:updatePeriodMillis="0"/);
+  assert.match(activity, /RecognizerIntent\.ACTION_RECOGNIZE_SPEECH/);
+  assert.match(activity, /fr-CM/);
+  assert.match(activity, /"expense"\.equals\(captureMode\)/);
+  assert.match(activity, /"income"\.equals\(captureMode\)/);
+});
+
+test('le partage Android accepte les images, PDF et fichiers texte sans élargir aux fichiers arbitraires', () => {
+  const prepare = read('native/android/prepare-android.mjs');
+  const main = read('native/android/com/pata/app/MainActivity.java');
+  const plugin = read('native/android/com/pata/app/PataQuickCapturePlugin.java');
+  assert.match(prepare, /android:mimeType="image\/\*"/);
+  assert.match(prepare, /android:mimeType="application\/pdf"/);
+  assert.match(prepare, /android:mimeType="text\/\*"/);
+  assert.match(main, /isSupportedSharedFileMime/);
+  assert.match(main, /normalized\.startsWith\("text\/"\)/);
+  assert.match(plugin, /mime\.toLowerCase\(Locale\.ROOT\)\.startsWith\("text\/"\)/);
+  assert.match(plugin, /StandardCharsets\.UTF_8/);
+});
+
 test('le layout financier n’utilise que des composants compatibles avec RemoteViews', () => {
   const layout = read('native/android/res/layout/pata_quick_capture_widget.xml');
   assert.equal(layout.includes('<View'), false, 'plain View is not supported by RemoteViews');
