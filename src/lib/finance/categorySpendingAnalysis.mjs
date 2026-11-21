@@ -74,17 +74,19 @@ export function buildCategorySpendingAnalysis({
       && (!entry.incomeSourceId || entry.incomeSourceId === 'all'));
     const enoughData = elapsedDays >= 3 && item.days.size >= 3;
     const projected = enoughData ? Math.round(item.total / elapsedDays * daysInMonth) : null;
-    const target = targets.find((entry) => entry.categoryId === item.id
+    const targetInfos = targets.filter((entry) => entry.categoryId === item.id
       && ['daily', 'weekly', 'monthly'].includes(entry.period)
-      && amountOf(entry.amount) > 0) || null;
-    const targetActual = !target ? null : target.period === 'daily'
-      ? item.todayTotal : target.period === 'weekly' ? item.weekTotal : item.total;
-    const targetInfo = target ? {
-      period: target.period,
-      amount: amountOf(target.amount),
-      actual: targetActual,
-      status: targetActual > amountOf(target.amount) ? 'over' : 'within',
-    } : null;
+      && amountOf(entry.amount) > 0).map((entry) => {
+        const actual = entry.period === 'daily' ? item.todayTotal
+          : entry.period === 'weekly' ? item.weekTotal : item.total;
+        const targetAmount = amountOf(entry.amount);
+        return {
+          period: entry.period,
+          amount: targetAmount,
+          actual,
+          status: actual > targetAmount ? 'over' : 'within',
+        };
+      });
     const budgetAmount = budget ? amountOf(budget.amount) : null;
     const dailyBudgetPace = budgetAmount == null ? null : Math.ceil(budgetAmount / daysInMonth);
     const weeklyBudgetPace = dailyBudgetPace == null ? null : dailyBudgetPace * 7;
@@ -98,7 +100,7 @@ export function buildCategorySpendingAnalysis({
       smallTotal: item.smallTotal,
       todayTotal: item.todayTotal,
       weekTotal: item.weekTotal,
-      target: targetInfo,
+      targets: targetInfos,
       daysObserved: item.days.size,
       projected,
       projectionReliable: enoughData,

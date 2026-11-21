@@ -39,9 +39,9 @@ test('compare les objectifs facultatifs quotidiens, hebdomadaires et mensuels au
       { date: '2026-11-15', amount: 3000, categoryId: 'food' },
     ],
   });
-  assert.equal(result[0].target.period, 'weekly');
-  assert.equal(result[0].target.actual, 5000);
-  assert.equal(result[0].target.status, 'within');
+  assert.equal(result[0].targets[0].period, 'weekly');
+  assert.equal(result[0].targets[0].actual, 5000);
+  assert.equal(result[0].targets[0].status, 'within');
 });
 
 test('ne projette pas une tendance à partir de trop peu de jours de dépenses', () => {
