@@ -66,6 +66,7 @@ export default function ReportsPage() {
   const [customEnd, setCustomEnd] = useState(iso(new Date()));
   const [selectedDay, setSelectedDay] = useState(iso(new Date()));
   const [selectedWeekDate, setSelectedWeekDate] = useState(iso(new Date()));
+  const [selectedAnalysisCategoryId, setSelectedAnalysisCategoryId] = useState('');
   const [goalDepositTotals, setGoalDepositTotals] = useState({});
   const [weekendReport, setWeekendReport] = useState(null);
   const [weekendReportLoading, setWeekendReportLoading] = useState(true);
@@ -246,6 +247,13 @@ export default function ReportsPage() {
     targets: Array.isArray(profile?.categoryTargets) ? profile.categoryTargets : [],
     today: iso(new Date()),
   }), [periodExpenses, customCategories, budgets, profile?.categoryTargets]);
+
+  // Par défaut, afficher la catégorie la plus dépensière ; l’utilisateur peut en choisir une autre.
+  const selectedCategoryAnalysis = useMemo(
+    () => categorySpendingAnalysis.find((item) => item.id === selectedAnalysisCategoryId)
+      || categorySpendingAnalysis[0] || null,
+    [categorySpendingAnalysis, selectedAnalysisCategoryId],
+  );
 
   const isCurrentMonthReport = periodType === 'month' && month === iso(new Date()).slice(0, 7);
 
@@ -576,29 +584,40 @@ export default function ReportsPage() {
       </div>
 
       <Card>
-        <div className="mb-1 flex items-center justify-between gap-3">
+        <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
           <CardTitle>Prévision et explication par catégorie</CardTitle>
-          <span className="text-xs text-slate-400">Données déjà chargées</span>
+          {categorySpendingAnalysis.length > 1 && (
+            <select
+              aria-label="Catégorie à analyser"
+              value={selectedCategoryAnalysis?.id || ''}
+              onChange={(event) => setSelectedAnalysisCategoryId(event.target.value)}
+              className="max-w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700"
+            >
+              {categorySpendingAnalysis.map((item) => (
+                <option key={item.id} value={item.id}>{item.name} · {formatCurrency(item.total)}</option>
+              ))}
+            </select>
+          )}
         </div>
-        <p className="mb-4 text-xs text-slate-500">La projection utilise les opérations disponibles. Elle reste masquée lorsque trop peu de jours ont été observés.</p>
+        <p className="mb-4 text-xs text-slate-500">La catégorie la plus dépensière est affichée en premier. Tu peux en sélectionner une autre. La projection utilise les opérations disponibles et reste masquée lorsque trop peu de jours ont été observés.</p>
         {isCurrentMonthReport && categorySpendingAnalysis.length ? (
-          <div className="space-y-4">
-            {categorySpendingAnalysis.slice(0, 6).map((item) => (
-              <div key={item.id} className="border-b border-slate-100 pb-3 last:border-0 last:pb-0">
+          selectedCategoryAnalysis ? (
+            <div className="space-y-4">
+              <div className="border-b border-slate-100 pb-3 last:border-0 last:pb-0">
                 <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div><p className="text-sm font-semibold text-slate-800">{item.name}</p><p className="text-xs text-slate-500">{item.count} achat(s) · moyenne {formatCurrency(item.average)}</p></div>
-                  <strong className="text-sm">{formatCurrency(item.total)}</strong>
+                  <div><p className="text-sm font-semibold text-slate-800">{selectedCategoryAnalysis.name}</p><p className="text-xs text-slate-500">{selectedCategoryAnalysis.count} achat(s) · moyenne {formatCurrency(selectedCategoryAnalysis.average)}</p></div>
+                  <strong className="text-sm">{formatCurrency(selectedCategoryAnalysis.total)}</strong>
                 </div>
-                {item.smallCount > 0 && <p className="mt-1 text-xs text-slate-600">{item.smallCount} petit(s) achat(s) de 1 000 FCFA ou moins : {formatCurrency(item.smallTotal)}</p>}
-                {item.targets?.map((target) => <p key={target.period} className={'mt-1 text-xs font-medium ' + (target.status === 'over' ? 'text-amber-700' : 'text-emerald-700')}>Objectif {target.period === 'daily' ? 'du jour' : target.period === 'weekly' ? 'de la semaine' : 'du mois'} : {formatCurrency(target.actual)} / {formatCurrency(target.amount)} · {target.status === 'over' ? 'objectif dépassé' : 'objectif respecté pour le moment'}</p>)}
-                <p className="mt-1 text-xs text-slate-600">{item.projectionReliable ? `Projection fin de mois : ${formatCurrency(item.projected)}` : 'Projection indisponible : pas encore assez de jours observés.'}</p>
-                {item.budget != null && <p className={`mt-1 text-xs font-medium ${item.budgetStatus === 'at-risk' ? 'text-amber-700' : 'text-emerald-700'}`}>{item.budgetStatus === 'at-risk' ? 'Risque de dépasser' : item.budgetStatus === 'on-track' ? 'Budget actuellement respecté selon le rythme observé' : 'Prévision non disponible'} · enveloppe {formatCurrency(item.budget)}</p>}
-                {item.dailyBudgetPace != null && <p className="mt-1 text-xs text-slate-500">Rythme indicatif de l’enveloppe : {formatCurrency(item.dailyBudgetPace)} par jour · {formatCurrency(item.weeklyBudgetPace)} par semaine</p>}
-                {item.largest.slice(0, 2).map((entry, index) => <p key={entry.date + entry.amount + index} className="mt-1 text-xs text-slate-500">{entry.date} · {entry.description} : {formatCurrency(entry.amount)}</p>)}
-                <button type="button" onClick={() => askCategoryAnalysis(item)} className="mt-2 text-xs font-semibold text-blue-700 hover:underline">Expliquer cette catégorie</button>
+                {selectedCategoryAnalysis.smallCount > 0 && <p className="mt-1 text-xs text-slate-600">{selectedCategoryAnalysis.smallCount} petit(s) achat(s) de 1 000 FCFA ou moins : {formatCurrency(selectedCategoryAnalysis.smallTotal)}</p>}
+                {selectedCategoryAnalysis.targets?.map((target) => <p key={target.period} className={'mt-1 text-xs font-medium ' + (target.status === 'over' ? 'text-amber-700' : 'text-emerald-700')}>Objectif {target.period === 'daily' ? 'du jour' : target.period === 'weekly' ? 'de la semaine' : 'du mois'} : {formatCurrency(target.actual)} / {formatCurrency(target.amount)} · {target.status === 'over' ? 'objectif dépassé' : 'objectif respecté pour le moment'}</p>)}
+                <p className="mt-1 text-xs text-slate-600">{selectedCategoryAnalysis.projectionReliable ? `Projection fin de mois : ${formatCurrency(selectedCategoryAnalysis.projected)}` : 'Projection indisponible : pas encore assez de jours observés.'}</p>
+                {selectedCategoryAnalysis.budget != null && <p className={`mt-1 text-xs font-medium ${selectedCategoryAnalysis.budgetStatus === 'at-risk' ? 'text-amber-700' : 'text-emerald-700'}`}>{selectedCategoryAnalysis.budgetStatus === 'at-risk' ? 'Risque de dépasser' : selectedCategoryAnalysis.budgetStatus === 'on-track' ? 'Budget actuellement respecté selon le rythme observé' : 'Prévision non disponible'} · enveloppe {formatCurrency(selectedCategoryAnalysis.budget)}</p>}
+                {selectedCategoryAnalysis.dailyBudgetPace != null && <p className="mt-1 text-xs text-slate-500">Rythme indicatif de l’enveloppe : {formatCurrency(selectedCategoryAnalysis.dailyBudgetPace)} par jour · {formatCurrency(selectedCategoryAnalysis.weeklyBudgetPace)} par semaine</p>}
+                {selectedCategoryAnalysis.largest.slice(0, 2).map((entry, index) => <p key={entry.date + entry.amount + index} className="mt-1 text-xs text-slate-500">{entry.date} · {entry.description} : {formatCurrency(entry.amount)}</p>)}
+                <button type="button" onClick={() => askCategoryAnalysis(selectedCategoryAnalysis)} className="mt-2 text-xs font-semibold text-blue-700 hover:underline">Expliquer cette catégorie</button>
               </div>
-            ))}
-          </div>
+            </div>
+          ) : <p className="text-sm text-slate-500">Aucune dépense courante à analyser pour le moment.</p>
         ) : <p className="text-sm text-slate-500">{isCurrentMonthReport ? 'Aucune dépense courante à analyser pour le moment.' : 'Choisis le mois en cours pour consulter les prévisions par catégorie.'}</p>}
         <button type="button" onClick={askAssistant} className="mt-4 text-sm font-semibold text-blue-700 hover:underline">Demander à Pata pourquoi mes dépenses évoluent ainsi</button>
       </Card>

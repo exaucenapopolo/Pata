@@ -69,3 +69,14 @@ test('ignore les remboursements, les prêts accordés et les sorties neutres', (
   });
   assert.deepEqual(result, []);
 });
+
+
+test('les prévisions affichent la catégorie la plus dépensière par défaut et permettent de changer de catégorie', async () => {
+  const fs = await import('node:fs');
+  const page = fs.readFileSync('src/app/(app)/reports/page.js', 'utf8');
+  assert.match(page, /selectedAnalysisCategoryId/);
+  assert.match(page, /categorySpendingAnalysis\.find\(\(item\) => item\.id === selectedAnalysisCategoryId\)[\s\S]*?categorySpendingAnalysis\[0\]/);
+  assert.match(page, /aria-label="Catégorie à analyser"/);
+  assert.match(page, /onChange=\{\(event\) => setSelectedAnalysisCategoryId\(event\.target\.value\)\}/);
+  assert.match(page, /categorySpendingAnalysis\.map\(\(item\) => \(/);
+});
