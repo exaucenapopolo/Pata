@@ -60,3 +60,15 @@ test('Quick Capture loads account-defined categories for natural language recogn
   assert.match(captureRoute, /isAllowedCategory\(userRef, categoryId, 'expense', EXPENSE_CATEGORIES\)/);
   assert.match(captureRoute, /isAllowedCategory\(userRef, categoryId, 'income', INCOME_CATEGORIES\)/);
 });
+
+test('Quick Capture demande si une dette correspond à de l’argent ou à des biens pris à crédit', () => {
+  const component = read('src/components/QuickCaptureCoordinator.jsx');
+  const route = read('src/app/api/quick-capture/route.js');
+  const tools = read('src/lib/ai/financialTools.js');
+
+  assert.match(component, /De l’argent/);
+  assert.match(component, /Des biens ou services à crédit/);
+  assert.match(component, /incomeAvailableAsFunding/);
+  assert.match(route, /availableAsFunding: body\.incomeAvailableAsFunding === true/);
+  assert.match(tools, /availableAsFunding: \{ type: 'boolean'/);
+});
