@@ -1573,6 +1573,7 @@ export const AI_TOOLS = [
           amount: { type: 'integer' }, counterpartyType: { type: 'string', enum: ['person', 'bank'] },
           person: { type: 'string' }, bankName: { type: 'string' }, phone: { type: 'string' },
           dueDate: { type: 'string', description: 'Date d’échéance YYYY-MM-DD.' },
+          availableAsFunding: { type: 'boolean', description: 'true uniquement si l’utilisateur a réellement reçu de l’argent utilisable ; false pour des biens ou services pris à crédit.' },
           date: { type: 'string', description: 'Date de réception YYYY-MM-DD si précisée.' },
           projectId: { type: 'string', description: 'ID exact du projet, uniquement si demandé.' }, note: { type: 'string' },
         },
@@ -1740,6 +1741,7 @@ async function addDebt(uid, args, idempotencyKey = null, premiumOnly = false) {
   const creditorName = cleanText(counterpartyType === 'bank' ? (args.bankName || args.person) : args.person, 100);
   if (!creditorName) throw new Error(counterpartyType === 'bank' ? 'Indique le nom de la banque créancière.' : 'Indique le nom de la personne qui t’a prêté cet argent.');
   const dueDate = String(args.dueDate || '').trim();
+  const availableAsFunding = args.availableAsFunding === true;
   if (dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) throw new Error('La date d’échéance de cette dette est invalide.');
 
   const date = /^\d{4}-\d{2}-\d{2}$/.test(String(args.date || '')) ? String(args.date) : todayDouala();
@@ -1785,13 +1787,13 @@ async function addDebt(uid, args, idempotencyKey = null, premiumOnly = false) {
     };
     transaction.create(incomeRef, {
       amount, source: creditorName, categoryId: 'debt_borrowed', month: date.slice(0, 7), date, note,
-      flowType: 'debt_borrowed', neutralFlow: true, person: creditorName, counterpartyType, ...bankFields,
+      flowType: 'debt_borrowed', neutralFlow: true, availableAsFunding, person: creditorName, counterpartyType, ...bankFields,
       phone: cleanText(args.phone, 30) || null, dueDate: dueDate || null, pendingDetails: !dueDate, debtId: debtRef.id,
       ...(projectId ? { projectId, projectName } : {}), createdAt: FieldValue.serverTimestamp(),
     });
     transaction.create(debtRef, {
       type: 'i_owe', person: creditorName, counterpartyType, ...bankFields,
-      phone: cleanText(args.phone, 30) || null, amount, remaining: amount,
+      phone: cleanText(args.phone, 30) || null, amount, remaining: amount, availableAsFunding,
       createdAt: FieldValue.serverTimestamp(), dueDate: dueDate || null,
       pendingDetails: !dueDate, ...(dueDate ? {} : { lastDetailsReminderAt: FieldValue.serverTimestamp() }),
       status: dueDate && dueDate < todayDouala() ? 'late' : 'active',
