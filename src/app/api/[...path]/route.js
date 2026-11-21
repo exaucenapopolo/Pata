@@ -4047,8 +4047,9 @@ async function handleUpdateIncome(request) {
       const stats = normalizeMonthlyStatsForMonth(userData.monthlyStats || {}, currentMonth);
       let validatedProjectName = String(previous.projectName || '').slice(0, 100);
 
-      if (projectId) {
-        if (!isPremiumAccount(userData)) throw new Error('L’association à un projet est réservée à Pata Premium.');
+      const previousProjectId = String(previous.projectId || '');
+      if (projectId && projectId !== previousProjectId) {
+        if (!isPremiumAccount(userData)) throw new Error('L’association à un nouveau projet est réservée à Pata Premium.');
         const projectSnap = await transaction.get(userRef.collection('projects').doc(projectId));
         if (!projectSnap.exists || projectSnap.data()?.status === 'archived') throw new Error('Le projet choisi est introuvable ou archivé.');
         validatedProjectName = String(projectSnap.data()?.name || '').slice(0, 100);
@@ -4129,12 +4130,16 @@ async function handleUpdateIncome(request) {
         const debt = debtSnap.data() || {};
         const repaid = Math.max(0, (Number(debt.amount) || 0) - (Number(debt.remaining) || 0));
         if (repaid > 0 || !repaymentSnap.empty) throw new Error('Cette dette a déjà reçu un remboursement. Son suivi doit rester dans Dettes & prêts.');
+        const debtWasActive = ['active', 'partial', 'late'].includes(String(debt.status || ''));
         transaction.update(existingDebtRef, {
           status: 'cancelled',
           remaining: 0,
           convertedToIncome: true,
           convertedAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
+        });
+        if (debtWasActive) transaction.update(userRef, {
+          activeDebtCount: FieldValue.increment(-1),
         });
       }
 
@@ -4160,7 +4165,6 @@ async function handleUpdateIncome(request) {
           monthlyStats: stats,
           lifetimeIncomeAmount: FieldValue.increment(amount),
           lifetimeIncomeCount: FieldValue.increment(1),
-          activeDebtCount: FieldValue.increment(-1),
         });
       } else {
         transaction.update(userRef, { lifetimeIncomeAmount: FieldValue.increment(amount - currentAmount) });
