@@ -313,6 +313,19 @@ export default function ReportsPage() {
     window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt } }));
   };
 
+  const askCategoryAnalysis = (category) => {
+    const operations = periodExpenses
+      .filter((item) => normalizeExpenseCategoryId(item.categoryId || 'other') === category.id
+        && !item.neutralFlow && item.flowType !== 'loan_given'
+        && item.categoryId !== 'loan_given' && item.categoryId !== 'debt_repayment'
+        && getExpenseType(item) === 'consumption')
+      .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
+      .slice(0, 40)
+      .map((item) => `${String(item.date || '').slice(0, 10)} — ${String(item.note || item.details || 'Sans description').slice(0, 70)} : ${Number(item.amount) || 0} FCFA`);
+    const prompt = `Explique-moi précisément mes dépenses dans la catégorie ${category.name} pour ${range.label}. Total : ${category.total} FCFA ; nombre d'achats : ${category.count} ; moyenne : ${category.average} FCFA ; petits achats de 1 000 FCFA ou moins : ${category.smallCount} pour ${category.smallTotal} FCFA. Opérations réellement enregistrées : ${operations.join(' | ') || 'Aucune opération détaillée disponible'}. Identifie les facteurs mesurables, les achats fréquents et les plus grosses opérations. Ne suppose pas pourquoi j'ai acheté quelque chose et ne crée aucune opération. Si les données sont insuffisantes, dis-le clairement. Propose des réductions réalistes sans toucher aux dépenses essentielles.`;
+    window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt } }));
+  };
+
   const exportLabels = isEnglish ? {
     movement: 'Transaction', nature: 'Type', date: 'Date', label: 'Description', categorySource: 'Category / source', amount: 'Amount', detail: 'Details',
     income: 'Income', cashWithdrawal: 'Cash from Mobile Money withdrawal — neutral transfer', borrowed: 'Borrowed debt — neutral transaction', projectIncome: 'Income assigned to a project', generalIncome: 'Regular income',
@@ -579,6 +592,7 @@ export default function ReportsPage() {
                 <p className="mt-1 text-xs text-slate-600">{item.projectionReliable ? `Projection fin de mois : ${formatCurrency(item.projected)}` : 'Projection indisponible : pas encore assez de jours observés.'}</p>
                 {item.budget != null && <p className={`mt-1 text-xs font-medium ${item.budgetStatus === 'at-risk' ? 'text-amber-700' : 'text-emerald-700'}`}>{item.budgetStatus === 'at-risk' ? 'Risque de dépasser' : item.budgetStatus === 'on-track' ? 'Budget actuellement respecté selon le rythme observé' : 'Prévision non disponible'} · enveloppe {formatCurrency(item.budget)}</p>}
                 {item.largest.slice(0, 2).map((entry, index) => <p key={entry.date + entry.amount + index} className="mt-1 text-xs text-slate-500">{entry.date} · {entry.description} : {formatCurrency(entry.amount)}</p>)}
+                <button type="button" onClick={() => askCategoryAnalysis(item)} className="mt-2 text-xs font-semibold text-blue-700 hover:underline">Expliquer cette catégorie</button>
               </div>
             ))}
           </div>
