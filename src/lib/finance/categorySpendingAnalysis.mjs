@@ -69,6 +69,8 @@ export function buildCategorySpendingAnalysis({
     const enoughData = elapsedDays >= 3 && item.days.size >= 3;
     const projected = enoughData ? Math.round(item.total / elapsedDays * daysInMonth) : null;
     const budgetAmount = budget ? amountOf(budget.amount) : null;
+    const dailyBudgetPace = budgetAmount == null ? null : Math.ceil(budgetAmount / daysInMonth);
+    const weeklyBudgetPace = dailyBudgetPace == null ? null : dailyBudgetPace * 7;
     return {
       id: item.id,
       name: item.name,
@@ -81,6 +83,8 @@ export function buildCategorySpendingAnalysis({
       projected,
       projectionReliable: enoughData,
       budget: budgetAmount,
+      dailyBudgetPace,
+      weeklyBudgetPace,
       budgetStatus: budgetAmount == null || projected == null
         ? 'unknown'
         : projected > budgetAmount ? 'at-risk' : 'on-track',

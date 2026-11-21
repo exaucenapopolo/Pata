@@ -591,6 +591,7 @@ export default function ReportsPage() {
                 {item.smallCount > 0 && <p className="mt-1 text-xs text-slate-600">{item.smallCount} petit(s) achat(s) de 1 000 FCFA ou moins : {formatCurrency(item.smallTotal)}</p>}
                 <p className="mt-1 text-xs text-slate-600">{item.projectionReliable ? `Projection fin de mois : ${formatCurrency(item.projected)}` : 'Projection indisponible : pas encore assez de jours observés.'}</p>
                 {item.budget != null && <p className={`mt-1 text-xs font-medium ${item.budgetStatus === 'at-risk' ? 'text-amber-700' : 'text-emerald-700'}`}>{item.budgetStatus === 'at-risk' ? 'Risque de dépasser' : item.budgetStatus === 'on-track' ? 'Budget actuellement respecté selon le rythme observé' : 'Prévision non disponible'} · enveloppe {formatCurrency(item.budget)}</p>}
+                {item.dailyBudgetPace != null && <p className="mt-1 text-xs text-slate-500">Rythme indicatif de l’enveloppe : {formatCurrency(item.dailyBudgetPace)} par jour · {formatCurrency(item.weeklyBudgetPace)} par semaine</p>}
                 {item.largest.slice(0, 2).map((entry, index) => <p key={entry.date + entry.amount + index} className="mt-1 text-xs text-slate-500">{entry.date} · {entry.description} : {formatCurrency(entry.amount)}</p>)}
                 <button type="button" onClick={() => askCategoryAnalysis(item)} className="mt-2 text-xs font-semibold text-blue-700 hover:underline">Expliquer cette catégorie</button>
               </div>
