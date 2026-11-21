@@ -590,7 +590,7 @@ export default function IncomePage() {
     setForm({
       id: income.id,
       amount: String(income.amount || ''),
-      amountLocked: Number(income.spent) > 0,
+      amountLocked: income.balanceAvailable !== true || Number(income.spent) > 0,
       source: income.source || 'Revenu',
       categoryId: income.categoryId || 'other_income',
       image: income.image || '',
