@@ -4,7 +4,7 @@ const STATIC_CACHE = 'pata-static-' + CACHE_VERSION;
 const PAGE_CACHE = 'pata-pages-' + CACHE_VERSION;
 const ROUTE_CACHE = 'pata-rsc-' + CACHE_VERSION;
 const OFFLINE_URL = '/offline.html';
-const PRECACHE_URLS = ['/', OFFLINE_URL, '/manifest.json'];
+const PRECACHE_URLS = ['/', '/dashboard', OFFLINE_URL, '/manifest.json'];
 const MAX_PAGE_ENTRIES = 40;
 const MAX_ROUTE_ENTRIES = 80;
 const ROUTE_CACHE_TTL_MS = 60 * 1000;
@@ -39,7 +39,9 @@ self.addEventListener('install', (event) => {
     // Une ressource non disponible ne doit pas empêcher l'installation du worker.
     await Promise.allSettled(PRECACHE_URLS.map(async (url) => {
       const response = await fetch(url, { cache: 'reload' });
-      if (response.ok) await cache.put(url, response);
+      if (isCacheableResponse(response)) {
+        try { await cache.put(url, response); } catch { /* le cache ne doit jamais bloquer l'installation */ }
+      }
     }));
     await self.skipWaiting();
   })());
@@ -103,7 +105,7 @@ async function handleStaticAsset(request) {
   try {
     const response = await fetch(request);
     if (response.ok && response.type !== 'opaque') {
-      await cache.put(request, response.clone());
+      try { await cache.put(request, response.clone()); } catch { /* conserver la réponse réseau même si le cache est plein */ }
     }
     return response;
   } catch {
