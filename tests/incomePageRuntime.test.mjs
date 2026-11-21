@@ -142,3 +142,10 @@ test('la nature du revenu reste modifiable, mais son montant est verrouillé apr
   assert.match(apiRoute, /previous\.flowType === 'debt_borrowed' && Boolean\(previous\.debtId\)/);
   assert.match(apiRoute, /convertedToIncome: true/);
 });
+
+test('la page Dettes distingue un emprunt reçu en argent des achats pris à crédit', () => {
+  const debtsPage = fs.readFileSync(new URL('../src/app/(app)/debts/page.js', import.meta.url), 'utf8');
+  assert.match(debtsPage, /dette\.availableAsFunding === true/);
+  assert.match(debtsPage, /argent reçu/);
+  assert.match(debtsPage, /Biens ou services pris à crédit/);
+});
