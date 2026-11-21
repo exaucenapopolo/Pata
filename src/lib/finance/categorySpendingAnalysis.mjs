@@ -26,7 +26,7 @@ export function buildCategorySpendingAnalysis({
   smallPurchaseThreshold = 1000,
 } = {}) {
   const currentDate = dateOf(today);
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(currentDate)) return [];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(currentDate)) return [];
   const month = currentDate.slice(0, 7);
   const [year, monthNumber] = month.split('-').map(Number);
   const daysInMonth = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
