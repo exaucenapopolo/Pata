@@ -72,3 +72,22 @@ test('Quick Capture demande si une dette correspond à de l’argent ou à des b
   assert.match(route, /availableAsFunding: body\.incomeAvailableAsFunding === true/);
   assert.match(tools, /availableAsFunding: \{ type: 'boolean'/);
 });
+
+test('Quick Capture peut utiliser comme financement un emprunt explicitement reçu en argent', () => {
+  const optionsRoute = read('src/app/api/quick-capture/options/route.js');
+  const component = read('src/components/QuickCaptureCoordinator.jsx');
+  const financialTools = read('src/lib/ai/financialTools.js');
+
+  assert.match(optionsRoute, /data\.flowType === 'debt_borrowed' && data\.availableAsFunding === true/);
+  assert.match(optionsRoute, /availableAsFunding: data\.flowType === 'debt_borrowed'/);
+  assert.match(component, /income\.availableAsFunding \? 'Emprunt reçu · ' : ''/);
+  assert.match(financialTools, /income\.neutralFlow !== true \|\| isBorrowedFunding/);
+});
+
+test('une dette programmée conserve le choix argent reçu ou biens à crédit', () => {
+  const createRoute = read('src/app/api/scheduled-transactions/route.js');
+  const processRoute = read('src/app/api/scheduled-transactions/process/route.js');
+
+  assert.match(createRoute, /payload\.availableAsFunding = body\.availableAsFunding === true/);
+  assert.match(processRoute, /availableAsFunding: schedule\.availableAsFunding === true/);
+});
