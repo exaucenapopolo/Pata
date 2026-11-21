@@ -34,7 +34,7 @@ export default function BudgetsPage() {
   const { user } = useAuth();
   const { language } = useLanguage();
   const isEnglish = language === 'en';
-  const { profile } = useProfile();
+  const { profile, save: saveProfile } = useProfile();
   const [month, setMonth] = useState(todayMonth());
   const [selectedIncome, setSelectedIncome] = useState('all');
 
@@ -53,6 +53,14 @@ export default function BudgetsPage() {
   const { expenses } = useExpenses({ startDate: month + '-01', endDate: getMonthEndDate(month), limit: 1000 });
   const { categories: allExpenseCategories } = useCustomCategories('expense');
   const expenseCategories = useMemo(() => allExpenseCategories.filter((category) => category.id !== 'loan_given'), [allExpenseCategories]);
+  const categoryTargets = useMemo(() => (Array.isArray(profile?.categoryTargets) ? profile.categoryTargets : [])
+    .filter((item) => item && typeof item.categoryId === 'string' && ['daily', 'weekly', 'monthly'].includes(item.period)
+      && Number.isSafeInteger(Number(item.amount)) && Number(item.amount) > 0),
+  [profile?.categoryTargets]);
+
+  useEffect(() => {
+    if (!targetCategoryId && expenseCategories[0]?.id) setTargetCategoryId(expenseCategories[0].id);
+  }, [targetCategoryId, expenseCategories]);
 
   const [editing, setEditing] = useState(null);
   const [amount, setAmount] = useState('');
@@ -74,6 +82,11 @@ export default function BudgetsPage() {
   const [createBudgetOpen, setCreateBudgetOpen] = useState(false);
   const [createBudgetIncomeSourceId, setCreateBudgetIncomeSourceId] = useState('');
   const [createBudgetItems, setCreateBudgetItems] = useState([{ categoryId: '', amount: '' }]);
+  const [targetCategoryId, setTargetCategoryId] = useState('');
+  const [targetPeriod, setTargetPeriod] = useState('monthly');
+  const [targetAmount, setTargetAmount] = useState('');
+  const [savingTarget, setSavingTarget] = useState(false);
+  const [targetMessage, setTargetMessage] = useState('');
   const [creatingBudget, setCreatingBudget] = useState(false);
 
   const [pinMenuId, setPinMenuId] = useState(null);
@@ -195,6 +208,37 @@ export default function BudgetsPage() {
   const highestCategorySpend = spendingInsights.length
     ? Math.max(...spendingInsights.map((category) => Number(category.spent) || 0))
     : 0;
+
+  const persistCategoryTargets = async (nextTargets) => {
+    setSavingTarget(true);
+    setTargetMessage('');
+    try {
+      await saveProfile({ categoryTargets: nextTargets });
+      setTargetMessage(isEnglish ? 'Category target saved.' : 'Objectif de catégorie enregistré.');
+    } catch (error) {
+      setTargetMessage(error.message || (isEnglish ? 'Could not save this target.' : 'Impossible d’enregistrer cet objectif.'));
+    } finally {
+      setSavingTarget(false);
+    }
+  };
+
+  const saveCategoryTarget = async (event) => {
+    event.preventDefault();
+    const amountValue = Number(targetAmount);
+    if (!targetCategoryId || !Number.isSafeInteger(amountValue) || amountValue <= 0 || amountValue > 1000000000) {
+      setTargetMessage(isEnglish ? 'Choose a category and enter a positive whole amount.' : 'Choisis une catégorie et saisis un montant entier positif.');
+      return;
+    }
+    const nextTargets = categoryTargets.filter((item) => !(item.categoryId === targetCategoryId && item.period === targetPeriod));
+    nextTargets.push({ categoryId: targetCategoryId, period: targetPeriod, amount: amountValue, updatedAt: new Date().toISOString() });
+    await persistCategoryTargets(nextTargets);
+    setTargetAmount('');
+  };
+
+  const removeCategoryTarget = async (target) => {
+    const nextTargets = categoryTargets.filter((item) => !(item.categoryId === target.categoryId && item.period === target.period));
+    await persistCategoryTargets(nextTargets);
+  };
 
   const openEdit = (category) => {
     setEditing(category);
@@ -449,6 +493,34 @@ export default function BudgetsPage() {
         <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Restant</p><p className={'mt-1 break-words text-sm font-extrabold tabular-nums sm:text-base ' + (budgetRemaining < 0 ? 'text-red-700' : 'text-brand-800')}>{formatCurrency(budgetRemaining)}</p></div>
         <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Enveloppes actives</p><p className="mt-1 text-sm font-extrabold tabular-nums text-slate-950 sm:text-base">{budgetedCategories.length}</p></div>
       </div>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="mb-3">
+          <h2 className="text-sm font-bold text-slate-900">Objectifs par catégorie (facultatifs)</h2>
+          <p className="mt-1 text-xs leading-5 text-slate-500">Définis une limite quotidienne, hebdomadaire ou mensuelle pour une catégorie. C’est facultatif : Pata ne crée aucun objectif sans ton choix.</p>
+        </div>
+        <form onSubmit={saveCategoryTarget} className="grid gap-2 sm:grid-cols-4">
+          <select value={targetCategoryId} onChange={(event) => setTargetCategoryId(event.target.value)} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm">
+            {expenseCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+          </select>
+          <select value={targetPeriod} onChange={(event) => setTargetPeriod(event.target.value)} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm">
+            <option value="daily">Par jour</option><option value="weekly">Par semaine</option><option value="monthly">Par mois</option>
+          </select>
+          <Input type="number" min="1" step="1" value={targetAmount} onChange={(event) => setTargetAmount(event.target.value)} placeholder="Montant en FCFA" />
+          <Button type="submit" disabled={savingTarget || !expenseCategories.length}>{savingTarget ? 'Enregistrement…' : 'Définir l’objectif'}</Button>
+        </form>
+        {targetMessage && <p role="status" className="mt-2 text-xs text-slate-600">{targetMessage}</p>}
+        {categoryTargets.length > 0 && <div className="mt-4 flex flex-wrap gap-2">
+          {categoryTargets.map((target) => {
+            const category = expenseCategories.find((item) => item.id === target.categoryId);
+            return <div key={target.categoryId + ':' + target.period} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+              <span className="font-semibold text-slate-800">{category?.name || target.categoryId}</span>
+              <span className="text-slate-600">{target.period === 'daily' ? 'jour' : target.period === 'weekly' ? 'semaine' : 'mois'} · {formatCurrency(target.amount)}</span>
+              <button type="button" onClick={() => removeCategoryTarget(target)} disabled={savingTarget} className="font-semibold text-slate-500 hover:text-red-700" aria-label="Supprimer cet objectif">×</button>
+            </div>;
+          })}
+        </div>}
+      </section>
 
       {(templates.length > 0 || templatesLoading) && (
         <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
