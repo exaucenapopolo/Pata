@@ -267,6 +267,9 @@ export async function POST(request) {
     }
 
     if (type === 'debt_borrowed') {
+      if (Object.prototype.hasOwnProperty.call(body, 'incomeAvailableAsFunding') && typeof body.incomeAvailableAsFunding !== 'boolean') {
+        return errorResponse('Choisis si tu as reçu de l’argent ou des biens/services à crédit.', 422, { needsReview: true, recognized: parsed });
+      }
       const person = cleanText(parsed?.person || body.person || '', 100);
       if (!person) return errorResponse('Il me manque le nom de la personne auprès de qui tu as contracté cette dette.', 422, { needsReview: true, recognized: parsed });
       const result = await executeAITool(uid, 'add_debt', {
@@ -411,6 +414,11 @@ export async function POST(request) {
     const incomeFlowType = ['normal', 'debt_borrowed', 'repayment_received'].includes(body.incomeFlowType)
       ? body.incomeFlowType : 'normal';
     if (incomeFlowType !== 'normal') {
+      if (incomeFlowType === 'debt_borrowed'
+        && Object.prototype.hasOwnProperty.call(body, 'incomeAvailableAsFunding')
+        && typeof body.incomeAvailableAsFunding !== 'boolean') {
+        return errorResponse('Choisis si tu as reçu de l’argent ou des biens/services à crédit.', 422, { needsReview: true });
+      }
       const person = cleanText(body.incomePerson || body.person || '', 100);
       const counterpartyType = body.incomeCounterpartyType === 'bank' ? 'bank' : 'person';
       const bankName = counterpartyType === 'bank' ? cleanText(body.incomeBankName || person, 100) : '';
