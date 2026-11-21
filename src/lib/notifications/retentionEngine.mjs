@@ -158,7 +158,7 @@ export function buildCategoryBudgetForecastNotification({
   categoryLabels = {},
   alreadyNotifiedKey = '',
 } = {}) {
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(String(dateKey || ''))) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return null;
   const [year, monthNumber, day] = dateKey.split('-').map(Number);
   const month = dateKey.slice(0, 7);
   const daysInMonth = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
