@@ -1,5 +1,6 @@
 package com.pata.app;
 
+import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Intent;
@@ -51,6 +52,7 @@ public class MainActivity extends BridgeActivity {
             NotificationManager.IMPORTANCE_DEFAULT
         );
         channel.setDescription("Messages importants et alertes envoyés par Pata.");
+        channel.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
         manager.createNotificationChannel(channel);
     }
 

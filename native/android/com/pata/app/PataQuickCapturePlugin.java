@@ -198,6 +198,7 @@ public class PataQuickCapturePlugin extends Plugin {
         if (Build.VERSION.SDK_INT >= 26) {
             NotificationChannel channel = new NotificationChannel(CHANNEL, "Saisie rapide Pata", NotificationManager.IMPORTANCE_LOW);
             channel.setDescription("Accès permanent à la saisie rapide des opérations Pata.");
+            channel.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
             channel.setShowBadge(false);
             manager.createNotificationChannel(channel);
         }
@@ -287,6 +288,7 @@ public class PataQuickCapturePlugin extends Plugin {
             NotificationChannel channel = new NotificationChannel(
                 AI_CHANNEL, "Conversation Mč", NotificationManager.IMPORTANCE_DEFAULT);
             channel.setDescription("Réponses courtes de Mč directement depuis les notifications Pata.");
+            channel.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
             channel.setShowBadge(false);
             manager.createNotificationChannel(channel);
         }

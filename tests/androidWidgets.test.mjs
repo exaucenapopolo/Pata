@@ -103,6 +103,13 @@ test('le widget de saisie rapide propose dépense, revenu et voix sans remplacer
   assert.match(activity, /"income"\.equals\(captureMode\)/);
 });
 
+test('les aperçus de notifications financières restent privés sur écran verrouillé par défaut', () => {
+  const main = read('native/android/com/pata/app/MainActivity.java');
+  const plugin = read('native/android/com/pata/app/PataQuickCapturePlugin.java');
+  assert.match(main, /setLockscreenVisibility\(Notification\.VISIBILITY_PRIVATE\)/);
+  assert.equal((plugin.match(/setLockscreenVisibility\(Notification\.VISIBILITY_PRIVATE\)/g) || []).length >= 2, true);
+});
+
 test('le partage Android accepte les images, PDF et fichiers texte sans élargir aux fichiers arbitraires', () => {
   const prepare = read('native/android/prepare-android.mjs');
   const main = read('native/android/com/pata/app/MainActivity.java');
