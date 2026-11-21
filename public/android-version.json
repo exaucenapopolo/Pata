@@ -1,7 +1,7 @@
 {
   "version": "1.2.3",
   "versionCode": 24,
-  "downloadAvailable": false,
+  "downloadAvailable": true,
   "apkUrl": "https://github.com/exaucenapopolo/Pata/releases/latest/download/Pata-Android.apk",
   "releaseNotes": "Pata 1.2.3 : nouveau widget Android de saisie rapide avec trois actions (dépense, revenu, dictée vocale) ; ouverture et partage avec Pata des images, captures d’écran, PDF et fichiers texte ; confidentialité renforcée des notifications sur écran verrouillé ; widget financier rafraîchi depuis le cache local sans lectures réseau supplémentaires."
 }
