@@ -239,7 +239,7 @@ export default function IncomePage() {
   useEffect(() => {
     const openFromShortcut = (flowType = 'normal', debtId = '') => {
       const categoryId = flowType === 'debt_borrowed' ? 'debt_borrowed' : flowType === 'repayment_received' ? 'debt_repayment_received' : 'salary';
-      setForm({ ...emptyIncomeForm(), flowType: ['debt_borrowed', 'repayment_received'].includes(flowType) ? flowType : 'normal', repaymentDebtId: debtId, categoryId });
+      setForm({ ...emptyIncomeForm(), ...(flowType === 'debt_borrowed' ? { source: '' } : {}), flowType: ['debt_borrowed', 'repayment_received'].includes(flowType) ? flowType : 'normal', repaymentDebtId: debtId, categoryId });
       setError('');
       setOpen(true);
     };
@@ -1386,7 +1386,7 @@ export default function IncomePage() {
             <select value={form.flowType || 'normal'} disabled={!!form.id && form.flowType === 'repayment_received'} onChange={(event) => {
               const flowType = event.target.value;
               const categoryId = flowType === 'debt_borrowed' ? 'debt_borrowed' : flowType === 'repayment_received' ? 'debt_repayment_received' : 'salary';
-              setForm({ ...form, flowType, categoryId, source: flowType === 'debt_borrowed' ? form.source : (form.person || form.source), person: flowType === 'debt_borrowed' ? (form.person || form.source) : form.person, availableAsFunding: form.availableAsFunding, repaymentDebtId: flowType === 'repayment_received' ? form.repaymentDebtId : '', projectId: '' });
+              setForm({ ...form, flowType, categoryId, source: flowType === 'debt_borrowed' ? form.source : (form.person || form.source), person: flowType === 'debt_borrowed' ? (form.person || (form.id ? form.source : '')) : form.person, availableAsFunding: form.availableAsFunding, repaymentDebtId: flowType === 'repayment_received' ? form.repaymentDebtId : '', projectId: '' });
             }} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm">
               <option value="normal">Revenu normal</option><option value="debt_borrowed">Dette contractée (argent emprunté)</option>
               {!form.id && <option value="repayment_received">Remboursement reçu</option>}
