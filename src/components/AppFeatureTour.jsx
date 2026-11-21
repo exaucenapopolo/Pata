@@ -40,16 +40,23 @@ const TOUR_STEPS = {
   ],
 };
 
+// Le premier lancement reste court ; le guide complet reste disponible depuis les paramètres.
+const FIRST_TOUR_STEPS = {
+  fr: TOUR_STEPS.fr.filter((_, index) => index <= 2),
+  en: TOUR_STEPS.en.filter((_, index) => index <= 2),
+};
+
 const clamp = (value, min, max) => Math.min(Math.max(value, min), Math.max(min, max));
 
 function AppFeatureTourContent({ startRequest }) {
   const { user } = useAuth();
   const { language } = useLanguage();
   const isEnglish = language === 'en';
-  const steps = isEnglish ? TOUR_STEPS.en : TOUR_STEPS.fr;
+  const steps = fullGuide ? (isEnglish ? TOUR_STEPS.en : TOUR_STEPS.fr) : (isEnglish ? FIRST_TOUR_STEPS.en : FIRST_TOUR_STEPS.fr);
   const pathname = usePathname();
   const router = useRouter();
   const [active, setActive] = useState(false);
+  const [fullGuide, setFullGuide] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
   const [targetRect, setTargetRect] = useState(null);
   const [viewport, setViewport] = useState({ width: 360, height: 800 });
@@ -69,6 +76,7 @@ function AppFeatureTourContent({ startRequest }) {
       autoStartCheckedRef.current = true;
       targetElementRef.current = null;
       setStepIndex(0);
+      setFullGuide(true);
       setTargetRect(null);
       setCalloutPosition(null);
       setActive(true);
@@ -101,6 +109,7 @@ function AppFeatureTourContent({ startRequest }) {
       .then((profile) => {
         if (cancelled || locallyCompleted || profile?.appTourCompleted === true) return;
         setStepIndex(0);
+        setFullGuide(false);
         targetElementRef.current = null;
         setTargetRect(null);
         setCalloutPosition(null);
@@ -111,6 +120,7 @@ function AppFeatureTourContent({ startRequest }) {
         // Le guide reste accessible même si le profil Firestore est momentanément indisponible.
         if (cancelled || locallyCompleted) return;
         setStepIndex(0);
+        setFullGuide(false);
         targetElementRef.current = null;
         setTargetRect(null);
         setCalloutPosition(null);
@@ -131,6 +141,7 @@ function AppFeatureTourContent({ startRequest }) {
     autoStartCheckedRef.current = true;
     targetElementRef.current = null;
     setStepIndex(0);
+    setFullGuide(true);
     setTargetRect(null);
     setCalloutPosition(null);
     setActive(true);
