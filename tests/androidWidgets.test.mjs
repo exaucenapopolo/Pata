@@ -70,7 +70,7 @@ test('le widget financier réutilise son cache local sans requêtes réseau redo
   assert.ok(provider.includes('PataFinanceWidgetWorker.schedule(context)'));
   assert.ok(provider.includes('getSharedPreferences(PREFS, Context.MODE_PRIVATE)'));
   assert.ok(worker.includes('PataQuickCaptureWidgetProvider.updateWidgets(context, manager, ids)'));
-  assert.doesNotMatch(worker, /HttpURLConnection|global-summary|debts\\/list|NetworkType/);
+  for (const forbidden of ['HttpURLConnection', 'global-summary', '/debts/list', 'NetworkType']) assert.equal(worker.includes(forbidden), false, 'unexpected network refresh: ' + forbidden);
   assert.ok(plugin.includes('PataFinanceWidgetWorker.schedule(getContext())'));
   assert.ok(dashboard.includes('uid: user.uid'));
 });
