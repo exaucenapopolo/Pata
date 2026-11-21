@@ -1061,7 +1061,7 @@ export default function IncomePage() {
                   <span className="shrink-0 text-right"><strong className="block text-sm font-bold text-slate-900">{formatCurrency(inc.amount)}</strong><span className="text-[10px] font-medium text-brand-700">Voir le détail</span></span>
                 </button>
                 <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2">
-                  <span className="text-[11px] text-slate-500">{inc.flowType === 'debt_borrowed' ? (inc.availableAsFunding === true ? 'Financement reçu · dette à rembourser' : 'Dette suivie · non comptée comme argent disponible') : !inc.balanceAvailable ? 'Solde indisponible — vérification nécessaire' : inc.isExhausted ? (inc.exhaustedDate ? `Épuisé le ${formatDate(inc.exhaustedDate)}` : 'Source épuisée') : `Disponible : ${formatCurrency(inc.remaining)}`}</span>
+                  <span className="text-[11px] text-slate-500">{inc.flowType === 'debt_borrowed' ? (inc.availableAsFunding === true ? 'Financement reçu · dette à rembourser' : inc.availableAsFunding === false ? 'Dette suivie · biens/services à crédit' : 'Dette ancienne · nature à préciser') : !inc.balanceAvailable ? 'Solde indisponible — vérification nécessaire' : inc.isExhausted ? (inc.exhaustedDate ? `Épuisé le ${formatDate(inc.exhaustedDate)}` : 'Source épuisée') : `Disponible : ${formatCurrency(inc.remaining)}`}</span>
                   <span className="flex items-center gap-1">
                     {!inc.neutralFlow && <button type="button" onClick={() => setDeleteId(inc.id)} className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600" aria-label="Supprimer ce revenu"><Trash2 size={14}/></button>}
                   </span>
