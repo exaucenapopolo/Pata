@@ -170,7 +170,7 @@ export default function DebtsPage() {
                   <span className={'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ' + (isReceivable ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700')}>{isReceivable ? <ArrowDownLeft size={19}/> : <ArrowUpRight size={19}/>}</span>
                   <div className="min-w-0">
                     <h2 className="truncate text-sm font-bold text-slate-900">{debt.bankName || debt.person || 'Créancier non renseigné'}</h2>
-                    <p className="mt-0.5 text-xs text-slate-500">{isReceivable ? 'Prêt accordé · On me doit' : debt.counterpartyType === 'bank' ? 'Dette bancaire · Je dois' : 'Dette contractée · Je dois'}</p>
+                    <p className="mt-0.5 text-xs text-slate-500">{isReceivable ? 'Prêt accordé · On me doit' : debt.availableAsFunding === true ? (debt.counterpartyType === 'bank' ? 'Emprunt bancaire · argent reçu' : 'Dette contractée · argent reçu') : (debt.counterpartyType === 'bank' ? 'Dette bancaire · Je dois' : 'Biens ou services pris à crédit · Je dois')}</p>
                     {debt.phone && <p className="mt-1 text-xs text-slate-500">{debt.phone}</p>}
                   </div>
                 </div>
