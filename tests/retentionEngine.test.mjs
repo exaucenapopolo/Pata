@@ -170,6 +170,7 @@ test('propose une vérification des dépenses oubliées sans supposer qu’une d
     todayExpenseCount: 0,
   });
   assert.equal(notification.topic, 'expense_recovery');
+  assert.equal(notification.priority, 82);
   assert.equal(notification.target, '/expenses?recovery=1');
   assert.match(notification.body, /marché/);
   assert.match(notification.body, /taxi, moto/);
@@ -230,6 +231,7 @@ test('détecte plusieurs petits achats réels sans compter les prêts ou sorties
     ],
   });
   assert.equal(notification.topic, 'small_purchases');
+  assert.equal(notification.priority, 87);
   assert.match(notification.body, /3 petits achats/);
   assert.match(notification.body, /1 ?500|1 500|1,500/);
   assert.equal(buildSmallPurchaseNotification({ dateKey: '2026-11-21', expenses: [] }), null);

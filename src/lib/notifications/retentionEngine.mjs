@@ -209,7 +209,7 @@ export function buildExpenseRecoveryNotification({
   return {
     key: 'expense-recovery:' + dateKey,
     topic: 'expense_recovery',
-    priority: 46,
+    priority: 82,
     title: 'As-tu oublié une dépense aujourd’hui ?',
     body: 'Tu as déjà enregistré des dépenses ce mois-ci, mais aucune pour aujourd’hui. Si ta journée a été sans dépense, tout va bien. Sinon, vérifie en 4 points : 1) repas et achats au marché ; 2) taxi, moto et déplacements ; 3) boissons, forfaits et petits achats ; 4) factures ou paiements effectués. Ajoute uniquement ce que tu as réellement payé.',
     target: '/expenses?recovery=1',
@@ -246,7 +246,7 @@ export function buildSmallPurchaseNotification({
   return {
     key: 'small-purchases:' + dateKey,
     topic: 'small_purchases',
-    priority: 74,
+    priority: 87,
     title: 'Tes petits achats s’additionnent',
     body: 'Tu as enregistré ' + rows.length + ' petits achats de ' + limit.toLocaleString('fr-FR')
       + ' FCFA ou moins aujourd’hui, pour un total de ' + formatFCFA(total)
