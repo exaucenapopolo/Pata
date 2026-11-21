@@ -40,8 +40,8 @@ test('compare les objectifs facultatifs quotidiens, hebdomadaires et mensuels au
     ],
   });
   assert.equal(result[0].targets[0].period, 'weekly');
-  assert.equal(result[0].targets[0].actual, 5000);
-  assert.equal(result[0].targets[0].status, 'within');
+  assert.equal(result[0].targets[0].actual, 6000);
+  assert.equal(result[0].targets[0].status, 'over');
 });
 
 test('ne projette pas une tendance à partir de trop peu de jours de dépenses', () => {
