@@ -1,7 +1,7 @@
 const EXPENSE_RULES = [
   ["transport", /taxi|moto|mototaxi|bus|transport|essence|carburant|yango|uber|trajet|parking|peage|billet|voyage|deplacement/i,
     ["transport", "taxi", "mototaxi", "moto", "bus", "car", "voiture", "essence", "carburant", "petrole", "gasoil", "diesel", "parking", "peage", "ticket", "billet", "voyage", "deplacement", "course", "taxi moto"]],
-  ["food", /repas|nourriture|manger|bouffe|restaurant|resto|pain|\\bmarche\\b|courses|alimentation|cuisine|boisson|dejeuner|diner|petit.?dejeuner|gouter|collation|provisions|epicerie|snack/i,
+  ["food", /repas|nourriture|manger|bouffe|restaurant|resto|pain|\bmarche\b|courses|alimentation|cuisine|boisson|dejeuner|diner|petit.?dejeuner|gouter|collation|provisions|epicerie|snack/i,
     ["repas", "nourriture", "manger", "mange", "bouffe", "restaurant", "resto", "pain", "marche", "koki", "beignet", "beignets", "soya", "ndole", "eru", "achu", "okok", "water fufu", "waterfufu", "puff puff", "courses", "alimentation", "cuisine", "boisson", "eau a boire", "dejeuner", "diner", "petit dejeuner", "gouter", "collation", "provisions", "epicerie", "snack", "aliments", "alimentaire", "viande", "poisson", "legumes", "fruits", "petit repas", "repas du soir", "repas de midi"]],
   ["housing", /loyer|maison|logement|eau|electricite|menage|reparation|gaz|quittance|plomberie|peinture|construction/i,
     ["loyer", "maison", "logement", "eau", "electricite", "eneo", "sonel", "camwater", "menage", "reparation", "gaz", "plomberie", "peinture", "construction", "habitation", "domicile", "maisonnement"]],
