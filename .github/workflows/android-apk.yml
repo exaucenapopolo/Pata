@@ -70,6 +70,8 @@ jobs:
         run: npm run test:android-shortcuts
       - name: Vérifier les widgets Android et leurs ressources RemoteViews
         run: npm run test:android-widgets
+      - name: Vérifier le guide de première utilisation et le guide complet
+        run: npm run test:app-tour
       - name: Vérifier la conversation Mč depuis les notifications Android
         run: npm run test:android-ai-notification
       - name: Vérifier le format court des réponses Mč dans les notifications
