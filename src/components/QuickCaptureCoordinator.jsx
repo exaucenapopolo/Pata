@@ -791,7 +791,7 @@ export function QuickCaptureCoordinator() {
             <select value={draft.incomeSourceId || 'all'} onChange={(event) => setDraft((current) => ({ ...current, incomeSourceId: event.target.value, incomeSourceName: '' }))} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal">
               <option value="all">Répartir sur mes revenus disponibles</option>
               <option value="external">Solde externe / revenu non suivi</option>
-              {captureOptions.incomes.map((income) => <option key={income.id} value={income.id}>{income.source} · {income.date || 'Date inconnue'} · {Number(income.amount || 0).toLocaleString('fr-FR')} FCFA initialement</option>)}
+              {captureOptions.incomes.map((income) => <option key={income.id} value={income.id}>{income.availableAsFunding ? 'Emprunt reçu · ' : ''}{income.source} · {income.date || 'Date inconnue'} · {Number(income.amount || 0).toLocaleString('fr-FR')} FCFA initialement</option>)}
             </select>
             {draft.incomeSourceName && <span className="mt-1 block text-[10px] font-normal text-emerald-700">Source reconnue dans ta phrase : {draft.incomeSourceName}. Vérifie le revenu sélectionné.</span>}
             <span className="mt-1 block text-[10px] font-normal text-slate-500">Tu peux relier cette sortie à un revenu précis. Le solde est vérifié au moment de l’enregistrement.</span>
