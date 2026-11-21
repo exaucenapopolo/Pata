@@ -131,7 +131,7 @@ test('expense and income forms expose scheduling while preserving recurrence cho
   assert.match(expenses, /Programmer cette opération/);
   assert.match(expenses, /recurrenceEnabled/);
   assert.match(expenses, /linkSource/);
-  assert.match(incomes, /Programmer ce revenu ou cet emprunt/);
+  assert.match(incomes, /Programmer cette opération/);
   assert.match(incomes, /recurrenceEnabled: id === 'salary' \? true/);
   assert.match(incomes, /Créer.*récurrente|Rendre ce revenu récurrent/);
 });
