@@ -153,7 +153,7 @@ test('la page Dettes distingue un emprunt reçu en argent des achats pris à cr�
 test('aucune nature de dette n’est présélectionnée pour une dette nouvelle ou ancienne non qualifiée', () => {
   assert.match(incomePage, /availableAsFunding: null/);
   assert.match(incomePage, /availableAsFunding: typeof income\.availableAsFunding === 'boolean' \? income\.availableAsFunding : null/);
-  assert.match(incomePage, /form\.availableAsFunding !== 'boolean'/);
+  assert.match(incomePage, /typeof form\.availableAsFunding !== 'boolean'/);
   assert.match(incomePage, /checked=\{form\.availableAsFunding === false\}/);
   const apiRoute = fs.readFileSync(new URL('../src/app/api/[...path]/route.js', import.meta.url), 'utf8');
   assert.match(apiRoute, /hasOwnProperty\.call\(body, 'availableAsFunding'\)/);
