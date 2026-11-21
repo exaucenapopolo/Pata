@@ -3,6 +3,23 @@ import assert from 'node:assert/strict';
 import { parseQuickCapture } from '../src/lib/quickCapture/parser.mjs';
 const now = new Date('2026-11-15T12:00:00.000Z');
 
+test('reconnaît le marché comme alimentation sans confondre le verbe marcher', () => {
+  const market = parseQuickCapture('1 000 au marché', now);
+  assert.equal(market.type, 'expense');
+  assert.equal(market.categoryId, 'food');
+
+  const walking = parseQuickCapture('Je vais marcher 1 000 mètres', now);
+  assert.notEqual(walking.categoryId, 'food');
+});
+
+test('reconnaît quelques plats et aliments courants au Cameroun', () => {
+  for (const phrase of ['500 FCFA ndole', '1 000 koki', '500 soya', '500 eru']) {
+    const result = parseQuickCapture(phrase, now);
+    assert.equal(result.type, 'expense', phrase);
+    assert.equal(result.categoryId, 'food', phrase);
+  }
+});
+
 test('reconnaît une dépense de taxi et son montant', () => {
   const result = parseQuickCapture("J'ai dépensé 1 500 FCFA pour le taxi", now);
   assert.equal(result.type, 'expense');
