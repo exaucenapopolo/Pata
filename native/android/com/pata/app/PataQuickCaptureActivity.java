@@ -118,7 +118,7 @@ public class PataQuickCaptureActivity extends Activity {
             WindowManager.LayoutParams.WRAP_CONTENT
         );
         entry.requestFocus();
-        if (\"voice\".equals(captureMode)) {
+        if ("voice".equals(captureMode)) {
             entry.postDelayed(this::startVoiceCapture, 250);
         } else {
             entry.postDelayed(this::showKeyboard, 180);
@@ -171,8 +171,8 @@ public class PataQuickCaptureActivity extends Activity {
             finish();
             return;
         }
-        if (\"expense\".equals(captureMode)) text = \"dépense \" + text;
-        else if (\"income\".equals(captureMode)) text = \"revenu \" + text;
+        if ("expense".equals(captureMode)) text = "dépense " + text;
+        else if ("income".equals(captureMode)) text = "revenu " + text;
         PataQuickCaptureReceiver.enqueue(this, text, session.uid);
         Toast.makeText(this, "Saisie envoyée. Pata termine l’enregistrement.", Toast.LENGTH_SHORT).show();
         finish();
