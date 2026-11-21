@@ -151,6 +151,49 @@ function formatFCFA(value) {
   return Math.max(0, Number(value) || 0).toLocaleString('fr-FR') + ' FCFA';
 }
 
+export function buildCategoryBudgetForecastNotification({
+  budgets = [],
+  categoryTotals = {},
+  dateKey,
+  categoryLabels = {},
+  alreadyNotifiedKey = '',
+} = {}) {
+  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(String(dateKey || ''))) return null;
+  const [year, monthNumber, day] = dateKey.split('-').map(Number);
+  const month = dateKey.slice(0, 7);
+  const daysInMonth = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+  if (day < 3 || !daysInMonth) return null;
+  const candidates = budgets.filter((budget) => budget?.month === month
+    && (!budget.incomeSourceId || budget.incomeSourceId === 'all')
+    && budget.categoryId
+    && Number(budget.amount) > 0)
+    .map((budget) => {
+      const spent = Math.max(0, Number(categoryTotals[budget.categoryId]) || 0);
+      const limit = Math.max(0, Number(budget.amount) || 0);
+      const projected = Math.round(spent / day * daysInMonth);
+      return { categoryId: String(budget.categoryId), spent, limit, projected, key: month + ':' + String(budget.categoryId) };
+    })
+    .filter((item) => item.spent > 0 && item.spent <= item.limit && item.projected > item.limit && item.key !== alreadyNotifiedKey)
+    .sort((a, b) => (b.projected / b.limit) - (a.projected / a.limit));
+  const selected = candidates[0];
+  if (!selected) return null;
+  const label = String(categoryLabels[selected.categoryId] || selected.categoryId).toLocaleLowerCase('fr-FR');
+  return {
+    key: 'budget-forecast:' + selected.key,
+    topic: 'category_budget_forecast',
+    priority: 94,
+    title: 'Une enveloppe pourrait être dépassée',
+    body: 'En ' + label + ', tu as déjà dépensé ' + formatFCFA(selected.spent) +
+      '. Au rythme observé, le total pourrait atteindre environ ' + formatFCFA(selected.projected) +
+      ' sur un budget de ' + formatFCFA(selected.limit) + '. C’est une estimation, pas une dépense certaine. Vérifie les opérations et ajuste si nécessaire.',
+    target: '/budgets',
+    source: 'category_budget_forecast',
+    profileUpdate: { lastBudgetForecastKey: selected.key },
+    categoryId: selected.categoryId,
+    personalize: false,
+  };
+}
+
 export function buildExpenseRecoveryNotification({
   dateKey,
   monthExpenseCount = 0,
