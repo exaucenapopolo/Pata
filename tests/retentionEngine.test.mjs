@@ -5,6 +5,7 @@ import {
   MAX_DAILY_NON_ESSENTIAL_NOTIFICATIONS,
   MIN_NON_ESSENTIAL_GAP_MS,
   buildCategoryAdviceNotification,
+  buildExpenseRecoveryNotification,
   claimDailyNonEssentialSlot,
   claimDailyRetentionSlot,
   claimDailyRetentionPassSlot,
@@ -132,6 +133,28 @@ test('selects at most two different priorities without duplicating a topic', () 
     { key: 'debt', topic: 'debts', title: 'Dette', body: 'Texte', priority: 70 }
   ]);
   assert.deepEqual(selected.map((item) => item.key), ['bill', 'debt']);
+});
+
+test('propose une vérification des dépenses oubliées sans supposer qu’une dépense a été faite', () => {
+  const notification = buildExpenseRecoveryNotification({
+    dateKey: '2026-11-21',
+    monthExpenseCount: 12,
+    todayExpenseCount: 0,
+  });
+  assert.equal(notification.topic, 'expense_recovery');
+  assert.equal(notification.target, '/expenses');
+  assert.match(notification.body, /marché/);
+  assert.match(notification.body, /taxi, moto/);
+  assert.match(notification.body, /Ajoute uniquement ce que tu as réellement payé/);
+  assert.equal(buildExpenseRecoveryNotification({
+    dateKey: '2026-11-21', monthExpenseCount: 12, todayExpenseCount: 1,
+  }), null);
+  assert.equal(buildExpenseRecoveryNotification({
+    dateKey: '2026-11-21', monthExpenseCount: 2, todayExpenseCount: 0,
+  }), null);
+  assert.equal(buildExpenseRecoveryNotification({
+    dateKey: '2026-11-21', monthExpenseCount: 12, todayExpenseCount: 0, lastCheckDate: '2026-11-20',
+  }), null);
 });
 
 test('rotates category advice and builds a message with actual monthly and daily totals', () => {
