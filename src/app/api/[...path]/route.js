@@ -5803,7 +5803,7 @@ async function handleAIChat(request) {
     const expensePeriodQuery = userRef.collection('expenses')
       .where('date', '>=', reportPeriod.startDate).where('date', '<=', reportPeriod.endDate);
     const [
-      userDoc, incomesSnap, expensesSnap, incomePeriodAggregateSnap, neutralIncomePeriodAggregateSnap, expensePeriodAggregateSnap,
+      userDoc, incomesSnap, expensesSnap, incomePeriodAggregateSnap, neutralIncomePeriodAggregateSnap, legacyCashIncomePeriodAggregateSnap, expensePeriodAggregateSnap,
       debtsSnap, financialTargetSnap, goalsSnap, budgetsSnap, automationsSnap,
       memorySnap, categoriesSnap, projectsSnap, cotisationMembershipsSnap, activityLogSnap, weeklyReportsSnap,
       notificationSessionSnap,
@@ -5820,6 +5820,12 @@ async function handleAIChat(request) {
         : Promise.resolve(null),
       includeIncomeContext && !needsCompletePeriodRows
         ? incomePeriodQuery.where('neutralFlow', '==', true).aggregate({ total: AggregateField.sum('amount'), count: AggregateField.count() }).get()
+        : Promise.resolve(null),
+      includeIncomeContext && !needsCompletePeriodRows
+        ? incomePeriodQuery.where('neutralFlow', '==', true).where('flowType', '==', 'debt_borrowed')
+          .where('availableAsFunding', '==', true)
+          .aggregate({ total: AggregateField.sum('amount'), count: AggregateField.count() }).get()
+          .catch((error) => { console.warn('[PATA AI LEGACY BORROWED CASH SUMMARY]', error.message || error); return null; })
         : Promise.resolve(null),
       includeExpenseContext && !needsCompletePeriodRows
         ? expensePeriodQuery.aggregate({ total: AggregateField.sum('amount'), count: AggregateField.count() }).get()
@@ -5990,7 +5996,9 @@ async function handleAIChat(request) {
     const periodIncomeTotal = countedIncomeRows
       ? countedIncomeRows.reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
       : incomePeriodAggregateSnap
-        ? Math.max(0, (Number(incomePeriodAggregateSnap.data()?.total) || 0) - (Number(neutralIncomePeriodAggregateSnap?.data()?.total) || 0))
+        ? Math.max(0, (Number(incomePeriodAggregateSnap.data()?.total) || 0)
+          - (Number(neutralIncomePeriodAggregateSnap?.data()?.total) || 0)
+          + (Number(legacyCashIncomePeriodAggregateSnap?.data()?.total) || 0))
         : 0;
     const periodExpenseTotal = expensePeriodAggregateSnap
       ? Math.max(0, Number(expensePeriodAggregateSnap.data()?.total) || 0)
@@ -5998,7 +6006,9 @@ async function handleAIChat(request) {
     const periodIncomeCount = countedIncomeRows
       ? countedIncomeRows.length
       : incomePeriodAggregateSnap
-        ? Math.max(0, (Number(incomePeriodAggregateSnap.data()?.count) || 0) - (Number(neutralIncomePeriodAggregateSnap?.data()?.count) || 0))
+        ? Math.max(0, (Number(incomePeriodAggregateSnap.data()?.count) || 0)
+          - (Number(neutralIncomePeriodAggregateSnap?.data()?.count) || 0)
+          + (Number(legacyCashIncomePeriodAggregateSnap?.data()?.count) || 0))
         : 0;
     const periodExpenseCount = expensePeriodAggregateSnap
       ? Math.max(0, Number(expensePeriodAggregateSnap.data()?.count) || 0)
@@ -8499,25 +8509,21 @@ async function handleProjectFinancialSummary(request) {
       .filter((value) => value && !value.includes('/')))].slice(0, 40);
     const userRef = adminDb.collection('users').doc(uid);
     const summaries = await Promise.all(projectIds.map(async (projectId) => {
-      const [expensesSnap, incomesSnap, borrowedSnap, neutralBorrowedSnap, legacyCashFundingSnap] = await Promise.all([
+      const [expensesSnap, incomesSnap, borrowedRowsSnap] = await Promise.all([
         userRef.collection('expenses').where('projectId', '==', projectId)
           .aggregate({ total: AggregateField.sum('amount') }).get(),
         userRef.collection('incomes').where('projectId', '==', projectId)
           .aggregate({ total: AggregateField.sum('amount') }).get(),
-        userRef.collection('incomes').where('projectId', '==', projectId).where('flowType', '==', 'debt_borrowed')
-          .aggregate({ total: AggregateField.sum('amount') }).get(),
         userRef.collection('incomes').where('projectId', '==', projectId)
-          .where('flowType', '==', 'debt_borrowed').where('neutralFlow', '==', true)
-          .aggregate({ total: AggregateField.sum('amount') }).get(),
-        userRef.collection('incomes').where('projectId', '==', projectId)
-          .where('flowType', '==', 'debt_borrowed').where('neutralFlow', '==', true)
-          .where('availableAsFunding', '==', true)
-          .aggregate({ total: AggregateField.sum('amount') }).get(),
+          .where('flowType', '==', 'debt_borrowed').get(),
       ]);
       const totalIncome = Math.max(0, Number(incomesSnap.data()?.total) || 0);
-      const legacyCashFunding = Math.max(0, Number(legacyCashFundingSnap.data()?.total) || 0);
-      const inKindDebtTotal = Math.max(0, (Number(neutralBorrowedSnap.data()?.total) || 0) - legacyCashFunding);
-      const borrowedFunding = Math.max(0, (Number(borrowedSnap.data()?.total) || 0) - inKindDebtTotal);
+      const borrowedRows = borrowedRowsSnap.docs.map((doc) => doc.data() || {});
+      const inKindDebtTotal = borrowedRows
+        .filter((item) => item.neutralFlow === true && item.availableAsFunding !== true)
+        .reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+      const borrowedFunding = borrowedRows.filter(isIncomeCountedAsSource)
+        .reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
       return {
         projectId,
         spent: Math.max(0, Number(expensesSnap.data()?.total) || 0),
