@@ -22,6 +22,7 @@ import { saveCategoryTargets } from '@/lib/firestore/profile';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { formatCurrency, getLocalMonth, normalizeExpenseCategoryId } from '@/lib/utils';
 import { buildBudgetSuggestions } from '@/lib/financialPlanning';
+import { isIncomeCountedAsSource } from '@/lib/finance/incomeBalances.mjs';
 import { NextBestAction } from '@/components/NextBestAction';
 
 const todayMonth = () => getLocalMonth();
@@ -135,9 +136,8 @@ export default function BudgetsPage() {
 
   const monthIncomes = useMemo(() => incomes.filter(i => i.month === month), [incomes, month]);
   const budgetIncomeSources = useMemo(() => monthIncomes.filter((income) =>
-    !income.neutralFlow
+    isIncomeCountedAsSource(income)
     && !income.cashPocket
-    && income.flowType !== 'debt_borrowed'
     && income.flowType !== 'repayment_received'
     && income.categoryId !== 'debt_repayment_received'
     && income.balanceAvailable === true
