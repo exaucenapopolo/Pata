@@ -197,3 +197,12 @@ test('le serveur refuse une nouvelle dette lorsque sa nature argent ou biens à 
   assert.match(quickCapture, /incomeFlowType === 'debt_borrowed' && typeof body\.incomeAvailableAsFunding !== 'boolean'/);
   assert.match(scheduled, /typeof body\.availableAsFunding !== 'boolean'/);
 });
+
+
+test('le rapport hebdomadaire inclut les emprunts en argent mais sépare leur nature de dette', () => {
+  const financialTools = fs.readFileSync(new URL('../src/lib/ai/financialTools.js', import.meta.url), 'utf8');
+  assert.match(financialTools, /sum\(currentIncome\.filter\(isIncomeCountedAsSource\)\)/);
+  assert.match(financialTools, /sum\(previousIncome\.filter\(isIncomeCountedAsSource\)\)/);
+  assert.match(financialTools, /const borrowed = incomes\.filter/);
+  assert.match(financialTools, /Aucun revenu encaissé n’a été enregistré cette semaine/);
+});
