@@ -402,6 +402,8 @@ export default function IncomePage() {
     income.flowType === 'debt_borrowed' || income.categoryId === 'debt_borrowed'
   ), [monthEarningSources]);
   const earnedThisMonth = monthEarningSources.reduce((sum, income) => sum + (Number(income.amount) || 0), 0);
+  const debtIncomeAmount = monthDebtIncomeSources.reduce((sum, income) => sum + (Number(income.amount) || 0), 0);
+  const earnedWithoutDebtThisMonth = Math.max(0, earnedThisMonth - debtIncomeAmount);
   const activeMonthSources = monthEarningSources.filter((income) =>
     income.balanceAvailable && !income.isExhausted && Number(income.remaining) > 0
   );
@@ -763,12 +765,17 @@ export default function IncomePage() {
           <MonthPicker value={month} onChange={setMonth} className="w-full sm:w-auto" />
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-        <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Revenus encaissés</p><p className="mt-1 break-words text-sm font-extrabold tabular-nums text-slate-950 sm:text-base">{formatCurrency(earnedThisMonth)}</p></div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+        <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Total encaissé (dettes incluses)</p><p className="mt-1 break-words text-sm font-extrabold tabular-nums text-slate-950 sm:text-base">{formatCurrency(earnedThisMonth)}</p></div>
+        <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Total gagné sans dettes</p><p className="mt-1 break-words text-sm font-extrabold tabular-nums text-slate-950 sm:text-base">{formatCurrency(earnedWithoutDebtThisMonth)}</p></div>
         <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Sources sur la période</p><p className="mt-1 text-sm font-extrabold tabular-nums text-slate-950 sm:text-base">{monthEarningSources.length}</p></div>
-        <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Revenus issus de dettes</p><p className="mt-1 text-sm font-extrabold tabular-nums text-slate-950 sm:text-base">{monthDebtIncomeSources.length}</p></div>
+        <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+          <p className="text-[10px] leading-4 text-slate-500">Emprunts reçus</p>
+          <p className="mt-1 text-sm font-extrabold tabular-nums text-slate-950 sm:text-base">{monthDebtIncomeSources.length}</p>
+          <p className="mt-0.5 break-words text-[10px] font-medium text-slate-500">Montant : {formatCurrency(debtIncomeAmount)}</p>
+        </div>
         <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Sources actives</p><p className="mt-1 text-sm font-extrabold tabular-nums text-slate-950 sm:text-base">{activeMonthSources.length}</p></div>
-        <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Disponible</p><p className="mt-1 break-words text-sm font-extrabold tabular-nums text-brand-800 sm:text-base">{availableThisMonth == null ? '—' : formatCurrency(availableThisMonth)}</p></div>
+        <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Disponible (dettes incluses)</p><p className="mt-1 break-words text-sm font-extrabold tabular-nums text-brand-800 sm:text-base">{availableThisMonth == null ? '—' : formatCurrency(availableThisMonth)}</p></div>
       </div>
       <ScheduledTransactionsPanel kinds={['income', 'debt_borrowed', 'repayment_received']} isPremium={isPremium} compact />
       <nav aria-label={isEnglish ? 'Income sections' : 'Rubriques des revenus'} className="grid grid-cols-2 gap-2 sm:grid-cols-3" role="tablist">
