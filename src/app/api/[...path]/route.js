@@ -15,7 +15,7 @@ import { generateAudioWithGemini } from '@/lib/ai/geminiTTS';
 import { buildIncomePriorityReminder } from '@/lib/finance/incomePriorities.mjs';
 import { buildIncomeBudgetRecommendation } from '@/lib/finance/incomeBudgetRecommendation.mjs';
 import { buildRecurringExpenseReminders } from '@/lib/notifications/recurringExpenses.mjs';
-import { sumIncomeSpendTotals } from '@/lib/finance/incomeBalances.mjs';
+import { sumIncomeSpendTotals, isIncomeCountedAsSource } from '@/lib/finance/incomeBalances.mjs';
 import { countExpenseOperations } from '@/lib/finance/expenseOperations.mjs';
 import { BUDGET_SPEND_SUMMARY_VERSION, applyBudgetSpendDelta, buildBudgetSpendSummary, getBudgetSpendAmount, normalizeBudgetSpendSummary } from '@/lib/finance/budgetSpendSummary.mjs';
 import { chatWithGroqVision, extractBillDataWithGroqVision } from '@/lib/ai/groqVision';
@@ -335,7 +335,7 @@ async function getWeekendFinancialSummary(userRef, dateKey) {
   const expenses = expensesSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
     .filter((item) => !item.neutralFlow);
   const incomes = incomesSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
-    .filter((item) => !item.neutralFlow && item.flowType !== 'debt_borrowed');
+    .filter(isIncomeCountedAsSource);
   const expenseTotal = expenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
   const incomeTotal = incomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
   const byCategory = new Map();
@@ -3165,8 +3165,8 @@ async function handleNotificationScheduler(request, passNumber = 1) {
         });
         if (unusualSpendingAlert) smartCandidates.push(unusualSpendingAlert);
         const incomeRows = monthIncomesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-        const realIncomeRows = incomeRows.filter((item) => !item.neutralFlow && item.flowType !== 'debt_borrowed');
-        const todayRealIncomeRows = realIncomeRows.filter((item) => String(item.date || '') === today && (!item.flowType || item.flowType === 'normal'));
+        const realIncomeRows = incomeRows.filter(isIncomeCountedAsSource);
+        const todayRealIncomeRows = realIncomeRows.filter((item) => String(item.date || '') === today);
         const largestIncome = realIncomeRows.slice().sort((a, b) => (Number(b.amount) || 0) - (Number(a.amount) || 0))[0] || null;
         if (todayExpenses.length > 0 && todayRealIncomeRows.length === 0
           && daysBetweenDateKeys(String(userData.lastNoIncomeRetentionDate || '').slice(0, 10), today) >= 3) {
@@ -3603,15 +3603,20 @@ async function handleGlobalFinanceSummary(request) {
       let neutralIncomeCount = 0;
       let neutralExpenseCount = 0;
       if (excludeNeutral) {
-        const [neutralIncomeSummary, neutralExpenseSummary] = await Promise.all([
+        const [neutralIncomeSummary, neutralExpenseSummary, legacyBorrowedFundingSummary] = await Promise.all([
           incomePeriod.where('neutralFlow', '==', true)
             .aggregate({ total: AggregateField.sum('amount'), count: AggregateField.count() }).get(),
           expensePeriod.where('neutralFlow', '==', true)
             .aggregate({ total: AggregateField.sum('amount'), count: AggregateField.count() }).get(),
+          incomePeriod.where('neutralFlow', '==', true).where('flowType', '==', 'debt_borrowed')
+            .where('availableAsFunding', '==', true)
+            .aggregate({ total: AggregateField.sum('amount'), count: AggregateField.count() }).get(),
         ]);
-        neutralIncome = Number(neutralIncomeSummary.data()?.total) || 0;
+        neutralIncome = Math.max(0, (Number(neutralIncomeSummary.data()?.total) || 0)
+          - (Number(legacyBorrowedFundingSummary.data()?.total) || 0));
         neutralExpense = Number(neutralExpenseSummary.data()?.total) || 0;
-        neutralIncomeCount = Number(neutralIncomeSummary.data()?.count) || 0;
+        neutralIncomeCount = Math.max(0, (Number(neutralIncomeSummary.data()?.count) || 0)
+          - (Number(legacyBorrowedFundingSummary.data()?.count) || 0));
         neutralExpenseCount = Number(neutralExpenseSummary.data()?.count) || 0;
       }
 
@@ -3641,19 +3646,20 @@ async function handleGlobalFinanceSummary(request) {
         incomePeriod.get(),
         expensePeriod.get(),
       ]);
-      const total = (snapshot) => snapshot.docs.reduce((sum, document) => {
-        const data = document.data() || {};
-        return sum + (excludeNeutral && data.neutralFlow === true ? 0 : Number(data.amount) || 0);
-      }, 0);
+      const incomeRows = incomesSnapshot.docs.map((document) => ({ id: document.id, ...document.data() }));
+      const countedIncomeRows = excludeNeutral ? incomeRows.filter(isIncomeCountedAsSource) : incomeRows;
+      const expenseRows = expensesSnapshot.docs.map((document) => document.data() || {});
+      const totalIncome = countedIncomeRows.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+      const totalExpense = expenseRows.reduce((sum, item) => sum + (excludeNeutral && item.neutralFlow === true ? 0 : Number(item.amount) || 0), 0);
       return NextResponse.json({
         success: true,
         startDate,
         endDate,
-        totalIncome: total(incomesSnapshot),
-        totalExpense: total(expensesSnapshot),
-        incomeCount: incomesSnapshot.docs.filter((document) => !excludeNeutral || document.data()?.neutralFlow !== true).length,
+        totalIncome,
+        totalExpense,
+        incomeCount: countedIncomeRows.length,
         expenseCount: expensesSnapshot.docs.filter((document) => !excludeNeutral || document.data()?.neutralFlow !== true).length,
-        globalBalance: total(incomesSnapshot) - total(expensesSnapshot),
+        globalBalance: totalIncome - totalExpense,
       });
     }
   } catch (error) {
