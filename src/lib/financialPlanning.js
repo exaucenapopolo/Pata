@@ -65,8 +65,7 @@ export function buildFinancialSuggestions({ periodType = 'month', periodKey = ''
   const startHistory = addDays(bounds.end, -89);
   const historyStart = iso(startHistory);
   const inHistory = (item) => validDate(item.date) && item.date >= historyStart && item.date <= bounds.end;
-  const ordinaryIncomes = incomes.filter((item) => inHistory(item) && item.neutralFlow !== true
-    && item.flowType !== 'debt_borrowed' && item.categoryId !== 'debt_borrowed');
+  const ordinaryIncomes = incomes.filter((item) => inHistory(item) && isIncomeCountedAsSource(item));
   const consumption = expenses.filter((item) => inHistory(item) && item.neutralFlow !== true
     && item.flowType !== 'loan_given' && item.flowType !== 'repayment'
     && !['loan_given', 'debt_repayment'].includes(item.categoryId)
@@ -133,8 +132,7 @@ export function buildBudgetSuggestions({ incomes = [], expenses = [], categories
   const end = month + '-' + String(new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate()).padStart(2, '0');
   const start = iso(addDays(end, -89));
   const inHistory = (item) => validDate(item.date) && item.date >= start && item.date <= end;
-  const normalIncomes = incomes.filter((item) => inHistory(item) && item.neutralFlow !== true
-    && item.flowType !== 'debt_borrowed' && item.categoryId !== 'debt_borrowed');
+  const normalIncomes = incomes.filter((item) => inHistory(item) && isIncomeCountedAsSource(item));
   const normalExpenses = expenses.filter((item) => inHistory(item) && item.neutralFlow !== true
     && item.flowType !== 'loan_given' && item.flowType !== 'repayment'
     && !['loan_given', 'debt_repayment'].includes(item.categoryId)
