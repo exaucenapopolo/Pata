@@ -148,7 +148,7 @@ async function createScheduledIncome(userRef, schedule, occurrenceDate, occurren
       if (!projectSnap.exists || projectSnap.data()?.status === 'archived') throw new Error('Le projet affecté à ce revenu n’existe plus.');
       projectName = clean(projectSnap.data()?.name, 100);
     }
-    const neutralFlow = isBorrowed;
+    const neutralFlow = isBorrowed && schedule.availableAsFunding !== true;
     const statsBefore = profile.monthlyStats || {};
     const currentMonth = dateKeyInTimeZone(new Date()).slice(0, 7);
     const stats = statsBefore.lastResetMonth === currentMonth
@@ -192,7 +192,18 @@ async function createScheduledIncome(userRef, schedule, occurrenceDate, occurren
         status: schedule.dueDate < dateKeyInTimeZone(new Date()) ? 'late' : 'active',
         note: clean(schedule.note, 250), transactionId: incomeRef.id,
       });
-      transaction.set(userRef, { activeDebtCount: FieldValue.increment(1) }, { merge: true });
+      if (!neutralFlow) {
+        stats.incomes = (Number(stats.incomes) || 0) + 1;
+        stats.lastResetMonth = currentMonth;
+        transaction.set(userRef, {
+          activeDebtCount: FieldValue.increment(1),
+          monthlyStats: stats,
+          lifetimeIncomeAmount: FieldValue.increment(amount),
+          lifetimeIncomeCount: FieldValue.increment(1),
+        }, { merge: true });
+      } else {
+        transaction.set(userRef, { activeDebtCount: FieldValue.increment(1) }, { merge: true });
+      }
     } else if (isRepayment) {
       const status = repaymentCompleted ? 'paid' : repaymentDebt.dueDate && repaymentDebt.dueDate < dateKeyInTimeZone(new Date()) ? 'late' : 'partial';
       const repaymentRef = debtRef.collection('repayments').doc(occurrenceId);
