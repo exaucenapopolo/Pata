@@ -4,6 +4,7 @@ import { incomeMatchesMobileMoneyProvider } from '@/lib/finance/cashWithdrawal.m
 import { buildRecurringExpensePatterns } from '@/lib/notifications/recurringExpenses.mjs';
 import { BUDGET_SPEND_SUMMARY_VERSION, applyBudgetSpendDelta, buildBudgetSpendSummary, getBudgetSpendAmount, normalizeBudgetSpendSummary } from '@/lib/finance/budgetSpendSummary.mjs';
 import { getExpenseOperationKeys } from '@/lib/finance/expenseOperations.mjs';
+import { isIncomeCountedAsSource } from '@/lib/finance/incomeBalances.mjs';
 
 const EXPENSE_CATEGORIES = [
   'food', 'transport', 'housing', 'internet', 'health', 'leisure', 'gift_donation',
