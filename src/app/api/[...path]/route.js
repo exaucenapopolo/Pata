@@ -3820,9 +3820,7 @@ async function handleCreateIncome(request) {
     const phone = String(body.phone || '').trim().slice(0, 30);
     const dueDate = String(body.dueDate || '').trim();
     const repaymentDebtId = String(body.repaymentDebtId || '').trim().slice(0, 150);
-    if (flowType === 'debt_borrowed'
-      && Object.prototype.hasOwnProperty.call(body, 'availableAsFunding')
-      && typeof body.availableAsFunding !== 'boolean') {
+    if (flowType === 'debt_borrowed' && typeof body.availableAsFunding !== 'boolean') {
       return errorResponse('Indique si tu as reçu de l’argent ou des biens/services à crédit.', 400);
     }
     const availableAsFunding = flowType === 'debt_borrowed' && body.availableAsFunding === true;
