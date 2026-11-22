@@ -26,8 +26,8 @@ test('la base partagée conserve les questions françaises et anglaises du centr
 });
 
 test('le centre d’aide explique la dette en argent et les biens pris à crédit en français et en anglais', () => {
-  const french = buildHelpKnowledgeContext('Pourquoi mes pains pris à crédit ne sont-ils pas un revenu ?', 'fr');
-  const english = buildHelpKnowledgeContext('How do goods bought on credit affect income?', 'en');
+  const french = buildHelpKnowledgeContext('Comment enregistrer une dette pour des biens ou services pris à crédit ?', 'fr');
+  const english = buildHelpKnowledgeContext('How do I record goods or services taken on credit?', 'en');
 
   assert.match(french, /biens ou services à crédit/i);
   assert.match(french, /1 000 FCFA de pain/i);
