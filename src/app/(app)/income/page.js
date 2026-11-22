@@ -397,6 +397,10 @@ export default function IncomePage() {
     && income.flowType !== 'repayment_received'
     && income.categoryId !== 'debt_repayment_received'
   ), [monthIncomes]);
+  // Ne compte que les emprunts réellement reçus en argent comme revenus issus de dettes.
+  const monthDebtIncomeSources = useMemo(() => monthEarningSources.filter((income) =>
+    income.flowType === 'debt_borrowed' || income.categoryId === 'debt_borrowed'
+  ), [monthEarningSources]);
   const earnedThisMonth = monthEarningSources.reduce((sum, income) => sum + (Number(income.amount) || 0), 0);
   const activeMonthSources = monthEarningSources.filter((income) =>
     income.balanceAvailable && !income.isExhausted && Number(income.remaining) > 0
@@ -759,9 +763,10 @@ export default function IncomePage() {
           <MonthPicker value={month} onChange={setMonth} className="w-full sm:w-auto" />
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
         <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Revenus encaissés</p><p className="mt-1 break-words text-sm font-extrabold tabular-nums text-slate-950 sm:text-base">{formatCurrency(earnedThisMonth)}</p></div>
         <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Sources sur la période</p><p className="mt-1 text-sm font-extrabold tabular-nums text-slate-950 sm:text-base">{monthEarningSources.length}</p></div>
+        <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Revenus issus de dettes</p><p className="mt-1 text-sm font-extrabold tabular-nums text-slate-950 sm:text-base">{monthDebtIncomeSources.length}</p></div>
         <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Sources actives</p><p className="mt-1 text-sm font-extrabold tabular-nums text-slate-950 sm:text-base">{activeMonthSources.length}</p></div>
         <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Disponible</p><p className="mt-1 break-words text-sm font-extrabold tabular-nums text-brand-800 sm:text-base">{availableThisMonth == null ? '—' : formatCurrency(availableThisMonth)}</p></div>
       </div>
