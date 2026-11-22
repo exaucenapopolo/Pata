@@ -7,7 +7,9 @@ const debtsCollection = (uid) => collection(db, 'users', uid, 'debts');
 export function subscribeDebts(uid, callback) {
   const debtsQuery = query(debtsCollection(uid), orderBy('createdAt', 'desc'), limit(200));
   return subscribeSharedSnapshot(`debts:${uid}:latest-200`, debtsQuery,
-    (snapshot) => callback(snapshot.docs.map((document) => ({ id: document.id, ...document.data() }))),
+    (snapshot) => callback(snapshot.docs
+      .filter((document) => document.data()?.archived !== true && !document.data()?.archivedAt)
+      .map((document) => ({ id: document.id, ...document.data() }))),
     (error) => {
       console.error('Debts listener error:', error);
       callback([]);
