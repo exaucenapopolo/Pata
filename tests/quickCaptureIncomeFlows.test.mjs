@@ -104,3 +104,10 @@ test('Quick Capture ne présélectionne aucune réponse et bloque une dette sans
   assert.match(scheduledRoute, /typeof body\.availableAsFunding !== 'boolean'/);
   assert.match(debtTools, /required: \['amount', 'counterpartyType', 'dueDate', 'availableAsFunding'\]/);
 });
+
+test('un emprunt programmé en argent est comptabilisé à sa date d’exécution', () => {
+  const processRoute = read('src/app/api/scheduled-transactions/process/route.js');
+  assert.match(processRoute, /const neutralFlow = isBorrowed && schedule\.availableAsFunding !== true/);
+  assert.match(processRoute, /if \(!neutralFlow\) \{[\s\S]{0,350}lifetimeIncomeCount: FieldValue\.increment\(1\)/);
+  assert.match(processRoute, /availableAsFunding: schedule\.availableAsFunding === true/);
+});
