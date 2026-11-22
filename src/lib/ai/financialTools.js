@@ -1937,6 +1937,13 @@ async function addDebt(uid, args, idempotencyKey = null, premiumOnly = false) {
     const bankFields = counterpartyType === 'bank' ? { bankName: creditorName } : {};
     const incomeStats = availableAsFunding ? normalizeMonthlyStatsForMonth(userData.monthlyStats || {}, monthKey()) : null;
     const incomeQuotaStats = availableAsFunding ? incrementFreeQuota(userData, 'incomes') : null;
+    const nextIncomeStats = availableAsFunding
+      ? (incomeQuotaStats || {
+        ...incomeStats,
+        incomes: (Number(incomeStats?.incomes) || 0) + 1,
+        lastResetMonth: monthKey(),
+      })
+      : null;
     const result = {
       success: true,
       message: availableAsFunding
@@ -1964,11 +1971,7 @@ async function addDebt(uid, args, idempotencyKey = null, premiumOnly = false) {
     transaction.update(userRef, {
       activeDebtCount: activeDebtCount + 1,
       ...(availableAsFunding ? {
-        monthlyStats: {
-          ...(incomeQuotaStats || incomeStats),
-          incomes: Number((incomeQuotaStats || incomeStats)?.incomes) || 0,
-          lastResetMonth: monthKey(),
-        },
+        monthlyStats: nextIncomeStats,
         lifetimeIncomeAmount: FieldValue.increment(amount),
         lifetimeIncomeCount: FieldValue.increment(1),
       } : {}),
