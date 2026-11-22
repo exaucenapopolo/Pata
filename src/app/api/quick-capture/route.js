@@ -142,8 +142,7 @@ export async function POST(request) {
       if (type === 'debt_borrowed' && !dueDate) {
         return errorResponse('Indique également la date à laquelle tu dois rembourser cet emprunt.', 422, { needsReview: true, recognized: parsed });
       }
-      if (type === 'debt_borrowed' && Object.prototype.hasOwnProperty.call(body, 'incomeAvailableAsFunding')
-        && typeof body.incomeAvailableAsFunding !== 'boolean') {
+      if (type === 'debt_borrowed' && typeof body.incomeAvailableAsFunding !== 'boolean') {
         return errorResponse('Choisis si tu as reçu de l’argent ou des biens/services à crédit.', 422, { needsReview: true, recognized: parsed });
       }
       let repaymentDebtId = '';
@@ -272,7 +271,7 @@ export async function POST(request) {
     }
 
     if (type === 'debt_borrowed') {
-      if (Object.prototype.hasOwnProperty.call(body, 'incomeAvailableAsFunding') && typeof body.incomeAvailableAsFunding !== 'boolean') {
+      if (typeof body.incomeAvailableAsFunding !== 'boolean') {
         return errorResponse('Choisis si tu as reçu de l’argent ou des biens/services à crédit.', 422, { needsReview: true, recognized: parsed });
       }
       const person = cleanText(parsed?.person || body.person || '', 100);
@@ -419,9 +418,7 @@ export async function POST(request) {
     const incomeFlowType = ['normal', 'debt_borrowed', 'repayment_received'].includes(body.incomeFlowType)
       ? body.incomeFlowType : 'normal';
     if (incomeFlowType !== 'normal') {
-      if (incomeFlowType === 'debt_borrowed'
-        && Object.prototype.hasOwnProperty.call(body, 'incomeAvailableAsFunding')
-        && typeof body.incomeAvailableAsFunding !== 'boolean') {
+      if (incomeFlowType === 'debt_borrowed' && typeof body.incomeAvailableAsFunding !== 'boolean') {
         return errorResponse('Choisis si tu as reçu de l’argent ou des biens/services à crédit.', 422, { needsReview: true });
       }
       const person = cleanText(body.incomePerson || body.person || '', 100);
