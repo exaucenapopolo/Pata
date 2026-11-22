@@ -215,3 +215,11 @@ test('le rapport hebdomadaire compte les emprunts en argent comme entrées encai
   assert.match(financialTools, /const totalIncome = sum\(currentIncome\.filter\(isIncomeCountedAsSource\)\)/);
   assert.match(financialTools, /Aucun revenu encaissé n’a été enregistré cette semaine/);
 });
+
+test('la page Revenus distingue le nombre de sources issues de dettes du total des sources', () => {
+  assert.match(incomePage, /const monthDebtIncomeSources = useMemo\(\(\) => monthEarningSources\.filter/);
+  assert.match(incomePage, /income\.flowType === 'debt_borrowed' \|\| income\.categoryId === 'debt_borrowed'/);
+  assert.match(incomePage, /Revenus issus de dettes/);
+  assert.match(incomePage, /\{monthDebtIncomeSources\.length\}/);
+  assert.match(incomePage, /grid grid-cols-2 gap-2 sm:grid-cols-5/);
+});
