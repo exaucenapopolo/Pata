@@ -223,3 +223,15 @@ test('la page Revenus distingue le nombre de sources issues de dettes du total d
   assert.match(incomePage, /\{monthDebtIncomeSources\.length\}/);
   assert.match(incomePage, /grid grid-cols-2 gap-2 sm:grid-cols-5/);
 });
+
+test('les indicateurs revenus séparent le total encaissé, les emprunts et le revenu gagné', () => {
+  assert.match(incomePage, /const debtIncomeAmount = monthDebtIncomeSources\.reduce\(\(sum, income\) => sum \+ \(Number\(income\.amount\) \|\| 0\), 0\)/);
+  assert.match(incomePage, /const earnedWithoutDebtThisMonth = Math\.max\(0, earnedThisMonth - debtIncomeAmount\)/);
+  assert.match(incomePage, /Total encaissé \(dettes incluses\)/);
+  assert.match(incomePage, /Total gagné sans dettes/);
+  assert.match(incomePage, /Emprunts reçus/);
+  assert.match(incomePage, /Montant : \{formatCurrency\(debtIncomeAmount\)\}/);
+  assert.match(incomePage, /Disponible \(dettes incluses\)/);
+  assert.match(incomePage, /activeMonthSources\.reduce\(\(sum, income\) => sum \+ \(Number\(income\.remaining\) \|\| 0\), 0\)/);
+  assert.match(incomePage, /grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6/);
+});
