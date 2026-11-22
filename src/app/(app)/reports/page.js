@@ -338,18 +338,24 @@ export default function ReportsPage() {
 
   const exportLabels = isEnglish ? {
     movement: 'Transaction', nature: 'Type', date: 'Date', label: 'Description', categorySource: 'Category / source', amount: 'Amount', detail: 'Details',
-    income: 'Income', cashWithdrawal: 'Cash from Mobile Money withdrawal — neutral transfer', borrowed: 'Borrowed money received — counted as income source, still repayable', projectIncome: 'Income assigned to a project', generalIncome: 'Regular income',
+    income: 'Income', cashWithdrawal: 'Cash from Mobile Money withdrawal — neutral transfer', borrowed: 'Borrowed money received — counted as cash income, still repayable', inKindDebt: 'Goods or services taken on credit — not cash income', unknownDebt: 'Debt — type not specified', neutralIncome: 'Neutral financial movement', projectIncome: 'Income assigned to a project', generalIncome: 'Regular income',
     outflow: 'Outflow', cashTransfer: 'Mobile Money withdrawal to cash — neutral transfer', loanGiven: 'Loan given — neutral transaction', expense: 'Expense', walletTopup: 'Wallet top-up', pataTopup: 'Pata top-up',
     budget: 'Budget', everydayExpense: 'Everyday expense', consumedAllocated: 'Amount spent / allocated', allocated: 'allocated', goal: 'Goal', savings: 'Savings', accumulatedSavings: 'Total saved', target: 'target',
   } : {
     movement: 'Mouvement', nature: 'Nature', date: 'Date', label: 'Libellé', categorySource: 'Catégorie / source', amount: 'Montant', detail: 'Détail',
-    income: 'Revenu', cashWithdrawal: 'Espèces issues d’un retrait — transfert neutre', borrowed: 'Emprunt en argent reçu — source de revenu, dette à rembourser', projectIncome: 'Revenu réservé à un projet', generalIncome: 'Revenu général',
+    income: 'Revenu', cashWithdrawal: 'Espèces issues d’un retrait — transfert neutre', borrowed: 'Emprunt en argent reçu — revenu encaissé, dette à rembourser', inKindDebt: 'Biens ou services pris à crédit — hors revenus encaissés', unknownDebt: 'Dette — nature non précisée', neutralIncome: 'Mouvement financier neutre', projectIncome: 'Revenu réservé à un projet', generalIncome: 'Revenu général',
     outflow: 'Sortie', cashTransfer: 'Retrait Mobile Money vers espèces — transfert neutre', loanGiven: 'Prêt accordé — mouvement neutre', expense: 'Dépense', walletTopup: 'Recharge portefeuille', pataTopup: 'Recharge Pata',
     budget: 'Budget', everydayExpense: 'Dépense courante', consumedAllocated: 'Montant consommé / alloué', allocated: 'alloués', goal: 'Objectif', savings: 'Épargne', accumulatedSavings: 'Épargne cumulée', target: 'visés',
   };
   const getRows = () => [
     [exportLabels.movement, exportLabels.nature, exportLabels.date, exportLabels.label, exportLabels.categorySource, `${exportLabels.amount} (${getPreferredCurrencyCode()})`, exportLabels.detail],
-    ...periodIncomes.map((item) => [exportLabels.income, item.cashPocket ? exportLabels.cashWithdrawal : (item.flowType === 'debt_borrowed' || item.categoryId === 'debt_borrowed') ? exportLabels.borrowed : item.neutralFlow ? exportLabels.borrowed : item.projectId ? exportLabels.projectIncome : exportLabels.generalIncome, item.date || item.month, item.source || exportLabels.income, item.categoryId || '', convertCurrencyAmount(Number(item.amount)||0), item.note || '']),
+    ...periodIncomes.map((item) => [exportLabels.income,
+      item.cashPocket ? exportLabels.cashWithdrawal
+        : (item.flowType === 'debt_borrowed' || item.categoryId === 'debt_borrowed')
+          ? item.availableAsFunding === true ? exportLabels.borrowed : item.availableAsFunding === false ? exportLabels.inKindDebt : exportLabels.unknownDebt
+          : item.neutralFlow ? exportLabels.neutralIncome
+            : item.projectId ? exportLabels.projectIncome : exportLabels.generalIncome,
+      item.date || item.month, item.source || exportLabels.income, item.categoryId || '', convertCurrencyAmount(Number(item.amount)||0), item.note || '']),
     ...periodExpenses.map((item) => [exportLabels.outflow, item.cashWithdrawal ? exportLabels.cashTransfer : item.neutralFlow ? exportLabels.loanGiven : translateText(EXPENSE_TYPE_LABELS[getExpenseType(item)], language), item.date || '', item.note || exportLabels.expense, resolveCategory(item.categoryId, 'expense', customCategories).label, convertCurrencyAmount(Number(item.amount)||0), item.incomeSourceName || '']),
     ...periodWalletDeposits.map((item) => [exportLabels.movement, exportLabels.walletTopup, item.createdAt?.toDate ? item.createdAt.toDate().toISOString().slice(0,10) : '', exportLabels.pataTopup, item.status || '', convertCurrencyAmount(Number(item.amount)||0), item.phone || '']),
     ...budgetAnalysis.map((item) => [exportLabels.budget, exportLabels.everydayExpense, item.month, item.category, exportLabels.consumedAllocated, convertCurrencyAmount(item.spent), `${formatCurrency(item.allocated)} ${exportLabels.allocated}`]),
