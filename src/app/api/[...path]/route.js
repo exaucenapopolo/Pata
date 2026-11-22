@@ -775,7 +775,7 @@ async function handleDebtRequestRespond(request) {
           date,
           note: 'Dette confirmée entre utilisateurs Pata.',
           flowType: 'debt_borrowed',
-          neutralFlow: true,
+          neutralFlow: false,
           availableAsFunding: true,
           person: requesterName,
           phone: null,
@@ -796,7 +796,20 @@ async function handleDebtRequestRespond(request) {
         acceptedAt: FieldValue.serverTimestamp(),
         mirrorDebtId: mirrorDebtRef.id,
       });
-      transaction.set(recipientRef, { activeDebtCount: FieldValue.increment(1) }, { merge: true });
+      if (kind === 'lent') {
+        const currentMonth = getDoualaMonthKey();
+        const borrowerStats = normalizeMonthlyStatsForMonth(recipientSnap.data()?.monthlyStats || {}, currentMonth);
+        borrowerStats.incomes = (Number(borrowerStats.incomes) || 0) + 1;
+        borrowerStats.lastResetMonth = currentMonth;
+        transaction.set(recipientRef, {
+          monthlyStats: borrowerStats,
+          lifetimeIncomeAmount: FieldValue.increment(amount),
+          lifetimeIncomeCount: FieldValue.increment(1),
+          activeDebtCount: FieldValue.increment(1),
+        }, { merge: true });
+      } else {
+        transaction.set(recipientRef, { activeDebtCount: FieldValue.increment(1) }, { merge: true });
+      }
       return {
         requestType: 'new_debt',
         status: 'accepted', requesterRef, requesterProfile: requesterSnap.data() || {},
