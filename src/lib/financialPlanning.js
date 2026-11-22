@@ -1,4 +1,5 @@
 import { EXPENSE_CATEGORIES, normalizeExpenseCategoryId } from '@/lib/constants';
+import { isIncomeCountedAsSource } from '@/lib/finance/incomeBalances.mjs';
 
 export const FINANCIAL_RESOLUTIONS = [
   { id: 'avoid_new_borrowing', label: 'Éviter tout nouvel emprunt pendant cette période', description: 'Pata te préviendra avant l’enregistrement d’une nouvelle dette contractée.', watches: ['debt_borrowed'] },
