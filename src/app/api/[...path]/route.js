@@ -5803,7 +5803,7 @@ async function handleAIChat(request) {
     const expensePeriodQuery = userRef.collection('expenses')
       .where('date', '>=', reportPeriod.startDate).where('date', '<=', reportPeriod.endDate);
     const [
-      userDoc, incomesSnap, expensesSnap, incomePeriodAggregateSnap, expensePeriodAggregateSnap,
+      userDoc, incomesSnap, expensesSnap, incomePeriodAggregateSnap, neutralIncomePeriodAggregateSnap, expensePeriodAggregateSnap,
       debtsSnap, financialTargetSnap, goalsSnap, budgetsSnap, automationsSnap,
       memorySnap, categoriesSnap, projectsSnap, cotisationMembershipsSnap, activityLogSnap, weeklyReportsSnap,
       notificationSessionSnap,
@@ -5817,6 +5817,9 @@ async function handleAIChat(request) {
         : Promise.resolve(emptySnapshot),
       includeIncomeContext && !needsCompletePeriodRows
         ? incomePeriodQuery.aggregate({ total: AggregateField.sum('amount'), count: AggregateField.count() }).get()
+        : Promise.resolve(null),
+      includeIncomeContext && !needsCompletePeriodRows
+        ? incomePeriodQuery.where('neutralFlow', '==', true).aggregate({ total: AggregateField.sum('amount'), count: AggregateField.count() }).get()
         : Promise.resolve(null),
       includeExpenseContext && !needsCompletePeriodRows
         ? expensePeriodQuery.aggregate({ total: AggregateField.sum('amount'), count: AggregateField.count() }).get()
@@ -5981,15 +5984,22 @@ async function handleAIChat(request) {
       }))).filter(Boolean);
     }
 
-    const periodIncomeTotal = incomePeriodAggregateSnap
-      ? Math.max(0, Number(incomePeriodAggregateSnap.data()?.total) || 0)
-      : incomesSnap.docs.reduce((sum, document) => sum + (Number(document.data()?.amount) || 0), 0);
+    const countedIncomeRows = needsCompletePeriodRows
+      ? incomesSnap.docs.map((document) => ({ id: document.id, ...document.data() })).filter(isIncomeCountedAsSource)
+      : null;
+    const periodIncomeTotal = countedIncomeRows
+      ? countedIncomeRows.reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
+      : incomePeriodAggregateSnap
+        ? Math.max(0, (Number(incomePeriodAggregateSnap.data()?.total) || 0) - (Number(neutralIncomePeriodAggregateSnap?.data()?.total) || 0))
+        : 0;
     const periodExpenseTotal = expensePeriodAggregateSnap
       ? Math.max(0, Number(expensePeriodAggregateSnap.data()?.total) || 0)
       : expensesSnap.docs.reduce((sum, document) => sum + (Number(document.data()?.amount) || 0), 0);
-    const periodIncomeCount = incomePeriodAggregateSnap
-      ? Math.max(0, Number(incomePeriodAggregateSnap.data()?.count) || 0)
-      : incomesSnap.docs.length;
+    const periodIncomeCount = countedIncomeRows
+      ? countedIncomeRows.length
+      : incomePeriodAggregateSnap
+        ? Math.max(0, (Number(incomePeriodAggregateSnap.data()?.count) || 0) - (Number(neutralIncomePeriodAggregateSnap?.data()?.count) || 0))
+        : 0;
     const periodExpenseCount = expensePeriodAggregateSnap
       ? Math.max(0, Number(expensePeriodAggregateSnap.data()?.count) || 0)
       : expensesSnap.docs.length;
