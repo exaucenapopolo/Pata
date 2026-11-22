@@ -59,3 +59,11 @@ export async function respondDebtRequest(requestId, decision) {
 export async function updateDebtDueDate(debtId, dueDate) {
   return callDebtApi('due-date', 'POST', { debtId, dueDate });
 }
+
+export async function deleteDebt(uid, debtId) {
+  const user = auth.currentUser;
+  if (!user || user.uid !== uid || !debtId || String(debtId).includes('/')) {
+    throw new Error('Session expirée ou dette invalide. Reconnecte-toi puis réessaie.');
+  }
+  return callDebtApi('delete', 'POST', { debtId, confirm: true });
+}
