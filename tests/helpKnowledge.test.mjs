@@ -46,3 +46,18 @@ test('le centre d’aide explique comment modifier la nature sans changer un mon
   assert.match(english, /Ordinary income or Borrowed debt/i);
   assert.match(english, /amount stays locked/i);
 });
+
+test('le centre d’aide explique la comptabilisation d’un emprunt et la suppression sécurisée', () => {
+  const frenchIncome = buildHelpKnowledgeContext('Comment Pata compte-t-il un emprunt en argent dans mes revenus ?', 'fr');
+  const frenchDelete = buildHelpKnowledgeContext('Comment supprimer une dette ou un prêt ?', 'fr');
+  const englishIncome = buildHelpKnowledgeContext('How does Pata count borrowed money in my income?', 'en');
+  const englishDelete = buildHelpKnowledgeContext('How do I delete a debt or loan?', 'en');
+
+  assert.match(frenchIncome, /revenus encaissés/i);
+  assert.match(frenchIncome, /dette à rembourser/i);
+  assert.match(frenchDelete, /partiellement remboursée/i);
+  assert.match(frenchDelete, /synchronisé avec un autre compte/i);
+  assert.match(englishIncome, /cash income received/i);
+  assert.match(englishDelete, /partially repaid/i);
+  assert.match(englishDelete, /synchronized with another Pata account/i);
+});
