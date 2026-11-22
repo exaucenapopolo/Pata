@@ -3945,7 +3945,15 @@ async function handleCreateIncome(request) {
       }
 
       if (newDebtRef) {
-        transaction.update(userRef, { activeDebtCount: activeDebtCount + 1 });
+        const profilePatch = { activeDebtCount: activeDebtCount + 1 };
+        if (!neutralFlow) {
+          stats.incomes = (Number(stats.incomes) || 0) + 1;
+          stats.lastResetMonth = currentMonth;
+          profilePatch.monthlyStats = stats;
+          profilePatch.lifetimeIncomeAmount = FieldValue.increment(amount);
+          profilePatch.lifetimeIncomeCount = FieldValue.increment(1);
+        }
+        transaction.update(userRef, profilePatch);
       } else if (!neutralFlow) {
         stats.incomes = (Number(stats.incomes) || 0) + 1;
         stats.lastResetMonth = currentMonth;
