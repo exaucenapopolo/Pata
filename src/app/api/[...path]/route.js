@@ -4394,9 +4394,11 @@ async function handleUpsertBudgets(request) {
       if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
       if (!incomeSnap.exists) throw new Error('Cette source de revenus n’existe plus.');
       const income = incomeSnap.data() || {};
-      if (income.month !== month || income.neutralFlow === true || income.cashPocket
-        || ['debt_borrowed', 'repayment_received'].includes(income.flowType)
-        || income.categoryId === 'debt_repayment_received') {
+      const isBorrowedCash = (income.flowType === 'debt_borrowed' || income.categoryId === 'debt_borrowed')
+        && income.availableAsFunding === true;
+      if (income.month !== month || (income.neutralFlow === true && !isBorrowedCash) || income.cashPocket
+        || (income.flowType === 'debt_borrowed' && !isBorrowedCash)
+        || income.flowType === 'repayment_received' || income.categoryId === 'debt_repayment_received') {
         throw new Error('Cette source ne peut pas financer un budget pour cette période.');
       }
 
