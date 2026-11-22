@@ -160,7 +160,7 @@ export async function POST(request) {
       if (kind === 'income' && !payload.source) throw new Error('Indique le nom ou la source du revenu à programmer.');
       if (kind === 'debt_borrowed') {
         payload.person = payload.counterpartyType === 'bank' ? payload.bankName : payload.person;
-        if (Object.prototype.hasOwnProperty.call(body, 'availableAsFunding') && typeof body.availableAsFunding !== 'boolean') {
+        if (typeof body.availableAsFunding !== 'boolean') {
           throw new Error('Choisis si tu recevras de l’argent ou des biens/services à crédit.');
         }
         payload.availableAsFunding = body.availableAsFunding === true;
