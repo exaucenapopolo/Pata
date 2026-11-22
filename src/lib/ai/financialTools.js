@@ -1591,10 +1591,10 @@ export async function generateWeeklyReportForUser(uid, now = new Date()) {
   const previousExpense = expenses.filter((item) => inRange(item.date, previousWeekStart, previousWeekEnd));
 
   const sum = (items) => items.reduce((total, item) => total + (Number(item.amount) || 0), 0);
-  const totalIncome = sum(currentIncome.filter((item) => item.neutralFlow !== true && item.flowType !== 'debt_borrowed' && item.categoryId !== 'debt_borrowed'));
+  const totalIncome = sum(currentIncome.filter(isIncomeCountedAsSource));
   const totalExpense = sum(currentExpense.filter((item) => item.neutralFlow !== true
     && item.flowType !== 'loan_given' && item.categoryId !== 'loan_given'));
-  const previousIncomeTotal = sum(previousIncome.filter((item) => item.neutralFlow !== true && item.flowType !== 'debt_borrowed' && item.categoryId !== 'debt_borrowed'));
+  const previousIncomeTotal = sum(previousIncome.filter(isIncomeCountedAsSource));
   const previousExpenseTotal = sum(previousExpense.filter((item) => item.neutralFlow !== true
     && item.flowType !== 'loan_given' && item.categoryId !== 'loan_given'));
   const previousCategories = {};
@@ -1639,11 +1639,11 @@ export async function generateWeeklyReportForUser(uid, now = new Date()) {
   }).sort((a, b) => b.change - a.change);
   const advice = [];
   if (totalIncome === 0 && totalExpense > 0) {
-    advice.push('Aucun revenu ordinaire n’a été enregistré cette semaine, alors que des dépenses courantes apparaissent. Pata a isolé les catégories concernées dans ce bilan.');
+    advice.push('Aucun revenu encaissé n’a été enregistré cette semaine, alors que des dépenses courantes apparaissent. Pata a isolé les catégories concernées dans ce bilan.');
   } else if (totalIncome > 0 && totalExpense > totalIncome) {
-    advice.push('Les sorties enregistrées dépassent les revenus encaissés cette semaine de ' + (totalExpense - totalIncome).toLocaleString('fr-FR') + ' FCFA. Cela ne signifie pas automatiquement un déficit : ces sorties peuvent aussi provenir de fonds déjà disponibles ou de revenus antérieurs.');
+    advice.push('Les sorties enregistrées dépassent les entrées encaissées cette semaine de ' + (totalExpense - totalIncome).toLocaleString('fr-FR') + ' FCFA. Cela ne signifie pas automatiquement un déficit : ces sorties peuvent aussi provenir de fonds déjà disponibles ou de revenus antérieurs.');
   } else if (totalIncome > 0) {
-    advice.push(`Après les dépenses enregistrées, il reste ${Math.max(0, totalIncome - totalExpense).toLocaleString('fr-FR')} FCFA sur les revenus de cette semaine.`);
+    advice.push(`Après les dépenses enregistrées, il reste ${Math.max(0, totalIncome - totalExpense).toLocaleString('fr-FR')} FCFA sur les entrées encaissées cette semaine. Ce total peut inclure un emprunt en argent qui reste à rembourser.`);
   }
   if (expenseChangePercent !== null && expenseChangePercent > 10) {
     const mainIncreases = categoryChanges.filter((item) => item.change > 0).slice(0, 3);
