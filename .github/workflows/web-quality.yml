@@ -40,5 +40,7 @@ jobs:
         run: npm run test:ai-spending-guidance
       - name: Tester la programmation des opérations
         run: npm run test:scheduled-transactions
+      - name: Tester la gestion des dettes, leurs revenus encaissés et leur suppression
+        run: npm run test:debt-management
       - name: Tester les résumés de budgets
         run: npm run test:budget-spend-summary
