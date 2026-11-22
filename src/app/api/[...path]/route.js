@@ -3616,20 +3616,17 @@ async function handleGlobalFinanceSummary(request) {
       let neutralIncomeCount = 0;
       let neutralExpenseCount = 0;
       if (excludeNeutral) {
-        const [neutralIncomeSummary, neutralExpenseSummary, legacyBorrowedFundingSummary] = await Promise.all([
-          incomePeriod.where('neutralFlow', '==', true)
-            .aggregate({ total: AggregateField.sum('amount'), count: AggregateField.count() }).get(),
+        const [neutralIncomeRowsSnap, neutralExpenseSummary] = await Promise.all([
+          incomePeriod.where('neutralFlow', '==', true).get(),
           expensePeriod.where('neutralFlow', '==', true)
             .aggregate({ total: AggregateField.sum('amount'), count: AggregateField.count() }).get(),
-          incomePeriod.where('neutralFlow', '==', true).where('flowType', '==', 'debt_borrowed')
-            .where('availableAsFunding', '==', true)
-            .aggregate({ total: AggregateField.sum('amount'), count: AggregateField.count() }).get(),
         ]);
-        neutralIncome = Math.max(0, (Number(neutralIncomeSummary.data()?.total) || 0)
-          - (Number(legacyBorrowedFundingSummary.data()?.total) || 0));
+        const uncountedNeutralIncomes = neutralIncomeRowsSnap.docs
+          .map((document) => document.data() || {})
+          .filter((item) => !isIncomeCountedAsSource(item));
+        neutralIncome = uncountedNeutralIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
         neutralExpense = Number(neutralExpenseSummary.data()?.total) || 0;
-        neutralIncomeCount = Math.max(0, (Number(neutralIncomeSummary.data()?.count) || 0)
-          - (Number(legacyBorrowedFundingSummary.data()?.count) || 0));
+        neutralIncomeCount = uncountedNeutralIncomes.length;
         neutralExpenseCount = Number(neutralExpenseSummary.data()?.count) || 0;
       }
 
@@ -5801,7 +5798,7 @@ async function handleAIChat(request) {
     const expensePeriodQuery = userRef.collection('expenses')
       .where('date', '>=', reportPeriod.startDate).where('date', '<=', reportPeriod.endDate);
     const [
-      userDoc, incomesSnap, expensesSnap, incomePeriodAggregateSnap, neutralIncomePeriodAggregateSnap, legacyCashIncomePeriodAggregateSnap, expensePeriodAggregateSnap,
+      userDoc, incomesSnap, expensesSnap, incomePeriodAggregateSnap, neutralIncomePeriodRowsSnap, expensePeriodAggregateSnap,
       debtsSnap, financialTargetSnap, goalsSnap, budgetsSnap, automationsSnap,
       memorySnap, categoriesSnap, projectsSnap, cotisationMembershipsSnap, activityLogSnap, weeklyReportsSnap,
       notificationSessionSnap,
@@ -5817,14 +5814,8 @@ async function handleAIChat(request) {
         ? incomePeriodQuery.aggregate({ total: AggregateField.sum('amount'), count: AggregateField.count() }).get()
         : Promise.resolve(null),
       includeIncomeContext && !needsCompletePeriodRows
-        ? incomePeriodQuery.where('neutralFlow', '==', true).aggregate({ total: AggregateField.sum('amount'), count: AggregateField.count() }).get()
-        : Promise.resolve(null),
-      includeIncomeContext && !needsCompletePeriodRows
-        ? incomePeriodQuery.where('neutralFlow', '==', true).where('flowType', '==', 'debt_borrowed')
-          .where('availableAsFunding', '==', true)
-          .aggregate({ total: AggregateField.sum('amount'), count: AggregateField.count() }).get()
-          .catch((error) => { console.warn('[PATA AI LEGACY BORROWED CASH SUMMARY]', error.message || error); return null; })
-        : Promise.resolve(null),
+        ? incomePeriodQuery.where('neutralFlow', '==', true).get()
+        : Promise.resolve(emptySnapshot),
       includeExpenseContext && !needsCompletePeriodRows
         ? expensePeriodQuery.aggregate({ total: AggregateField.sum('amount'), count: AggregateField.count() }).get()
         : Promise.resolve(null),
@@ -5995,8 +5986,10 @@ async function handleAIChat(request) {
       ? countedIncomeRows.reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
       : incomePeriodAggregateSnap
         ? Math.max(0, (Number(incomePeriodAggregateSnap.data()?.total) || 0)
-          - (Number(neutralIncomePeriodAggregateSnap?.data()?.total) || 0)
-          + (Number(legacyCashIncomePeriodAggregateSnap?.data()?.total) || 0))
+          - (neutralIncomePeriodRowsSnap?.docs || [])
+            .map((document) => document.data() || {})
+            .filter((item) => !isIncomeCountedAsSource(item))
+            .reduce((sum, item) => sum + (Number(item.amount) || 0), 0))
         : 0;
     const periodExpenseTotal = expensePeriodAggregateSnap
       ? Math.max(0, Number(expensePeriodAggregateSnap.data()?.total) || 0)
@@ -6005,8 +5998,8 @@ async function handleAIChat(request) {
       ? countedIncomeRows.length
       : incomePeriodAggregateSnap
         ? Math.max(0, (Number(incomePeriodAggregateSnap.data()?.count) || 0)
-          - (Number(neutralIncomePeriodAggregateSnap?.data()?.count) || 0)
-          + (Number(legacyCashIncomePeriodAggregateSnap?.data()?.count) || 0))
+          - (neutralIncomePeriodRowsSnap?.docs || [])
+            .filter((document) => !isIncomeCountedAsSource(document.data() || {})).length)
         : 0;
     const periodExpenseCount = expensePeriodAggregateSnap
       ? Math.max(0, Number(expensePeriodAggregateSnap.data()?.count) || 0)
