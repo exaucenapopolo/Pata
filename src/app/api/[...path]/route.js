@@ -11302,7 +11302,7 @@ const ROUTES = {
   'debts/search-users': { GET: handleDebtUserSearch },
   'debts/requests': { GET: handleDebtRequestsList },
   'debts/requests/respond': { POST: handleDebtRequestRespond },
-  'debts/list': { GET: async (request) => { try { const { uid } = await authenticate(request); const snapshot = await adminDb.collection('users').doc(uid).collection('debts').orderBy('createdAt', 'desc').get(); return NextResponse.json({ success: true, debts: snapshot.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })) }); } catch (error) { return errorResponse(error.message || 'Impossible de charger les dettes.', 401); } } },
+  'debts/list': { GET: async (request) => { try { const { uid } = await authenticate(request); const snapshot = await adminDb.collection('users').doc(uid).collection('debts').orderBy('createdAt', 'desc').get(); return NextResponse.json({ success: true, debts: snapshot.docs.filter((doc) => doc.data()?.archived !== true && !doc.data()?.archivedAt).map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })) }); } catch (error) { return errorResponse(error.message || 'Impossible de charger les dettes.', 401); } } },
   'debts/repayments': { GET: handleDebtRepayments },
   'debts/due-date': { POST: handleDebtDueDate },
   'debts/delete': { POST: handleDeleteDebt },
