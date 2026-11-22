@@ -1154,12 +1154,22 @@ export async function deleteDebtForUser(uid, debtId) {
       if (remaining > 0) {
         throw new Error('Cette dette a déjà été partiellement remboursée et il reste un montant à payer. Pata la conserve pour que tu n’oublies pas ce solde.');
       }
+      const transactionId = cleanText(debt.transactionId, 150);
+      const archivedLedgerRef = transactionId
+        ? (debt.type === 'i_owe' ? incomesRef.doc(transactionId) : expensesRef.doc(transactionId))
+        : null;
+      const archivedLedgerSnap = archivedLedgerRef ? await transaction.get(archivedLedgerRef) : null;
       const wasActive = ['active', 'partial', 'late'].includes(String(debt.status || ''));
       transaction.update(debtRef, {
         archived: true,
         archivedAt: FieldValue.serverTimestamp(),
         status: 'paid',
         remaining: 0,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      if (archivedLedgerRef && archivedLedgerSnap?.exists) transaction.update(archivedLedgerRef, {
+        debtArchived: true,
+        debtArchivedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       });
       if (wasActive) transaction.set(userRef, {
