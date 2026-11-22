@@ -1149,8 +1149,37 @@ export async function deleteDebtForUser(uid, debtId) {
     const originalAmount = Math.max(0, Number(debt.amount) || 0);
     const remaining = Math.max(0, Number(debt.remaining) || 0);
     const alreadyRepaid = Math.max(0, originalAmount - remaining);
-    if (alreadyRepaid > 0 || !repaymentSnap.empty || debt.status === 'paid') {
-      throw new Error('Ce dossier contient déjà un remboursement. Pour conserver les montants et l’historique, Pata ne permet pas de le supprimer.');
+    const hasRepaymentHistory = alreadyRepaid > 0 || !repaymentSnap.empty || debt.status === 'paid';
+    if (hasRepaymentHistory) {
+      if (remaining > 0) {
+        throw new Error('Cette dette a déjà été partiellement remboursée et il reste un montant à payer. Pata la conserve pour que tu n’oublies pas ce solde.');
+      }
+      const wasActive = ['active', 'partial', 'late'].includes(String(debt.status || ''));
+      transaction.update(debtRef, {
+        archived: true,
+        archivedAt: FieldValue.serverTimestamp(),
+        status: 'paid',
+        remaining: 0,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      if (wasActive) transaction.set(userRef, {
+        activeDebtCount: Math.max(0, (Number(userData.activeDebtCount) || 0) - 1),
+      }, { merge: true });
+      transaction.create(activityRef, {
+        eventType: 'archived',
+        entityType: debt.type === 'i_owe' ? 'debt' : 'loan',
+        entityId: id,
+        amount: originalAmount,
+        label: cleanText(debt.person || debt.bankName, 120) || (debt.type === 'i_owe' ? 'Dette soldée' : 'Prêt soldé'),
+        deletedAt: FieldValue.serverTimestamp(),
+      });
+      return {
+        success: true,
+        debtId: id,
+        archived: true,
+        deletedTransactionCount: 0,
+        message: 'Dossier retiré de la liste. Les remboursements et les opérations financières restent conservés dans ton historique.',
+      };
     }
 
     const transactionId = cleanText(debt.transactionId, 150);
