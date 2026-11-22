@@ -17,6 +17,7 @@
     "test:finance-priorities": "node --test tests/incomePriorities.test.mjs",
     "test:cotisation-chat": "node --test tests/cotisationChatPolicy.test.mjs",
     "test:income-page-runtime": "node --test tests/incomePageRuntime.test.mjs",
+    "test:debt-management": "node --test tests/debtDeletion.test.mjs tests/incomeBalances.test.mjs tests/incomePageRuntime.test.mjs tests/quickCaptureIncomeFlows.test.mjs tests/helpKnowledge.test.mjs",
     "test:e2e:production": "node --test tests/productionE2E.test.mjs",
     "test:android-shortcuts": "node --test tests/androidShortcuts.test.mjs",
     "test:quick-capture": "node --test tests/quickCaptureParser.test.mjs",
