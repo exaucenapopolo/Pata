@@ -28,6 +28,7 @@ import { generateAdvice, adviceIconColor } from '@/lib/advisor';
 import { formatCurrency, formatDate, resolveCategory, getFirstOfMonth, normalizeExpenseCategoryId } from '@/lib/utils';
 import { buildFinancialSuggestions, FINANCIAL_RESOLUTIONS, getPeriodBounds, getPeriodKey } from '@/lib/financialPlanning';
 import { translateText } from '@/lib/i18n/translations';
+import { isIncomeCountedAsSource } from '@/lib/finance/incomeBalances.mjs';
 
 const getDashboardExpenseType = (expense) => ['consumption', 'project', 'savings', 'investment'].includes(expense?.expenseType)
   ? expense.expenseType : 'consumption';
@@ -274,8 +275,7 @@ export default function DashboardPage() {
   }), [targetPeriodType, targetPeriodKey, incomes, expenses, debts]);
   const actualTargetPeriod = useMemo(() => {
     const inRange = (item) => item.date >= targetPeriodBounds.start && item.date <= targetPeriodBounds.end;
-    const ordinaryIncomes = incomes.filter((item) => inRange(item) && item.neutralFlow !== true
-      && item.flowType !== 'debt_borrowed' && item.categoryId !== 'debt_borrowed');
+    const ordinaryIncomes = incomes.filter((item) => inRange(item) && isIncomeCountedAsSource(item));
     const expensesInPeriod = expenses.filter((item) => inRange(item));
     return {
       income: ordinaryIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
@@ -338,7 +338,7 @@ export default function DashboardPage() {
 
   // Use the exact same period totals already displayed in the dashboard cards below.
   // The available balance is only their difference; there is no second calculation.
-  const periodIncomeTotal = periodIncomes.filter((income) => !income.neutralFlow).reduce((s, i) => s + (Number(i.amount) || 0), 0);
+  const periodIncomeTotal = periodIncomes.filter(isIncomeCountedAsSource).reduce((s, i) => s + (Number(i.amount) || 0), 0);
   const periodExpenseTotal = periodExpenses.filter((expense) => !expense.neutralFlow).reduce((s, e) => s + (Number(e.amount) || 0), 0);
   const totalIncome = periodIncomeTotal;
   const totalExpense = periodExpenseTotal;
@@ -402,11 +402,11 @@ export default function DashboardPage() {
   const incomeById = useMemo(() => new Map(incomes.map((income) => [income.id, income])), [incomes]);
   const previousIncomeSpend = useMemo(() => periodExpenses.reduce((sum, expense) => {
     const source = incomeById.get(expense.incomeSourceId);
-    const isOrdinaryIncome = source && source.neutralFlow !== true && source.flowType !== 'debt_borrowed' && source.categoryId !== 'debt_borrowed';
+    const isOrdinaryIncome = source && isIncomeCountedAsSource(source);
     return isOrdinaryIncome && String(source.date || source.month || '').slice(0, 10) < startDate
       ? sum + (Number(expense.amount) || 0) : sum;
   }, 0), [periodExpenses, incomeById, startDate]);
-  const prevTotalIncome = prevIncomes.filter((income) => !income.neutralFlow).reduce((s, i) => s + (i.amount || 0), 0);
+  const prevTotalIncome = prevIncomes.filter(isIncomeCountedAsSource).reduce((s, i) => s + (i.amount || 0), 0);
   const prevTotalExpense = prevExpenses.filter((expense) => !expense.neutralFlow).reduce((s, e) => s + (e.amount || 0), 0);
 
   const byCategory = useMemo(() => {
