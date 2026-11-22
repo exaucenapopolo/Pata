@@ -3896,7 +3896,7 @@ async function handleCreateIncome(request) {
         projectName = String(projectSnap.data()?.name || '').slice(0, 100);
       }
 
-      const neutralFlow = flowType === 'debt_borrowed';
+      const neutralFlow = flowType === 'debt_borrowed' && availableAsFunding !== true;
       const currentMonth = getDoualaMonthKey();
       const stats = normalizeMonthlyStatsForMonth(userData.monthlyStats || {}, currentMonth);
       if (!neutralFlow && !isPremiumAccount(userData) && (Number(stats.incomes) || 0) >= PLAN_LIMITS.FREE.incomes) {
@@ -4167,7 +4167,15 @@ async function handleUpdateIncome(request) {
       const currentMonth = getDoualaMonthKey();
       const stats = normalizeMonthlyStatsForMonth(userData.monthlyStats || {}, currentMonth);
       const previousMonth = String(previous.month || previous.date || '').slice(0, 7);
-      const affectsCurrentMonth = previousMonth === currentMonth;
+      const nextMonth = month.slice(0, 7);
+      const previousCountedInStats = previous.neutralFlow !== true;
+      const nextNeutralFlow = requestedFlowType === 'debt_borrowed' && availableAsFunding !== true;
+      const nextCountedInStats = !nextNeutralFlow;
+      const monthlyIncomeDelta = (nextMonth === currentMonth && nextCountedInStats ? 1 : 0)
+        - (previousMonth === currentMonth && previousCountedInStats ? 1 : 0);
+      const lifetimeIncomeAmountDelta = (nextCountedInStats ? amount : 0)
+        - (previousCountedInStats ? currentAmount : 0);
+      const lifetimeIncomeCountDelta = Number(nextCountedInStats) - Number(previousCountedInStats);
       let validatedProjectName = String(previous.projectName || '').slice(0, 100);
 
       const previousProjectId = String(previous.projectId || '');
@@ -4219,7 +4227,7 @@ async function handleUpdateIncome(request) {
           source: person,
           categoryId: 'debt_borrowed',
           flowType: 'debt_borrowed',
-          neutralFlow: true,
+          neutralFlow: nextNeutralFlow,
           availableAsFunding,
           person,
           counterpartyType,
@@ -4232,12 +4240,13 @@ async function handleUpdateIncome(request) {
           date, month, note, ...metadata,
           updatedAt: FieldValue.serverTimestamp(),
         });
-        if (!wasBorrowed) {
-          if (affectsCurrentMonth) stats.incomes = Math.max(0, (Number(stats.incomes) || 0) - 1);
+        if (monthlyIncomeDelta !== 0 || lifetimeIncomeAmountDelta !== 0 || lifetimeIncomeCountDelta !== 0) {
           transaction.update(userRef, {
-            ...(affectsCurrentMonth ? { monthlyStats: stats } : {}),
-            lifetimeIncomeAmount: FieldValue.increment(-currentAmount),
-            lifetimeIncomeCount: FieldValue.increment(-1),
+            ...(monthlyIncomeDelta !== 0 ? {
+              monthlyStats: { ...stats, incomes: Math.max(0, (Number(stats.incomes) || 0) + monthlyIncomeDelta), lastResetMonth: currentMonth },
+            } : {}),
+            ...(lifetimeIncomeAmountDelta !== 0 ? { lifetimeIncomeAmount: FieldValue.increment(lifetimeIncomeAmountDelta) } : {}),
+            ...(lifetimeIncomeCountDelta !== 0 ? { lifetimeIncomeCount: FieldValue.increment(lifetimeIncomeCountDelta) } : {}),
           });
         }
         return { flowType: 'debt_borrowed', debtId: newDebtRef ? newDebtRef.id : previous.debtId, availableAsFunding };
@@ -4281,18 +4290,14 @@ async function handleUpdateIncome(request) {
         ...metadata,
         updatedAt: FieldValue.serverTimestamp(),
       });
-      if (wasBorrowed) {
-        if (affectsCurrentMonth) {
-          stats.incomes = (Number(stats.incomes) || 0) + 1;
-          stats.lastResetMonth = currentMonth;
-        }
+      if (monthlyIncomeDelta !== 0 || lifetimeIncomeAmountDelta !== 0 || lifetimeIncomeCountDelta !== 0) {
         transaction.update(userRef, {
-          ...(affectsCurrentMonth ? { monthlyStats: stats } : {}),
-          lifetimeIncomeAmount: FieldValue.increment(amount),
-          lifetimeIncomeCount: FieldValue.increment(1),
+          ...(monthlyIncomeDelta !== 0 ? {
+            monthlyStats: { ...stats, incomes: Math.max(0, (Number(stats.incomes) || 0) + monthlyIncomeDelta), lastResetMonth: currentMonth },
+          } : {}),
+          ...(lifetimeIncomeAmountDelta !== 0 ? { lifetimeIncomeAmount: FieldValue.increment(lifetimeIncomeAmountDelta) } : {}),
+          ...(lifetimeIncomeCountDelta !== 0 ? { lifetimeIncomeCount: FieldValue.increment(lifetimeIncomeCountDelta) } : {}),
         });
-      } else {
-        transaction.update(userRef, { lifetimeIncomeAmount: FieldValue.increment(amount - currentAmount) });
       }
       return { flowType: 'normal' };
     });
