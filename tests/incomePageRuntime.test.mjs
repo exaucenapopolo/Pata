@@ -124,7 +124,7 @@ test('une dette en argent ne finance des dépenses que si l’utilisateur a conf
 
   assert.match(incomePage, /availableAsFunding: form\.flowType === 'debt_borrowed' \? form\.availableAsFunding : false/);
   assert.match(incomePage, /checked=\{form\.availableAsFunding === true\}/);
-  assert.match(incomePage, /checked=\{form\.availableAsFunding !== true\}/);
+  assert.match(incomePage, /checked=\{form\.availableAsFunding === false\}/);
   assert.match(expensePage, /income\.flowType === 'debt_borrowed' && income\.availableAsFunding === true/);
   assert.match(financialTools, /income\.flowType === 'debt_borrowed' && income\.availableAsFunding === true/);
   assert.match(apiRoute, /const availableAsFunding = flowType === 'debt_borrowed' && body\.availableAsFunding === true/);
