@@ -2,15 +2,16 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { HandCoins, ArrowDownLeft, ArrowUpRight, CalendarClock, History, ChevronDown, Loader2, Plus } from 'lucide-react';
+import { HandCoins, ArrowDownLeft, ArrowUpRight, CalendarClock, History, ChevronDown, Loader2, Plus, Trash2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useDebts } from '@/hooks/useDebts';
 import { useProfile } from '@/hooks/useProfile';
-import { listDebtRepayments, updateDebtDueDate } from '@/lib/firestore/debts';
+import { listDebtRepayments, updateDebtDueDate, deleteDebt } from '@/lib/firestore/debts';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { EmptyState } from '@/components/ui/EmptyState';
 import DebtRequestsPanel from '@/components/debts/DebtRequestsPanel';
 import { ScheduledTransactionsPanel } from '@/components/transactions/ScheduledTransactionsPanel';
+import { Modal } from '@/components/ui/Modal';
 
 const OPEN_STATUSES = ['active', 'partial', 'late'];
 const FILTERS = [
@@ -41,6 +42,10 @@ export default function DebtsPage() {
   const [dueDateDraft, setDueDateDraft] = useState('');
   const [dueDateSaving, setDueDateSaving] = useState(false);
   const [dueDateFeedback, setDueDateFeedback] = useState('');
+  const [debtToDelete, setDebtToDelete] = useState(null);
+  const [deletingDebt, setDeletingDebt] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  const [deleteFeedback, setDeleteFeedback] = useState('');
 
   const openDebts = useMemo(() => debts.filter((debt) => OPEN_STATUSES.includes(debt.status) && Number(debt.remaining) > 0), [debts]);
   const receivables = openDebts.filter((debt) => debt.type === 'owed_to_me');
@@ -88,6 +93,27 @@ export default function DebtsPage() {
       setDueDateFeedback(error.message || 'Impossible d’enregistrer cette échéance.');
     } finally {
       setDueDateSaving(false);
+    }
+  };
+
+  const confirmDeleteDebt = async () => {
+    if (!user?.uid || !debtToDelete || deletingDebt) return;
+    setDeletingDebt(true);
+    setDeleteError('');
+    try {
+      const result = await deleteDebt(user.uid, debtToDelete.id);
+      setDeleteFeedback(result.message || (result.archived ? 'Dossier retiré de la liste.' : 'Dossier supprimé.'));
+      setDebtToDelete(null);
+      setExpandedDebtId('');
+      setRepaymentsByDebt((current) => {
+        const next = { ...current };
+        delete next[debtToDelete.id];
+        return next;
+      });
+    } catch (error) {
+      setDeleteError(error.message || 'Impossible de supprimer cette dette ou ce prêt.');
+    } finally {
+      setDeletingDebt(false);
     }
   };
 
@@ -141,6 +167,7 @@ export default function DebtsPage() {
 
       <ScheduledTransactionsPanel kinds={['loan_given', 'debt_borrowed', 'debt_repayment', 'repayment_received']} isPremium={isPremium} />
 
+      {deleteFeedback && <p role="status" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">{deleteFeedback}</p>}
       <DebtRequestsPanel uid={user?.uid} />
 
       {!isPremium && <p className={'rounded-xl border px-3 py-2.5 text-xs ' + (freeDebtLimitReached ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-slate-200 bg-white text-slate-600')}>Compte gratuit : {activeDebtCount}/2 dettes ou prêts actifs. Les remboursements complets libèrent une place ; Premium permet un suivi illimité.</p>}
@@ -191,6 +218,17 @@ export default function DebtsPage() {
                 <HandCoins size={15}/> {debt.linkStatus === 'accepted' && !isReceivable ? 'Déclarer un remboursement' : 'Enregistrer un remboursement'}
               </Link>}
               {isReceivable && debt.linkStatus === 'accepted' && remaining > 0 && <p className="mt-3 text-[11px] leading-5 text-slate-500">Le débiteur doit déclarer son remboursement depuis son compte. Tu recevras alors une demande à confirmer ici.</p>}
+              {(() => {
+                const linked = ['pending', 'accepted'].includes(String(debt.linkStatus || '')) || Boolean(debt.peerDebtId || debt.linkedDebtId);
+                const partiallyRepaid = alreadyRepaid > 0 && remaining > 0;
+                const cannotDelete = linked || partiallyRepaid;
+                return <div className="mt-3">
+                  <button type="button" disabled={cannotDelete} onClick={() => { setDebtToDelete(debt); setDeleteError(''); }} className="inline-flex min-h-9 items-center gap-2 rounded-xl border border-red-100 px-3 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40">
+                    <Trash2 size={14}/> Supprimer ce dossier
+                  </button>
+                  {cannotDelete && <p className="mt-1 text-[10px] leading-4 text-slate-500">{linked ? 'Suppression indisponible : ce dossier est lié à un autre compte Pata.' : 'Suppression indisponible : un remboursement a déjà été effectué et un solde reste à payer.'}</p>}
+                </div>;
+              })()}
               <button type="button" onClick={() => toggleHistory(debt)} aria-expanded={expanded} className="mt-3 inline-flex min-h-9 w-full items-center justify-between rounded-xl border border-slate-100 px-3 text-xs font-semibold text-slate-600 hover:bg-slate-50">
                 <span className="inline-flex items-center gap-2"><History size={14}/> Voir les détails et remboursements</span>
                 <ChevronDown size={15} className={expanded ? 'rotate-180 transition-transform' : 'transition-transform'}/>
@@ -206,6 +244,25 @@ export default function DebtsPage() {
             </article>;
           })}
         </section>}
+      <Modal open={!!debtToDelete} onClose={() => { if (!deletingDebt) { setDebtToDelete(null); setDeleteError(''); } }} title={debtToDelete?.type === 'owed_to_me' ? 'Supprimer ce prêt ?' : 'Supprimer cette dette ?'}>
+        <div className="space-y-4">
+          <p className="text-sm leading-6 text-slate-600">
+            {debtToDelete?.status === 'paid' || (Number(debtToDelete?.remaining) === 0 && Number(debtToDelete?.amount) > 0)
+              ? 'Ce dossier sera retiré de ta liste. Les opérations financières et les remboursements déjà enregistrés resteront conservés dans ton historique.'
+              : 'Le dossier et son écriture associée seront supprimés. Si cet emprunt a déjà servi à financer une dépense ou si le prêt est lié à une opération protégée, Pata refusera la suppression pour préserver tes soldes.'}
+          </p>
+          {debtToDelete && <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">
+            <p className="font-semibold text-slate-800">{debtToDelete.bankName || debtToDelete.person || 'Créancier / bénéficiaire'}</p>
+            <p className="mt-1">Montant initial : {formatCurrency(Number(debtToDelete.amount) || 0)}</p>
+            <p>Solde restant : {formatCurrency(Number(debtToDelete.remaining) || 0)}</p>
+          </div>}
+          {deleteError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-xs leading-5 text-red-700">{deleteError}</p>}
+          <div className="flex gap-2">
+            <button type="button" disabled={deletingDebt} onClick={() => { setDebtToDelete(null); setDeleteError(''); }} className="min-h-11 flex-1 rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-700 disabled:opacity-50">Annuler</button>
+            <button type="button" disabled={deletingDebt || !debtToDelete} onClick={confirmDeleteDebt} className="min-h-11 flex-1 rounded-xl bg-red-600 px-3 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50">{deletingDebt ? 'Suppression…' : 'Confirmer la suppression'}</button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
