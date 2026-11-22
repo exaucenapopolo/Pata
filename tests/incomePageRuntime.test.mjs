@@ -219,9 +219,10 @@ test('le rapport hebdomadaire compte les emprunts en argent comme entrées encai
 test('la page Revenus distingue le nombre de sources issues de dettes du total des sources', () => {
   assert.match(incomePage, /const monthDebtIncomeSources = useMemo\(\(\) => monthEarningSources\.filter/);
   assert.match(incomePage, /income\.flowType === 'debt_borrowed' \|\| income\.categoryId === 'debt_borrowed'/);
-  assert.match(incomePage, /Revenus issus de dettes/);
+  assert.match(incomePage, /Emprunts reçus/);
   assert.match(incomePage, /\{monthDebtIncomeSources\.length\}/);
-  assert.match(incomePage, /grid grid-cols-2 gap-2 sm:grid-cols-5/);
+  assert.match(incomePage, /formatCurrency\(debtIncomeAmount\)/);
+  assert.match(incomePage, /grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6/);
 });
 
 test('les indicateurs revenus séparent le total encaissé, les emprunts et le revenu gagné', () => {
