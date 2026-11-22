@@ -1167,7 +1167,7 @@ export async function deleteDebtForUser(uid, debtId) {
         remaining: 0,
         updatedAt: FieldValue.serverTimestamp(),
       });
-      if (archivedLedgerRef && archivedLedgerSnap?.exists) transaction.update(archivedLedgerRef, {
+      if (archivedLedgerRef && archivedLedgerSnap?.exists && debt.convertedToIncome !== true) transaction.update(archivedLedgerRef, {
         debtArchived: true,
         debtArchivedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
