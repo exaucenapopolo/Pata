@@ -1121,6 +1121,162 @@ export async function deleteIncomeForUser(uid, incomeId) {
   return { success: true, incomeId: id, message: 'Revenu supprimé.' };
 }
 
+export async function deleteDebtForUser(uid, debtId) {
+  const id = cleanText(debtId, 150);
+  if (!id || id.includes('/')) throw new Error('Identifiant de dette ou de prêt invalide.');
+
+  const userRef = userRefFor(uid);
+  const debtRef = subcol(uid, 'debts').doc(id);
+  const activityRef = subcol(uid, 'activity_log').doc();
+  const incomesRef = subcol(uid, 'incomes');
+  const expensesRef = subcol(uid, 'expenses');
+
+  return adminDb.runTransaction(async (transaction) => {
+    const [userSnap, debtSnap, repaymentSnap] = await Promise.all([
+      transaction.get(userRef),
+      transaction.get(debtRef),
+      transaction.get(debtRef.collection('repayments').limit(1)),
+    ]);
+    if (!userSnap.exists || !debtSnap.exists) throw new Error('Cette dette ou ce prêt est introuvable.');
+
+    const userData = userSnap.data() || {};
+    const debt = debtSnap.data() || {};
+    if (!['i_owe', 'owed_to_me'].includes(debt.type)) throw new Error('Le type de dette ne peut pas être supprimé depuis cette rubrique.');
+    if (['pending', 'accepted'].includes(String(debt.linkStatus || ''))
+      || debt.peerDebtId || debt.linkedDebtId) {
+      throw new Error('Cette dette est liée ou en attente de synchronisation avec un autre compte Pata. Termine ou annule la liaison avant de la supprimer.');
+    }
+    const originalAmount = Math.max(0, Number(debt.amount) || 0);
+    const remaining = Math.max(0, Number(debt.remaining) || 0);
+    const alreadyRepaid = Math.max(0, originalAmount - remaining);
+    if (alreadyRepaid > 0 || !repaymentSnap.empty || debt.status === 'paid') {
+      throw new Error('Ce dossier contient déjà un remboursement. Pour conserver les montants et l’historique, Pata ne permet pas de le supprimer.');
+    }
+
+    const transactionId = cleanText(debt.transactionId, 150);
+    const isPayableDebt = debt.type === 'i_owe';
+    const ledgerRef = transactionId
+      ? (isPayableDebt ? incomesRef.doc(transactionId) : expensesRef.doc(transactionId))
+      : null;
+    const ledgerSnap = ledgerRef ? await transaction.get(ledgerRef) : null;
+
+    const nowMonth = monthKey();
+    const profilePatch = {};
+    let deletedTransactionCount = 0;
+
+    if (isPayableDebt) {
+      // Si l'emprunt a déjà été corrigé en revenu ordinaire, on conserve ce revenu :
+      // seule l'ancienne fiche de dette est supprimée.
+      if (ledgerSnap?.exists && debt.convertedToIncome !== true) {
+        const income = ledgerSnap.data() || {};
+        if (income.repaymentDebtId || income.flowType === 'repayment_received') {
+          throw new Error('Cette écriture est liée à un remboursement. Elle doit rester dans l’historique.');
+        }
+        const linkedExpenses = transactionId
+          ? await transaction.get(expensesRef.where('incomeSourceId', '==', transactionId))
+          : { docs: [] };
+        if (linkedExpenses.docs.length) {
+          throw new Error('Cet emprunt a déjà financé une ou plusieurs dépenses. Supprimer la dette ferait perdre le lien entre ces dépenses et leur source d’argent. Conserve le dossier pour préserver ton historique.');
+        }
+        if (income.flowType === 'debt_borrowed' || income.categoryId === 'debt_borrowed' || income.debtId === id) {
+          transaction.delete(ledgerRef);
+          deletedTransactionCount = 1;
+          // Les anciennes dettes neutres n'étaient pas intégrées aux compteurs du profil.
+          if (income.neutralFlow !== true) {
+            const incomeMonth = String(income.month || income.date || '').slice(0, 7);
+            const stats = normalizeMonthlyStatsForMonth(userData.monthlyStats || {}, nowMonth);
+            if (incomeMonth === nowMonth) {
+              profilePatch.monthlyStats = {
+                ...stats,
+                incomes: Math.max(0, (Number(stats.incomes) || 0) - 1),
+                lastResetMonth: nowMonth,
+              };
+            }
+            profilePatch.lifetimeIncomeAmount = FieldValue.increment(-(Number(income.amount) || 0));
+            profilePatch.lifetimeIncomeCount = FieldValue.increment(-1);
+          }
+        } else {
+          throw new Error('L’écriture liée à cette dette a changé de nature. Corrige-la dans Revenus avant de supprimer le dossier.');
+        }
+      }
+    } else if (ledgerSnap?.exists) {
+      const mainExpense = ledgerSnap.data() || {};
+      if (mainExpense.pendingConfirmation === true || mainExpense.debtRequestId) {
+        throw new Error('Ce prêt attend une confirmation dans Pata. La liaison doit être terminée avant sa suppression.');
+      }
+      if (mainExpense.flowType !== 'loan_given' || (mainExpense.debtId && mainExpense.debtId !== id)) {
+        throw new Error('L’écriture liée à ce prêt n’est plus reconnue comme un prêt accordé. Elle doit être vérifiée avant suppression.');
+      }
+
+      let relatedRows = [{ id: transactionId, ...mainExpense }];
+      const sharedExpenseId = cleanText(mainExpense.sharedExpenseId, 150);
+      if (sharedExpenseId) {
+        const sharedSnap = await transaction.get(expensesRef.where('sharedExpenseId', '==', sharedExpenseId));
+        relatedRows = sharedSnap.docs.map((document) => ({ id: document.id, ...(document.data() || {}) }));
+        if (!relatedRows.some((row) => row.id === transactionId)) relatedRows.unshift({ id: transactionId, ...mainExpense });
+      }
+      if (relatedRows.some((row) => row.flowType !== 'loan_given' || (row.debtId && row.debtId !== id)
+        || row.repaymentDebtId || row.pendingConfirmation === true)) {
+        throw new Error('Les écritures de ce prêt sont partagées ou liées à une autre opération. Pata les conserve pour éviter de modifier d’autres soldes.');
+      }
+
+      if (userData.incomeSpentTotalsVersion === 1) {
+        const totals = normalizeIncomeSpentTotals(userData.incomeSpentTotals);
+        for (const row of relatedRows) {
+          const sourceId = String(row.incomeSourceId || '').trim();
+          if (!sourceId || sourceId === 'external' || sourceId.includes('/')) continue;
+          totals[sourceId] = Math.max(0, (Number(totals[sourceId]) || 0) - Math.max(0, Number(row.amount) || 0));
+        }
+        profilePatch.incomeSpentTotals = totals;
+        profilePatch.incomeSpentTotalsVersion = 1;
+        profilePatch.incomeSpentTotalsUpdatedAt = FieldValue.serverTimestamp();
+      }
+
+      const countedExpenseRows = relatedRows.filter((row) => row.neutralFlow !== true);
+      if (countedExpenseRows.length) {
+        const countedAmount = countedExpenseRows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+        profilePatch.lifetimeExpenseAmount = FieldValue.increment(-countedAmount);
+        profilePatch.lifetimeExpenseCount = FieldValue.increment(-countedExpenseRows.length);
+        const expenseMonth = String(mainExpense.date || '').slice(0, 7);
+        if (expenseMonth === nowMonth) {
+          const stats = normalizeMonthlyStatsForMonth(userData.monthlyStats || {}, nowMonth);
+          profilePatch.monthlyStats = {
+            ...stats,
+            expenses: Math.max(0, (Number(stats.expenses) || 0) - countedExpenseRows.length),
+            lastResetMonth: nowMonth,
+          };
+        }
+      }
+      relatedRows.forEach((row) => transaction.delete(expensesRef.doc(row.id)));
+      deletedTransactionCount = relatedRows.length;
+    }
+
+    const wasActive = ['active', 'partial', 'late'].includes(String(debt.status || ''));
+    if (wasActive) {
+      profilePatch.activeDebtCount = Math.max(0, (Number(userData.activeDebtCount) || 0) - 1);
+    }
+    if (Object.keys(profilePatch).length) transaction.set(userRef, profilePatch, { merge: true });
+
+    transaction.create(activityRef, {
+      eventType: 'deleted',
+      entityType: isPayableDebt ? 'debt' : 'loan',
+      entityId: id,
+      amount: originalAmount,
+      date: String(debt.createdAt?.toDate ? debt.createdAt.toDate().toISOString().slice(0, 10) : debt.dueDate || '').slice(0, 10),
+      label: cleanText(debt.person || debt.bankName, 120) || (isPayableDebt ? 'Dette contractée' : 'Prêt accordé'),
+      deletedAt: FieldValue.serverTimestamp(),
+    });
+    transaction.delete(debtRef);
+
+    return {
+      success: true,
+      debtId: id,
+      deletedTransactionCount,
+      message: isPayableDebt ? 'Dette supprimée.' : 'Prêt supprimé.',
+    };
+  });
+}
+
 function addFrequency(date, frequency, anchorDay = date.getUTCDate()) {
   const next = new Date(date.getTime());
   if (frequency === 'daily') next.setUTCDate(next.getUTCDate() + 1);
