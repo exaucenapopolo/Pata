@@ -10,7 +10,7 @@ import { completeWithGroq } from '@/lib/ai/groqClient';
 import { normalizeWebPushSubscription, webPushSubscriptionId, sendPataWebPush, isExpiredWebPushError } from '@/lib/notifications/webPush.mjs';
 import { dispatchPushNotification } from '@/lib/notifications/dispatcher.mjs';
 import { claimDailyRetentionSlot, claimDailyRetentionPassSlot, claimDailyNonEssentialSlot, buildCategoryAdviceNotification, buildCategoryBudgetForecastNotification, buildExpenseRecoveryNotification, buildSmallPurchaseNotification, buildUnusualSpendingNotification, claimDailySmartSlot, selectRetentionCandidates, getDoualaDateKey as getRetentionDoualaDateKey, isWithinDoualaEveningWindow } from '@/lib/notifications/retentionEngine.mjs';
-import { AI_TOOLS, createExpenseForUser, updateExpenseForUser, deleteExpenseForUser, deleteIncomeForUser, executeAITool, runAutomationForUser, generateWeeklyReportForUser } from '@/lib/ai/financialTools';
+import { AI_TOOLS, createExpenseForUser, updateExpenseForUser, deleteExpenseForUser, deleteIncomeForUser, deleteDebtForUser, executeAITool, runAutomationForUser, generateWeeklyReportForUser } from '@/lib/ai/financialTools';
 import { generateAudioWithGemini } from '@/lib/ai/geminiTTS';
 import { buildIncomePriorityReminder } from '@/lib/finance/incomePriorities.mjs';
 import { buildIncomeBudgetRecommendation } from '@/lib/finance/incomeBudgetRecommendation.mjs';
@@ -10725,6 +10725,21 @@ async function handleDebtDueDate(request) {
   }
 }
 
+async function handleDeleteDebt(request) {
+  try {
+    const { uid } = await authenticate(request);
+    const body = await request.json();
+    if (body.confirm !== true) return errorResponse('Confirme la suppression de cette dette ou de ce prêt.', 400);
+    const result = await deleteDebtForUser(uid, body.debtId || body.id);
+    return NextResponse.json(result);
+  } catch (error) {
+    const message = error.message || 'Impossible de supprimer cette dette ou ce prêt.';
+    const status = /introuvable/i.test(message) ? 404
+      : /remboursement|rembours|synchronis|liaison|financé|finance|confirmation|historique|écriture liée|ecriture liee/i.test(message) ? 409 : 400;
+    return errorResponse(message, status);
+  }
+}
+
 async function handleDebtRepayments(request) {
   try {
     const { uid } = await authenticate(request);
@@ -11288,6 +11303,7 @@ const ROUTES = {
   'debts/list': { GET: async (request) => { try { const { uid } = await authenticate(request); const snapshot = await adminDb.collection('users').doc(uid).collection('debts').orderBy('createdAt', 'desc').get(); return NextResponse.json({ success: true, debts: snapshot.docs.map((doc) => ({ id: doc.id, ...serializeAdminValue(doc.data()) })) }); } catch (error) { return errorResponse(error.message || 'Impossible de charger les dettes.', 401); } } },
   'debts/repayments': { GET: handleDebtRepayments },
   'debts/due-date': { POST: handleDebtDueDate },
+  'debts/delete': { POST: handleDeleteDebt },
   'expenses/add':          { POST: handleAddExpense },
   'expenses/update':       { POST: handleUpdateExpense },
   'expenses/delete':       { POST: handleDeleteExpense },
