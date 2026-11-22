@@ -392,9 +392,8 @@ export default function IncomePage() {
   [incomesWithBalance, month]);
 
   const monthEarningSources = useMemo(() => monthIncomes.filter((income) =>
-    !income.neutralFlow
+    isIncomeCountedAsSource(income)
     && !income.cashPocket
-    && income.flowType !== 'debt_borrowed'
     && income.flowType !== 'repayment_received'
     && income.categoryId !== 'debt_repayment_received'
   ), [monthIncomes]);
@@ -441,7 +440,7 @@ export default function IncomePage() {
   }, [incomesWithBalance, incomeSearch, incomeFilterCategory, incomeAvailability, incomeSort, incomeMinAmount, incomeMaxAmount, customIncomeCategories]);
   const highestIncomeInMonth = useMemo(() => monthEarningSources
     .reduce((highest, income) => Number(income.amount) > Number(highest?.amount || 0) ? income : highest, null), [monthEarningSources]);
-  const totalIncome = monthIncomes.filter((income) => !income.neutralFlow).reduce((s, i) => s + (Number(i.remaining) || 0), 0);
+  const totalIncome = monthIncomes.filter(isIncomeCountedAsSource).reduce((s, i) => s + (Number(i.remaining) || 0), 0);
   const breakdown = useMemo(() => computeBudgetBreakdown(totalIncome, rules), [totalIncome, rules]);
 
   const vitalNeeds = useMemo(() => profile?.vitalNeeds || {}, [profile?.vitalNeeds]);
