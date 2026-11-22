@@ -166,3 +166,34 @@ test('un prêt en argent confirmé entre comptes rend aussi le financement dispo
   assert.match(apiRoute, /kind === 'lent' \? \{ availableAsFunding: true \}/);
   assert.match(apiRoute, /flowType: 'debt_borrowed',[\s\S]{0,100}availableAsFunding: true/);
 });
+
+test('les emprunts reçus en argent comptent comme revenus encaissés sans perdre leur nature de dette', () => {
+  const apiRoute = fs.readFileSync(new URL('../src/app/api/[...path]/route.js', import.meta.url), 'utf8');
+  const reportsPage = fs.readFileSync(new URL('../src/app/(app)/reports/page.js', import.meta.url), 'utf8');
+  const dashboardPage = fs.readFileSync(new URL('../src/app/(app)/dashboard/page.js', import.meta.url), 'utf8');
+  const budgetsPage = fs.readFileSync(new URL('../src/app/(app)/budgets/page.js', import.meta.url), 'utf8');
+
+  assert.match(apiRoute, /const neutralFlow = flowType === 'debt_borrowed' && availableAsFunding !== true/);
+  assert.match(apiRoute, /if \(!neutralFlow\) \{[\s\S]{0,400}profilePatch\.lifetimeIncomeAmount = FieldValue\.increment\(amount\)/);
+  assert.match(incomePage, /monthIncomes\.filter\(isIncomeCountedAsSource\)/);
+  assert.match(dashboardPage, /periodIncomes\.filter\(isIncomeCountedAsSource\)/);
+  assert.match(reportsPage, /periodIncomes\.filter\(isIncomeCountedAsSource\)/);
+  assert.match(budgetsPage, /isIncomeCountedAsSource\(income\)/);
+  assert.match(incomePage, /Elle reste toutefois une dette à rembourser/);
+});
+
+test('la programmation d’un emprunt en argent met à jour les revenus lorsqu’elle est exécutée', () => {
+  const processRoute = fs.readFileSync(new URL('../src/app/api/scheduled-transactions/process/route.js', import.meta.url), 'utf8');
+  assert.match(processRoute, /const neutralFlow = isBorrowed && schedule\.availableAsFunding !== true/);
+  assert.match(processRoute, /if \(!neutralFlow\) \{[\s\S]{0,400}lifetimeIncomeAmount: FieldValue\.increment\(amount\)/);
+});
+
+test('le serveur refuse une nouvelle dette lorsque sa nature argent ou biens à crédit n’est pas choisie', () => {
+  const incomeApi = fs.readFileSync(new URL('../src/app/api/[...path]/route.js', import.meta.url), 'utf8');
+  const quickCapture = fs.readFileSync(new URL('../src/app/api/quick-capture/route.js', import.meta.url), 'utf8');
+  const scheduled = fs.readFileSync(new URL('../src/app/api/scheduled-transactions/route.js', import.meta.url), 'utf8');
+  assert.match(incomeApi, /flowType === 'debt_borrowed' && typeof body\.availableAsFunding !== 'boolean'/);
+  assert.match(quickCapture, /type === 'debt_borrowed' && typeof body\.incomeAvailableAsFunding !== 'boolean'/);
+  assert.match(quickCapture, /incomeFlowType === 'debt_borrowed' && typeof body\.incomeAvailableAsFunding !== 'boolean'/);
+  assert.match(scheduled, /typeof body\.availableAsFunding !== 'boolean'/);
+});
