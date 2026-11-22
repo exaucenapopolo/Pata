@@ -206,3 +206,12 @@ test('le rapport hebdomadaire inclut les emprunts en argent mais sépare leur na
   assert.match(financialTools, /const borrowed = incomes\.filter/);
   assert.match(financialTools, /Aucun revenu encaissé n’a été enregistré cette semaine/);
 });
+
+
+test('le rapport hebdomadaire compte les emprunts en argent comme entrées encaissées', () => {
+  const financialTools = fs.readFileSync(new URL('../src/lib/ai/financialTools.js', import.meta.url), 'utf8');
+  assert.match(financialTools, /const totalIncome = sum\(currentIncome\.filter\(isIncomeCountedAsSource\)\)/);
+  assert.match(financialTools, /const previousIncomeTotal = sum\(previousIncome\.filter\(isIncomeCountedAsSource\)\)/);
+  assert.match(financialTools, /const borrowed = incomes\.filter/);
+  assert.match(financialTools, /Aucun revenu encaissé n’a été enregistré cette semaine/);
+});
