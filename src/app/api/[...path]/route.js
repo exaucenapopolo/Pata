@@ -4095,6 +4095,7 @@ async function handleUpdateIncome(request) {
     const initialSnapshot = await incomeRef.get();
     if (!initialSnapshot.exists) return errorResponse('Revenu introuvable.', 400);
     const initialIncome = initialSnapshot.data() || {};
+    if (initialIncome.debtArchived === true) return errorResponse('Cette dette est soldée et archivée. Son écriture financière est conservée dans l’historique et ne peut plus être modifiée.', 409);
     if (initialIncome.cashPocket || initialIncome.flowType === 'cash_withdrawal' || initialIncome.flowType === 'repayment_received' || initialIncome.repaymentDebtId) {
       return errorResponse('Ce mouvement est protégé car il est lié à un transfert ou à un remboursement de dette.', 409);
     }
