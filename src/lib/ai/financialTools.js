@@ -1935,16 +1935,20 @@ async function addDebt(uid, args, idempotencyKey = null, premiumOnly = false) {
     }
     const note = cleanText(args.note, 250);
     const bankFields = counterpartyType === 'bank' ? { bankName: creditorName } : {};
+    const incomeStats = availableAsFunding ? normalizeMonthlyStatsForMonth(userData.monthlyStats || {}, monthKey()) : null;
+    const incomeQuotaStats = availableAsFunding ? incrementFreeQuota(userData, 'incomes') : null;
     const result = {
       success: true,
-      message: `Dette contractée auprès de « ${creditorName} » enregistrée : ${amount.toLocaleString('fr-FR')} FCFA. Elle reste exclue des revenus ordinaires.`,
+      message: availableAsFunding
+        ? `Emprunt de ${amount.toLocaleString('fr-FR')} FCFA reçu en argent auprès de « ${creditorName} ». Compté dans tes sources de revenus encaissés et toujours suivi comme dette à rembourser.`
+        : `Dette de ${amount.toLocaleString('fr-FR')} FCFA auprès de « ${creditorName} » enregistrée. Les biens ou services pris à crédit restent suivis comme dette, sans augmenter tes revenus ni ta trésorerie.`,
       amount, person: creditorName, counterpartyType, debtId: debtRef.id, incomeId: incomeRef.id, dueDate: dueDate || null, date,
       pendingDetails: !dueDate,
       ...(projectId ? { projectId, projectName } : {}),
     };
     transaction.create(incomeRef, {
       amount, source: creditorName, categoryId: 'debt_borrowed', month: date.slice(0, 7), date, note,
-      flowType: 'debt_borrowed', neutralFlow: true, availableAsFunding, person: creditorName, counterpartyType, ...bankFields,
+      flowType: 'debt_borrowed', neutralFlow: !availableAsFunding, availableAsFunding, person: creditorName, counterpartyType, ...bankFields,
       phone: cleanText(args.phone, 30) || null, dueDate: dueDate || null, pendingDetails: !dueDate, debtId: debtRef.id,
       ...(projectId ? { projectId, projectName } : {}), createdAt: FieldValue.serverTimestamp(),
     });
@@ -1957,7 +1961,18 @@ async function addDebt(uid, args, idempotencyKey = null, premiumOnly = false) {
       note, transactionId: incomeRef.id,
       ...(projectId ? { projectId, projectName } : {}),
     });
-    transaction.update(userRef, { activeDebtCount: activeDebtCount + 1 });
+    transaction.update(userRef, {
+      activeDebtCount: activeDebtCount + 1,
+      ...(availableAsFunding ? {
+        monthlyStats: {
+          ...(incomeQuotaStats || incomeStats),
+          incomes: Number((incomeQuotaStats || incomeStats)?.incomes) || 0,
+          lastResetMonth: monthKey(),
+        },
+        lifetimeIncomeAmount: FieldValue.increment(amount),
+        lifetimeIncomeCount: FieldValue.increment(1),
+      } : {}),
+    });
     if (actionRef) transaction.create(actionRef, { result, createdAt: FieldValue.serverTimestamp() });
     return result;
   });
