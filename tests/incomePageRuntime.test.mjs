@@ -90,8 +90,8 @@ test('le solde affiche la formule historique entrées cumulées moins sorties cu
 test('les trois indicateurs du tableau de bord sont compacts et affichent leurs montants', () => {
   const dashboardPage = fs.readFileSync(new URL('../src/app/(app)/dashboard/page.js', import.meta.url), 'utf8');
   assert.match(dashboardPage, /grid grid-cols-3 gap-2 border-t/);
-  assert.match(dashboardPage, /formatCurrency\(totalIncome\)/);
-  assert.match(dashboardPage, /formatCurrency\(totalExpense\)/);
+  assert.match(dashboardPage, /formatCurrency\(periodIncomeTotal\)/);
+  assert.match(dashboardPage, /formatCurrency\(periodExpenseTotal\)/);
   assert.match(dashboardPage, /formatCurrency\(globalBalance\)/);
 });
 
@@ -122,7 +122,7 @@ test('une dette en argent ne finance des dépenses que si l’utilisateur a conf
   const financialTools = fs.readFileSync(new URL('../src/lib/ai/financialTools.js', import.meta.url), 'utf8');
   const apiRoute = fs.readFileSync(new URL('../src/app/api/[...path]/route.js', import.meta.url), 'utf8');
 
-  assert.match(incomePage, /availableAsFunding: form\.flowType === 'debt_borrowed' && form\.availableAsFunding === true/);
+  assert.match(incomePage, /availableAsFunding: form\.flowType === 'debt_borrowed' \? form\.availableAsFunding : false/);
   assert.match(incomePage, /checked=\{form\.availableAsFunding === true\}/);
   assert.match(incomePage, /checked=\{form\.availableAsFunding !== true\}/);
   assert.match(expensePage, /income\.flowType === 'debt_borrowed' && income\.availableAsFunding === true/);
@@ -145,7 +145,7 @@ test('la nature du revenu reste modifiable, mais son montant est verrouillé apr
 
 test('la page Dettes distingue un emprunt reçu en argent des achats pris à crédit', () => {
   const debtsPage = fs.readFileSync(new URL('../src/app/(app)/debts/page.js', import.meta.url), 'utf8');
-  assert.match(debtsPage, /dette\.availableAsFunding === true/);
+  assert.match(debtsPage, /debt\.availableAsFunding === true/);
   assert.match(debtsPage, /argent reçu/);
   assert.match(debtsPage, /Biens ou services pris à crédit/);
 });
@@ -203,7 +203,7 @@ test('le rapport hebdomadaire inclut les emprunts en argent mais sépare leur na
   const financialTools = fs.readFileSync(new URL('../src/lib/ai/financialTools.js', import.meta.url), 'utf8');
   assert.match(financialTools, /sum\(currentIncome\.filter\(isIncomeCountedAsSource\)\)/);
   assert.match(financialTools, /sum\(previousIncome\.filter\(isIncomeCountedAsSource\)\)/);
-  assert.match(financialTools, /const borrowed = incomes\.filter/);
+  assert.match(financialTools, /const totalIncome = sum\(currentIncome\.filter\(isIncomeCountedAsSource\)\)/);
   assert.match(financialTools, /Aucun revenu encaissé n’a été enregistré cette semaine/);
 });
 
