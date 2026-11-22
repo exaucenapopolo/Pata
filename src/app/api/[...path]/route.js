@@ -8499,20 +8499,29 @@ async function handleProjectFinancialSummary(request) {
       .filter((value) => value && !value.includes('/')))].slice(0, 40);
     const userRef = adminDb.collection('users').doc(uid);
     const summaries = await Promise.all(projectIds.map(async (projectId) => {
-      const [expensesSnap, incomesSnap, borrowedSnap] = await Promise.all([
+      const [expensesSnap, incomesSnap, borrowedSnap, neutralBorrowedSnap, legacyCashFundingSnap] = await Promise.all([
         userRef.collection('expenses').where('projectId', '==', projectId)
           .aggregate({ total: AggregateField.sum('amount') }).get(),
         userRef.collection('incomes').where('projectId', '==', projectId)
           .aggregate({ total: AggregateField.sum('amount') }).get(),
         userRef.collection('incomes').where('projectId', '==', projectId).where('flowType', '==', 'debt_borrowed')
           .aggregate({ total: AggregateField.sum('amount') }).get(),
+        userRef.collection('incomes').where('projectId', '==', projectId)
+          .where('flowType', '==', 'debt_borrowed').where('neutralFlow', '==', true)
+          .aggregate({ total: AggregateField.sum('amount') }).get(),
+        userRef.collection('incomes').where('projectId', '==', projectId)
+          .where('flowType', '==', 'debt_borrowed').where('neutralFlow', '==', true)
+          .where('availableAsFunding', '==', true)
+          .aggregate({ total: AggregateField.sum('amount') }).get(),
       ]);
       const totalIncome = Math.max(0, Number(incomesSnap.data()?.total) || 0);
-      const borrowedFunding = Math.min(totalIncome, Math.max(0, Number(borrowedSnap.data()?.total) || 0));
+      const legacyCashFunding = Math.max(0, Number(legacyCashFundingSnap.data()?.total) || 0);
+      const inKindDebtTotal = Math.max(0, (Number(neutralBorrowedSnap.data()?.total) || 0) - legacyCashFunding);
+      const borrowedFunding = Math.max(0, (Number(borrowedSnap.data()?.total) || 0) - inKindDebtTotal);
       return {
         projectId,
         spent: Math.max(0, Number(expensesSnap.data()?.total) || 0),
-        income: Math.max(0, totalIncome - borrowedFunding),
+        income: Math.max(0, totalIncome - inKindDebtTotal),
         borrowedFunding,
       };
     }));
@@ -8592,7 +8601,7 @@ async function handleDeleteProject(request) {
     ]);
     if (!projectSnap.exists) return errorResponse('Projet introuvable.', 404);
     const countedExpenses = expensesSnap.docs.filter((doc) => doc.data()?.neutralFlow !== true);
-    const countedIncomes = incomesSnap.docs.filter((doc) => doc.data()?.neutralFlow !== true);
+    const countedIncomes = incomesSnap.docs.filter((doc) => isIncomeCountedAsSource(doc.data() || {}));
     const expenseTotal = countedExpenses.reduce((sum, doc) => sum + (Number(doc.data()?.amount) || 0), 0);
     const incomeTotal = countedIncomes.reduce((sum, doc) => sum + (Number(doc.data()?.amount) || 0), 0);
     const operations = [...expensesSnap.docs.map((doc) => ({ ref: doc.ref })), ...incomesSnap.docs.map((doc) => ({ ref: doc.ref }))];
