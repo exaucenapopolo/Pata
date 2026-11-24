@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CalendarDays, Camera, Check, Clock3, FileText, ImagePlus, Loader2, Pencil, Plus, Receipt, Trash2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/context/LanguageContext';
@@ -131,7 +131,7 @@ export default function BillsPage() {
     setScanFeedback(''); setScanError(false);
     setForm(makeEmptyBill());
     setShowEditor(true);
-  };
+  }, [setForm, setShowEditor]);
 
   useEffect(() => {
     const openFromShortcut = () => {
@@ -151,9 +151,9 @@ export default function BillsPage() {
     }
 
     return () => window.removeEventListener('pata:bill-new', openFromShortcut);
-  }, []);
+  }, [setForm, setShowEditor]);
 
-  const openEdit = (bill) => {
+  const openEdit = useCallback((bill) => {
     setScanFeedback(''); setScanError(false);
     setForm({
       id: bill.id,
@@ -183,7 +183,7 @@ export default function BillsPage() {
     params.delete('edit');
     const query = params.toString();
     window.history.replaceState(null, '', window.location.pathname + (query ? '?' + query : ''));
-  }, [bills]);
+  }, [bills, openEdit]);
 
   const scanBillImage = async (event) => {
     const file = event.target.files?.[0];
