@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Capacitor } from '@capacitor/core';
-import { Delete, X } from 'lucide-react';
+import { ClipboardPaste, Delete, X } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
 import { applyMoneyKey, evaluateMoneyExpression } from '@/lib/finance/decimalExpression.mjs';
+import { normalizeClipboardAmount } from '@/lib/finance/clipboardAmount.mjs';
 
 const MONEY_HINTS = /montant|amount|budget|capital|dépense|depense|revenu|income|expense|somme|versement|cotisation|facture|bill|loyer|épargne|epargne|solde|balance|recharge|payment|paiement|prêt|pret|loan|dette|debt|prix|price|tarif|frais|fcfa|xaf|usd|eur/i;
 const NON_MONEY_HINTS = /pourcentage|percent|participants?|personnes?|jours?|days?|année|annee|years?|fréquence|frequence|frequency|quota|heures?|minutes?/i;
@@ -58,6 +59,8 @@ export function MoneyKeypad() {
   const { language } = useLanguage();
   const [activeField, setActiveField] = useState(null);
   const [expression, setExpression] = useState('');
+  const [pasteMenuOpen, setPasteMenuOpen] = useState(false);
+  const [pasteFeedback, setPasteFeedback] = useState('');
   const activeInputRef = useRef(null);
   const originalAttributesRef = useRef(null);
 
@@ -87,6 +90,8 @@ export function MoneyKeypad() {
     restoreActiveInput();
     setActiveField(null);
     setExpression('');
+    setPasteMenuOpen(false);
+    setPasteFeedback('');
   }, [restoreActiveInput]);
 
   const activate = useCallback((input) => {
@@ -103,7 +108,98 @@ export function MoneyKeypad() {
     const label = getInputLabel(input).trim() || (language === 'en' ? 'Amount' : 'Montant');
     setActiveField({ label });
     setExpression(String(input.value || '').replace(/\s/g, ''));
+    setPasteMenuOpen(false);
+    setPasteFeedback('');
   }, [language, restoreActiveInput]);
+
+  const pasteClipboardAmount = useCallback(async () => {
+    const input = activeInputRef.current;
+    if (!input) return;
+    try {
+      if (!navigator.clipboard?.readText) throw new Error('Clipboard API indisponible');
+      const copiedText = await navigator.clipboard.readText();
+      const amount = normalizeClipboardAmount(copiedText);
+      if (amount == null) {
+        setPasteFeedback(language === 'en'
+          ? 'The clipboard does not contain a valid amount.'
+          : 'Le presse-papiers ne contient pas de montant valide.');
+        setPasteMenuOpen(true);
+        return;
+      }
+      setExpression(amount);
+      setPasteMenuOpen(false);
+      setPasteFeedback('');
+    } catch {
+      // Some Android WebViews and browsers deny programmatic clipboard reads.
+      // Restore the editable input so the native long-press "Paste" menu can be used.
+      const original = originalAttributesRef.current;
+      if (original) {
+        input.readOnly = original.readOnly;
+        if (original.inputMode == null) input.removeAttribute('inputmode');
+        else input.setAttribute('inputmode', original.inputMode);
+      }
+      activeInputRef.current = null;
+      originalAttributesRef.current = null;
+      setActiveField(null);
+      setExpression('');
+      setPasteMenuOpen(false);
+      setPasteFeedback('');
+      window.requestAnimationFrame(() => {
+        if (!input.isConnected) return;
+        input.focus({ preventScroll: true });
+        input.select?.();
+      });
+    }
+  }, [language]);
+
+  useEffect(() => {
+    const input = activeInputRef.current;
+    if (!activeField || !input) return undefined;
+    let longPressTimer = null;
+    const clearLongPress = () => {
+      if (longPressTimer) window.clearTimeout(longPressTimer);
+      longPressTimer = null;
+    };
+    const openPasteMenu = () => {
+      setPasteFeedback('');
+      setPasteMenuOpen(true);
+    };
+    const onContextMenu = (event) => {
+      event.preventDefault();
+      openPasteMenu();
+    };
+    const onPointerDown = (event) => {
+      if (event.pointerType && event.pointerType !== 'touch' && event.pointerType !== 'pen') return;
+      clearLongPress();
+      longPressTimer = window.setTimeout(openPasteMenu, 550);
+    };
+    const onTouchStart = () => {
+      clearLongPress();
+      longPressTimer = window.setTimeout(openPasteMenu, 550);
+    };
+    input.addEventListener('contextmenu', onContextMenu);
+    if ('PointerEvent' in window) {
+      input.addEventListener('pointerdown', onPointerDown);
+      input.addEventListener('pointerup', clearLongPress);
+      input.addEventListener('pointercancel', clearLongPress);
+      input.addEventListener('pointerleave', clearLongPress);
+    } else {
+      input.addEventListener('touchstart', onTouchStart, { passive: true });
+      input.addEventListener('touchend', clearLongPress);
+      input.addEventListener('touchcancel', clearLongPress);
+    }
+    return () => {
+      clearLongPress();
+      input.removeEventListener('contextmenu', onContextMenu);
+      input.removeEventListener('pointerdown', onPointerDown);
+      input.removeEventListener('pointerup', clearLongPress);
+      input.removeEventListener('pointercancel', clearLongPress);
+      input.removeEventListener('pointerleave', clearLongPress);
+      input.removeEventListener('touchstart', onTouchStart);
+      input.removeEventListener('touchend', clearLongPress);
+      input.removeEventListener('touchcancel', clearLongPress);
+    };
+  }, [activeField]);
 
   useEffect(() => {
     let androidNative = false;
@@ -135,15 +231,21 @@ export function MoneyKeypad() {
 
     const handleKeyDown = (event) => {
       if (event.key === 'Escape' && activeInputRef.current) close();
+      if (activeInputRef.current && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v') {
+        event.preventDefault();
+        void pasteClipboardAmount();
+      }
     };
 
-    document.addEventListener('pointerdown', handlePointerDown, true);
     document.addEventListener('keydown', handleKeyDown, true);
+    if (!androidNative) return () => document.removeEventListener('keydown', handleKeyDown, true);
+
+    document.addEventListener('pointerdown', handlePointerDown, true);
     return () => {
       document.removeEventListener('pointerdown', handlePointerDown, true);
       document.removeEventListener('keydown', handleKeyDown, true);
     };
-  }, [activate, close]);
+  }, [activate, close, pasteClipboardAmount]);
 
   // Keep the real form field synchronized while the user types the calculation.
   // Incomplete expressions (for example "500 +") leave the last valid amount intact.
@@ -190,9 +292,34 @@ export function MoneyKeypad() {
               {result ? formatAmount(result.roundedValue, language) : '—'}
               <span className="ml-1 text-[10px] font-bold">FCFA</span>
             </p>
-            <button type="button" onClick={close} className="inline-flex h-8 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-600 shadow-sm" aria-label={language === 'en' ? 'Close calculator' : 'Fermer la calculatrice'}><X size={14}/>{language === 'en' ? 'Close' : 'Fermer'}</button>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => { setPasteFeedback(''); setPasteMenuOpen((current) => !current); }}
+                className="inline-flex h-8 items-center justify-center gap-1 rounded-lg border border-emerald-200 bg-white px-2.5 text-[11px] font-semibold text-emerald-800 shadow-sm"
+                aria-expanded={pasteMenuOpen}
+                aria-label={language === 'en' ? 'Show paste options' : 'Afficher les options de collage'}
+              >
+                <ClipboardPaste size={14}/>{language === 'en' ? 'Paste' : 'Coller'}
+              </button>
+              <button type="button" onClick={close} className="inline-flex h-8 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-600 shadow-sm" aria-label={language === 'en' ? 'Close calculator' : 'Fermer la calculatrice'}><X size={14}/>{language === 'en' ? 'Close' : 'Fermer'}</button>
+            </div>
           </div>
         </div>
+        {pasteMenuOpen && (
+          <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-emerald-100 bg-white px-3 py-2 shadow-sm">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold text-slate-800">{language === 'en' ? 'Paste an amount' : 'Coller un montant'}</p>
+              <p className="mt-0.5 text-[10px] leading-4 text-slate-500">
+                {pasteFeedback || (language === 'en' ? 'Long-press or right-click the amount field to show this option.' : 'Fais un appui long ou un clic droit sur le champ de montant pour afficher cette option.')}
+              </p>
+            </div>
+            <button type="button" onClick={pasteClipboardAmount} className="inline-flex min-h-9 shrink-0 items-center justify-center gap-1 rounded-lg bg-[#075b43] px-3 text-xs font-semibold text-white" data-pata-no-haptic="true">
+              <ClipboardPaste size={14}/>{language === 'en' ? 'Paste' : 'Coller'}
+            </button>
+            <button type="button" onClick={() => setPasteMenuOpen(false)} className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-500" aria-label={language === 'en' ? 'Cancel paste' : 'Annuler le collage'}><X size={14}/></button>
+          </div>
+        )}
 
         <div className="grid grid-cols-4 gap-2">
           {KEYS.map((key, index) => (
