@@ -12,6 +12,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import DebtRequestsPanel from '@/components/debts/DebtRequestsPanel';
 import { ScheduledTransactionsPanel } from '@/components/transactions/ScheduledTransactionsPanel';
 import { Modal } from '@/components/ui/Modal';
+import { usePersistentPageState } from '@/hooks/usePersistentPageState';
 
 const OPEN_STATUSES = ['active', 'partial', 'late'];
 const FILTERS = [
@@ -33,13 +34,13 @@ export default function DebtsPage() {
   const { user } = useAuth();
   const { profile } = useProfile();
   const { debts, loading } = useDebts();
-  const [filter, setFilter] = useState('all');
-  const [expandedDebtId, setExpandedDebtId] = useState('');
+  const [filter, setFilter] = usePersistentPageState('debts', 'filter', 'all', user?.uid);
+  const [expandedDebtId, setExpandedDebtId] = usePersistentPageState('debts', 'expandedDebtId', '', user?.uid);
   const [repaymentsByDebt, setRepaymentsByDebt] = useState({});
   const [historyLoadingId, setHistoryLoadingId] = useState('');
   const [historyError, setHistoryError] = useState('');
-  const [editingDueDateId, setEditingDueDateId] = useState('');
-  const [dueDateDraft, setDueDateDraft] = useState('');
+  const [editingDueDateId, setEditingDueDateId] = usePersistentPageState('debts', 'editingDueDateId', '', user?.uid);
+  const [dueDateDraft, setDueDateDraft] = usePersistentPageState('debts', 'dueDateDraft', '', user?.uid);
   const [dueDateSaving, setDueDateSaving] = useState(false);
   const [dueDateFeedback, setDueDateFeedback] = useState('');
   const [debtToDelete, setDebtToDelete] = useState(null);
