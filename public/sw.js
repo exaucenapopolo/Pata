@@ -1,5 +1,5 @@
 // Pata PWA — cache applicatif et navigation hors connexion.
-const CACHE_VERSION = 'v7';
+const CACHE_VERSION = 'v8';
 const STATIC_CACHE = 'pata-static-' + CACHE_VERSION;
 const PAGE_CACHE = 'pata-pages-' + CACHE_VERSION;
 const ROUTE_CACHE = 'pata-rsc-' + CACHE_VERSION;
