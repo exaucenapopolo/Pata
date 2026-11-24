@@ -171,7 +171,7 @@ export default function BillsPage() {
       imageUrl: bill.imageUrl || '',
     });
     setShowEditor(true);
-  };
+  }, [setScanFeedback, setScanError, setForm, setShowEditor]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
