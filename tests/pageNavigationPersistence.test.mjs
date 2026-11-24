@@ -5,6 +5,8 @@ import fs from 'node:fs';
 const read = (path) => fs.readFileSync(new URL(path, import.meta.url), 'utf8');
 const income = read('../src/app/(app)/income/page.js');
 const expenses = read('../src/app/(app)/expenses/page.js');
+const dashboard = read('../src/app/(app)/dashboard/page.js');
+const budgets = read('../src/app/(app)/budgets/page.js');
 const layout = read('../src/app/(app)/AppLayoutClient.jsx');
 const calendar = read('../src/components/layout/NativeDatePicker.jsx');
 const keypad = read('../src/components/layout/MoneyKeypad.jsx');
@@ -60,4 +62,20 @@ test('les anciennes réponses PWA sont invalidées à la mise à jour', () => {
   assert.match(pwaRegister, /registration\.update\(\)/);
   assert.match(pwaRegister, /controllerchange/);
   assert.match(pwaRegister, /window\.location\.reload\(\)/);
+});
+
+
+test('le tableau de bord lit le compte avant de créer ses états persistés', () => {
+  const component = dashboard.slice(dashboard.indexOf('export default function DashboardPage()'));
+  const userDeclaration = component.indexOf('const { user } = useAuth();');
+  const firstPersistentState = component.indexOf('usePersistentPageState(');
+  assert.ok(userDeclaration >= 0 && firstPersistentState >= 0 && userDeclaration < firstPersistentState,
+    'user doit être déclaré avant son utilisation dans les clés d’états persistés');
+});
+
+test('la catégorie cible du budget est déclarée avant le premier effet qui la lit', () => {
+  const declaration = budgets.indexOf("const [targetCategoryId, setTargetCategoryId] = usePersistentPageState(");
+  const firstUse = budgets.indexOf('if (!targetCategoryId && expenseCategories[0]?.id)');
+  assert.ok(declaration >= 0 && firstUse >= 0 && declaration < firstUse,
+    'targetCategoryId ne doit pas être référencé avant son initialisation');
 });
