@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { usePersistentPageState } from '@/hooks/usePersistentPageState';
 import { Button } from '@/components/ui/Button';
 import { getPreferredLocale } from '@/lib/utils';
 import { Input } from '@/components/ui/Input';
@@ -35,20 +36,20 @@ export default function CotisationsPage() {
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [showCreate, setShowCreate] = useState(false);
-  const [createdInvite, setCreatedInvite] = useState('');
-  const [responsibilityAccepted, setResponsibilityAccepted] = useState(false);
-  const [editingGroupId, setEditingGroupId] = useState('');
-  const [pinnedGroups, setPinnedGroups] = useState([]);
-  const [expandedGroups, setExpandedGroups] = useState({});
+  const [showCreate, setShowCreate] = usePersistentPageState('cotisations', 'createOpen', false, user?.uid);
+  const [createdInvite, setCreatedInvite] = usePersistentPageState('cotisations', 'createdInvite', '', user?.uid);
+  const [responsibilityAccepted, setResponsibilityAccepted] = usePersistentPageState('cotisations', 'responsibilityAccepted', false, user?.uid);
+  const [editingGroupId, setEditingGroupId] = usePersistentPageState('cotisations', 'editingGroupId', '', user?.uid);
+  const [pinnedGroups, setPinnedGroups] = usePersistentPageState('cotisations', 'pinnedGroups', [], user?.uid);
+  const [expandedGroups, setExpandedGroups] = usePersistentPageState('cotisations', 'expandedGroups', {}, user?.uid);
   const [detailsLoadingGroupId, setDetailsLoadingGroupId] = useState('');
   const expandedGroupIdRef = useRef('');
   const detailsRequestsRef = useRef(new Set());
   const [photoEditingGroup, setPhotoEditingGroup] = useState(null);
   const [groupPhotoDraft, setGroupPhotoDraft] = useState('');
-  const [chatGroup, setChatGroup] = useState(null);
+  const [chatGroup, setChatGroup] = usePersistentPageState('cotisations', 'chatGroup', null, user?.uid);
   const [chatMessages, setChatMessages] = useState([]);
-  const [chatDraft, setChatDraft] = useState('');
+  const [chatDraft, setChatDraft] = usePersistentPageState('cotisations', 'chatDraft', '', user?.uid);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatBusy, setChatBusy] = useState(false);
   const [chatError, setChatError] = useState('');
@@ -85,7 +86,7 @@ export default function CotisationsPage() {
     });
   };
   const [whatsappForms, setWhatsappForms] = useState({});
-  const [groupForm, setGroupForm] = useState({ name: '', description: '', contributionAmount: '', expectedMembers: '5', frequency: 'monthly', startDate: today(), dueDay: '30', graceDays: '1', lateFeeType: 'none', lateFeeValue: '' });
+  const [groupForm, setGroupForm] = usePersistentPageState('cotisations', 'groupForm', { name: '', description: '', contributionAmount: '', expectedMembers: '5', frequency: 'monthly', startDate: today(), dueDay: '30', graceDays: '1', lateFeeType: 'none', lateFeeValue: '' }, user?.uid);
   const [orderDrafts, setOrderDrafts] = useState({});
   const [payForms, setPayForms] = useState({});
   const [withdrawForms, setWithdrawForms] = useState({});
