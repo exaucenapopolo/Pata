@@ -1,12 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getPageStateStorageKey, readPageState, writePageState } from '@/lib/ui/pageStateStorage.mjs';
+import { getPageStateStorageKey, getSafePageStorage, readPageState, writePageState } from '@/lib/ui/pageStateStorage.mjs';
 
-/**
- * Persists small UI choices and drafts locally, scoped to the signed-in user.
- * Do not use it for Firestore records, authentication tokens, or loading flags.
- */
+/** Persist small UI choices and drafts locally, scoped to the signed-in user. */
 export function usePersistentPageState(page, field, initialValue, userId, options = {}) {
   const initialRef = useRef(initialValue);
   initialRef.current = initialValue;
@@ -18,16 +15,14 @@ export function usePersistentPageState(page, field, initialValue, userId, option
   useEffect(() => {
     const restored = skipRestore
       ? initialRef.current
-      : readPageState(typeof window === 'undefined' ? null : window.localStorage, storageKey, initialRef.current);
+      : readPageState(getSafePageStorage(), storageKey, initialRef.current);
     setEntry({ key: storageKey, value: restored });
     setHydratedKey(storageKey);
   }, [storageKey, skipRestore]);
 
   useEffect(() => {
     if (hydratedKey !== storageKey || entry.key !== storageKey) return;
-    if (typeof window !== 'undefined') {
-      writePageState(window.localStorage, storageKey, entry.value);
-    }
+    writePageState(getSafePageStorage(), storageKey, entry.value);
   }, [entry, hydratedKey, storageKey]);
 
   const setValue = useCallback((nextValue) => {
