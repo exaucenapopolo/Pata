@@ -117,19 +117,29 @@ export function NativeDatePicker() {
       event.stopPropagation();
       openForInput(input);
     };
-    const handleFocus = (event) => {
-      const input = event.target;
-      if (input instanceof HTMLInputElement && input.type === 'date') openForInput(input);
-    };
     const handleKeyDown = (event) => {
-      if (event.key === 'Escape' && inputRef.current) close();
+      if (event.key === 'Escape' && inputRef.current) {
+        close();
+        return;
+      }
+
+      // Ouvre le calendrier uniquement après une action volontaire sur le champ.
+      // La validation HTML peut déplacer le focus vers un champ date obligatoire :
+      // cet événement ne doit jamais ouvrir le calendrier à la place du formulaire.
+      const input = event.target;
+      if (
+        input instanceof HTMLInputElement
+        && input.type === 'date'
+        && ['Enter', ' ', 'ArrowDown'].includes(event.key)
+      ) {
+        event.preventDefault();
+        openForInput(input);
+      }
     };
     document.addEventListener('pointerdown', handlePointerDown, true);
-    document.addEventListener('focusin', handleFocus, true);
     document.addEventListener('keydown', handleKeyDown, true);
     return () => {
       document.removeEventListener('pointerdown', handlePointerDown, true);
-      document.removeEventListener('focusin', handleFocus, true);
       document.removeEventListener('keydown', handleKeyDown, true);
     };
   }, [close, openForInput]);
