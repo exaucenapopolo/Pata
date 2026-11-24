@@ -43,6 +43,7 @@ import { ScheduledTransactionsPanel } from '@/components/transactions/ScheduledT
 import { createScheduledTransaction } from '@/lib/firestore/scheduledTransactions';
 import { checkFinancialOperation } from '@/lib/firestore/financialTargets';
 import { NextBestAction } from '@/components/NextBestAction';
+import { usePersistentPageState } from '@/hooks/usePersistentPageState';
 
 // 🟢 DATES LOCALES (Pas de décalage UTC)
 const todayMonth = () => {
@@ -106,18 +107,18 @@ export default function IncomePage() {
   const { customCategories: customIncomeCategories } = useCustomCategories('income');
   const { rules, updatePercent, saveRules, resetRules, total, isValid, loading: rulesLoading } = useBudgetRules();
 
-  const [month, setMonth] = useState(todayMonth());
-  const [incomeSection, setIncomeSection] = useState('all');
-  const [incomeSearch, setIncomeSearch] = useState('');
-  const [incomeFilterCategory, setIncomeFilterCategory] = useState('all');
-  const [incomeAvailability, setIncomeAvailability] = useState('all');
-  const [incomeSort, setIncomeSort] = useState('pinned_newest');
-  const [incomeMinAmount, setIncomeMinAmount] = useState('');
-  const [incomeMaxAmount, setIncomeMaxAmount] = useState('');
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState(emptyIncomeForm());
+  const [month, setMonth] = usePersistentPageState('income', 'month', todayMonth(), user?.uid);
+  const [incomeSection, setIncomeSection] = usePersistentPageState('income', 'section', 'all', user?.uid);
+  const [incomeSearch, setIncomeSearch] = usePersistentPageState('income', 'search', '', user?.uid);
+  const [incomeFilterCategory, setIncomeFilterCategory] = usePersistentPageState('income', 'filterCategory', 'all', user?.uid);
+  const [incomeAvailability, setIncomeAvailability] = usePersistentPageState('income', 'availability', 'all', user?.uid);
+  const [incomeSort, setIncomeSort] = usePersistentPageState('income', 'sort', 'pinned_newest', user?.uid);
+  const [incomeMinAmount, setIncomeMinAmount] = usePersistentPageState('income', 'minAmount', '', user?.uid);
+  const [incomeMaxAmount, setIncomeMaxAmount] = usePersistentPageState('income', 'maxAmount', '', user?.uid);
+  const [open, setOpen] = usePersistentPageState('income', 'editorOpen', false, user?.uid);
+  const [form, setForm] = usePersistentPageState('income', 'form', emptyIncomeForm(), user?.uid);
   const [incomeBudgetPrompt, setIncomeBudgetPrompt] = useState(null);
-  const [selectedIncome, setSelectedIncome] = useState(null);
+  const [selectedIncome, setSelectedIncome] = usePersistentPageState('income', 'selectedIncome', null, user?.uid);
   const [incomeExpenseDetails, setIncomeExpenseDetails] = useState({ incomeId: null, loading: false, loadingMore: false, totalSpent: 0, expenseCount: 0, expenses: [], nextCursor: null, error: '' });
   const [incomeExpenseDetailsRevision, setIncomeExpenseDetailsRevision] = useState(0);
 
@@ -1370,7 +1371,18 @@ export default function IncomePage() {
                                 )}
                               </div>
                               <div className="flex flex-col gap-2 sm:flex-row">
-                                <Link href="/expenses" className="inline-flex min-h-10 flex-1 items-center justify-center rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">Ouvrir la page Dépenses</Link>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="min-h-10 flex-1"
+                                  onClick={() => {
+                                    const sourceName = selectedIncome.source || selectedIncome.person || 'Emprunt reçu';
+                                    router.push('/expenses?new=1&incomeSourceId=' + encodeURIComponent(selectedIncome.id) + '&incomeSourceName=' + encodeURIComponent(sourceName));
+                                  }}
+                                >
+                                  <Plus size={14}/> Ajouter une dépense à cette source
+                                </Button>
+                                <Link href="/expenses" className="inline-flex min-h-10 flex-1 items-center justify-center rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">Ouvrir les dépenses</Link>
                                 {incomeExpenseDetails.nextCursor && <button type="button" onClick={loadMoreIncomeExpenses} disabled={incomeExpenseDetails.loadingMore} className="inline-flex min-h-10 flex-1 items-center justify-center rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">{incomeExpenseDetails.loadingMore ? 'Chargement…' : 'Voir plus de dépenses'}</button>}
                               </div>
                             </>
