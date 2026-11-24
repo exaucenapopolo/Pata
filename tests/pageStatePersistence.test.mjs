@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   getPageStateStorageKey,
+  getSafePageStorage,
   readPageState,
   writePageState,
 } from '../src/lib/ui/pageStateStorage.mjs';
@@ -36,6 +37,23 @@ test('une valeur absente ou corrompue retourne la valeur de secours', () => {
   assert.deepEqual(readPageState(storage, 'broken', { page: 1 }), { page: 1 });
 });
 
+test('ignore un état enregistré avec un type incompatible avec la page', () => {
+  const storage = createMemoryStorage({
+    wrongBoolean: '"open"',
+    wrongArray: '{"unexpected":true}',
+    wrongObject: '["not","a","form"]',
+  });
+  assert.equal(readPageState(storage, 'wrongBoolean', false), false);
+  assert.deepEqual(readPageState(storage, 'wrongArray', []), []);
+  assert.deepEqual(readPageState(storage, 'wrongObject', {}), {});
+});
+
+test('refuse les états excessivement volumineux', () => {
+  const storage = createMemoryStorage({ huge: JSON.stringify({ value: 'x'.repeat(200_001) }) });
+  assert.deepEqual(readPageState(storage, 'huge', { safe: true }), { safe: true });
+  assert.equal(writePageState(storage, 'huge', { value: 'x'.repeat(200_001) }), false);
+});
+
 test('les accès bloqués au stockage local ne font pas planter la page', () => {
   const storage = {
     getItem() { throw new Error('blocked'); },
@@ -43,4 +61,8 @@ test('les accès bloqués au stockage local ne font pas planter la page', () => 
   };
   assert.equal(readPageState(storage, 'key', 'default'), 'default');
   assert.equal(writePageState(storage, 'key', 'value'), false);
+});
+
+test('la récupération du stockage local retourne null quand le contexte ne le permet pas', () => {
+  assert.doesNotThrow(() => getSafePageStorage());
 });
