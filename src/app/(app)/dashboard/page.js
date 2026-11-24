@@ -29,6 +29,7 @@ import { formatCurrency, formatDate, resolveCategory, getFirstOfMonth, normalize
 import { buildFinancialSuggestions, FINANCIAL_RESOLUTIONS, getPeriodBounds, getPeriodKey } from '@/lib/financialPlanning';
 import { translateText } from '@/lib/i18n/translations';
 import { isIncomeCountedAsSource } from '@/lib/finance/incomeBalances.mjs';
+import { usePersistentPageState } from '@/hooks/usePersistentPageState';
 
 const getDashboardExpenseType = (expense) => ['consumption', 'project', 'savings', 'investment'].includes(expense?.expenseType)
   ? expense.expenseType : 'consumption';
@@ -99,12 +100,12 @@ const DASHBOARD_DEFAULT_FAVORITES = ['/budgets', '/goals'];
 const ADVICE_ICONS = { success: CheckCircle2, danger: AlertTriangle, warning: AlertTriangle, tip: Lightbulb, info: Info };
 
 export default function DashboardPage() {
-  const [customStart, setCustomStart] = useState(getFirstOfMonth());
-  const [customEnd, setCustomEnd] = useState(todayIso());
-  const [showCustomPeriod, setShowCustomPeriod] = useState(false);
-  const [activeFeature, setActiveFeature] = useState(0);
+  const [customStart, setCustomStart] = usePersistentPageState('dashboard', 'customStart', getFirstOfMonth(), user?.uid);
+  const [customEnd, setCustomEnd] = usePersistentPageState('dashboard', 'customEnd', todayIso(), user?.uid);
+  const [showCustomPeriod, setShowCustomPeriod] = usePersistentPageState('dashboard', 'showCustomPeriod', false, user?.uid);
+  const [activeFeature, setActiveFeature] = usePersistentPageState('dashboard', 'activeFeature', 0, user?.uid);
   const [frequentPages, setFrequentPages] = useState([]);
-  const [dashboardView, setDashboardView] = useState('all');
+  const [dashboardView, setDashboardView] = usePersistentPageState('dashboard', 'view', 'all', user?.uid);
   const [financialTarget, setFinancialTarget] = useState(null);
   const [targetPeriodType, setTargetPeriodType] = useState('month');
   const [targetDraft, setTargetDraft] = useState({ incomeTarget: '', expenseLimit: '', debtLimit: '', loanGivenLimit: '', resolutions: [] });
