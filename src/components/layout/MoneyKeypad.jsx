@@ -62,8 +62,8 @@ export function MoneyKeypad() {
   const [pasteMenuOpen, setPasteMenuOpen] = useState(false);
   const [pasteFeedback, setPasteFeedback] = useState('');
   const activeInputRef = useRef(null);
-  const expressionInputRef = useRef(null);
-  const originalAttributesRef = useRef(null);
+  const syncingCalculatorValueRef = useRef(false);
+  const allowNativeContextMenuRef = useRef(false);
 
   const result = useMemo(() => {
     if (!expression.trim()) return null;
@@ -75,16 +75,8 @@ export function MoneyKeypad() {
   }, [expression]);
 
   const restoreActiveInput = useCallback(() => {
-    const input = activeInputRef.current;
-    const original = originalAttributesRef.current;
-    if (input && original) {
-      input.readOnly = original.readOnly;
-      if (original.inputMode == null) input.removeAttribute('inputmode');
-      else input.setAttribute('inputmode', original.inputMode);
-      input.blur();
-    }
+    activeInputRef.current?.blur();
     activeInputRef.current = null;
-    originalAttributesRef.current = null;
   }, []);
 
   const close = useCallback(() => {
@@ -97,21 +89,13 @@ export function MoneyKeypad() {
 
   const activate = useCallback((input) => {
     if (!input || activeInputRef.current === input) return;
-    restoreActiveInput();
     activeInputRef.current = input;
-    originalAttributesRef.current = {
-      readOnly: input.readOnly,
-      inputMode: input.getAttribute('inputmode'),
-    };
-    input.readOnly = true;
-    input.setAttribute('inputmode', 'none');
-    input.focus({ preventScroll: true });
     const label = getInputLabel(input).trim() || (language === 'en' ? 'Amount' : 'Montant');
     setActiveField({ label });
     setExpression(String(input.value || '').replace(/\s/g, ''));
     setPasteMenuOpen(false);
     setPasteFeedback('');
-  }, [language, restoreActiveInput]);
+  }, [language]);
 
   const pasteClipboardAmount = useCallback(async () => {
     const input = activeInputRef.current;
@@ -131,19 +115,15 @@ export function MoneyKeypad() {
       setPasteMenuOpen(false);
       setPasteFeedback('');
     } catch {
-      // L'API presse-papiers peut être refusée par Android WebView.
-      // On garde la calculatrice ouverte et on donne le focus à la saisie native :
-      // l'utilisateur peut alors utiliser le menu système « Coller » du clavier.
-      const expressionInput = expressionInputRef.current;
+      // Certains WebViews refusent l'accès direct au presse-papiers.
+      // On garde le vrai champ de montant actif et on laisse Android proposer
+      // son menu système Coller au prochain appui long.
+      allowNativeContextMenuRef.current = true;
       setPasteFeedback(language === 'en'
-        ? 'Use the keyboard paste option in the expression field.'
-        : 'Utilise l’option « Coller » du clavier dans la zone de saisie.');
+        ? 'Clipboard access is blocked here. Long-press the amount field to use Android Paste.'
+        : 'Le collage direct est bloqué. Fais un appui long sur le champ de montant pour utiliser le menu Coller d’Android.');
       setPasteMenuOpen(true);
-      window.requestAnimationFrame(() => {
-        if (!expressionInput?.isConnected) return;
-        expressionInput.focus({ preventScroll: true });
-        expressionInput.select?.();
-      });
+      input.focus({ preventScroll: true });
     }
   }, [language]);
 
@@ -160,9 +140,19 @@ export function MoneyKeypad() {
       setPasteMenuOpen(true);
     };
     const onContextMenu = (event) => {
+      if (allowNativeContextMenuRef.current) {
+        allowNativeContextMenuRef.current = false;
+        return; // Laisse Android afficher son menu système Coller.
+      }
       event.preventDefault();
       openPasteMenu();
     };
+    const handleNativeInput = () => {
+      if (syncingCalculatorValueRef.current || activeInputRef.current !== input) return;
+      setExpression(String(input.value || '').replace(/\s/g, ''));
+    };
+    input.addEventListener('input', handleNativeInput);
+    input.addEventListener('change', handleNativeInput);
     const onPointerDown = (event) => {
       if (event.pointerType && event.pointerType !== 'touch' && event.pointerType !== 'pen') return;
       clearLongPress();
@@ -185,6 +175,8 @@ export function MoneyKeypad() {
     }
     return () => {
       clearLongPress();
+      input.removeEventListener('input', handleNativeInput);
+      input.removeEventListener('change', handleNativeInput);
       input.removeEventListener('contextmenu', onContextMenu);
       input.removeEventListener('pointerdown', onPointerDown);
       input.removeEventListener('pointerup', clearLongPress);
@@ -205,34 +197,35 @@ export function MoneyKeypad() {
     }
     if (!androidNative) return undefined;
 
-    const handlePointerDown = (event) => {
+    const handleFocusIn = (event) => {
       const target = event.target instanceof Element ? event.target : event.target?.parentElement;
       if (!target || target.closest('[data-pata-money-keypad]')) return;
-
       const input = target.closest('input');
-      if (input && input === activeInputRef.current) return;
-
       if (input && isMoneyInput(input)) {
-        event.preventDefault();
-        event.stopPropagation();
         activate(input);
         return;
       }
+      if (activeInputRef.current) close();
+    };
 
-      // Touching another field or control dismisses only the calculator.
-      // The original form and the user's next interaction remain untouched.
+    const handlePointerDown = (event) => {
+      const target = event.target instanceof Element ? event.target : event.target?.parentElement;
+      if (!target || target.closest('[data-pata-money-keypad]')) return;
+      const input = target.closest('input');
+      if (input && input === activeInputRef.current) return;
       if (activeInputRef.current) close();
     };
 
     const handleKeyDown = (event) => {
       if (event.key === 'Escape' && activeInputRef.current) close();
+      // Ne bloque pas Ctrl/Cmd+V : le collage natif reste géré par le navigateur.
     };
 
-    document.addEventListener('keydown', handleKeyDown, true);
-    if (!androidNative) return () => document.removeEventListener('keydown', handleKeyDown, true);
-
+    document.addEventListener('focusin', handleFocusIn, true);
     document.addEventListener('pointerdown', handlePointerDown, true);
+    document.addEventListener('keydown', handleKeyDown, true);
     return () => {
+      document.removeEventListener('focusin', handleFocusIn, true);
       document.removeEventListener('pointerdown', handlePointerDown, true);
       document.removeEventListener('keydown', handleKeyDown, true);
     };
@@ -242,16 +235,24 @@ export function MoneyKeypad() {
   // Incomplete expressions (for example "500 +") leave the last valid amount intact.
   useEffect(() => {
     const input = activeInputRef.current;
-    if (!input) return;
+    if (!input || !input.isConnected) return;
+    const writeCalculatorValue = (value) => {
+      syncingCalculatorValueRef.current = true;
+      try {
+        setInputValue(input, value);
+      } finally {
+        syncingCalculatorValueRef.current = false;
+      }
+    };
     if (!expression.trim()) {
-      setInputValue(input, '');
+      writeCalculatorValue('');
       return;
     }
     try {
       const evaluated = evaluateMoneyExpression(expression);
       const amount = Number(evaluated.roundedValue);
       if (Number.isFinite(amount) && amount >= 0) {
-        setInputValue(input, evaluated.roundedValue);
+        writeCalculatorValue(evaluated.roundedValue);
       }
     } catch {
       // Keep the last valid amount while an expression is being completed.
@@ -276,28 +277,7 @@ export function MoneyKeypad() {
         <div className="mb-3 flex min-w-0 items-start justify-between gap-3 px-1">
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-semibold text-slate-500">{activeField.label}</p>
-            <input
-              ref={expressionInputRef}
-              type="text"
-              inputMode="text"
-              autoComplete="off"
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-              aria-label={language === 'en' ? 'Enter an amount or calculation' : 'Saisir un montant ou un calcul'}
-              placeholder={language === 'en' ? 'Type here or use the keys' : 'Saisir au clavier ou avec les touches'}
-              value={expression}
-              onChange={(event) => setExpression(event.target.value)}
-              onPaste={(event) => {
-                const pastedText = event.clipboardData?.getData('text') || '';
-                const pastedAmount = normalizeClipboardAmount(pastedText);
-                if (pastedAmount != null) {
-                  event.preventDefault();
-                  setExpression(pastedAmount);
-                }
-              }}
-              className="mt-0.5 h-8 w-full min-w-0 bg-transparent text-sm font-semibold text-slate-700 outline-none placeholder:text-slate-400"
-            />
+            <p className="mt-0.5 min-h-4 truncate text-sm font-semibold text-slate-700">{expression || ' '}</p>
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1">
             <p className="text-right text-[22px] font-extrabold tracking-tight text-emerald-900 tabular-nums">
