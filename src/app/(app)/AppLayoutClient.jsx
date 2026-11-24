@@ -3,6 +3,7 @@
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef } from 'react';
 import { getPageScrollStorageKey, readPageScrollPosition, writePageScrollPosition } from '@/lib/ui/pageScrollStorage.mjs';
+import { getSafePageStorage } from '@/lib/ui/pageStateStorage.mjs';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { Header } from '@/components/layout/Header';
 import { MobileNav } from '@/components/layout/MobileNav';
@@ -48,7 +49,8 @@ export default function AppLayout({ children }) {
       mainY: main?.scrollTop || 0,
     });
     lastScrollPositionRef.current = currentPosition();
-    const savePosition = () => writePageScrollPosition(window.localStorage, key, lastScrollPositionRef.current);
+    const storage = getSafePageStorage();
+    const savePosition = () => writePageScrollPosition(storage, key, lastScrollPositionRef.current);
     let pendingSave = false;
     let pendingSaveFrame = 0;
     const queueSave = () => {
@@ -62,7 +64,7 @@ export default function AppLayout({ children }) {
       });
     };
 
-    const target = readPageScrollPosition(window.localStorage, key);
+    const target = readPageScrollPosition(storage, key);
     let userInteracted = false;
     const cancelRestore = () => { userInteracted = true; };
     const tryRestore = () => {
