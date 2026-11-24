@@ -127,7 +127,7 @@ export default function BillsPage() {
   const upcomingBills = useMemo(() => activeBills.filter((bill) => daysUntil(bill.nextDueDate) >= 0 && daysUntil(bill.nextDueDate) <= 7), [activeBills]);
   const monthlyTotal = useMemo(() => activeBills.reduce((sum, bill) => sum + monthlyEquivalent(bill), 0), [activeBills]);
 
-  const openCreate = () => {
+  const openCreate = useCallback(() => {
     setScanFeedback(''); setScanError(false);
     setForm(makeEmptyBill());
     setShowEditor(true);
