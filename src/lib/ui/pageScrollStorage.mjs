@@ -1,3 +1,5 @@
+import { getSafePageStorage } from '@/lib/ui/pageStateStorage.mjs';
+
 export function getPageScrollStorageKey(userId, pathname) {
   const scope = String(userId || 'guest').trim() || 'guest';
   const path = String(pathname || '/dashboard');
