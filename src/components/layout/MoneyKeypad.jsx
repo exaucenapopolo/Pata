@@ -62,6 +62,7 @@ export function MoneyKeypad() {
   const [pasteMenuOpen, setPasteMenuOpen] = useState(false);
   const [pasteFeedback, setPasteFeedback] = useState('');
   const activeInputRef = useRef(null);
+  const expressionInputRef = useRef(null);
   const originalAttributesRef = useRef(null);
 
   const result = useMemo(() => {
@@ -130,24 +131,18 @@ export function MoneyKeypad() {
       setPasteMenuOpen(false);
       setPasteFeedback('');
     } catch {
-      // Some Android WebViews and browsers deny programmatic clipboard reads.
-      // Restore the editable input so the native long-press "Paste" menu can be used.
-      const original = originalAttributesRef.current;
-      if (original) {
-        input.readOnly = original.readOnly;
-        if (original.inputMode == null) input.removeAttribute('inputmode');
-        else input.setAttribute('inputmode', original.inputMode);
-      }
-      activeInputRef.current = null;
-      originalAttributesRef.current = null;
-      setActiveField(null);
-      setExpression('');
-      setPasteMenuOpen(false);
-      setPasteFeedback('');
+      // L'API presse-papiers peut être refusée par Android WebView.
+      // On garde la calculatrice ouverte et on donne le focus à la saisie native :
+      // l'utilisateur peut alors utiliser le menu système « Coller » du clavier.
+      const expressionInput = expressionInputRef.current;
+      setPasteFeedback(language === 'en'
+        ? 'Use the keyboard paste option in the expression field.'
+        : 'Utilise l’option « Coller » du clavier dans la zone de saisie.');
+      setPasteMenuOpen(true);
       window.requestAnimationFrame(() => {
-        if (!input.isConnected) return;
-        input.focus({ preventScroll: true });
-        input.select?.();
+        if (!expressionInput?.isConnected) return;
+        expressionInput.focus({ preventScroll: true });
+        expressionInput.select?.();
       });
     }
   }, [language]);
@@ -231,10 +226,6 @@ export function MoneyKeypad() {
 
     const handleKeyDown = (event) => {
       if (event.key === 'Escape' && activeInputRef.current) close();
-      if (activeInputRef.current && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v') {
-        event.preventDefault();
-        void pasteClipboardAmount();
-      }
     };
 
     document.addEventListener('keydown', handleKeyDown, true);
@@ -245,7 +236,7 @@ export function MoneyKeypad() {
       document.removeEventListener('pointerdown', handlePointerDown, true);
       document.removeEventListener('keydown', handleKeyDown, true);
     };
-  }, [activate, close, pasteClipboardAmount]);
+  }, [activate, close]);
 
   // Keep the real form field synchronized while the user types the calculation.
   // Incomplete expressions (for example "500 +") leave the last valid amount intact.
@@ -285,7 +276,28 @@ export function MoneyKeypad() {
         <div className="mb-3 flex min-w-0 items-start justify-between gap-3 px-1">
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-semibold text-slate-500">{activeField.label}</p>
-            <p className="mt-0.5 min-h-4 truncate text-sm font-semibold text-slate-700">{expression || ' '}</p>
+            <input
+              ref={expressionInputRef}
+              type="text"
+              inputMode="text"
+              autoComplete="off"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              aria-label={language === 'en' ? 'Enter an amount or calculation' : 'Saisir un montant ou un calcul'}
+              placeholder={language === 'en' ? 'Type here or use the keys' : 'Saisir au clavier ou avec les touches'}
+              value={expression}
+              onChange={(event) => setExpression(event.target.value)}
+              onPaste={(event) => {
+                const pastedText = event.clipboardData?.getData('text') || '';
+                const pastedAmount = normalizeClipboardAmount(pastedText);
+                if (pastedAmount != null) {
+                  event.preventDefault();
+                  setExpression(pastedAmount);
+                }
+              }}
+              className="mt-0.5 h-8 w-full min-w-0 bg-transparent text-sm font-semibold text-slate-700 outline-none placeholder:text-slate-400"
+            />
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1">
             <p className="text-right text-[22px] font-extrabold tracking-tight text-emerald-900 tabular-nums">

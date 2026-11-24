@@ -79,3 +79,22 @@ test('la catégorie cible du budget est déclarée avant le premier effet qui la
   assert.ok(declaration >= 0 && firstUse >= 0 && declaration < firstUse,
     'targetCategoryId ne doit pas être référencé avant son initialisation');
 });
+
+
+test('la calculatrice garde ses touches et permet la saisie avec le clavier du téléphone', () => {
+  assert.match(keypad, /ref={expressionInputRef}/);
+  assert.match(keypad, /type="text"/);
+  assert.match(keypad, /inputMode="text"/);
+  assert.match(keypad, /value={expression}/);
+  assert.match(keypad, /onChange={\(event\) => setExpression\(event\.target\.value\)}/);
+  assert.match(keypad, /applyMoneyKey\(current, key\)/);
+  assert.match(keypad, /Fermer la calculatrice/);
+});
+
+test('le collage système reste disponible sans fermer ni désactiver la calculatrice', () => {
+  assert.match(keypad, /onPaste={\(event\) =>/);
+  assert.match(keypad, /normalizeClipboardAmount\(pastedText\)/);
+  assert.match(keypad, /expressionInput\.focus\(\{ preventScroll: true \}\)/);
+  assert.match(keypad, /Utilise l’option « Coller » du clavier/);
+  assert.doesNotMatch(keypad, /event\.ctrlKey[\s\S]{0,180}pasteClipboardAmount/);
+});
