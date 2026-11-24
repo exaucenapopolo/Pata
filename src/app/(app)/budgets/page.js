@@ -23,6 +23,7 @@ import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { formatCurrency, getLocalMonth, normalizeExpenseCategoryId } from '@/lib/utils';
 import { buildBudgetSuggestions } from '@/lib/financialPlanning';
 import { isIncomeCountedAsSource } from '@/lib/finance/incomeBalances.mjs';
+import { usePersistentPageState } from '@/hooks/usePersistentPageState';
 import { NextBestAction } from '@/components/NextBestAction';
 
 const todayMonth = () => getLocalMonth();
@@ -37,8 +38,8 @@ export default function BudgetsPage() {
   const { language } = useLanguage();
   const isEnglish = language === 'en';
   const { profile } = useProfile();
-  const [month, setMonth] = useState(todayMonth());
-  const [selectedIncome, setSelectedIncome] = useState('all');
+  const [month, setMonth] = usePersistentPageState('budgets', 'month', todayMonth(), user?.uid);
+  const [selectedIncome, setSelectedIncome] = usePersistentPageState('budgets', 'selectedIncome', 'all', user?.uid);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -64,29 +65,29 @@ export default function BudgetsPage() {
     if (!targetCategoryId && expenseCategories[0]?.id) setTargetCategoryId(expenseCategories[0].id);
   }, [targetCategoryId, expenseCategories]);
 
-  const [editing, setEditing] = useState(null);
-  const [amount, setAmount] = useState('');
+  const [editing, setEditing] = usePersistentPageState('budgets', 'editingCategory', null, user?.uid);
+  const [amount, setAmount] = usePersistentPageState('budgets', 'editAmount', '', user?.uid);
   const [saving, setSaving] = useState(false);
-  const [details, setDetails] = useState(null);
+  const [details, setDetails] = usePersistentPageState('budgets', 'selectedDetails', null, user?.uid);
   const [saveError, setSaveError] = useState('');
   const [nextAction, setNextAction] = useState(null);
   const [templates, setTemplates] = useState([]);
   const [templatesLoading, setTemplatesLoading] = useState(false);
-  const [templateModalOpen, setTemplateModalOpen] = useState(false);
-  const [templateName, setTemplateName] = useState('');
-  const [editingTemplateId, setEditingTemplateId] = useState(null);
-  const [templateItems, setTemplateItems] = useState([]);
+  const [templateModalOpen, setTemplateModalOpen] = usePersistentPageState('budgets', 'templateModalOpen', false, user?.uid);
+  const [templateName, setTemplateName] = usePersistentPageState('budgets', 'templateName', '', user?.uid);
+  const [editingTemplateId, setEditingTemplateId] = usePersistentPageState('budgets', 'editingTemplateId', null, user?.uid);
+  const [templateItems, setTemplateItems] = usePersistentPageState('budgets', 'templateItems', [], user?.uid);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [applyingTemplate, setApplyingTemplate] = useState('');
   const [templateMessage, setTemplateMessage] = useState('');
-  const [budgetPersona, setBudgetPersona] = useState('employee');
+  const [budgetPersona, setBudgetPersona] = usePersistentPageState('budgets', 'budgetPersona', 'employee', user?.uid);
   const [applySuggestedAfterSave, setApplySuggestedAfterSave] = useState(false);
-  const [createBudgetOpen, setCreateBudgetOpen] = useState(false);
-  const [createBudgetIncomeSourceId, setCreateBudgetIncomeSourceId] = useState('');
-  const [createBudgetItems, setCreateBudgetItems] = useState([{ categoryId: '', amount: '' }]);
-  const [targetCategoryId, setTargetCategoryId] = useState('');
-  const [targetPeriod, setTargetPeriod] = useState('monthly');
-  const [targetAmount, setTargetAmount] = useState('');
+  const [createBudgetOpen, setCreateBudgetOpen] = usePersistentPageState('budgets', 'createBudgetOpen', false, user?.uid);
+  const [createBudgetIncomeSourceId, setCreateBudgetIncomeSourceId] = usePersistentPageState('budgets', 'createBudgetIncomeSourceId', '', user?.uid);
+  const [createBudgetItems, setCreateBudgetItems] = usePersistentPageState('budgets', 'createBudgetItems', [{ categoryId: '', amount: '' }], user?.uid);
+  const [targetCategoryId, setTargetCategoryId] = usePersistentPageState('budgets', 'targetCategoryId', '', user?.uid);
+  const [targetPeriod, setTargetPeriod] = usePersistentPageState('budgets', 'targetPeriod', 'monthly', user?.uid);
+  const [targetAmount, setTargetAmount] = usePersistentPageState('budgets', 'targetAmount', '', user?.uid);
   const [savingTarget, setSavingTarget] = useState(false);
   const [targetMessage, setTargetMessage] = useState('');
   const [creatingBudget, setCreatingBudget] = useState(false);
