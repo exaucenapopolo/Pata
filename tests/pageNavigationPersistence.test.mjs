@@ -34,7 +34,7 @@ test('la position de chaque page est sauvegardée et restaurée dans les contene
   assert.match(layout, /getPageScrollStorageKey\(user\.uid, pathname\)/);
   assert.match(layout, /readPageScrollPosition\(storage, key\)/);
   assert.match(layout, /getSafePageStorage\(\)/);
-  assert.match(layout, /writePageScrollPosition\(window\.localStorage, key/);
+  assert.match(layout, /writePageScrollPosition\(storage, key/);
   assert.match(layout, /data-pata-page-scroll="true"/);
   assert.match(layout, /new MutationObserver\(onLayoutChange\)/);
 });
