@@ -47,7 +47,7 @@ export default function BudgetsPage() {
     const requestedIncomeId = params.get('incomeId') || '';
     if (/^\d{4}-\d{2}$/.test(requestedMonth)) setMonth(requestedMonth);
     if (requestedIncomeId && !requestedIncomeId.includes('/')) setSelectedIncome(requestedIncomeId);
-  }, []);
+  }, [setMonth, setSelectedIncome]);
 
   const { incomes, loading: incomesLoading } = useIncomes();
   const { budgets, loading: budgetsLoading } = useBudgets(month, selectedIncome);
@@ -63,7 +63,7 @@ export default function BudgetsPage() {
 
   useEffect(() => {
     if (!targetCategoryId && expenseCategories[0]?.id) setTargetCategoryId(expenseCategories[0].id);
-  }, [targetCategoryId, expenseCategories]);
+  }, [targetCategoryId, expenseCategories, setTargetCategoryId]);
 
   const [editing, setEditing] = usePersistentPageState('budgets', 'editingCategory', null, user?.uid);
   const [amount, setAmount] = usePersistentPageState('budgets', 'editAmount', '', user?.uid);
