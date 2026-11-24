@@ -174,7 +174,7 @@ export default function CotisationsPage() {
     } finally {
       setLoading(false);
     }
-  }, [api, user]);
+  }, [api, user, setPinnedGroups]);
 
   const openGroupDetails = useCallback(async (group) => {
     if (!group?.id) return;
@@ -203,7 +203,7 @@ export default function CotisationsPage() {
       detailsRequestsRef.current.delete(group.id);
       setDetailsLoadingGroupId('');
     }
-  }, [api]);
+  }, [api, setExpandedGroups]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
@@ -234,7 +234,7 @@ export default function CotisationsPage() {
       params.delete('chat');
       window.history.replaceState(null, '', window.location.pathname + (params.toString() ? '?' + params.toString() : ''));
     }
-  }, [groups, openGroupDetails]);
+  }, [groups, openGroupDetails, setChatDraft, setChatGroup]);
   const orderedGroups = useMemo(() => [...groups].sort((x,y)=>{const xp=pinnedGroups.includes(x.id)?1:0,yp=pinnedGroups.includes(y.id)?1:0;if(xp!==yp)return yp-xp;return (Date.parse(y.createdAt||0)||0)-(Date.parse(x.createdAt||0)||0);}),[groups,pinnedGroups]);
   const togglePinned = async (group) => {
     const pinned = !pinnedGroups.includes(group.id);
