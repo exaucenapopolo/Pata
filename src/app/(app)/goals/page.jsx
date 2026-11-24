@@ -29,6 +29,7 @@ import { adviceIconColor } from '@/lib/advisor';
 import { formatCurrency, formatDate, resolveCategory } from '@/lib/utils';
 import { translateText } from '@/lib/i18n/translations';
 import { playSuccess } from '@/lib/sound';
+import { usePersistentPageState } from '@/hooks/usePersistentPageState';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
@@ -653,10 +654,10 @@ export default function GoalsPage() {
   const isEnglish = language === 'en';
   const { profile } = useProfile();
   const { goals } = useGoals();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = usePersistentPageState('goals', 'editorOpen', false, user?.uid);
   const [nextAction, setNextAction] = useState(null);
-  const [editingGoal, setEditingGoal] = useState(null);
-  const [selected, setSelected] = useState(null);
+  const [editingGoal, setEditingGoal] = usePersistentPageState('goals', 'editingGoal', null, user?.uid);
+  const [selected, setSelected] = usePersistentPageState('goals', 'selectedGoal', null, user?.uid);
   const [confirmGoal, setConfirmGoal] = useState(null);
   const [confirmType, setConfirmType] = useState(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
