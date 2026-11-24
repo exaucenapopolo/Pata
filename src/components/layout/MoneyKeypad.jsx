@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Capacitor } from '@capacitor/core';
-import { Delete } from 'lucide-react';
+import { Delete, X } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
 import { applyMoneyKey, evaluateMoneyExpression } from '@/lib/finance/decimalExpression.mjs';
 
@@ -180,15 +180,18 @@ export function MoneyKeypad() {
         className="pata-money-keypad pointer-events-auto w-full max-w-md rounded-t-[24px] border border-white/80 bg-[#f7faf8] p-3 shadow-[0_-12px_44px_rgba(12,39,25,.22)]"
       >
         <div className="mx-auto mb-2 h-1 w-9 rounded-full bg-slate-300" />
-        <div className="mb-3 flex min-w-0 items-end justify-between gap-3 px-1">
-          <div className="min-w-0">
+        <div className="mb-3 flex min-w-0 items-start justify-between gap-3 px-1">
+          <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-semibold text-slate-500">{activeField.label}</p>
             <p className="mt-0.5 min-h-4 truncate text-sm font-semibold text-slate-700">{expression || ' '}</p>
           </div>
-          <p className="shrink-0 text-right text-[22px] font-extrabold tracking-tight text-emerald-900 tabular-nums">
-            {result ? formatAmount(result.roundedValue, language) : '—'}
-            <span className="ml-1 text-[10px] font-bold">FCFA</span>
-          </p>
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            <p className="text-right text-[22px] font-extrabold tracking-tight text-emerald-900 tabular-nums">
+              {result ? formatAmount(result.roundedValue, language) : '—'}
+              <span className="ml-1 text-[10px] font-bold">FCFA</span>
+            </p>
+            <button type="button" onClick={close} className="inline-flex h-8 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-600 shadow-sm" aria-label={language === 'en' ? 'Close calculator' : 'Fermer la calculatrice'}><X size={14}/>{language === 'en' ? 'Close' : 'Fermer'}</button>
+          </div>
         </div>
 
         <div className="grid grid-cols-4 gap-2">
