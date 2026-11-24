@@ -12,6 +12,7 @@ import { subscribeBills, createBill, updateBill, deactivateBill, payBill } from 
 import { CloudinaryImageField } from '@/components/ui/CloudinaryImageField';
 import { uploadBillImage } from '@/lib/bills/uploadBillImage.mjs';
 import { NextBestAction } from '@/components/NextBestAction';
+import { usePersistentPageState } from '@/hooks/usePersistentPageState';
 
 const BILL_TYPES = [
   ['electricity', 'Électricité'],
@@ -98,11 +99,11 @@ export default function BillsPage() {
   const [feedback, setFeedback] = useState('');
   const [feedbackError, setFeedbackError] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [showEditor, setShowEditor] = useState(false);
-  const [form, setForm] = useState(makeEmptyBill);
-  const [payingBill, setPayingBill] = useState(null);
-  const [viewingBill, setViewingBill] = useState(null);
-  const [paymentForm, setPaymentForm] = useState({ amount: '', paidDate: todayIso(), paymentSource: 'cash' });
+  const [showEditor, setShowEditor] = usePersistentPageState('bills', 'editorOpen', false, user?.uid);
+  const [form, setForm] = usePersistentPageState('bills', 'form', makeEmptyBill(), user?.uid);
+  const [payingBill, setPayingBill] = usePersistentPageState('bills', 'payingBill', null, user?.uid);
+  const [viewingBill, setViewingBill] = usePersistentPageState('bills', 'viewingBill', null, user?.uid);
+  const [paymentForm, setPaymentForm] = usePersistentPageState('bills', 'paymentForm', { amount: '', paidDate: todayIso(), paymentSource: 'cash' }, user?.uid);
   const [scanningInvoice, setScanningInvoice] = useState(false);
   const [scanFeedback, setScanFeedback] = useState('');
   const [scanError, setScanError] = useState(false);
