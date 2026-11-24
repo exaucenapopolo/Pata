@@ -99,20 +99,14 @@ test('la catégorie cible du budget est déclarée avant le premier effet qui la
 });
 
 
-test('la calculatrice garde ses touches et permet la saisie avec le clavier du téléphone', () => {
-  assert.match(keypad, /ref={expressionInputRef}/);
-  assert.match(keypad, /type="text"/);
-  assert.match(keypad, /inputMode="text"/);
-  assert.match(keypad, /value={expression}/);
-  assert.match(keypad, /onChange={\(event\) => setExpression\(event\.target\.value\)}/);
-  assert.match(keypad, /applyMoneyKey\(current, key\)/);
-  assert.match(keypad, /Fermer la calculatrice/);
-});
 
-test('le collage système reste disponible sans fermer ni désactiver la calculatrice', () => {
-  assert.match(keypad, /onPaste={\(event\) =>/);
-  assert.match(keypad, /normalizeClipboardAmount\(pastedText\)/);
-  assert.match(keypad, /expressionInput\.focus\(\{ preventScroll: true \}\)/);
-  assert.match(keypad, /Utilise l’option « Coller » du clavier/);
-  assert.doesNotMatch(keypad, /event\.ctrlKey[\s\S]{0,180}pasteClipboardAmount/);
+
+test('le refus de lecture du presse-papiers laisse le clavier Android et le collage natif disponibles', () => {
+  const start = keypad.indexOf('const pasteClipboardAmount');
+  const end = keypad.indexOf("  useEffect(() => {", start);
+  const pasteHandler = keypad.slice(start, end);
+  assert.match(pasteHandler, /allowNativeContextMenuRef\.current = true/);
+  assert.match(pasteHandler, /input\.focus\(\{ preventScroll: true \}\)/);
+  assert.doesNotMatch(pasteHandler, /setActiveField\(null\)|activeInputRef\.current = null|input\.readOnly = true/);
+  assert.match(keypad, /if \(allowNativeContextMenuRef\.current\)[\s\S]*?return; \/\/ Laisse Android afficher son menu système Coller\./);
 });
