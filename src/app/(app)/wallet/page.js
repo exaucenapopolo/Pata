@@ -11,6 +11,7 @@ import { useProfile } from '@/hooks/useProfile';
 import { useDeposits } from '@/hooks/useDeposits';
 import { formatCurrency, formatDate, getPreferredLocale } from '@/lib/utils';
 import { AssistantShortcut } from '@/components/ai/AssistantShortcut';
+import { usePersistentPageState } from '@/hooks/usePersistentPageState';
 
 const QUICK_AMOUNTS = [500, 1000, 2000, 5000, 10000, 25000];
 
@@ -30,7 +31,7 @@ export default function WalletPage() {
   const { profile } = useProfile();
   const { deposits, loading } = useDeposits();
 
-  const [amount, setAmount] = useState('1000');
+  const [amount, setAmount] = usePersistentPageState('wallet', 'amount', '1000', user?.uid);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [walletTransactions, setWalletTransactions] = useState([]);
