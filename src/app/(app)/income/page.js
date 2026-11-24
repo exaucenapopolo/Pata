@@ -253,7 +253,7 @@ export default function IncomePage() {
       window.history.replaceState(null, '', window.location.pathname);
     }
     return () => window.removeEventListener('pata:income-new', eventHandler);
-  }, []);
+  }, [setForm, setOpen]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -264,7 +264,7 @@ export default function IncomePage() {
     params.delete('highlight');
     const query = params.toString();
     window.history.replaceState(null, '', window.location.pathname + (query ? '?' + query : ''));
-  }, [incomes]);
+  }, [incomes, setSelectedIncome]);
 
   const incomesWithBalance = useMemo(() => incomes.map((income) => {
     const balanceAvailable = income.balanceAvailable === true;
@@ -286,7 +286,7 @@ export default function IncomePage() {
     if (!selectedIncome?.id) return;
     const latestIncome = incomesWithBalance.find((income) => income.id === selectedIncome.id);
     if (latestIncome && latestIncome !== selectedIncome) setSelectedIncome(latestIncome);
-  }, [incomesWithBalance, selectedIncome?.id]);
+  }, [incomesWithBalance, selectedIncome, selectedIncome?.id, setSelectedIncome]);
 
   const incomeBalancesAvailable = balancesReady && incomesWithBalance.every((item) => item.balanceAvailable);
   const activeIncomes = useMemo(() => incomesWithBalance.filter((income) => income.balanceAvailable && isIncomeCountedAsSource(income) && !income.isExhausted), [incomesWithBalance]);
