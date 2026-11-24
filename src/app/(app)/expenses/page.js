@@ -34,6 +34,7 @@ import { translateText } from '@/lib/i18n/translations';
 import { EXPENSE_CATEGORIES } from '@/lib/constants';
 import { NextBestAction } from '@/components/NextBestAction';
 import { DateRangePicker } from '@/components/layout/NativeDatePicker';
+import { usePersistentPageState } from '@/hooks/usePersistentPageState';
 
 const todayIso = () => {
   const d = new Date();
@@ -90,19 +91,19 @@ export default function ExpensesPage() {
   const activePayableDebts = debts.filter((debt) => debt.type === 'i_owe' && ['active', 'partial', 'late'].includes(debt.status) && Number(debt.remaining) > 0);
   const { customCategories } = useCustomCategories('expense');
   
-  const [showCustomPeriod, setShowCustomPeriod] = useState(false);
-  const [customStart, setCustomStart] = useState(getFirstOfMonth());
-  const [customEnd, setCustomEnd] = useState(todayIso());
+  const [showCustomPeriod, setShowCustomPeriod] = usePersistentPageState('expenses', 'showCustomPeriod', false, user?.uid);
+  const [customStart, setCustomStart] = usePersistentPageState('expenses', 'customStart', getFirstOfMonth(), user?.uid);
+  const [customEnd, setCustomEnd] = usePersistentPageState('expenses', 'customEnd', todayIso(), user?.uid);
   
-  const [filterCategory, setFilterCategory] = useState('all');
-  const [filterType, setFilterType] = useState('all');
-  const [filterSort, setFilterSort] = useState('date_desc');
-  const [filterSearch, setFilterSearch] = useState('');
-  const [filterPaymentMethod, setFilterPaymentMethod] = useState('all');
-  const [filterIncomeSource, setFilterIncomeSource] = useState('all');
-  const [filterMinAmount, setFilterMinAmount] = useState('');
-  const [filterMaxAmount, setFilterMaxAmount] = useState('');
-  const [form, setForm] = useState(emptyForm());
+  const [filterCategory, setFilterCategory] = usePersistentPageState('expenses', 'filterCategory', 'all', user?.uid);
+  const [filterType, setFilterType] = usePersistentPageState('expenses', 'filterType', 'all', user?.uid);
+  const [filterSort, setFilterSort] = usePersistentPageState('expenses', 'filterSort', 'date_desc', user?.uid);
+  const [filterSearch, setFilterSearch] = usePersistentPageState('expenses', 'filterSearch', '', user?.uid);
+  const [filterPaymentMethod, setFilterPaymentMethod] = usePersistentPageState('expenses', 'filterPaymentMethod', 'all', user?.uid);
+  const [filterIncomeSource, setFilterIncomeSource] = usePersistentPageState('expenses', 'filterIncomeSource', 'all', user?.uid);
+  const [filterMinAmount, setFilterMinAmount] = usePersistentPageState('expenses', 'filterMinAmount', '', user?.uid);
+  const [filterMaxAmount, setFilterMaxAmount] = usePersistentPageState('expenses', 'filterMaxAmount', '', user?.uid);
+  const [form, setForm] = usePersistentPageState('expenses', 'form', emptyForm(), user?.uid);
   const [showTypeHelp, setShowTypeHelp] = useState(false);
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [projectForm, setProjectForm] = useState({ name: '', description: '', targetAmount: '' });
@@ -114,13 +115,13 @@ export default function ExpensesPage() {
   const [projectToDelete, setProjectToDelete] = useState(null);
   const [projectDeleteMode, setProjectDeleteMode] = useState('detach');
   const [projectDeleting, setProjectDeleting] = useState(false);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = usePersistentPageState('expenses', 'editorOpen', false, user?.uid);
   const [recoveryChecklistOpen, setRecoveryChecklistOpen] = useState(false);
   const [recoveryChecks, setRecoveryChecks] = useState([false, false, false, false]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [deleteId, setDeleteId] = useState(null);
-  const [selectedExpense, setSelectedExpense] = useState(null);
+  const [selectedExpense, setSelectedExpense] = usePersistentPageState('expenses', 'selectedExpense', null, user?.uid);
   const [recurringExpense, setRecurringExpense] = useState(null);
   const [recurringFrequency, setRecurringFrequency] = useState('daily');
   const [recurringSaving, setRecurringSaving] = useState(false);
@@ -137,12 +138,24 @@ export default function ExpensesPage() {
     }
     if (searchParams.get('new') === '1') {
       const flowType = params.get('flowType') || 'normal';
-      setForm({ ...emptyForm(), flowType: ['loan_given', 'repayment'].includes(flowType) ? flowType : 'normal', repaymentDebtId: params.get('debtId') || '', categoryId: flowType === 'loan_given' ? 'loan_given' : flowType === 'repayment' ? 'debt_repayment' : 'food' });
+      const incomeSourceId = params.get('incomeSourceId') || '';
+      const incomeSourceName = params.get('incomeSourceName') || 'Tous les revenus';
+      const validIncomeSourceId = incomeSourceId && !incomeSourceId.includes('/') && incomeSourceId !== 'all' ? incomeSourceId : 'all';
+      setForm({
+        ...emptyForm(),
+        flowType: ['loan_given', 'repayment'].includes(flowType) ? flowType : 'normal',
+        repaymentDebtId: params.get('debtId') || '',
+        categoryId: flowType === 'loan_given' ? 'loan_given' : flowType === 'repayment' ? 'debt_repayment' : 'food',
+        incomeSourceId: validIncomeSourceId,
+        incomeSourceName: validIncomeSourceId !== 'all' ? incomeSourceName : 'Tous les revenus',
+      });
       setError(''); setOpen(true);
     }
     if (params.has('new') || params.has('recovery')) {
       params.delete('new');
       params.delete('recovery');
+      params.delete('incomeSourceId');
+      params.delete('incomeSourceName');
       const remaining = params.toString();
       window.history.replaceState(null, '', window.location.pathname + (remaining ? '?' + remaining : ''));
     }
