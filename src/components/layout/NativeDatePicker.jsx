@@ -148,7 +148,7 @@ export function NativeDatePicker() {
         <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-slate-300 sm:hidden"/>
         <div className="mb-3 flex items-center justify-between">
           <div><p className="text-[10px] font-bold uppercase tracking-[.15em] text-emerald-700">PATA</p><h2 id="pata-date-title" className="mt-0.5 text-lg font-extrabold text-slate-900">{active.label}</h2><p className="mt-0.5 text-xs text-slate-500">{formatDateLabel(active.value, language)}</p></div>
-          <button type="button" onClick={close} aria-label={language === 'en' ? 'Close calendar' : 'Fermer le calendrier'} className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-slate-500 shadow-sm"><X size={18}/></button>
+          <button type="button" onClick={close} aria-label={language === 'en' ? 'Close calendar' : 'Fermer le calendrier'} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 shadow-sm"><X size={16}/>{language === 'en' ? 'Close' : 'Fermer'}</button>
         </div>
         <CalendarSurface language={language} cursor={cursor} setCursor={setCursor} selectedDate={active.value} minDate={active.min} maxDate={active.max} onSelect={commit}/>
         <button type="button" onClick={() => commit(formatIsoDate(new Date()))} disabled={!isDateInBounds(formatIsoDate(new Date()), active.min, active.max)} className="mt-3 h-11 w-full rounded-xl bg-emerald-50 text-sm font-bold text-emerald-800 disabled:opacity-40">{language === 'en' ? 'Today' : 'Aujourd’hui'}</button>
@@ -234,7 +234,7 @@ export function DateRangePicker({ startDate, endDate, onChange, language = 'fr' 
             <div className="mx-auto mb-3 h-1.5 w-10 rounded-full bg-slate-300 sm:hidden"/>
             <div className="mb-3 flex items-center justify-between">
               <div><p className="text-[10px] font-bold uppercase tracking-[.15em] text-emerald-700">PATA</p><h2 id="pata-range-title" className="mt-0.5 text-lg font-extrabold text-slate-900">{language === 'en' ? 'Choose a period' : 'Choisir une période'}</h2></div>
-              <button type="button" onClick={cancel} aria-label={language === 'en' ? 'Close calendar' : 'Fermer le calendrier'} className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-slate-500 shadow-sm"><X size={18}/></button>
+              <button type="button" onClick={cancel} aria-label={language === 'en' ? 'Close calendar' : 'Fermer le calendrier'} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 shadow-sm"><X size={16}/>{language === 'en' ? 'Close' : 'Fermer'}</button>
             </div>
             <div className="mb-2 rounded-2xl border border-emerald-100 bg-emerald-50/70 px-3.5 py-3">
               <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-800">{language === 'en' ? 'Selected dates' : 'Sélection de dates'}</p>
