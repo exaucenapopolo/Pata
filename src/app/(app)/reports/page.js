@@ -22,6 +22,7 @@ import { useWeeklyReport } from '@/hooks/useWeeklyReport';
 import { convertCurrencyAmount, formatCurrency, formatDate, getPreferredCurrencyCode, getPreferredLocale, resolveCategory, normalizeExpenseCategoryId } from '@/lib/utils';
 import { buildCategorySpendingAnalysis } from '@/lib/finance/categorySpendingAnalysis.mjs';
 import { isIncomeCountedAsSource } from '@/lib/finance/incomeBalances.mjs';
+import { usePersistentPageState } from '@/hooks/usePersistentPageState';
 
 const iso = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 const monthFirst = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-01`;
@@ -60,14 +61,14 @@ export default function ReportsPage() {
     return item;
   });
 
-  const [periodType, setPeriodType] = useState('month');
-  const [month, setMonth] = useState(iso(new Date()).slice(0, 7));
-  const [year, setYear] = useState(currentYear());
-  const [customStart, setCustomStart] = useState(monthFirst(new Date()));
-  const [customEnd, setCustomEnd] = useState(iso(new Date()));
-  const [selectedDay, setSelectedDay] = useState(iso(new Date()));
-  const [selectedWeekDate, setSelectedWeekDate] = useState(iso(new Date()));
-  const [selectedAnalysisCategoryId, setSelectedAnalysisCategoryId] = useState('');
+  const [periodType, setPeriodType] = usePersistentPageState('reports', 'periodType', 'month', user?.uid);
+  const [month, setMonth] = usePersistentPageState('reports', 'month', iso(new Date()).slice(0, 7), user?.uid);
+  const [year, setYear] = usePersistentPageState('reports', 'year', currentYear(), user?.uid);
+  const [customStart, setCustomStart] = usePersistentPageState('reports', 'customStart', monthFirst(new Date()), user?.uid);
+  const [customEnd, setCustomEnd] = usePersistentPageState('reports', 'customEnd', iso(new Date()), user?.uid);
+  const [selectedDay, setSelectedDay] = usePersistentPageState('reports', 'selectedDay', iso(new Date()), user?.uid);
+  const [selectedWeekDate, setSelectedWeekDate] = usePersistentPageState('reports', 'selectedWeekDate', iso(new Date()), user?.uid);
+  const [selectedAnalysisCategoryId, setSelectedAnalysisCategoryId] = usePersistentPageState('reports', 'selectedAnalysisCategoryId', '', user?.uid);
   const [goalDepositTotals, setGoalDepositTotals] = useState({});
   const [weekendReport, setWeekendReport] = useState(null);
   const [weekendReportLoading, setWeekendReportLoading] = useState(true);
