@@ -47,17 +47,17 @@ export default function AppLayout({ children }) {
       windowY: window.scrollY || document.documentElement.scrollTop || 0,
       mainY: main?.scrollTop || 0,
     });
-    const savePosition = () => {
-      const position = currentPosition();
-      lastScrollPositionRef.current = position;
-      writePageScrollPosition(window.localStorage, key, position);
-    };
+    lastScrollPositionRef.current = currentPosition();
+    const savePosition = () => writePageScrollPosition(window.localStorage, key, lastScrollPositionRef.current);
     let pendingSave = false;
+    let pendingSaveFrame = 0;
     const queueSave = () => {
+      lastScrollPositionRef.current = currentPosition();
       if (pendingSave) return;
       pendingSave = true;
-      window.requestAnimationFrame(() => {
+      pendingSaveFrame = window.requestAnimationFrame(() => {
         pendingSave = false;
+        pendingSaveFrame = 0;
         savePosition();
       });
     };
@@ -103,6 +103,7 @@ export default function AppLayout({ children }) {
       observer?.disconnect();
       window.cancelAnimationFrame(firstFrame);
       window.cancelAnimationFrame(secondFrame);
+      window.cancelAnimationFrame(pendingSaveFrame);
       window.removeEventListener('scroll', queueSave);
       main?.removeEventListener('scroll', queueSave);
       window.removeEventListener('wheel', cancelRestore);
