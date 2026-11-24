@@ -76,6 +76,7 @@ export function NativeDatePicker() {
     const input = inputRef.current;
     const original = originalRef.current;
     if (input && original) {
+      if (original.type) input.type = original.type;
       input.readOnly = original.readOnly;
       if (original.inputMode == null) input.removeAttribute('inputmode');
       else input.setAttribute('inputmode', original.inputMode);
@@ -92,7 +93,9 @@ export function NativeDatePicker() {
     if (inputRef.current) close();
     const value = input.value || input.min || formatIsoDate(new Date());
     inputRef.current = input;
-    originalRef.current = { readOnly: input.readOnly, inputMode: input.getAttribute('inputmode') };
+    originalRef.current = { type: input.type, readOnly: input.readOnly, inputMode: input.getAttribute('inputmode') };
+    // Prevent the browser's native date dialog from competing with the custom calendar.
+    input.type = 'text';
     input.readOnly = true;
     input.setAttribute('inputmode', 'none');
     const label = input.closest('label')?.textContent?.trim()
@@ -134,6 +137,8 @@ export function NativeDatePicker() {
   const commit = (value) => {
     const input = inputRef.current;
     if (!input) return;
+    const original = originalRef.current;
+    if (original?.type) input.type = original.type;
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
     if (setter) setter.call(input, value);
     else input.value = value;
