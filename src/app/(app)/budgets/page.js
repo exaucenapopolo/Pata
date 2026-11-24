@@ -40,6 +40,7 @@ export default function BudgetsPage() {
   const { profile } = useProfile();
   const [month, setMonth] = usePersistentPageState('budgets', 'month', todayMonth(), user?.uid);
   const [selectedIncome, setSelectedIncome] = usePersistentPageState('budgets', 'selectedIncome', 'all', user?.uid);
+  const [targetCategoryId, setTargetCategoryId] = usePersistentPageState('budgets', 'targetCategoryId', '', user?.uid);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -85,7 +86,6 @@ export default function BudgetsPage() {
   const [createBudgetOpen, setCreateBudgetOpen] = usePersistentPageState('budgets', 'createBudgetOpen', false, user?.uid);
   const [createBudgetIncomeSourceId, setCreateBudgetIncomeSourceId] = usePersistentPageState('budgets', 'createBudgetIncomeSourceId', '', user?.uid);
   const [createBudgetItems, setCreateBudgetItems] = usePersistentPageState('budgets', 'createBudgetItems', [{ categoryId: '', amount: '' }], user?.uid);
-  const [targetCategoryId, setTargetCategoryId] = usePersistentPageState('budgets', 'targetCategoryId', '', user?.uid);
   const [targetPeriod, setTargetPeriod] = usePersistentPageState('budgets', 'targetPeriod', 'monthly', user?.uid);
   const [targetAmount, setTargetAmount] = usePersistentPageState('budgets', 'targetAmount', '', user?.uid);
   const [savingTarget, setSavingTarget] = useState(false);
