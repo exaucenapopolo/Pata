@@ -7,7 +7,7 @@ const errorPage = fs.readFileSync(new URL('../src/app/error.js', import.meta.url
 const budgetsPage = fs.readFileSync(new URL('../src/app/(app)/budgets/page.js', import.meta.url), 'utf8');
 
 test('les états lus par le suivi du revenu sont initialisés avant son useEffect', () => {
-  const selectedIncomeState = incomePage.indexOf('const [selectedIncome, setSelectedIncome] = useState(null);');
+  const selectedIncomeState = incomePage.indexOf("const [selectedIncome, setSelectedIncome] = usePersistentPageState('income', 'selectedIncome', null, user?.uid);");
   const expenseDetailsState = incomePage.indexOf('const [incomeExpenseDetails, setIncomeExpenseDetails] = useState(');
   const trackingEffect = incomePage.indexOf('useEffect(() => {\n    if (!selectedIncome?.id');
 
@@ -50,7 +50,7 @@ test('la fiche de revenu présente une bannière, les dépenses datées et le su
   assert.match(incomePage, /formatIncomeDate\(expense\.date\)/);
   assert.match(incomePage, /Nature des sorties/);
   assert.match(incomePage, /Journée la plus coûteuse/);
-  assert.match(incomePage, /Ouvrir la page Dépenses/);
+  assert.match(incomePage, /Ouvrir les dépenses/);
   assert.match(incomePage, /Ouvrir les budgets de ce revenu/);
 });
 
