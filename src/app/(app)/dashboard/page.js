@@ -100,6 +100,8 @@ const DASHBOARD_DEFAULT_FAVORITES = ['/budgets', '/goals'];
 const ADVICE_ICONS = { success: CheckCircle2, danger: AlertTriangle, warning: AlertTriangle, tip: Lightbulb, info: Info };
 
 export default function DashboardPage() {
+  // L'identité doit être lue avant d'initialiser les états persistés.
+  const { user } = useAuth();
   const [customStart, setCustomStart] = usePersistentPageState('dashboard', 'customStart', getFirstOfMonth(), user?.uid);
   const [customEnd, setCustomEnd] = usePersistentPageState('dashboard', 'customEnd', todayIso(), user?.uid);
   const [showCustomPeriod, setShowCustomPeriod] = usePersistentPageState('dashboard', 'showCustomPeriod', false, user?.uid);
@@ -114,7 +116,6 @@ export default function DashboardPage() {
   const [targetError, setTargetError] = useState('');
   const [targetSaved, setTargetSaved] = useState(false);
   const [targetCollapsed, setTargetCollapsed] = useState(true);
-  const { user } = useAuth();
   const { language } = useLanguage();
   const isEnglish = language === 'en';
   const targetPeriodKey = getPeriodKey(targetPeriodType, new Date());
