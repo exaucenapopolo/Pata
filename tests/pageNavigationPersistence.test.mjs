@@ -57,6 +57,24 @@ test('la calculatrice permet le collage par bouton, appui long et clic droit', (
   assert.match(keypad, /Fermer la calculatrice/);
 });
 
+
+test('la calculatrice conserve le vrai champ de montant et le clavier Android', () => {
+  assert.match(keypad, /document\.addEventListener\('focusin', handleFocusIn, true\)/);
+  assert.match(keypad, /input\.addEventListener\('input', handleNativeInput\)/);
+  assert.match(keypad, /syncingCalculatorValueRef/);
+  assert.doesNotMatch(keypad, /input\.readOnly = true/);
+  assert.doesNotMatch(keypad, /setAttribute\('inputmode', 'none'\)/);
+  assert.doesNotMatch(keypad, /expressionInputRef/);
+  assert.doesNotMatch(keypad, /event\.preventDefault\(\);\s*void pasteClipboardAmount/);
+});
+
+test('la calculatrice garde ses touches de suppression liées au montant du formulaire', () => {
+  assert.match(keypad, /applyMoneyKey\(current, key\)/);
+  assert.match(keypad, /key\.action \|\| key\.label/);
+  assert.match(keypad, /setInputValue\(input, value\)/);
+  assert.match(keypad, /Fermer la calculatrice/);
+});
+
 test('les anciennes réponses PWA sont invalidées à la mise à jour', () => {
   assert.match(serviceWorker, /CACHE_VERSION = 'v8'/);
   assert.match(pwaRegister, /registration\.update\(\)/);
