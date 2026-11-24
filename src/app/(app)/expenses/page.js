@@ -160,7 +160,7 @@ export default function ExpensesPage() {
       window.history.replaceState(null, '', window.location.pathname + (remaining ? '?' + remaining : ''));
     }
     return () => window.removeEventListener('pata:expense-new', openFromShortcut);
-  }, [searchParams]);
+  }, [searchParams, setForm, setOpen]);
 
   const projectIdSignature = projects.map((project) => project.id).filter(Boolean).sort().join('|');
   useEffect(() => {
@@ -203,7 +203,7 @@ export default function ExpensesPage() {
     params.delete('highlight');
     const query = params.toString();
     window.history.replaceState(null, '', window.location.pathname + (query ? '?' + query : ''));
-  }, [expenses]);
+  }, [expenses, setSelectedExpense]);
 
   const incomesWithBalance = useMemo(() => incomes.map((income) => {
     const balanceAvailable = income.balanceAvailable === true;
@@ -339,7 +339,7 @@ export default function ExpensesPage() {
     });
     setError('');
     setOpen(true);
-  }, [expenses]);
+  }, [expenses, setSelectedExpense]);
 
 
   useEffect(() => {
