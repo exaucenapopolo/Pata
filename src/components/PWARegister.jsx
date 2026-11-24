@@ -7,12 +7,26 @@ export function PWARegister() {
     if (!('serviceWorker' in navigator)) return undefined;
 
     let active = true;
+    let hadControllerAtStart = Boolean(navigator.serviceWorker.controller);
+    const handleControllerChange = () => {
+      if (hadControllerAtStart && active) {
+        // A new worker means new Next.js chunks and server-action identifiers.
+        // Reload once to avoid mixing them with the previous application shell.
+        window.location.reload();
+        return;
+      }
+      hadControllerAtStart = true;
+    };
+
+    navigator.serviceWorker.addEventListener('controllerchange', handleControllerChange);
 
     const registerAppWorker = async () => {
       try {
-        // Un seul enregistrement au démarrage. Le navigateur vérifie lui-même
-        // les mises à jour du worker lors de ses contrôles habituels.
-        await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+        const registration = await navigator.serviceWorker.register('/sw.js', {
+          scope: '/',
+          updateViaCache: 'none',
+        });
+        await registration.update().catch(() => {});
       } catch (error) {
         if (active) console.warn('[PATA PWA WORKER]', error?.message || error);
       }
@@ -22,6 +36,7 @@ export function PWARegister() {
 
     return () => {
       active = false;
+      navigator.serviceWorker.removeEventListener('controllerchange', handleControllerChange);
     };
   }, []);
 
