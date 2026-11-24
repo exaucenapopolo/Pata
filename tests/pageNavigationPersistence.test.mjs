@@ -8,6 +8,8 @@ const expenses = read('../src/app/(app)/expenses/page.js');
 const layout = read('../src/app/(app)/AppLayoutClient.jsx');
 const calendar = read('../src/components/layout/NativeDatePicker.jsx');
 const keypad = read('../src/components/layout/MoneyKeypad.jsx');
+const serviceWorker = read('../public/sw.js');
+const pwaRegister = read('../src/components/PWARegister.jsx');
 
 test('la fiche d’un revenu permet de créer une dépense avec cette source préselectionnée', () => {
   assert.match(income, /Ajouter une dépense à cette source/);
@@ -43,7 +45,18 @@ test('le calendrier personnalisé neutralise le sélecteur natif et propose une 
   assert.match(calendar, /language === 'en' \? 'Close' : 'Fermer'/);
 });
 
-test('la calculatrice dispose d’un bouton de fermeture dédié', () => {
-  assert.match(keypad, /onClick=\{close\}/);
+test('la calculatrice permet le collage par bouton, appui long et clic droit', () => {
+  assert.match(keypad, /ClipboardPaste/);
+  assert.match(keypad, /normalizeClipboardAmount/);
+  assert.match(keypad, /contextmenu/);
+  assert.match(keypad, /setTimeout\(openPasteMenu, 550\)/);
+  assert.match(keypad, /pasteClipboardAmount/);
   assert.match(keypad, /Fermer la calculatrice/);
+});
+
+test('les anciennes réponses PWA sont invalidées à la mise à jour', () => {
+  assert.match(serviceWorker, /CACHE_VERSION = 'v8'/);
+  assert.match(pwaRegister, /registration\.update\(\)/);
+  assert.match(pwaRegister, /controllerchange/);
+  assert.match(pwaRegister, /window\.location\.reload\(\)/);
 });
