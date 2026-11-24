@@ -28,6 +28,7 @@ import { ProfilePhotoEditor } from '@/components/profile/ProfilePhotoEditor';
 import { useLanguage } from '@/context/LanguageContext';
 import { NextBestActionPreferences } from '@/components/NextBestAction';
 import { translateText } from '@/lib/i18n/translations';
+import { usePersistentPageState } from '@/hooks/usePersistentPageState';
 
 export default function SettingsPage() {
   const { user, logout } = useAuth();
@@ -48,7 +49,7 @@ export default function SettingsPage() {
   const [theme, setTheme] = useState('light');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [activePanel, setActivePanel] = useState('');
+  const [activePanel, setActivePanel] = usePersistentPageState('settings', 'activePanel', '', user?.uid);
   const [emailRemindersEnabled, setEmailRemindersEnabled] = useState(true);
   const [dailySummaryEmailEnabled, setDailySummaryEmailEnabled] = useState(false);
   const [emailPreferencesSaving, setEmailPreferencesSaving] = useState(false);
