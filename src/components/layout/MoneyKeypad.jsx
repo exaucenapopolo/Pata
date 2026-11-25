@@ -88,6 +88,7 @@ export function MoneyKeypad() {
   }, []);
 
   const close = useCallback(() => {
+    allowNativeContextMenuRef.current = false;
     restoreActiveInput();
     setActiveField(null);
     setExpression('');
@@ -97,6 +98,7 @@ export function MoneyKeypad() {
 
   const activate = useCallback((input) => {
     if (!input || activeInputRef.current === input) return;
+    allowNativeContextMenuRef.current = false;
     if (activeInputRef.current) restoreActiveInput();
     // Keep Android's native keyboard hidden while the custom money keypad is open.
     activeInputOriginalInputModeRef.current = input.getAttribute('inputmode');
