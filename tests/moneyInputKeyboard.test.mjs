@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import {
   hideNativeMoneyKeyboard,
   restoreNativeMoneyKeyboard,
@@ -45,4 +46,14 @@ test('preserves fields that were already read-only', () => {
   restoreNativeMoneyKeyboard(input, original);
   assert.equal(input.readOnly, true);
   assert.equal(input.getAttribute('inputmode'), 'numeric');
+});
+
+test('keeps keypad taps clickable and routes each key into the expression state', () => {
+  const component = fs.readFileSync('src/components/layout/MoneyKeypad.jsx', 'utf8');
+  const pointerHandler = component.match(/const handlePointerDown = \(event\) => \{([\s\S]*?)\n    \};/);
+
+  assert.ok(pointerHandler, 'Android pointer handler must exist');
+  assert.doesNotMatch(pointerHandler[1], /preventDefault\(/);
+  assert.match(component, /onClick=\{\(\) => appendKey\(key\.action \|\| key\.label\)\}/);
+  assert.match(component, /setExpression\(\(current\) => applyMoneyKey\(current, key\)\)/);
 });
