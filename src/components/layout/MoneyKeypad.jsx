@@ -235,12 +235,16 @@ export function MoneyKeypad() {
       const input = target.closest('input');
       if (input && input === activeInputRef.current) {
         // Let the user long-press only when Android paste fallback was requested.
-        if (!allowNativeContextMenuRef.current) event.preventDefault();
+        if (!allowNativeContextMenuRef.current) {
+          event.preventDefault();
+          input.blur();
+        }
         return;
       }
       if (input && isMoneyInput(input)) {
-        // Activate before the browser focuses the input and opens Gboard.
+        // Dismiss any already-open native keyboard, then activate before this field receives focus.
         event.preventDefault();
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
         activate(input);
         return;
       }
