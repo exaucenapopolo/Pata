@@ -260,5 +260,6 @@ test('la notification de récupération ouvre aussi la checklist après une navi
   assert.match(page, /useSearchParams/);
   assert.match(page, /const searchParams = useSearchParams\(\)/);
   assert.match(page, /searchParams\.get\('recovery'\) === '1'/);
-  assert.match(page, /\}, \[searchParams\]\)/);
+  // The effect may also depend on stable form setters; keep searchParams in its dependency list.
+  assert.match(page, /\}, \[[^\]]*\bsearchParams\b[^\]]*\]\)/);
 });
