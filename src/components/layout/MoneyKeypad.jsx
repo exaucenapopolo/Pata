@@ -62,6 +62,7 @@ export function MoneyKeypad() {
   const [pasteMenuOpen, setPasteMenuOpen] = useState(false);
   const [pasteFeedback, setPasteFeedback] = useState('');
   const activeInputRef = useRef(null);
+  const activeInputOriginalInputModeRef = useRef(null);
   const syncingCalculatorValueRef = useRef(false);
   const allowNativeContextMenuRef = useRef(false);
 
@@ -75,7 +76,14 @@ export function MoneyKeypad() {
   }, [expression]);
 
   const restoreActiveInput = useCallback(() => {
-    activeInputRef.current?.blur();
+    const input = activeInputRef.current;
+    if (input) {
+      input.blur();
+      const originalInputMode = activeInputOriginalInputModeRef.current;
+      if (originalInputMode == null) input.removeAttribute('inputmode');
+      else input.setAttribute('inputmode', originalInputMode);
+    }
+    activeInputOriginalInputModeRef.current = null;
     activeInputRef.current = null;
   }, []);
 
@@ -89,13 +97,17 @@ export function MoneyKeypad() {
 
   const activate = useCallback((input) => {
     if (!input || activeInputRef.current === input) return;
+    if (activeInputRef.current) restoreActiveInput();
+    // Keep Android's native keyboard hidden while the custom money keypad is open.
+    activeInputOriginalInputModeRef.current = input.getAttribute('inputmode');
+    input.setAttribute('inputmode', 'none');
     activeInputRef.current = input;
     const label = getInputLabel(input).trim() || (language === 'en' ? 'Amount' : 'Montant');
     setActiveField({ label });
     setExpression(String(input.value || '').replace(/\s/g, ''));
     setPasteMenuOpen(false);
     setPasteFeedback('');
-  }, [language]);
+  }, [language, restoreActiveInput]);
 
   const pasteClipboardAmount = useCallback(async () => {
     const input = activeInputRef.current;
@@ -201,8 +213,15 @@ export function MoneyKeypad() {
       const target = event.target instanceof Element ? event.target : event.target?.parentElement;
       if (!target || target.closest('[data-pata-money-keypad]')) return;
       const input = target.closest('input');
+      if (input && input === activeInputRef.current) {
+        // The explicit Android paste fallback needs focus for its native context menu.
+        if (!allowNativeContextMenuRef.current) input.blur();
+        return;
+      }
       if (input && isMoneyInput(input)) {
         activate(input);
+        // A programmatic or keyboard focus must not summon a second keyboard either.
+        input.blur();
         return;
       }
       if (activeInputRef.current) close();
@@ -212,7 +231,17 @@ export function MoneyKeypad() {
       const target = event.target instanceof Element ? event.target : event.target?.parentElement;
       if (!target || target.closest('[data-pata-money-keypad]')) return;
       const input = target.closest('input');
-      if (input && input === activeInputRef.current) return;
+      if (input && input === activeInputRef.current) {
+        // Let the user long-press only when Android paste fallback was requested.
+        if (!allowNativeContextMenuRef.current) event.preventDefault();
+        return;
+      }
+      if (input && isMoneyInput(input)) {
+        // Activate before the browser focuses the input and opens Gboard.
+        event.preventDefault();
+        activate(input);
+        return;
+      }
       if (activeInputRef.current) close();
     };
 
