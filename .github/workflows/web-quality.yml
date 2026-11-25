@@ -32,6 +32,8 @@ jobs:
         run: npm run test:notifications
       - name: Tester la saisie rapide et les expressions locales
         run: npm run test:quick-capture
+      - name: Tester le clavier de montant Android et la restauration des champs
+        run: npm run test:money-keypad
       - name: Tester les analyses et projections par catégorie
         run: npm run test:category-analysis
       - name: Tester le guide court et le guide complet
