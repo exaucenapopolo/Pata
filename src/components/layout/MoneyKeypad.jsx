@@ -7,6 +7,7 @@ import { ClipboardPaste, Delete, X } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
 import { applyMoneyKey, evaluateMoneyExpression } from '@/lib/finance/decimalExpression.mjs';
 import { normalizeClipboardAmount } from '@/lib/finance/clipboardAmount.mjs';
+import { hideNativeMoneyKeyboard, restoreNativeMoneyKeyboard } from '@/lib/finance/moneyInputKeyboard.mjs';
 
 const MONEY_HINTS = /montant|amount|budget|capital|dépense|depense|revenu|income|expense|somme|versement|cotisation|facture|bill|loyer|épargne|epargne|solde|balance|recharge|payment|paiement|prêt|pret|loan|dette|debt|prix|price|tarif|frais|fcfa|xaf|usd|eur/i;
 const NON_MONEY_HINTS = /pourcentage|percent|participants?|personnes?|jours?|days?|année|annee|years?|fréquence|frequence|frequency|quota|heures?|minutes?/i;
@@ -79,9 +80,7 @@ export function MoneyKeypad() {
     const input = activeInputRef.current;
     if (input) {
       input.blur();
-      const originalInputMode = activeInputOriginalInputModeRef.current;
-      if (originalInputMode == null) input.removeAttribute('inputmode');
-      else input.setAttribute('inputmode', originalInputMode);
+      restoreNativeMoneyKeyboard(input, activeInputOriginalInputModeRef.current);
     }
     activeInputOriginalInputModeRef.current = null;
     activeInputRef.current = null;
@@ -100,9 +99,9 @@ export function MoneyKeypad() {
     if (!input || activeInputRef.current === input) return;
     allowNativeContextMenuRef.current = false;
     if (activeInputRef.current) restoreActiveInput();
-    // Keep Android's native keyboard hidden while the custom money keypad is open.
-    activeInputOriginalInputModeRef.current = input.getAttribute('inputmode');
-    input.setAttribute('inputmode', 'none');
+    // Keep the field focusable but temporarily read-only so Android does not open Gboard.
+    // The custom keypad writes the calculated value programmatically.
+    activeInputOriginalInputModeRef.current = hideNativeMoneyKeyboard(input);
     activeInputRef.current = input;
     const label = getInputLabel(input).trim() || (language === 'en' ? 'Amount' : 'Montant');
     setActiveField({ label });
@@ -133,6 +132,7 @@ export function MoneyKeypad() {
       // On garde le vrai champ de montant actif et on laisse Android proposer
       // son menu système Coller au prochain appui long.
       allowNativeContextMenuRef.current = true;
+      restoreNativeMoneyKeyboard(input, activeInputOriginalInputModeRef.current);
       setPasteFeedback(language === 'en'
         ? 'Clipboard access is blocked here. Long-press the amount field to use Android Paste.'
         : 'Le collage direct est bloqué. Fais un appui long sur le champ de montant pour utiliser le menu Coller d’Android.');
@@ -155,8 +155,7 @@ export function MoneyKeypad() {
     };
     const onContextMenu = (event) => {
       if (allowNativeContextMenuRef.current) {
-        allowNativeContextMenuRef.current = false;
-        return; // Laisse Android afficher son menu système Coller.
+        return; // Laisse Android afficher son menu système Coller jusqu'à la réception de l'événement input.
       }
       event.preventDefault();
       openPasteMenu();
@@ -164,6 +163,12 @@ export function MoneyKeypad() {
     const handleNativeInput = () => {
       if (syncingCalculatorValueRef.current || activeInputRef.current !== input) return;
       setExpression(String(input.value || '').replace(/\s/g, ''));
+      // After Android's native Paste action, hide Gboard again without losing the pasted value.
+      if (allowNativeContextMenuRef.current) {
+        allowNativeContextMenuRef.current = false;
+        hideNativeMoneyKeyboard(input);
+        input.blur();
+      }
     };
     input.addEventListener('input', handleNativeInput);
     input.addEventListener('change', handleNativeInput);
@@ -215,15 +220,9 @@ export function MoneyKeypad() {
       const target = event.target instanceof Element ? event.target : event.target?.parentElement;
       if (!target || target.closest('[data-pata-money-keypad]')) return;
       const input = target.closest('input');
-      if (input && input === activeInputRef.current) {
-        // The explicit Android paste fallback needs focus for its native context menu.
-        if (!allowNativeContextMenuRef.current) input.blur();
-        return;
-      }
+      if (input && input === activeInputRef.current) return;
       if (input && isMoneyInput(input)) {
         activate(input);
-        // A programmatic or keyboard focus must not summon a second keyboard either.
-        input.blur();
         return;
       }
       if (activeInputRef.current) close();
@@ -231,20 +230,21 @@ export function MoneyKeypad() {
 
     const handlePointerDown = (event) => {
       const target = event.target instanceof Element ? event.target : event.target?.parentElement;
-      if (!target || target.closest('[data-pata-money-keypad]')) return;
-      const input = target.closest('input');
-      if (input && input === activeInputRef.current) {
-        // Let the user long-press only when Android paste fallback was requested.
-        if (!allowNativeContextMenuRef.current) {
-          event.preventDefault();
-          input.blur();
+      if (!target) return;
+      // Never cancel pointerdown on the keypad: Android/WebView may then suppress the
+      // subsequent click, making every number, clear and delete button appear dead.
+      if (target.closest('[data-pata-money-keypad]')) {
+        if (allowNativeContextMenuRef.current && activeInputRef.current) {
+          allowNativeContextMenuRef.current = false;
+          hideNativeMoneyKeyboard(activeInputRef.current);
+          activeInputRef.current.blur();
         }
         return;
       }
+      const input = target.closest('input');
+      if (input && input === activeInputRef.current) return;
       if (input && isMoneyInput(input)) {
-        // Dismiss any already-open native keyboard, then activate before this field receives focus.
-        event.preventDefault();
-        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+        // Lock the native keyboard before the browser focuses the amount field.
         activate(input);
         return;
       }
