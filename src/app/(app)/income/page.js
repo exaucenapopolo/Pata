@@ -573,9 +573,14 @@ export default function IncomePage() {
       setShowVerification(true);
       return;
     }
-    if (isDraftOverBudget && !showVerification) {
-      setShowVerification(true);
-      return;
+    if (isDraftOverBudget) {
+      const confirmed = await appConfirm(
+        isEnglish
+          ? 'The monthly envelopes exceed the reference income by ' + formatCurrency(draftTotalVital - Number(totalBudget)) + '. You can still keep this plan, but it will require additional funds. Save it anyway?'
+          : 'Les enveloppes mensuelles dépassent le revenu de référence de ' + formatCurrency(draftTotalVital - Number(totalBudget)) + '. Tu peux conserver ce plan, mais il faudra trouver des fonds supplémentaires. Veux-tu quand même l’enregistrer ?',
+        { title: isEnglish ? 'Forecast exceeds income' : 'Prévisions supérieures au revenu', kind: 'warning', confirmLabel: isEnglish ? 'Keep my forecast' : 'Conserver ma prévision' }
+      );
+      if (!confirmed) return;
     }
 
     setSavingVital(true);
@@ -1740,7 +1745,7 @@ export default function IncomePage() {
           )}
           <div className="flex gap-2">
             <Button type="button" variant="outline" onClick={() => setShowVerification(true)} className="flex-1">Vérifier</Button>
-            <Button type="submit" className="flex-1" disabled={savingVital || !vitalDraftValid || (showVerification && isDraftOverBudget)}>
+            <Button type="submit" className="flex-1" disabled={savingVital || !vitalDraftValid}>
               {savingVital ? 'Enregistrement…' : 'Enregistrer les prévisions'}
             </Button>
           </div>
