@@ -57,7 +57,7 @@ test('la sélection multiple combine appui prolongé, touches simples et sélect
   assert.doesNotMatch(page, /Tout sélectionner|Sélectionner toutes les dépenses/i);
 });
 
-test('les actions groupées suppriment les opérations entières et utilisent des transactions atomiques', () => {
+test('les actions groupées utilisent les endpoints atomiques pour supprimer et rattacher les dépenses', () => {
   const page = read('src/app/(app)/expenses/page.js');
   const client = read('src/lib/firestore/expenses.js');
   const route = read('src/app/api/[...path]/route.js');
@@ -70,6 +70,7 @@ test('les actions groupées suppriment les opérations entières et utilisent de
   assert.match(client, /postExpenseAction\('reassign-source'/);
   assert.match(route, /'expenses\/delete-many': \{ POST: handleDeleteExpensesBulk \}/);
   assert.match(route, /'expenses\/reassign-source': \{ POST: handleReassignExpenseSource \}/);
+  assert.match(route, /deleteExpenseOperationsForUser\(decoded\.uid, body\.expenseIds\)/);
   assert.match(finance, /export async function deleteExpenseOperationsForUser/);
   assert.match(finance, /export async function reassignExpenseOperationsToSourceForUser/);
   assert.match(page, /isBulkSelectableExpense/);
@@ -78,7 +79,6 @@ test('les actions groupées suppriment les opérations entières et utilisent de
   assert.match(page, /!expense\.repaymentDebtId/);
   assert.match(page, /expense\.cashWithdrawal !== true/);
 });
-
 test('les alertes de la page Dépenses utilisent le composant de dialogue Pata', () => {
   const page = read('src/app/(app)/expenses/page.js');
   const dialog = read('src/components/ui/AppDialog.jsx');
