@@ -11038,7 +11038,12 @@ async function handleBillsPay(request) {
     }
     const dueDate = String(body.dueDate || bill.nextDueDate || '').trim();
     if (dueDate !== String(bill.nextDueDate || '')) return errorResponse('Cette échéance a changé. Actualise la liste des factures.', 409);
-    if (bill.lastPaidDueDate === dueDate) return NextResponse.json({ success: true, alreadyPaid: true, nextDueDate: bill.nextDueDate });
+    if (bill.lastPaidDueDate === dueDate) return NextResponse.json({
+      success: true,
+      alreadyPaid: true,
+      nextDueDate: bill.nextDueDate,
+      expenseId: bill.lastPaidExpenseId || null,
+    });
     const paidDate = String(body.paidDate || getDoualaToday());
     if (!/^\d{4}-\d{2}-\d{2}$/.test(paidDate)) return errorResponse('La date de paiement est invalide.', 400);
     const amount = Math.round(Number(body.amount));
@@ -11108,6 +11113,7 @@ async function handleBillsPay(request) {
       transaction.update(billRef, {
         lastPaidDueDate: dueDate,
         lastPaidAmount: amount,
+        lastPaidExpenseId: expenseResult.expenseId || (expenseResult.expenseIds || [])[0] || null,
         lastPaidAt: FieldValue.serverTimestamp(),
         nextDueDate: nextDueDate || dueDate,
         active: nextDueDate ? latest.active !== false : false,
