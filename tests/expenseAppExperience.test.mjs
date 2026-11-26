@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { getExpenseOperationKeys, sortExpenseOperationsForSourceReassignment } from '../src/lib/finance/expenseOperations.mjs';
+import { getExpenseBatchFingerprint, getExpenseBatchIdempotencyKey } from '../src/lib/finance/expenseBatch.mjs';
 
 const read = (file) => fs.readFileSync(file, 'utf8');
 
@@ -317,7 +318,7 @@ test('la saisie multiple traite chaque ligne comme une dépense indépendante et
   assert.match(handler, /validateExpenseBatchRows/);
 });
 
-test('une tentative réseau répétée conserve la même clé même si la ligne est corrigée', () => {
+test('une tentative réseau répétée conserve la clé mais modifie l’empreinte lorsque la dépense change', () => {
   const first = {
     id: 'batch-unique-1', amount: '1500', categoryId: 'food',
     date: '2026-11-26', note: 'Marché', incomeSourceId: 'salary',
@@ -326,8 +327,21 @@ test('une tentative réseau répétée conserve la même clé même si la ligne 
   const edited = { ...first, amount: '1700', categoryId: 'transport', incomeSourceId: 'bonus' };
   assert.equal(getExpenseBatchIdempotencyKey(first), getExpenseBatchIdempotencyKey(retry));
   assert.equal(getExpenseBatchIdempotencyKey(first), getExpenseBatchIdempotencyKey(edited));
+  assert.equal(getExpenseBatchFingerprint(first), getExpenseBatchFingerprint(retry));
+  assert.notEqual(getExpenseBatchFingerprint(first), getExpenseBatchFingerprint(edited));
   assert.match(getExpenseBatchIdempotencyKey(first), /^batch_[A-Za-z0-9_-]{8,120}$/);
+  assert.match(getExpenseBatchFingerprint(first), /^fp_[A-Za-z0-9_-]{7,64}$/);
   assert.throws(() => getExpenseBatchIdempotencyKey({}), /Identifiant de ligne manquant/);
+});
+
+test('le serveur refuse le rejeu si une ligne déjà créée est modifiée ou si son ancienne empreinte manque', () => {
+  const finance = read('src/lib/ai/financialTools.js');
+  const route = read('src/app/api/[...path]/route.js');
+  assert.match(finance, /previousFingerprint !== currentFingerprint/);
+  assert.match(finance, /fingerprint: String\(idempotencyFingerprint/);
+  assert.match(route, /body\.batchIdempotencyFingerprint/);
+  assert.match(route, /empreinte de saisie multiple/i);
+  assert.match(route, /empreinte\|déjà enregistrée/);
 });
 
 test('la suppression groupée est atomique et recalcule les soldes, budgets et historique', () => {
