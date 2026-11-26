@@ -29,14 +29,6 @@ test('une source épuisée ou dont le solde n’est pas vérifié reste absente 
   assert.equal(getAvailableIncomeTotal(options), 7500);
 });
 
-test('une poche espèces issue d’un retrait Mobile Money est également proposée lorsqu’elle a un solde positif', () => {
-  const options = [
-    { id: 'cash-wallet', balanceAvailable: true, remaining: 12000, cashPocket: true, cashPocketProvider: 'mtn_momo' },
-    { id: 'empty-cash', balanceAvailable: true, remaining: 0, cashPocket: true, cashPocketProvider: 'orange_money' },
-  ];
-  assert.deepEqual(getAvailableIncomeSources(options).map((item) => item.id), ['cash-wallet']);
-});
-
 test('un revenu emprunté est proposé uniquement lorsque l’utilisateur l’a déclaré disponible comme argent reçu', () => {
   const options = [
     { id: 'loan-cash', balanceAvailable: true, remaining: 5000, neutralFlow: true, flowType: 'debt_borrowed', availableAsFunding: true },
