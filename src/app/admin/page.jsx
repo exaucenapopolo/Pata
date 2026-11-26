@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/context/LanguageContext';
 import { CloudinaryImageField } from '@/components/ui/CloudinaryImageField';
 import { calculatePremiumPricing } from '@/lib/premiumPricing.mjs';
+import { useAppDialog } from '@/hooks/useAppDialog';
 
 const money = (value) => value == null || !Number.isFinite(Number(value)) ? '—' : `${Math.round(Number(value)).toLocaleString('fr-FR')} FCFA`;
 const currentMonthKey = () => { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`; };
@@ -255,6 +256,7 @@ function SectionTitle({ title, detail, action }) { return <div className="mb-4 f
 
 export default function AdminPage() {
   const { user, loading: authLoading } = useAuth();
+  const { appConfirm, appPrompt, dialog } = useAppDialog();
   const { language } = useLanguage();
   const isEnglish = language === 'en';
   const router = useRouter();
@@ -376,7 +378,7 @@ export default function AdminPage() {
   };
   const saveMonthlyTargets = async (event) => { event.preventDefault(); setBusy(true); setTargetFeedback(''); try { const targets = Object.fromEntries(objectiveFields.map((field) => [field.key, Number(targetDraft[field.key] || 0)])); await api('admin/monthly-targets', 'POST', { month: targetMonth, targets }); monthlyMetricsCacheRef.current.delete(targetMonth); setTargetFeedback('Les objectifs du mois ont été enregistrés.'); await loadMonthlyMetrics(targetMonth, true); } catch (err) { setError(err.message || 'Impossible d’enregistrer les objectifs.'); } finally { setBusy(false); } };
   const loadCotisations = async (append = false, status = cotisationStatus) => { setBusy(true); setError(''); try { const cursor = append && cotisationCursor ? '&cursor=' + encodeURIComponent(cotisationCursor) : ''; const result = await api(`admin/cotisations?limit=25&status=${encodeURIComponent(status)}${cursor}`); setCotisationGroups((current) => append ? [...current, ...(result.groups || [])] : (result.groups || [])); setCotisationCursor(result.nextCursor || null); } catch (err) { setError(err.message || 'Impossible de charger les cotisations.'); } finally { setBusy(false); } };
-  const contactCotisation = async (group, channel) => { const defaultMessage = 'Bonjour ' + (group.ownerName || 'Responsable') + ', nous faisons un point de suivi Pata concernant votre groupe « ' + group.name + ' ». Comment se déroule son organisation ? Notre équipe reste disponible pour vous accompagner.'; const message = window.prompt('Message à envoyer au responsable de « ' + group.name + ' » :', defaultMessage); if (message === null || !message.trim()) return; setBusy(true); setCotisationFeedback(''); setError(''); try { await api('admin/cotisations/contact', 'POST', { groupId: group.id, channel, title: 'Suivi de votre cotisation Pata', message: message.trim() }); setCotisationFeedback(channel === 'email' ? 'E-mail envoyé au responsable du groupe.' : 'Notification envoyée au responsable du groupe.'); } catch (err) { setError(err.message || 'Impossible de contacter le responsable.'); } finally { setBusy(false); } };
+  const contactCotisation = async (group, channel) => { const defaultMessage = 'Bonjour ' + (group.ownerName || 'Responsable') + ', nous faisons un point de suivi Pata concernant votre groupe « ' + group.name + ' ». Comment se déroule son organisation ? Notre équipe reste disponible pour vous accompagner.'; const message = await appPrompt('Message à envoyer au responsable de « ' + group.name + ' » :', defaultMessage, { title: 'Contacter le responsable', confirmLabel: 'Envoyer le message', multiline: true, placeholder: 'Écris le message à envoyer…' }); if (message === null || !message.trim()) return; setBusy(true); setCotisationFeedback(''); setError(''); try { await api('admin/cotisations/contact', 'POST', { groupId: group.id, channel, title: 'Suivi de votre cotisation Pata', message: message.trim() }); setCotisationFeedback(channel === 'email' ? 'E-mail envoyé au responsable du groupe.' : 'Notification envoyée au responsable du groupe.'); } catch (err) { setError(err.message || 'Impossible de contacter le responsable.'); } finally { setBusy(false); } };
 
   const loadUsersByPlatform = async (platform, force = false) => {
     setPlatformFilter(platform);
@@ -590,8 +592,8 @@ export default function AdminPage() {
     monthlyMetricsCacheRef.current.clear(); userListCacheRef.current.clear();
     withdrawalsCacheRef.current = { value: null, fetchedAt: 0 };
   };
-  const approve = async (item) => { if (!window.confirm(isEnglish ? `Approve the withdrawal of ${money(item.amount)} to ${item.phone}? The payment will be sent to Fapshi.` : `Valider le retrait de ${money(item.amount)} vers ${item.phone} ? Le paiement sera transmis à Fapshi.`)) return; setBusy(true); setError(''); try { await api('admin/withdrawal/approve', 'POST', { requestId: item.id }); withdrawalsCacheRef.current = { value: null, fetchedAt: 0 }; await Promise.all([loadDashboard(true), loadWithdrawals(true)]); } catch (err) { setError(err.message); setBusy(false); } };
-  const reject = async (item) => { const reason = window.prompt(isEnglish ? 'Reason for rejection (optional):' : 'Motif du refus (facultatif) :', isEnglish ? 'Request not approved after review.' : 'Demande non validée après vérification.'); if (reason === null) return; setBusy(true); setError(''); try { await api('admin/withdrawal/reject', 'POST', { requestId: item.id, reason }); withdrawalsCacheRef.current = { value: null, fetchedAt: 0 }; await Promise.all([loadDashboard(true), loadWithdrawals(true)]); } catch (err) { setError(err.message); setBusy(false); } };
+  const approve = async (item) => { if (!(await appConfirm(isEnglish ? `Approve the withdrawal of ${money(item.amount)} to ${item.phone}? The payment will be sent to Fapshi.` : `Valider le retrait de ${money(item.amount)} vers ${item.phone} ? Le paiement sera transmis à Fapshi.`, { kind: 'warning', title: isEnglish ? 'Approve withdrawal?' : 'Valider ce retrait ?', confirmLabel: isEnglish ? 'Approve and send' : 'Valider et transmettre' }))) return; setBusy(true); setError(''); try { await api('admin/withdrawal/approve', 'POST', { requestId: item.id }); withdrawalsCacheRef.current = { value: null, fetchedAt: 0 }; await Promise.all([loadDashboard(true), loadWithdrawals(true)]); } catch (err) { setError(err.message); setBusy(false); } };
+  const reject = async (item) => { const reason = await appPrompt(isEnglish ? 'Reason for rejection (optional):' : 'Motif du refus (facultatif) :', isEnglish ? 'Request not approved after review.' : 'Demande non validée après vérification.', { title: isEnglish ? 'Reject withdrawal' : 'Refuser le retrait', confirmLabel: isEnglish ? 'Reject withdrawal' : 'Confirmer le refus', multiline: true, placeholder: isEnglish ? 'Reason (optional)' : 'Motif (facultatif)' }); if (reason === null) return; setBusy(true); setError(''); try { await api('admin/withdrawal/reject', 'POST', { requestId: item.id, reason }); withdrawalsCacheRef.current = { value: null, fetchedAt: 0 }; await Promise.all([loadDashboard(true), loadWithdrawals(true)]); } catch (err) { setError(err.message); setBusy(false); } };
   const broadcast = async (event) => {
     event.preventDefault(); setBusy(true); setBroadcastResult(''); setError('');
     try {
@@ -979,6 +981,7 @@ export default function AdminPage() {
         </div>
       </section>
     </div>}
+    {dialog}
     <footer className="pb-4 text-center text-[11px] text-slate-400">Pata Administration · NAPOPOLO EXAUCE</footer>
   </div></main>;
 }
