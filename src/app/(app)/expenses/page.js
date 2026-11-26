@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Plus, Trash2, Wallet, Pencil, Landmark, Calendar, Repeat, Clock3, MapPin, FolderPlus, Info, Briefcase, Check, Square, CheckSquare, Link2, X } from 'lucide-react';
+import { Plus, Trash2, Wallet, Pencil, Landmark, Calendar, Repeat, Clock3, MapPin, FolderPlus, Info, Briefcase, Check, Square, CheckSquare, Link2, X, ListPlus, MinusCircle } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -18,6 +18,8 @@ import { useProjects } from '@/hooks/useProjects';
 import { createProject, updateProject, deleteProject } from '@/lib/firestore/projects';
 import { useExpenses } from '@/hooks/useExpenses';
 import { countExpenseOperations, getExpenseOperationKeys, sortExpenseOperationsForSourceReassignment } from '@/lib/finance/expenseOperations.mjs';
+import { getSelectableExpenseDayKeys, toggleExpenseDayKeys, toggleExpenseSelectionKey } from '@/lib/finance/expenseSelection.mjs';
+import { createExpenseBatchDraftRow, getExpenseBatchTotal, validateExpenseBatchRows } from '@/lib/finance/expenseBatch.mjs';
 import { useIncomes } from '@/hooks/useIncomes';
 import { getAvailableIncomeSources } from '@/lib/finance/availableIncomeSources.mjs';
 import { useDebts } from '@/hooks/useDebts';
@@ -100,6 +102,7 @@ export default function ExpensesPage() {
   const { debts } = useDebts();
   const activePayableDebts = debts.filter((debt) => debt.type === 'i_owe' && ['active', 'partial', 'late'].includes(debt.status) && Number(debt.remaining) > 0);
   const { customCategories } = useCustomCategories('expense');
+  const batchExpenseCategories = useMemo(() => [...EXPENSE_CATEGORIES, ...customCategories].filter((category) => !['loan_given', 'debt_repayment'].includes(category.id)), [customCategories]);
   
   const [showCustomPeriod, setShowCustomPeriod] = usePersistentPageState('expenses', 'showCustomPeriod', false, user?.uid);
   const [customStart, setCustomStart] = usePersistentPageState('expenses', 'customStart', getFirstOfMonth(), user?.uid);
@@ -141,6 +144,12 @@ export default function ExpensesPage() {
   const [bulkSourceOpen, setBulkSourceOpen] = useState(false);
   const [bulkSourceId, setBulkSourceId] = useState('');
   const [bulkActionBusy, setBulkActionBusy] = useState(false);
+  const [batchModalOpen, setBatchModalOpen] = useState(false);
+  const [batchRows, setBatchRows] = useState(() => [createExpenseBatchDraftRow('batch-1', todayIso())]);
+  const [batchSaving, setBatchSaving] = useState(false);
+  const [batchError, setBatchError] = useState('');
+  const batchRowIdRef = useRef(1);
+  const longPressStartRef = useRef(null);
   const [selectedExpense, setSelectedExpense] = usePersistentPageState('expenses', 'selectedExpense', null, user?.uid);
   const [recurringExpense, setRecurringExpense] = useState(null);
   const [recurringFrequency, setRecurringFrequency] = useState('daily');
@@ -368,6 +377,10 @@ export default function ExpensesPage() {
   const eligibleIncomesForExpense = getAvailableIncomeSources(sortedIncomesForSelect, {
     projectId: form.expenseType === 'project' ? form.projectId : '',
   });
+  const availableBatchIncomeSources = useMemo(
+    () => getAvailableIncomeSources(sortedIncomesForSelect),
+    [sortedIncomesForSelect]
+  );
 
   const bulkSourceOptions = useMemo(() => {
     const usedBySelection = new Map();
@@ -606,6 +619,119 @@ export default function ExpensesPage() {
     }
   };
 
+  const openBatchEntry = () => {
+    batchRowIdRef.current += 1;
+    setBatchRows([createExpenseBatchDraftRow('batch-' + batchRowIdRef.current, todayIso())]);
+    setBatchError('');
+    setBatchModalOpen(true);
+  };
+
+  const updateBatchRow = (rowId, patch) => {
+    setBatchRows((current) => current.map((row) => row.id === rowId ? { ...row, ...patch } : row));
+    setBatchError('');
+  };
+
+  const addBatchRow = () => {
+    if (batchRows.length >= 30) return;
+    batchRowIdRef.current += 1;
+    setBatchRows((current) => [...current, createExpenseBatchDraftRow('batch-' + batchRowIdRef.current, current[current.length - 1]?.date || todayIso())]);
+    setBatchError('');
+  };
+
+  const removeBatchRow = (rowId) => {
+    setBatchRows((current) => current.filter((row) => row.id !== rowId));
+    setBatchError('');
+  };
+
+  const submitExpenseBatch = async () => {
+    setBatchError('');
+    if (!balancesReady) {
+      setBatchError('Attends que Pata ait vérifié les soldes des revenus avant de continuer.');
+      return;
+    }
+    const freeRemaining = isPremium ? Number.POSITIVE_INFINITY : Math.max(0, expenseFreeLimit - usedExpenseQuota);
+    const validation = validateExpenseBatchRows(batchRows, {
+      sourceBalances: availableBatchIncomeSources,
+      balancesReady,
+      freeRemaining,
+    });
+    if (!validation.valid) {
+      setBatchError(validation.error);
+      return;
+    }
+
+    setBatchSaving(true);
+    const orderedRows = [
+      ...batchRows.filter((row) => row.incomeSourceId !== 'all'),
+      ...batchRows.filter((row) => row.incomeSourceId === 'all'),
+    ];
+    const created = [];
+    try {
+      for (let index = 0; index < orderedRows.length; index += 1) {
+        const row = orderedRows[index];
+        const source = availableBatchIncomeSources.find((income) => income.id === row.incomeSourceId);
+        const payload = {
+          amount: Number(row.amount),
+          categoryId: row.categoryId,
+          flowType: 'normal',
+          expenseType: 'consumption',
+          projectId: '',
+          date: row.date,
+          time: currentTime(),
+          note: String(row.note || '').trim(),
+          incomeSourceId: row.incomeSourceId || 'all',
+          incomeSourceName: row.incomeSourceId === 'all' ? 'Tous les revenus' : (source?.source || 'Revenu sans nom'),
+          paymentMethod: row.paymentMethod || '',
+        };
+
+        try {
+          let result = await createExpense(user.uid, payload);
+          if (result.confirmationRequired) {
+            const accepted = await requestActionDialog({
+              mode: 'confirm',
+              kind: 'warning',
+              title: 'Confirmer cette dépense',
+              message: result.message || 'Cette dépense peut faire dépasser un budget. Souhaites-tu continuer ?',
+              confirmLabel: 'Enregistrer cette dépense',
+            });
+            if (!accepted) {
+              const remainingRows = orderedRows.slice(index);
+              setBatchRows(remainingRows);
+              setBatchError((created.length ? created.length + ' dépense(s) déjà enregistrée(s). ' : '') + 'La suite de la saisie a été mise en pause. Les lignes restantes sont conservées ci-dessous.');
+              return;
+            }
+            result = await createExpense(user.uid, { ...payload, confirmBudgetOverrun: true });
+          }
+          if (!result?.success) throw new Error(result?.error || 'Enregistrement refusé.');
+          created.push(row.id);
+        } catch (error) {
+          const remainingRows = orderedRows.slice(index);
+          setBatchRows(remainingRows);
+          setBatchError(
+            (created.length ? created.length + ' dépense(s) enregistrée(s). ' : 'Aucune dépense supplémentaire enregistrée. ')
+            + 'La ligne suivante et les autres sont conservées pour correction ou nouvel essai : '
+            + (error?.message || 'Erreur d’enregistrement.')
+          );
+          return;
+        }
+      }
+
+      setBatchModalOpen(false);
+      setBatchRows([createExpenseBatchDraftRow('batch-' + (batchRowIdRef.current + 1), todayIso())]);
+      setBatchError('');
+      setNextAction({ sequence: Date.now() });
+      await requestActionDialog({
+        mode: 'alert',
+        kind: 'success',
+        title: 'Dépenses enregistrées',
+        message: created.length + ' dépense(s) ont été enregistrées séparément. Chaque ligne conserve sa catégorie, sa date et sa source de financement ; les soldes et les budgets ont été recalculés.',
+        confirmLabel: 'Terminer',
+      });
+    } finally {
+      setBatchSaving(false);
+    }
+  };
+
   const clearExpenseSelection = () => {
     setSelectedExpenseKeys([]);
     setSelectionMode(false);
@@ -618,25 +744,35 @@ export default function ExpensesPage() {
     if (!isBulkSelectableExpense(expense)) return;
     const key = expenseOperationKeyById.get(expense.id) || expense.id;
     setSelectionMode(true);
-    setSelectedExpenseKeys((current) => current.includes(key)
-      ? current.filter((item) => item !== key)
-      : [...current, key]);
+    setSelectedExpenseKeys((current) => toggleExpenseSelectionKey(current, key));
   };
 
   const startExpenseLongPress = (event, expense) => {
-    if (!isBulkSelectableExpense(expense) || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    if (selectionMode || !isBulkSelectableExpense(expense) || (event.pointerType === 'mouse' && event.button !== 0)) return;
     if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
     longPressTriggeredRef.current = false;
+    longPressStartRef.current = { x: event.clientX, y: event.clientY };
     longPressTimerRef.current = window.setTimeout(() => {
       longPressTimerRef.current = null;
+      longPressStartRef.current = null;
       longPressTriggeredRef.current = true;
-      toggleExpenseSelection(expense);
-    }, 480);
+      const key = expenseOperationKeyById.get(expense.id) || expense.id;
+      setSelectionMode(true);
+      setSelectedExpenseKeys((current) => current.includes(key) ? current : [...current, key]);
+    }, 420);
+  };
+
+  const moveExpenseLongPress = (event) => {
+    if (!longPressTimerRef.current || !longPressStartRef.current) return;
+    const deltaX = Math.abs(event.clientX - longPressStartRef.current.x);
+    const deltaY = Math.abs(event.clientY - longPressStartRef.current.y);
+    if (deltaX > 14 || deltaY > 14) endExpenseLongPress();
   };
 
   const endExpenseLongPress = () => {
     if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
     longPressTimerRef.current = null;
+    longPressStartRef.current = null;
   };
 
   const handleExpenseRowClick = (expense) => {
@@ -652,17 +788,10 @@ export default function ExpensesPage() {
   };
 
   const toggleExpenseDaySelection = (items) => {
-    const dayKeys = [...new Set(items
-      .filter(isBulkSelectableExpense)
-      .map((expense) => expenseOperationKeyById.get(expense.id) || expense.id))];
+    const dayKeys = getSelectableExpenseDayKeys(items, expenseOperationKeyById, isBulkSelectableExpense);
     if (!dayKeys.length) return;
     setSelectionMode(true);
-    setSelectedExpenseKeys((current) => {
-      const allSelected = dayKeys.every((key) => current.includes(key));
-      return allSelected
-        ? current.filter((key) => !dayKeys.includes(key))
-        : [...new Set([...current, ...dayKeys])];
-    });
+    setSelectedExpenseKeys((current) => toggleExpenseDayKeys(current, dayKeys));
   };
 
   const handleBulkDelete = async () => {
