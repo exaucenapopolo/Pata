@@ -32,6 +32,10 @@ jobs:
         run: npm run test:notifications
       - name: Tester la saisie rapide et les expressions locales
         run: npm run test:quick-capture
+      - name: Tester les sources de revenus disponibles dans Quick Capture
+        run: npm run test:available-income-sources
+      - name: Tester la sélection multiple et la comptabilité des dépenses
+        run: npm run test:expense-app-experience
       - name: Tester le clavier de montant Android et la restauration des champs
         run: npm run test:money-keypad
       - name: Tester la visibilité du champ au-dessus de la calculatrice
