@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeSmsBillPayment } from '../src/lib/bills/smsBillPayment.mjs';
-import { resolveSmsBillChoice } from '../src/lib/sms/smsBillChoice.mjs';
+import { resolveSmsBillChoice, getAvailableSmsBillsForPayment } from '../src/lib/sms/smsBillChoice.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -142,4 +142,25 @@ test('les champs du formulaire facture sont résolus dans la portée de chaque S
   assert.match(component, /value=\{billType\}/);
   assert.match(component, /value=\{billExpenseCategoryId\}/);
   assert.match(component, /value=\{billFrequency\}/);
+});
+
+test('ne propose que les factures actives dont la prochaine échéance reste impayée', () => {
+  const available = getAvailableSmsBillsForPayment([
+    { id: 'eneo', name: 'Facture ENEO', active: true, nextDueDate: '2026-11-30', lastPaidDueDate: '2026-10-30' },
+    { id: 'water-paid', name: 'CAMWATER', active: true, nextDueDate: '2026-11-20', lastPaidDueDate: '2026-11-20' },
+    { id: 'inactive', name: 'Ancienne facture', active: false, nextDueDate: '2026-11-21' },
+    { id: 'incomplete', name: 'Facture incomplète', active: true, pendingDetails: true, nextDueDate: '2026-11-22' },
+    { id: 'no-date', name: 'Sans échéance', active: true, nextDueDate: '' },
+    { id: 'frequency-pending', name: 'Fréquence à confirmer', active: true, frequencyPending: true, nextDueDate: '2026-11-23' },
+    { id: 'rent', name: 'Loyer', active: true, nextDueDate: '2026-11-10' },
+  ]);
+
+  assert.deepEqual(available.map((bill) => bill.id), ['rent', 'eneo']);
+});
+
+test('ne retourne aucune facture déjà réglée ou désactivée', () => {
+  assert.deepEqual(getAvailableSmsBillsForPayment([
+    { id: 'paid', active: true, nextDueDate: '2026-11-10', lastPaidDueDate: '2026-11-10' },
+    { id: 'disabled', active: false, nextDueDate: '2026-11-11' },
+  ]), []);
 });
