@@ -221,7 +221,7 @@ test('la page propose une sélection explicite, une sélection par journée et l
   const page = read('src/app/(app)/expenses/page.js');
   assert.match(page, /Terminer la sélection/);
   assert.match(page, /Sélectionner la journée/);
-  assert.match(page, /Changer source/);
+  assert.match(page, /Regrouper les revenus/);
   assert.match(page, /z-\[90\]/);
   assert.doesNotMatch(page, /onPointerLeave=\{endExpenseLongPress\}/);
   assert.match(page, /onPointerMove=\{moveExpenseLongPress\}/);
