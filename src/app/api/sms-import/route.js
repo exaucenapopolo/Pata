@@ -805,10 +805,8 @@ export async function POST(request) {
       const projectId = String(body.projectId || '').trim().slice(0, 150);
       const confirmBudgetOverrun = body.confirmBudgetOverrun === true;
       const recordBill = body.recordBill === true;
-      const selectedBillId = String(body.billId || '').trim().slice(0, 150);
-      const selectedBillDueDate = String(body.billDueDate || '').trim();
-      const useExistingBill = recordBill && Boolean(selectedBillId) && selectedBillId !== 'new';
-      const createNewBill = recordBill && selectedBillId === 'new';
+      const requestedBillId = String(body.billId || '').trim().slice(0, 150);
+      const requestedBillDueDate = String(body.billDueDate || '').trim();
       const billName = String(body.billName || '').trim().slice(0, 100);
       const billType = String(body.billType || 'other').trim();
       const billFrequency = String(body.billFrequency || 'once').trim();
@@ -817,8 +815,11 @@ export async function POST(request) {
       const confirmWithdrawal = body.confirmWithdrawal === true;
       const withdrawalSourceIncomeId = String(body.withdrawalSourceIncomeId || 'external').trim().slice(0, 150);
       if (!['income', 'expense'].includes(operationType)) return responseError('Type d’opération invalide.', 400);
-      if (recordBill && (operationType !== 'expense' || (!useExistingBill && (!createNewBill || !billName)))) return responseError('Choisis une facture existante ou indique le nom de la nouvelle facture.', 400);
-      if (useExistingBill && (selectedBillId.includes('/') || !/^\d{4}-\d{2}-\d{2}$/.test(selectedBillDueDate))) return responseError('La facture ou son échéance est invalide. Actualise la liste des factures.', 400);
+      if (recordBill && operationType !== 'expense') return responseError('Seule une sortie ordinaire peut être rattachée à une facture.', 400);
+      if (requestedBillId && requestedBillId !== 'new'
+        && (requestedBillId.includes('/') || !/^\d{4}-\d{2}-\d{2}$/.test(requestedBillDueDate))) {
+        return responseError('La facture ou son échéance est invalide. Actualise la liste des factures.', 400);
+      }
       if (repaymentDebtId && repaymentDebtId.includes('/')) return responseError('Identifiant de dette invalide.', 400);
       if (withdrawalSourceIncomeId.includes('/') || incomeSourceId.includes('/')) return responseError('Source de fonds invalide.', 400);
       if (!['external', 'all'].includes(incomeSourceId) && !incomeSourceId) return responseError('Source de revenu invalide.', 400);
@@ -837,10 +838,7 @@ export async function POST(request) {
 
       const { userRef } = await getUserAndPremium(uid);
       const claim = await adminDb.runTransaction(async (transaction) => {
-        const selectedBillRef = useExistingBill ? userRef.collection('bills').doc(selectedBillId) : null;
-        const snapshotsToRead = [transaction.get(userRef), transaction.get(ref)];
-        if (selectedBillRef) snapshotsToRead.push(transaction.get(selectedBillRef));
-        const [userSnap, importSnap, selectedBillSnap] = await Promise.all(snapshotsToRead);
+        const [userSnap, importSnap] = await Promise.all([transaction.get(userRef), transaction.get(ref)]);
         if (!userSnap.exists || !importSnap.exists) throw new Error('Import SMS introuvable.');
         const profile = userSnap.data() || {};
         if (!isPremium(profile)) throw new Error('Un abonnement Pata Premium actif est nécessaire pour confirmer cet import SMS.');
@@ -860,13 +858,31 @@ export async function POST(request) {
         if (recordBill && (item.direction !== 'expense' || item.eventType === 'withdrawal' || repaymentDebtId)) {
           throw new Error('Seul un paiement sortant ordinaire peut être enregistré comme facture. Les retraits et remboursements de dette restent séparés.');
         }
+        // Once an import is associated with an invoice, keep that exact invoice cycle
+        // across retries. A bill payment may already have succeeded even if the SMS
+        // confirmation response was interrupted.
+        const persistedBillId = item.billPayment === true ? String(item.billId || '').trim() : '';
+        const persistedBillDueDate = item.billPayment === true ? String(item.billDueDate || '').trim() : '';
+        const selectedBillId = persistedBillId && persistedBillDueDate ? persistedBillId : requestedBillId;
+        const selectedBillDueDate = persistedBillId && persistedBillDueDate ? persistedBillDueDate : requestedBillDueDate;
+        const useExistingBill = recordBill && Boolean(selectedBillId) && selectedBillId !== 'new';
+        const createNewBill = recordBill && selectedBillId === 'new';
+        if (recordBill && !useExistingBill && (!createNewBill || !billName)) {
+          throw new Error('Choisis une facture impayée ou indique le nom de la nouvelle facture.');
+        }
         let selectedBill = null;
         if (useExistingBill) {
-          if (!selectedBillSnap?.exists) throw new Error('Cette facture n’existe plus dans ton compte. Actualise la liste.');
+          if (selectedBillId.includes('/') || !/^\d{4}-\d{2}-\d{2}$/.test(selectedBillDueDate)) {
+            throw new Error('La facture ou son échéance est invalide. Actualise la liste des factures.');
+          }
+          const selectedBillRef = userRef.collection('bills').doc(selectedBillId);
+          const selectedBillSnap = await transaction.get(selectedBillRef);
+          if (!selectedBillSnap.exists) throw new Error('Cette facture n’existe plus dans ton compte. Actualise la liste.');
           selectedBill = selectedBillSnap.data() || {};
-          if (selectedBill.active === false) throw new Error('Cette facture est désactivée. Choisis une facture active.');
-          if (selectedBill.pendingDetails === true || selectedBill.frequencyPending === true
-            || String(selectedBill.nextDueDate || '') !== selectedBillDueDate) {
+          const selectedCycleAlreadyPaid = String(selectedBill.lastPaidDueDate || '') === selectedBillDueDate;
+          if (!selectedCycleAlreadyPaid && selectedBill.active === false) throw new Error('Cette facture est désactivée. Choisis une facture active.');
+          if (!selectedCycleAlreadyPaid && (selectedBill.pendingDetails === true || selectedBill.frequencyPending === true
+            || String(selectedBill.nextDueDate || '') !== selectedBillDueDate)) {
             throw new Error('L’échéance de cette facture a changé. Actualise la liste avant de confirmer.');
           }
         }
