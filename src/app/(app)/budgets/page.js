@@ -492,8 +492,13 @@ export default function BudgetsPage() {
         </div>
         <div className="flex w-full flex-wrap gap-2 sm:w-auto">
           <Button type="button" size="sm" onClick={() => openCreateBudget()} disabled={!expenseCategories.length || !budgetIncomeSources.length || budgetQuotaReached}>
-            <Plus size={14}/> Créer un budget
+            <Plus size={14}/> Ajouter des enveloppes
           </Button>
+          {selectedIncome !== 'all' && budgetedCategories.length > 0 && (
+            <Button type="button" size="sm" variant="outline" onClick={openEditBudgetPlan}>
+              <Pencil size={14}/> Modifier tout le budget
+            </Button>
+          )}
           <Button type="button" variant="outline" size="sm" onClick={() => {
             const prompt = isEnglish
               ? `Analyze my Pata budget for ${month}. Profile: ${budgetPersona}. Recorded income: ${monthIncomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0)} XAF. Current allocation: ${enriched.map((item) => `${translateText(item.label, 'en')}: planned ${item.allocated} XAF, spent ${item.spent} XAF`).join('; ')}. Identify the categories with the highest spending, budget limits that are too high or too low, and realistic adjustments for this profile. Do not change anything without my approval.`
@@ -798,6 +803,7 @@ export default function BudgetsPage() {
             Source de revenus
             <select
               required
+              disabled={creatingBudget || createBudgetMode === 'edit'}
               value={createBudgetIncomeSourceId}
               onChange={(event) => {
                 setCreateBudgetIncomeSourceId(event.target.value);
