@@ -226,6 +226,8 @@ test('la saisie multiple enregistre chaque ligne par createExpense avec sa propr
   assert.match(page, /availableBatchIncomeSources\.map/);
   assert.match(page, /date=|type="date"/);
   assert.match(page, /createExpense\(user\.uid, payload\)/);
+  assert.match(page, /batchIdempotencyKey: 'batch_'/);
+  assert.ok(read('src/app/api/[...path]/route.js').includes('body.batchIdempotencyKey'));
   assert.match(page, /row\.categoryId/);
   assert.match(page, /row\.date/);
   assert.match(page, /row\.incomeSourceId/);
