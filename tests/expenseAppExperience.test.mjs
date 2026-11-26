@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { getExpenseOperationKeys, sortExpenseOperationsForSourceReassignment } from '../src/lib/finance/expenseOperations.mjs';
-import { getExpenseBatchFingerprint, getExpenseBatchIdempotencyKey } from '../src/lib/finance/expenseBatch.mjs';
+import { getDayExpenseSelectionKeys, getSelectedExpenseOperations, toggleDayExpenseSelectionKeys, toggleExpenseSelectionKey } from '../src/lib/finance/expenseSelection.mjs';
+import { createExpenseBatchDraftRow, getExpenseBatchFingerprint, getExpenseBatchIdempotencyKey, getExpenseBatchSourceTotals, getExpenseBatchTotal, validateExpenseBatchRows } from '../src/lib/finance/expenseBatch.mjs';
 
 const read = (file) => fs.readFileSync(file, 'utf8');
 
@@ -129,19 +130,6 @@ test('le dialogue Pata gère aussi la saisie de texte sans prompt natif', () => 
   assert.match(dialog, /<textarea/);
   assert.match(dialog, /<input/);
 });
-
-import {
-  getDayExpenseSelectionKeys,
-  getSelectedExpenseOperations,
-  toggleDayExpenseSelectionKeys,
-  toggleExpenseSelectionKey,
-} from '../src/lib/finance/expenseSelection.mjs';
-import {
-  createExpenseBatchDraftRow,
-  getExpenseBatchSourceTotals,
-  getExpenseBatchTotal,
-  validateExpenseBatchRows,
-} from '../src/lib/finance/expenseBatch.mjs';
 
 test('la sélection simple permet de cocher plusieurs opérations indépendantes et de les décocher', () => {
   let selected = [];
