@@ -324,3 +324,29 @@ test('une tentative réseau répétée conserve la même clé, mais une ligne mo
   assert.notEqual(getExpenseBatchIdempotencyKey(first), getExpenseBatchIdempotencyKey(edited));
   assert.match(getExpenseBatchIdempotencyKey(first), /^batch_[A-Za-z0-9_-]{8,120}$/);
 });
+
+test('la suppression groupée est atomique et recalcule les soldes, budgets et historique', () => {
+  const finance = read('src/lib/ai/financialTools.js');
+  const route = read('src/app/api/[...path]/route.js');
+  const client = read('src/lib/firestore/expenses.js');
+  const page = read('src/app/(app)/expenses/page.js');
+  const start = finance.indexOf('export async function deleteExpenseOperationsForUser');
+  const end = finance.indexOf('export async function deleteExpenseForUser', start);
+  assert.ok(start >= 0 && end > start);
+  const handler = finance.slice(start, end);
+  assert.match(handler, /adminDb\.runTransaction/);
+  assert.match(handler, /calculateIncomeSpentTotals/);
+  assert.match(handler, /incomeSpentTotalsVersion: 1/);
+  assert.match(handler, /applyBudgetSpendDelta/);
+  assert.match(handler, /transaction\.create\(activityRefs\[index\]/);
+  assert.match(handler, /transaction\.delete\(expensesRef\.doc\(part\.id\)\)/);
+  assert.match(route, /'expenses\/delete-many': \{ POST: handleDeleteExpensesBulk \}/);
+  assert.match(route, /deleteExpenseOperationsForUser\(/);
+  assert.match(client, /postExpenseAction\('delete-many'/);
+  const actionStart = page.indexOf('const handleBulkDelete =');
+  const actionEnd = page.indexOf('const openBulkSourceModal =', actionStart);
+  const action = page.slice(actionStart, actionEnd);
+  assert.match(action, /deleteExpenseOperations\(/);
+  assert.doesNotMatch(action, /for \(const operation of/);
+  assert.match(action, /Aucune suppression partielle/);
+});
