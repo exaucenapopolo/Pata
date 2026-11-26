@@ -599,9 +599,16 @@ export default function ExpensesPage() {
     }
   };
 
-  const openBatchEntry = () => {
+  const createBatchRowId = () => {
     batchRowIdRef.current += 1;
-    setBatchRows([createExpenseBatchDraftRow('batch-' + batchRowIdRef.current, todayIso())]);
+    const uniquePart = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID().replace(/-/g, '')
+      : Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
+    return 'batch-' + uniquePart + '-' + batchRowIdRef.current;
+  };
+
+  const openBatchEntry = () => {
+    setBatchRows([createExpenseBatchDraftRow(createBatchRowId(), todayIso())]);
     setBatchError('');
     setBatchModalOpen(true);
   };
@@ -613,8 +620,8 @@ export default function ExpensesPage() {
 
   const addBatchRow = () => {
     if (batchRows.length >= 30) return;
-    batchRowIdRef.current += 1;
-    setBatchRows((current) => [...current, createExpenseBatchDraftRow('batch-' + batchRowIdRef.current, current[current.length - 1]?.date || todayIso())]);
+    const rowId = createBatchRowId();
+    setBatchRows((current) => [...current, createExpenseBatchDraftRow(rowId, current[current.length - 1]?.date || todayIso())]);
     setBatchError('');
   };
 
