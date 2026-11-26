@@ -282,7 +282,7 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
       const saved = idempotencySnap.data() || {};
       const previousFingerprint = String(saved.fingerprint || '');
       const currentFingerprint = String(idempotencyFingerprint || '');
-      if (previousFingerprint && currentFingerprint && previousFingerprint !== currentFingerprint) {
+      if (currentFingerprint && previousFingerprint !== currentFingerprint) {
         throw new Error('Cette ligne a déjà été enregistrée avec d’autres informations. Actualise les dépenses pour vérifier l’enregistrement, puis ajoute une nouvelle ligne si tu souhaites créer une autre dépense.');
       }
       return saved.result;
