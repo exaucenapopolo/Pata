@@ -48,3 +48,20 @@ export function resolveSmsBillChoice(item = {}, choice = {}) {
 
   return { billName, billType, billFrequency, billExpenseCategoryId };
 }
+
+/**
+ * Only bills with a real upcoming/current due date and no payment recorded for
+ * that exact due date can be selected for a detected Mobile Money payment.
+ */
+export function getAvailableSmsBillsForPayment(bills = []) {
+  return (Array.isArray(bills) ? bills : [])
+    .filter((bill) => bill && typeof bill.id === 'string' && bill.id && !bill.id.includes('/')
+      && bill.active !== false
+      && bill.pendingDetails !== true
+      && bill.frequencyPending !== true
+      && /^\d{4}-\d{2}-\d{2}$/.test(String(bill.nextDueDate || ''))
+      && String(bill.lastPaidDueDate || '') !== String(bill.nextDueDate || ''))
+    .slice()
+    .sort((a, b) => String(a.nextDueDate).localeCompare(String(b.nextDueDate))
+      || String(a.name || '').localeCompare(String(b.name || ''), 'fr'));
+}
