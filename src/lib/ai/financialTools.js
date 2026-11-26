@@ -916,6 +916,7 @@ export async function updateExpenseForUser(uid, expenseId, input) {
     const plannedBySource = new Map();
     allocations.forEach(({ income, amount: allocated }) => plannedBySource.set(income.id, (plannedBySource.get(income.id) || 0) + allocated));
     const budgetWarnings = [];
+    const budgetImpact = [];
     for (const doc of budgetSnap.docs) {
       const budget = doc.data();
       if (expenseType !== 'consumption' || budget.categoryId !== categoryId) continue;
@@ -924,22 +925,68 @@ export async function updateExpenseForUser(uid, expenseId, input) {
       if (planned <= 0) continue;
       const alreadySpent = getBudgetSpendAmount(summaryForBudgetCheck, categoryId, budgetSourceId);
       const allocated = Number(budget.amount) || 0;
-      if (allocated > 0 && alreadySpent + planned > allocated) budgetWarnings.push({
-        source: budgetSourceId === 'all' ? 'tous les revenus' : (incomes.find((item) => item.id === budgetSourceId)?.source || 'ce revenu'),
-        allocated, alreadySpent, after: alreadySpent + planned, excess: alreadySpent + planned - allocated,
+      if (allocated <= 0) continue;
+      const spentAfter = alreadySpent + planned;
+      const remaining = allocated - spentAfter;
+      const percentUsed = (spentAfter / allocated) * 100;
+      const status = spentAfter > allocated ? 'over_limit' : percentUsed >= 90 ? 'near_limit' : 'on_track';
+      const sourceName = budgetSourceId === 'all'
+        ? 'Tous les revenus'
+        : (incomes.find((item) => item.id === budgetSourceId)?.source || 'Revenu');
+      budgetImpact.push({
+        budgetId: doc.id,
+        categoryId,
+        incomeSourceId: budgetSourceId,
+        incomeSourceName: sourceName,
+        allocated,
+        alreadySpent,
+        planned,
+        after: spentAfter,
+        remaining,
+        percentUsed: Math.round(percentUsed * 10) / 10,
+        status,
       });
+      if (status !== 'on_track') {
+        budgetWarnings.push({
+          source: sourceName,
+          incomeSourceId: budgetSourceId,
+          allocated,
+          alreadySpent,
+          after: spentAfter,
+          remaining,
+          excess: Math.max(0, spentAfter - allocated),
+          percentUsed: Math.round(percentUsed * 10) / 10,
+          status,
+        });
+      }
     }
     if (budgetWarnings.length && input.confirmBudgetOverrun !== true) {
       // La migration du résumé doit être persistée même lorsque l'utilisateur
-      // doit confirmer le dépassement avant d'enregistrer la modification.
+      // confirme une enveloppe qui approche de sa limite.
       if (newBudgetSpendSummary && (!newBudgetSummarySnap.exists || Number(newBudgetSummarySnap.data()?.version) !== BUDGET_SPEND_SUMMARY_VERSION)) {
         transaction.set(newBudgetSummaryRef, {
           ...newBudgetSpendSummary,
           updatedAt: FieldValue.serverTimestamp(),
         });
       }
-      const details = budgetWarnings.map((item) => `${item.source} : budget ${item.allocated.toLocaleString('fr-FR')} FCFA, après modification ${item.after.toLocaleString('fr-FR')} FCFA (dépassement ${item.excess.toLocaleString('fr-FR')} FCFA`).join(' ; ');
-      return { success: false, confirmationRequired: true, message: `Attention : cette modification ferait dépasser un budget. ${details}. Veux-tu quand même enregistrer la modification ?`, warnings: budgetWarnings, amount, date, categoryId };
+      const details = budgetWarnings.map((item) => item.status === 'over_limit'
+        ? item.source + ' : budget ' + item.allocated.toLocaleString('fr-FR') + ' FCFA, après modification '
+          + item.after.toLocaleString('fr-FR') + ' FCFA (dépassement ' + item.excess.toLocaleString('fr-FR') + ' FCFA)'
+        : item.source + ' : il ne restera que ' + Math.max(0, item.remaining).toLocaleString('fr-FR')
+          + ' FCFA sur ' + item.allocated.toLocaleString('fr-FR') + ' FCFA (' + item.percentUsed + ' % utilisé)')
+        .join(' ; ');
+      return {
+        success: false,
+        confirmationRequired: true,
+        message: budgetWarnings.some((item) => item.status === 'over_limit')
+          ? 'Attention : cette modification dépasserait une enveloppe. ' + details + '. Veux-tu continuer ?'
+          : 'Attention : cette modification approche la limite d’une enveloppe. ' + details + '. Veux-tu continuer ?',
+        warnings: budgetWarnings,
+        budgetImpact,
+        amount,
+        date,
+        categoryId,
+      };
     }
     const first = allocations[0];
     transaction.update(expenseRef, {
@@ -1061,6 +1108,7 @@ export async function updateExpenseForUser(uid, expenseId, input) {
         ...extraRecords,
       ],
       recordsCreated: allocations.length,
+      budgetImpact,
     };
   });
 }
