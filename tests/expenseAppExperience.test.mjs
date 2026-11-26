@@ -307,7 +307,7 @@ test('la saisie multiple traite chaque ligne comme une dépense indépendante et
   const handler = page.slice(start, end);
   assert.match(page, /<Modal open=\{batchModalOpen\}/);
   assert.match(page, /batchExpenseCategories\.map/);
-  assert.match(page, /availableBatchIncomeSources\.map/);
+  assert.match(page, /availableBatchIncomeSources/);
   assert.match(handler, /createExpense\(user\.uid, payload\)/);
   assert.match(handler, /const remainingRows = orderedRows\.slice\(index\)/);
   assert.match(handler, /setBatchRows\(remainingRows\)/);
