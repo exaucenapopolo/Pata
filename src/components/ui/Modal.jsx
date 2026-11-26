@@ -32,7 +32,7 @@ export function Modal({ open, onClose, title, children, className, bodyClassName
     <div
       className={cn(
         'pata-modal-backdrop fixed inset-0 flex bg-slate-950/40 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] backdrop-blur-[2px]',
-        priority ? 'z-[110]' : 'z-50',
+        priority ? 'z-[130]' : 'z-50',
         fullScreen ? 'items-stretch justify-center px-0' : 'items-end justify-center px-0 sm:items-center sm:px-4 sm:py-4'
       )}
       onMouseDown={(event) => { if (event.target === event.currentTarget) onCloseRef.current?.(); }}
