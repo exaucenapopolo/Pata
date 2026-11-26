@@ -818,7 +818,7 @@ export async function POST(request) {
       const withdrawalSourceIncomeId = String(body.withdrawalSourceIncomeId || 'external').trim().slice(0, 150);
       if (!['income', 'expense'].includes(operationType)) return responseError('Type d’opération invalide.', 400);
       if (recordBill && (operationType !== 'expense' || (!useExistingBill && (!createNewBill || !billName)))) return responseError('Choisis une facture existante ou indique le nom de la nouvelle facture.', 400);
-      if (useExistingBill && (selectedBillId.includes('/') || !/^\\d{4}-\\d{2}-\\d{2}$/.test(selectedBillDueDate))) return responseError('La facture ou son échéance est invalide. Actualise la liste des factures.', 400);
+      if (useExistingBill && (selectedBillId.includes('/') || !/^\d{4}-\d{2}-\d{2}$/.test(selectedBillDueDate))) return responseError('La facture ou son échéance est invalide. Actualise la liste des factures.', 400);
       if (repaymentDebtId && repaymentDebtId.includes('/')) return responseError('Identifiant de dette invalide.', 400);
       if (withdrawalSourceIncomeId.includes('/') || incomeSourceId.includes('/')) return responseError('Source de fonds invalide.', 400);
       if (!['external', 'all'].includes(incomeSourceId) && !incomeSourceId) return responseError('Source de revenu invalide.', 400);
