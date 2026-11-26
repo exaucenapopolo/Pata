@@ -497,31 +497,55 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
       plannedBySource.set(income.id, (plannedBySource.get(income.id) || 0) + allocated);
     });
     const warnings = [];
+    const budgetImpact = [];
     const budgetRows = budgetsSnap?.docs?.map((doc) => ({ id: doc.id, ...doc.data() })) || [];
     for (const budget of budgetRows) {
       if (flowType === 'loan_given' || cashWithdrawal || expenseType !== 'consumption' || budget.categoryId !== categoryId) continue;
       const sourceId = budget.incomeSourceId || 'all';
-      const planned = sourceId === 'all'
-        ? amount
-        : (plannedBySource.get(sourceId) || 0);
+      const planned = sourceId === 'all' ? amount : (plannedBySource.get(sourceId) || 0);
       if (planned <= 0) continue;
       const spentBefore = getBudgetSpendAmount(budgetSpendSummary, categoryId, sourceId);
       const limit = Number(budget.amount) || 0;
-      if (limit > 0 && spentBefore + planned > limit) {
+      if (limit <= 0) continue;
+      const spentAfter = spentBefore + planned;
+      const remaining = limit - spentAfter;
+      const percentUsed = (spentAfter / limit) * 100;
+      const status = spentAfter > limit ? 'over_limit' : percentUsed >= 90 ? 'near_limit' : 'on_track';
+      const sourceName = sourceId === 'all'
+        ? 'Tous les revenus'
+        : (incomes.find((income) => income.id === sourceId)?.source || 'Revenu');
+      budgetImpact.push({
+        budgetId: budget.id,
+        categoryId,
+        incomeSourceId: sourceId,
+        incomeSourceName: sourceName,
+        allocated: limit,
+        alreadySpent: spentBefore,
+        planned,
+        after: spentAfter,
+        remaining,
+        percentUsed: Math.round(percentUsed * 10) / 10,
+        status,
+      });
+      if (status !== 'on_track') {
         warnings.push({
           budgetId: budget.id,
           incomeSourceId: sourceId,
+          source: sourceName,
           allocated: limit,
           alreadySpent: spentBefore,
           planned,
-          after: spentBefore + planned,
-          excess: spentBefore + planned - limit,
+          after: spentAfter,
+          remaining,
+          excess: Math.max(0, spentAfter - limit),
+          percentUsed: Math.round(percentUsed * 10) / 10,
+          status,
         });
       }
     }
     if (warnings.length && input.confirmBudgetOverrun !== true && !skipBudgetConfirmation) {
-      // Même si l'utilisateur doit confirmer le dépassement, conserve la
-      // migration mensuelle : sa seconde tentative ne relira pas l'historique.
+      // Même si l'utilisateur doit confirmer la proximité ou le dépassement,
+      // conserve la migration mensuelle pour ne pas relire l'historique.
       if (budgetSpendSummary) {
         transaction.set(budgetSpendSummaryRef, {
           ...budgetSpendSummary,
@@ -529,20 +553,30 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
         });
       }
       const warningText = warnings.map((item) => {
-        const label = item.incomeSourceId === 'all' ? 'tous les revenus' : (incomes.find((income) => income.id === item.incomeSourceId)?.source || 'ce revenu');
-        return `${label} : budget ${item.allocated.toLocaleString('fr-FR')} FCFA, déjà dépensé ${item.alreadySpent.toLocaleString('fr-FR')} FCFA, après cette opération ${item.after.toLocaleString('fr-FR')} FCFA (dépassement ${item.excess.toLocaleString('fr-FR')} FCFA)`;
+        const label = item.source || 'ce revenu';
+        if (item.status === 'over_limit') {
+          return label + ' : budget ' + item.allocated.toLocaleString('fr-FR') + ' FCFA, déjà dépensé '
+            + item.alreadySpent.toLocaleString('fr-FR') + ' FCFA, après cette dépense '
+            + item.after.toLocaleString('fr-FR') + ' FCFA (dépassement '
+            + item.excess.toLocaleString('fr-FR') + ' FCFA)';
+        }
+        return label + ' : il restera seulement ' + Math.max(0, item.remaining).toLocaleString('fr-FR')
+          + ' FCFA sur ' + item.allocated.toLocaleString('fr-FR') + ' FCFA (enveloppe utilisée à '
+          + item.percentUsed + ' %)';
       }).join(' ; ');
       return {
         success: false,
         confirmationRequired: true,
-        message: `Attention : cette dépense dépassera le budget prévu. ${warningText}. Veux-tu quand même l'enregistrer ?`,
+        message: warnings.some((item) => item.status === 'over_limit')
+          ? 'Attention : cette dépense dépasserait au moins une enveloppe. ' + warningText + '. Veux-tu quand même l’enregistrer ?'
+          : 'Attention : cette dépense approche la limite d’une enveloppe. ' + warningText + '. Veux-tu quand même continuer ?',
         warnings,
+        budgetImpact,
         amount,
         date,
         categoryId,
       };
     }
-
     const sharedExpenseId = allocations.length > 1 ? expenseCollection.doc().id : '';
     const created = [];
     allocations.forEach(({ income, amount: allocated }, index) => {
@@ -703,6 +737,7 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
       expenseIds: created.map((item) => item.expenseId),
       expenseId: created[0]?.expenseId || null,
       ...(cashWalletRef ? { cashPocketIncomeId: cashWalletRef.id } : {}),
+      budgetImpact,
       ...(skipBudgetConfirmation && warnings.length ? { budgetWarnings: warnings } : {}),
     };
     if (idempotencyRef) transaction.create(idempotencyRef, { result, fingerprint: String(idempotencyFingerprint || '').slice(0, 64), createdAt: FieldValue.serverTimestamp() });
