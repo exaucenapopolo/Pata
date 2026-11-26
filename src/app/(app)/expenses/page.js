@@ -1020,6 +1020,55 @@ export default function ExpensesPage() {
         </div>
       )}
 
+      {selectionMode && selectedExpenseOperations.length > 0 && (
+        <div className="fixed inset-x-3 bottom-[calc(5.25rem+env(safe-area-inset-bottom))] z-[45] mx-auto max-w-xl">
+          <div className="flex items-center gap-2 rounded-2xl border border-emerald-200 bg-white/95 p-2.5 shadow-[0_12px_36px_rgba(10,45,32,.2)] backdrop-blur">
+            <div className="min-w-0 flex-1 pl-1">
+              <p className="truncate text-xs font-bold text-slate-900">{selectedExpenseOperations.length} dépense{selectedExpenseOperations.length > 1 ? 's' : ''} sélectionnée{selectedExpenseOperations.length > 1 ? 's' : ''}</p>
+              <p className="truncate text-[10px] text-slate-500">{formatCurrency(selectedExpenseTotal)} au total</p>
+            </div>
+            <button type="button" disabled={bulkActionBusy} onClick={handleBulkDelete} className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 text-[11px] font-bold text-rose-700 disabled:opacity-50">
+              <Trash2 size={15}/> Supprimer
+            </button>
+            <button type="button" disabled={bulkActionBusy} onClick={openBulkSourceModal} className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-[#075b43] px-3 text-[11px] font-bold text-white disabled:opacity-50">
+              <Link2 size={15}/> Source
+            </button>
+            <button type="button" disabled={bulkActionBusy} onClick={clearExpenseSelection} aria-label="Annuler la sélection" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-slate-500 hover:bg-slate-100 disabled:opacity-50">
+              <X size={18}/>
+            </button>
+          </div>
+        </div>
+      )}
+
+      <Modal open={bulkSourceOpen} onClose={() => { if (!bulkActionBusy) setBulkSourceOpen(false); }} title="Rattacher les dépenses à un revenu" className="max-w-md">
+        <div className="space-y-4">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs font-semibold text-slate-700">{selectedExpenseOperations.length} opération{selectedExpenseOperations.length > 1 ? 's' : ''} sélectionnée{selectedExpenseOperations.length > 1 ? 's' : ''}</p>
+            <p className="mt-1 text-lg font-extrabold tracking-tight text-slate-900">{formatCurrency(selectedExpenseTotal)}</p>
+            <p className="mt-1 text-[10px] leading-4 text-slate-500">Pata regroupera leurs financements sur une source unique et recalculera les soldes et les budgets de chaque opération.</p>
+          </div>
+          <label className="block text-xs font-semibold text-slate-700">Nouvelle source de revenu
+            <select value={bulkSourceId} onChange={(event) => setBulkSourceId(event.target.value)} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal">
+              <option value="">Choisir un revenu disponible…</option>
+              {bulkSourceOptions.map((income) => (
+                <option key={income.id} value={income.id} disabled={income.adjustedRemaining < selectedExpenseTotal}>
+                  {(income.source || 'Revenu sans nom') + ' · ' + formatCurrency(income.adjustedRemaining) + ' restant'}
+                  {income.adjustedRemaining < selectedExpenseTotal ? ' · solde insuffisant' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          {bulkSourceOptions.length === 0 && <p className="rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900">Aucune source vérifiée ne dispose d’un solde suffisant pour cette sélection.</p>}
+          {bulkSourceId && bulkSourceOptions.find((income) => income.id === bulkSourceId)?.adjustedRemaining < selectedExpenseTotal && <p className="text-xs text-rose-700">Le solde disponible est inférieur au total sélectionné.</p>}
+          <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
+            <Button type="button" variant="outline" disabled={bulkActionBusy} onClick={() => setBulkSourceOpen(false)}>Annuler</Button>
+            <Button type="button" disabled={bulkActionBusy || !bulkSourceId || selectedExpenseTotal > (bulkSourceOptions.find((income) => income.id === bulkSourceId)?.adjustedRemaining || 0)} onClick={handleBulkAssignSource}>
+              <Link2 size={15}/>{bulkActionBusy ? 'Rattachement…' : 'Rattacher les dépenses'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       <Modal open={recoveryChecklistOpen} onClose={() => setRecoveryChecklistOpen(false)} title="Vérifier les dépenses oubliées">
         <div className="space-y-4">
           <p className="text-sm text-slate-600">Parcours ces quatre points. Coche seulement ce que tu as vérifié ; Pata ne crée aucune opération automatiquement.</p>
