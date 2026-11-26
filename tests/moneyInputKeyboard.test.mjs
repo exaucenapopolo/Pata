@@ -48,6 +48,21 @@ test('preserves fields that were already read-only', () => {
   assert.equal(input.getAttribute('inputmode'), 'numeric');
 });
 
+
+test('the multiple-expense form gives Android amounts to the custom keypad and avoids nested scrolling', () => {
+  const page = fs.readFileSync('src/app/(app)/expenses/page.js', 'utf8');
+  const start = page.indexOf('<Modal open={batchModalOpen}');
+  const end = page.indexOf('<Modal open={bulkSourceOpen}', start);
+  assert.ok(start >= 0 && end > start);
+  const batchModal = page.slice(start, end);
+  assert.match(batchModal, /type="text" inputMode="numeric" data-pata-money="true"/);
+  assert.doesNotMatch(batchModal, /type="number"[^>]*inputMode="numeric"/);
+  assert.doesNotMatch(batchModal, /max-h-\[55vh\].*overflow-y-auto/);
+  const keypad = fs.readFileSync('src/components/layout/MoneyKeypad.jsx', 'utf8');
+  assert.match(keypad, /input\.dataset\.pataMoney === 'true'/);
+  assert.match(keypad, /host\.scrollBy\(\{ top: scrollOffset, behavior: 'auto' \}\)/);
+});
+
 test('keeps keypad taps clickable and routes each key into the expression state', () => {
   const component = fs.readFileSync('src/components/layout/MoneyKeypad.jsx', 'utf8');
   const pointerHandler = component.match(/const handlePointerDown = \(event\) => \{([\s\S]*?)\n    \};/);
