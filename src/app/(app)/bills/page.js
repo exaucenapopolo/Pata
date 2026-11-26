@@ -337,6 +337,17 @@ export default function BillsPage() {
   const confirmPayment = async (event) => {
     event.preventDefault();
     if (!payingBill) return;
+    if (paymentForm.paymentSource === 'tracked' && !balancesReady) {
+      setFeedback(t('Pata vérifie encore les soldes des revenus. Réessaie dans un instant.'));
+      setFeedbackError(true);
+      return;
+    }
+    if (paymentForm.paymentSource === 'tracked' && paymentForm.incomeSourceId !== 'all'
+      && !availableBillIncomeSources.some((income) => income.id === paymentForm.incomeSourceId)) {
+      setFeedback(t('Cette source ne dispose plus d’un solde disponible. Choisis une autre source.'));
+      setFeedbackError(true);
+      return;
+    }
     setSaving(true);
     setFeedback('');
     const payload = {
@@ -603,7 +614,7 @@ export default function BillsPage() {
           </>}
           <div className="flex flex-wrap justify-end gap-2 pt-2">
             <Button type="button" variant="outline" onClick={() => setPayingBill(null)}>Annuler</Button>
-            <Button type="submit" disabled={saving}>{saving ? 'Enregistrement…' : 'Confirmer le paiement'}</Button>
+            <Button type="submit" disabled={saving || (paymentForm.paymentSource === 'tracked' && (!balancesReady || availableBillIncomeSources.length === 0))}>{saving ? 'Enregistrement…' : 'Confirmer le paiement'}</Button>
           </div>
         </form>}
       </Modal>
