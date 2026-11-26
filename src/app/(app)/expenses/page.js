@@ -17,7 +17,7 @@ import { useProfile } from '@/hooks/useProfile';
 import { useProjects } from '@/hooks/useProjects';
 import { createProject, updateProject, deleteProject } from '@/lib/firestore/projects';
 import { useExpenses } from '@/hooks/useExpenses';
-import { countExpenseOperations, getExpenseOperationKeys } from '@/lib/finance/expenseOperations.mjs';
+import { countExpenseOperations, getExpenseOperationKeys, sortExpenseOperationsForSourceReassignment } from '@/lib/finance/expenseOperations.mjs';
 import { useIncomes } from '@/hooks/useIncomes';
 import { getAvailableIncomeSources } from '@/lib/finance/availableIncomeSources.mjs';
 import { useDebts } from '@/hooks/useDebts';
@@ -380,7 +380,8 @@ export default function ExpensesPage() {
     });
     return sortedIncomesForSelect
       .filter((income) => income.balanceAvailable
-        && (!income.neutralFlow || (income.flowType === 'debt_borrowed' && income.availableAsFunding === true)))
+        && (!income.neutralFlow || (income.flowType === 'debt_borrowed' && income.availableAsFunding === true))
+        && selectedExpenseOperations.every((operation) => !income.projectId || income.projectId === (operation.root.projectId || '')))
       .map((income) => ({
         ...income,
         adjustedRemaining: Math.max(0, Number(income.remaining) || 0) + (usedBySelection.get(income.id) || 0),
@@ -730,7 +731,9 @@ export default function ExpensesPage() {
     let updated = 0;
     let firstError = '';
     try {
-      for (const operation of selectedExpenseOperations) {
+      const orderedOperations = sortExpenseOperationsForSourceReassignment(selectedExpenseOperations, selectedSource.id);
+      const completedKeys = new Set();
+      for (const operation of orderedOperations) {
         try {
           const payload = {
             amount: operation.amount,
@@ -751,6 +754,7 @@ export default function ExpensesPage() {
           }
           if (!result?.success) throw new Error(result?.error || 'Impossible de modifier la source de cette dépense.');
           updated += 1;
+          completedKeys.add(operation.key);
         } catch (error) {
           failedKeys.push(operation.key);
           firstError = firstError || error.message || 'Rattachement impossible.';
@@ -759,7 +763,6 @@ export default function ExpensesPage() {
       }
       setBulkSourceOpen(false);
       if (failedKeys.length) {
-        const completedKeys = new Set(selectedExpenseOperations.slice(0, updated).map((operation) => operation.key));
         const remainingKeys = selectedExpenseOperations
           .filter((operation) => !completedKeys.has(operation.key))
           .map((operation) => operation.key);
