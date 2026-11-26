@@ -462,13 +462,6 @@ export default function IncomePage() {
 
   const vitalNeeds = useMemo(() => profile?.vitalNeeds || {}, [profile?.vitalNeeds]);
   const allCategories = useMemo(() => {
-    const defaults = EXPENSE_CATEGORIES.filter((category) => category.id !== 'loan_given').map(c => ({...c, isCustom: false}));
-    const customs = customCategories.map(c => ({...c, isCustom: true, label: c.name}));
-    return [...defaults, ...customs];
-  }, [customCategories]);
-
-  const vitalNeeds = useMemo(() => profile?.vitalNeeds || {}, [profile?.vitalNeeds]);
-  const allCategories = useMemo(() => {
     const defaults = EXPENSE_CATEGORIES.filter((category) => category.id !== 'loan_given').map(c => ({ ...c, isCustom: false }));
     const customs = customCategories.map(c => ({ ...c, isCustom: true, label: c.name }));
     return [...defaults, ...customs];
@@ -510,35 +503,6 @@ export default function IncomePage() {
     && draftVitalPlan.valid;
   const isSavedOverBudget = Number(profile?.vitalTotalBudget) > 0 && savedTotalVital > Number(profile?.vitalTotalBudget);
   const isDraftOverBudget = Number(totalBudget) > 0 && draftTotalVital > Number(totalBudget);
-
-  // 🟢 Calcul du total des prévisions ENREGISTRÉES
-  const savedTotalVital = useMemo(() => {
-    let total = 0;
-    allCategories.forEach(cat => {
-      const need = vitalNeeds[cat.id];
-      if (need && need.amount && need.frequency) {
-        const freq = FREQUENCIES.find(f => f.id === need.frequency);
-        total += (need.amount || 0) * (freq ? freq.multiplier : 1);
-      }
-    });
-    return total;
-  }, [vitalNeeds, allCategories]);
-
-  // 🟢 Calcul du total des prévisions EN COURS DE SAISIE (Temps réel dans la modale)
-  const draftTotalVital = useMemo(() => {
-    let total = 0;
-    allCategories.forEach(cat => {
-      const val = vitalForm[cat.id];
-      if (val && val.amount && Number(val.amount) > 0) {
-        const freq = FREQUENCIES.find(f => f.id === val.frequency);
-        total += (Number(val.amount) || 0) * (freq ? freq.multiplier : 1);
-      }
-    });
-    return total;
-  }, [vitalForm, allCategories]);
-
-  const isSavedOverBudget = totalBudget && savedTotalVital > Number(totalBudget);
-  const isDraftOverBudget = totalBudget && draftTotalVital > Number(totalBudget);
 
   const openVitalModal = () => {
     const initial = {};
