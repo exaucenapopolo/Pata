@@ -148,6 +148,7 @@ export default function ExpensesPage() {
   const [bulkDate, setBulkDate] = useState('');
   const [bulkDateBusy, setBulkDateBusy] = useState(false);
   const [bulkDateError, setBulkDateError] = useState('');
+  const [bulkSourceError, setBulkSourceError] = useState('');
   const [batchModalOpen, setBatchModalOpen] = useState(false);
   const [batchMode, setBatchMode] = useState('create');
   const [batchRows, setBatchRows] = useState(() => [createExpenseBatchDraftRow('batch-1', todayIso())]);
@@ -744,7 +745,7 @@ export default function ExpensesPage() {
         return;
       }
       const parsedDate = new Date(String(row.date || '') + 'T00:00:00.000Z');
-      if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(String(row.date || ''))
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(row.date || ''))
         || Number.isNaN(parsedDate.getTime())
         || parsedDate.toISOString().slice(0, 10) !== row.date) {
         setBatchError('Dépense ' + (index + 1) + ' : date invalide.');
@@ -754,7 +755,7 @@ export default function ExpensesPage() {
         setBatchError('Dépense ' + (index + 1) + ' : choisis une nature de dépense valide.');
         return;
       }
-      if (row.expenseType === 'project' && (!isPremium || !row.projectId || !projects.some((project) => project.id === row.projectId && project.status === 'active'))) {
+      if (row.expenseType === 'project' && (!isPremium || !row.projectId || !projects.some((project) => project.id === row.projectId && !['completed', 'archived'].includes(project.status)))) {
         setBatchError('Dépense ' + (index + 1) + ' : sélectionne un projet actif avec un compte Premium.');
         return;
       }
@@ -1124,16 +1125,22 @@ export default function ExpensesPage() {
   const openBulkSourceModal = () => {
     if (!selectedExpenseOperations.length) return;
     setBulkSourceId('');
+    setBulkSourceError('');
     setBulkSourceOpen(true);
   };
 
   const handleBulkAssignSource = async () => {
     const selectedSource = bulkSourceOptions.find((income) => income.id === bulkSourceId);
     if (!selectedSource || !selectedExpenseOperations.length) return;
-    if (selectedExpenseTotal > selectedSource.adjustedRemaining) {
-      setError('Cette source ne dispose pas d’un solde suffisant pour toutes les dépenses sélectionnées.');
+    if (bulkSourceAlreadyUnified && selectedSource.id === selectedFundingSources[0]?.id) {
+      setBulkSourceError('Toutes les dépenses sélectionnées sont déjà rattachées à cette source. Choisis un autre revenu pour effectuer un véritable regroupement.');
       return;
     }
+    if (selectedExpenseTotal > selectedSource.adjustedRemaining) {
+      setBulkSourceError('Cette source ne dispose pas d’un solde suffisant pour toutes les dépenses sélectionnées.');
+      return;
+    }
+    setBulkSourceError('');
 
     setBulkActionBusy(true);
     try {
@@ -1548,9 +1555,11 @@ export default function ExpensesPage() {
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <button type="button" disabled={batchSaving || batchRows.length >= 30} onClick={addBatchRow} className="inline-flex h-10 items-center gap-2 rounded-xl border border-dashed border-emerald-400 bg-emerald-50 px-3 text-xs font-bold text-emerald-800 disabled:opacity-40">
-              <Plus size={15}/> Ajouter une dépense
-            </button>
+            {batchMode === 'create' && (
+              <button type="button" disabled={batchSaving || batchRows.length >= 30} onClick={addBatchRow} className="inline-flex h-10 items-center gap-2 rounded-xl border border-dashed border-emerald-400 bg-emerald-50 px-3 text-xs font-bold text-emerald-800 disabled:opacity-40">
+                <Plus size={15}/> Ajouter une dépense
+              </button>
+            )}
             <div className="text-right">
               <p className="text-[10px] font-medium text-slate-500">{batchRows.length} ligne(s)</p>
               <p className="text-sm font-extrabold tabular-nums text-slate-900">{formatCurrency(getExpenseBatchTotal(batchRows))}</p>
@@ -1607,6 +1616,7 @@ export default function ExpensesPage() {
           </label>
           {bulkDestinationSourceOptions.length === 0 && <p className="rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900">{bulkSourceAlreadyUnified ? 'Toutes les dépenses utilisent déjà la même source. Aucune fusion n’est nécessaire.' : 'Aucune autre source vérifiée ne dispose d’un solde suffisant pour cette sélection.'}</p>}
           {bulkSourceId && bulkSourceOptions.find((income) => income.id === bulkSourceId)?.adjustedRemaining < selectedExpenseTotal && <p className="text-xs text-rose-700">Le solde disponible est inférieur au total sélectionné.</p>}
+          {bulkSourceError && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-xs leading-5 text-rose-800">{bulkSourceError}</p>}
           <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
             <Button type="button" variant="outline" disabled={bulkActionBusy} onClick={() => setBulkSourceOpen(false)}>Annuler</Button>
             <Button type="button" disabled={bulkActionBusy || !bulkSourceId || (bulkSourceAlreadyUnified && bulkSourceId === selectedFundingSources[0]?.id) || selectedExpenseTotal > (bulkDestinationSourceOptions.find((income) => income.id === bulkSourceId)?.adjustedRemaining || 0)} onClick={handleBulkAssignSource}>
