@@ -90,7 +90,7 @@ test('les écrans financiers et les composants principaux utilisent les dialogue
     'src/components/legal/LegalSummaryButton.jsx',
     'src/components/ui/CategoryManager.jsx',
   ];
-  const nativePopup = /(?:window\\.)?(?:alert|confirm|prompt)\\s*\\(/;
+  const nativePopup = /(?:window\.)?(?:alert|confirm|prompt)\s*\(/;
   for (const file of files) {
     const content = read(file);
     assert.doesNotMatch(content, nativePopup, file + ' must not use browser alert/confirm/prompt');
