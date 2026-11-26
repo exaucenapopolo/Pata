@@ -232,3 +232,32 @@ test('la saisie multiple enregistre chaque ligne par createExpense avec sa propr
   assert.match(page, /const orderedRows = \[/);
   assert.match(page, /const remainingRows = orderedRows\.slice\(index\)/);
 });
+
+test('un nouvel appui réinitialise le clic supprimé après un long press Android, même en mode sélection', () => {
+  const page = read('src/app/(app)/expenses/page.js');
+  const start = page.indexOf('const startExpenseLongPress =');
+  const end = page.indexOf('const moveExpenseLongPress =', start);
+  assert.ok(start >= 0 && end > start);
+  const handler = page.slice(start, end);
+  assert.match(handler, /longPressTriggeredRef\.current = false;\s*if \(selectionMode/);
+  assert.match(handler, /if \(selectionMode \|\| !isBulkSelectableExpense/);
+  assert.match(page, /if \(selectionMode\) \{\s*toggleExpenseSelection\(expense\)/);
+});
+
+test('les dialogues Pata et la fenêtre de changement de source passent au-dessus de la barre de sélection', () => {
+  const dialog = read('src/components/ui/AppDialog.jsx');
+  const modal = read('src/components/ui/Modal.jsx');
+  const page = read('src/app/(app)/expenses/page.js');
+  assert.match(dialog, /<Modal open=\{open\}[^>]*priority/);
+  assert.match(page, /<Modal open=\{bulkSourceOpen\} priority/);
+  assert.match(modal, /priority \? 'z-\[110\]' : 'z-50'/);
+  assert.match(page, /z-\[90\]/);
+});
+
+test('la sélection dispose des commandes, même avant la première dépense cochée', () => {
+  const page = read('src/app/(app)/expenses/page.js');
+  assert.match(page, /Mode sélection activé/);
+  assert.match(page, /onClick=\{clearExpenseSelection\}/);
+  assert.match(page, /onClick=\{handleBulkDelete\}/);
+  assert.match(page, /onClick=\{openBulkSourceModal\}/);
+});
