@@ -26,6 +26,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+      - name: Tester les soldes disponibles et le tableau de bord
+        run: node --test tests/incomeBalances.test.mjs tests/dashboard-income-balance.test.mjs
       - name: Installer les dépendances
         run: npm install --no-audit --no-fund
       - name: Tester les notifications et leurs quotas existants
@@ -34,8 +36,6 @@ jobs:
         run: npm run test:quick-capture
       - name: Tester les sources de revenus disponibles dans Quick Capture
         run: npm run test:available-income-sources
-      - name: Tester les soldes disponibles et le tableau de bord
-        run: node --test tests/incomeBalances.test.mjs tests/dashboard-income-balance.test.mjs
       - name: Tester la sélection multiple et la comptabilité des dépenses
         run: npm run test:expense-app-experience
       - name: Tester le clavier de montant Android et la restauration des champs
