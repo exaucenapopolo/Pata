@@ -1050,8 +1050,10 @@ export async function updateExpenseOperationsDateForUser(uid, expenseIds, date, 
   const targetDate = cleanText(date, 10);
   if (!ids.length) throw new Error('Sélectionne au moins une dépense.');
   if (ids.length > 50) throw new Error('Tu peux modifier la date de 50 opérations au maximum à la fois.');
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(targetDate)
-    || new Date(targetDate + 'T00:00:00.000Z').toISOString().slice(0, 10) !== targetDate) {
+  const parsedTargetDate = new Date(targetDate + 'T00:00:00.000Z');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)
+    || Number.isNaN(parsedTargetDate.getTime())
+    || parsedTargetDate.toISOString().slice(0, 10) !== targetDate) {
     throw new Error('Date invalide. Choisis une date réelle au format AAAA-MM-JJ.');
   }
 
@@ -1121,7 +1123,7 @@ export async function updateExpenseOperationsDateForUser(uid, expenseIds, date, 
     const touchedMonths = [...new Set(budgetOperations.flatMap((operation) => [
       operation.previousDate.slice(0, 7),
       targetDate.slice(0, 7),
-    ]).filter((month) => /^\\d{4}-\\d{2}$/.test(month)))];
+    ]).filter((month) => /^\d{4}-\d{2}$/.test(month)))];
     const monthData = new Map();
 
     // Read all summaries, budget definitions and any required migration rows
