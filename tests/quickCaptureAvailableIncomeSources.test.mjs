@@ -46,5 +46,5 @@ test('le paiement d’une facture propose les revenus suivis avec leur solde res
   assert.match(billsPage, /availableBillIncomeSources\.map/);
   assert.match(billsPage, /Number\(income\.remaining \|\| 0\)\.toLocaleString\('fr-FR'\) \+ ' FCFA restant'/);
   assert.match(billsApi, /incomeSourceId: paymentSource === 'tracked' \? trackedIncomeSourceId : 'all'/);
-  assert.match(billsApi, /trackedIncomeSourceId\.includes\('\\/'\)/);
+  assert.ok(billsApi.includes("trackedIncomeSourceId.includes('/')"));
 });
