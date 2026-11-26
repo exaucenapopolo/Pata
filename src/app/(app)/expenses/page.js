@@ -960,6 +960,18 @@ export default function ExpensesPage() {
         <h1 className="pata-page-title text-2xl font-bold text-slate-900">Dépenses</h1>
         <div className="flex flex-wrap items-center gap-2">
           <AssistantShortcut label="Analyser mes dépenses" prompt="Analyse mes dépenses enregistrées dans Pata. Mets en évidence les catégories qui pèsent le plus, les évolutions utiles et les pistes réalistes pour mieux gérer mon argent. Ne modifie aucune opération sans me demander confirmation." promptEn="Analyze my recorded expenses in Pata. Highlight the categories that cost me the most, useful spending trends and realistic ways to manage my money better. Do not change any transaction without asking for my confirmation." />
+          {selectionMode ? (
+            <Button type="button" variant="outline" onClick={clearExpenseSelection} className="shadow-sm">
+              <X size={15}/> Terminer la sélection
+            </Button>
+          ) : (
+            <Button type="button" variant="outline" onClick={() => setSelectionMode(true)} className="shadow-sm">
+              <CheckSquare size={15}/> Sélectionner
+            </Button>
+          )}
+          <Button type="button" variant="outline" onClick={openBatchEntry} disabled={expenseQuotaReached} className="shadow-sm">
+            <ListPlus size={16}/> Saisie multiple
+          </Button>
           <Button onClick={openNew} data-pata-tour="expense-create" className="shadow-sm">
             <Plus size={16} /> Nouvelle dépense
           </Button>
@@ -1087,14 +1099,15 @@ export default function ExpensesPage() {
         <div className="space-y-4">
           {grouped.map(([date, items]) => (
             <div key={date} className="rounded-2xl border border-slate-200 bg-white">
-              <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-2.5 bg-slate-50/50 rounded-t-2xl">
+              <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2.5 bg-slate-50/50 rounded-t-2xl sm:px-4">
                 <div className="flex min-w-0 items-center gap-2">
-                  {selectionMode && (() => {
-                    const dayKeys = [...new Set(items.filter(isBulkSelectableExpense).map((expense) => expenseOperationKeyById.get(expense.id) || expense.id))];
-                    const allSelected = dayKeys.length > 0 && dayKeys.every((key) => selectedExpenseKeys.includes(key));
-                    return <button type="button" onClick={() => toggleExpenseDaySelection(items)} disabled={!dayKeys.length} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] font-semibold text-emerald-800 hover:bg-emerald-50 disabled:opacity-40" aria-label={'Sélectionner les dépenses du ' + date}>
+                  {(() => {
+                    const dayKeys = getSelectableExpenseDayKeys(items, expenseOperationKeyById, isBulkSelectableExpense);
+                    const selectedCount = dayKeys.filter((key) => selectedExpenseKeys.includes(key)).length;
+                    const allSelected = dayKeys.length > 0 && selectedCount === dayKeys.length;
+                    return <button type="button" onClick={() => toggleExpenseDaySelection(items)} disabled={!dayKeys.length || bulkActionBusy} className={'inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1.5 text-[10px] font-semibold transition disabled:opacity-40 ' + (allSelected ? 'border-emerald-200 bg-emerald-100 text-emerald-900' : 'border-slate-200 bg-white text-slate-600 hover:border-emerald-300 hover:text-emerald-800')} aria-label={(allSelected ? 'Désélectionner' : 'Sélectionner') + ' les dépenses du ' + date}>
                       {allSelected ? <CheckSquare size={16}/> : <Square size={16}/>}
-                      Journée
+                      {allSelected ? 'Journée cochée' : 'Sélectionner la journée'}
                     </button>;
                   })()}
                   <p className="truncate text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -1111,14 +1124,18 @@ export default function ExpensesPage() {
                   return (
                     <li
                       key={e.id}
-                      onPointerDown={(event) => startExpenseLongPress(event, e)}
-                      onPointerUp={endExpenseLongPress}
-                      onPointerLeave={endExpenseLongPress}
-                      onPointerCancel={endExpenseLongPress}
-                      onContextMenu={(event) => { if (isBulkSelectableExpense(e)) event.preventDefault(); }}
                       className={'flex items-center gap-2 px-3 py-2.5 sm:px-4 ' + (selectionMode && isBulkSelectableExpense(e) ? 'bg-emerald-50/40' : '')}
                     >
-                      <button type="button" aria-pressed={selectionMode && selectedExpenseKeys.includes(expenseOperationKeyById.get(e.id) || e.id)} onClick={() => handleExpenseRowClick(e)} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-1 py-1 text-left transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-200">
+                      <button
+                        type="button"
+                        aria-pressed={selectionMode && selectedExpenseKeys.includes(expenseOperationKeyById.get(e.id) || e.id)}
+                        onClick={() => handleExpenseRowClick(e)}
+                        onPointerDown={(event) => startExpenseLongPress(event, e)}
+                        onPointerMove={moveExpenseLongPress}
+                        onPointerUp={endExpenseLongPress}
+                        onPointerCancel={endExpenseLongPress}
+                        onContextMenu={(event) => { if (isBulkSelectableExpense(e)) event.preventDefault(); }}
+                        className="flex min-w-0 flex-1 touch-pan-y select-none items-center gap-3 rounded-xl px-1 py-1 text-left transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-200">
                         {selectionMode && isBulkSelectableExpense(e)
                           ? <span className={'grid h-10 w-10 shrink-0 place-items-center rounded-xl border ' + (selectedExpenseKeys.includes(expenseOperationKeyById.get(e.id) || e.id) ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white text-slate-400')}>
                               {selectedExpenseKeys.includes(expenseOperationKeyById.get(e.id) || e.id) ? <Check size={18}/> : <Square size={18}/>}
@@ -1152,25 +1169,98 @@ export default function ExpensesPage() {
         </div>
       )}
 
-      {selectionMode && selectedExpenseOperations.length > 0 && (
-        <div className="fixed inset-x-3 bottom-[calc(5.25rem+env(safe-area-inset-bottom))] z-[45] mx-auto max-w-xl">
-          <div className="flex items-center gap-2 rounded-2xl border border-emerald-200 bg-white/95 p-2.5 shadow-[0_12px_36px_rgba(10,45,32,.2)] backdrop-blur">
+      {selectionMode && (
+        <div className="pointer-events-none fixed inset-x-2 bottom-[calc(5.75rem+env(safe-area-inset-bottom))] z-[90] mx-auto max-w-xl sm:inset-x-4">
+          <div className="pointer-events-auto flex items-center gap-2 rounded-2xl border border-emerald-200 bg-white p-2.5 shadow-[0_16px_42px_rgba(10,45,32,.28)]">
             <div className="min-w-0 flex-1 pl-1">
-              <p className="truncate text-xs font-bold text-slate-900">{selectedExpenseOperations.length} dépense{selectedExpenseOperations.length > 1 ? 's' : ''} sélectionnée{selectedExpenseOperations.length > 1 ? 's' : ''}</p>
-              <p className="truncate text-[10px] text-slate-500">{formatCurrency(selectedExpenseTotal)} au total</p>
+              {selectedExpenseOperations.length > 0 ? (
+                <>
+                  <p className="truncate text-xs font-bold text-slate-900">{selectedExpenseOperations.length} opération{selectedExpenseOperations.length > 1 ? 's' : ''} sélectionnée{selectedExpenseOperations.length > 1 ? 's' : ''}</p>
+                  <p className="truncate text-[10px] font-semibold text-slate-500">{formatCurrency(selectedExpenseTotal)} au total</p>
+                </>
+              ) : (
+                <>
+                  <p className="truncate text-xs font-bold text-slate-900">Mode sélection activé</p>
+                  <p className="truncate text-[10px] text-slate-500">Coche une dépense ou toute une journée.</p>
+                </>
+              )}
             </div>
-            <button type="button" disabled={bulkActionBusy} onClick={handleBulkDelete} className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 text-[11px] font-bold text-rose-700 disabled:opacity-50">
+            <button type="button" disabled={bulkActionBusy || selectedExpenseOperations.length === 0} onClick={handleBulkDelete} className="inline-flex h-10 shrink-0 items-center gap-1 rounded-xl border border-rose-200 bg-rose-50 px-2.5 text-[11px] font-bold text-rose-700 disabled:opacity-40 sm:gap-1.5 sm:px-3">
               <Trash2 size={15}/> Supprimer
             </button>
-            <button type="button" disabled={bulkActionBusy} onClick={openBulkSourceModal} className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-[#075b43] px-3 text-[11px] font-bold text-white disabled:opacity-50">
-              <Link2 size={15}/> Source
+            <button type="button" disabled={bulkActionBusy || selectedExpenseOperations.length === 0 || bulkSourceOptions.length === 0} onClick={openBulkSourceModal} className="inline-flex h-10 shrink-0 items-center gap-1 rounded-xl bg-[#075b43] px-2.5 text-[11px] font-bold text-white disabled:opacity-40 sm:gap-1.5 sm:px-3">
+              <Link2 size={15}/> Changer source
             </button>
-            <button type="button" disabled={bulkActionBusy} onClick={clearExpenseSelection} aria-label="Annuler la sélection" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-slate-500 hover:bg-slate-100 disabled:opacity-50">
+            <button type="button" disabled={bulkActionBusy} onClick={clearExpenseSelection} aria-label="Terminer la sélection" className="grid h-10 w-9 shrink-0 place-items-center rounded-xl text-slate-500 hover:bg-slate-100 disabled:opacity-50">
               <X size={18}/>
             </button>
           </div>
         </div>
       )}
+
+      <Modal open={batchModalOpen} onClose={() => { if (!batchSaving) setBatchModalOpen(false); }} title="Saisir plusieurs dépenses" className="max-w-3xl">
+        <div className="space-y-4">
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
+            <p className="text-sm font-semibold text-emerald-950">Une ligne = une dépense indépendante</p>
+            <p className="mt-1 text-xs leading-5 text-emerald-900">Pour chaque ligne, choisis son montant, sa catégorie, sa date et son revenu. Pata enregistrera chaque dépense séparément et mettra à jour les soldes au fur et à mesure.</p>
+            <p className="mt-2 text-[11px] font-semibold text-emerald-900">{balancesReady ? 'Revenus disponibles : ' + formatCurrency(availableBatchIncomeSources.reduce((sum, income) => sum + (Number(income.remaining) || 0), 0)) : 'Vérification des soldes en cours…'}</p>
+          </div>
+
+          <div className="max-h-[55vh] space-y-3 overflow-y-auto pr-1">
+            {batchRows.map((row, index) => (
+              <section key={row.id} className="rounded-2xl border border-slate-200 bg-white p-3 sm:p-4">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-700">Dépense {index + 1}</p>
+                  <button type="button" disabled={batchSaving} onClick={() => removeBatchRow(row.id)} className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-40">
+                    <MinusCircle size={14}/> Retirer
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="block text-xs font-semibold text-slate-700">Montant (FCFA)
+                    <input type="number" min="1" step="1" inputMode="numeric" value={row.amount} onChange={(event) => updateBatchRow(row.id, { amount: event.target.value })} disabled={batchSaving} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"/>
+                  </label>
+                  <label className="block text-xs font-semibold text-slate-700">Catégorie
+                    <select value={row.categoryId} onChange={(event) => updateBatchRow(row.id, { categoryId: event.target.value })} disabled={batchSaving} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal">
+                      {batchExpenseCategories.map((category) => <option key={category.id} value={category.id}>{category.label || category.name}</option>)}
+                    </select>
+                  </label>
+                  <label className="block text-xs font-semibold text-slate-700">Source de revenu
+                    <select value={row.incomeSourceId || 'all'} onChange={(event) => updateBatchRow(row.id, { incomeSourceId: event.target.value })} disabled={batchSaving || !balancesReady} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal disabled:bg-slate-50">
+                      <option value="all">Toutes les sources disponibles</option>
+                      {availableBatchIncomeSources.map((income) => <option key={income.id} value={income.id}>{income.cashPocket ? 'Espèces · ' + (income.cashPocketProvider === 'mtn_momo' ? 'MTN MoMo' : 'Orange Money') : income.flowType === 'debt_borrowed' ? 'Emprunt reçu · ' + (income.source || income.person || 'Créancier') : income.source} · {formatCurrency(income.remaining)} restant</option>)}
+                    </select>
+                  </label>
+                  <label className="block text-xs font-semibold text-slate-700">Date
+                    <input type="date" value={row.date} onChange={(event) => updateBatchRow(row.id, { date: event.target.value })} disabled={batchSaving} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal"/>
+                  </label>
+                  <label className="block text-xs font-semibold text-slate-700 sm:col-span-2">Note ou précision (facultatif)
+                    <input type="text" maxLength={250} value={row.note} onChange={(event) => updateBatchRow(row.id, { note: event.target.value })} disabled={batchSaving} placeholder="Ex. Achat au marché, taxi, pain…" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal"/>
+                  </label>
+                </div>
+              </section>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <button type="button" disabled={batchSaving || batchRows.length >= 30} onClick={addBatchRow} className="inline-flex h-10 items-center gap-2 rounded-xl border border-dashed border-emerald-400 bg-emerald-50 px-3 text-xs font-bold text-emerald-800 disabled:opacity-40">
+              <Plus size={15}/> Ajouter une dépense
+            </button>
+            <div className="text-right">
+              <p className="text-[10px] font-medium text-slate-500">{batchRows.length} ligne(s)</p>
+              <p className="text-sm font-extrabold tabular-nums text-slate-900">{formatCurrency(getExpenseBatchTotal(batchRows))}</p>
+            </div>
+          </div>
+          {batchError && <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">{batchError}</p>}
+          {!balancesReady && <p className="text-xs text-slate-500">Pata vérifie les revenus disponibles. L’enregistrement sera activé dès que les soldes seront fiables.</p>}
+          {expenseQuotaReached && <p className="text-xs font-medium text-amber-800">La limite mensuelle de dépenses du compte gratuit est atteinte.</p>}
+          <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-3">
+            <Button type="button" variant="outline" disabled={batchSaving} onClick={() => setBatchModalOpen(false)}>Fermer</Button>
+            <Button type="button" disabled={batchSaving || !balancesReady || expenseQuotaReached || batchRows.length === 0} onClick={submitExpenseBatch}>
+              <ListPlus size={15}/>{batchSaving ? 'Enregistrement…' : 'Enregistrer les ' + batchRows.length + ' dépenses'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal open={bulkSourceOpen} onClose={() => { if (!bulkActionBusy) setBulkSourceOpen(false); }} title="Rattacher les dépenses à un revenu" className="max-w-md">
         <div className="space-y-4">
