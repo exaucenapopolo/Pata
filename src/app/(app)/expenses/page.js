@@ -336,7 +336,6 @@ export default function ExpensesPage() {
   useEffect(() => {
     if (selectedExpenseKeys.length === 0) {
       setSelectionMode(false);
-      setBulkOptionsOpen(false);
     }
   }, [selectedExpenseKeys.length]);
 
