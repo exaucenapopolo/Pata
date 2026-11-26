@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, Camera, Check, Clock3, FileText, ImagePlus, Loader2, Pencil, Plus, Receipt, Trash2 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/context/LanguageContext';
@@ -12,7 +12,10 @@ import { subscribeBills, createBill, updateBill, deactivateBill, payBill } from 
 import { CloudinaryImageField } from '@/components/ui/CloudinaryImageField';
 import { uploadBillImage } from '@/lib/bills/uploadBillImage.mjs';
 import { NextBestAction } from '@/components/NextBestAction';
+import { AppDialog } from '@/components/ui/AppDialog';
 import { usePersistentPageState } from '@/hooks/usePersistentPageState';
+import { useIncomes } from '@/hooks/useIncomes';
+import { getAvailableIncomeSources, getAvailableIncomeTotal } from '@/lib/finance/availableIncomeSources.mjs';
 
 const BILL_TYPES = [
   ['electricity', 'Électricité'],
@@ -91,6 +94,9 @@ function monthlyEquivalent(bill) {
 
 export default function BillsPage() {
   const { user } = useAuth();
+  const { incomes, balancesReady } = useIncomes();
+  const availableBillIncomeSources = useMemo(() => getAvailableIncomeSources(incomes), [incomes]);
+  const availableBillIncomeTotal = useMemo(() => getAvailableIncomeTotal(availableBillIncomeSources), [availableBillIncomeSources]);
   const { language } = useLanguage();
   const isEnglish = language === 'en';
   const t = (value) => translateText(value, language);
@@ -103,7 +109,9 @@ export default function BillsPage() {
   const [form, setForm] = usePersistentPageState('bills', 'form', makeEmptyBill(), user?.uid);
   const [payingBill, setPayingBill] = usePersistentPageState('bills', 'payingBill', null, user?.uid);
   const [viewingBill, setViewingBill] = usePersistentPageState('bills', 'viewingBill', null, user?.uid);
-  const [paymentForm, setPaymentForm] = usePersistentPageState('bills', 'paymentForm', { amount: '', paidDate: todayIso(), paymentSource: 'cash' }, user?.uid);
+  const [paymentForm, setPaymentForm] = usePersistentPageState('bills', 'paymentForm', { amount: '', paidDate: todayIso(), paymentSource: 'cash', incomeSourceId: 'all' }, user?.uid);
+  const [actionDialog, setActionDialog] = useState(null);
+  const actionDialogResolverRef = useRef(null);
   const [scanningInvoice, setScanningInvoice] = useState(false);
   const [scanFeedback, setScanFeedback] = useState('');
   const [scanError, setScanError] = useState(false);
@@ -309,8 +317,22 @@ export default function BillsPage() {
       amount: bill.amount > 0 ? String(bill.amount) : '',
       paidDate: todayIso(),
       paymentSource: 'cash',
+      incomeSourceId: 'all',
     });
   };
+
+  const resolveActionDialog = useCallback((confirmed = false) => {
+    const resolve = actionDialogResolverRef.current;
+    actionDialogResolverRef.current = null;
+    setActionDialog(null);
+    resolve?.(confirmed);
+  }, []);
+
+  const requestActionDialog = useCallback((options) => new Promise((resolve) => {
+    if (actionDialogResolverRef.current) actionDialogResolverRef.current(false);
+    actionDialogResolverRef.current = resolve;
+    setActionDialog(options);
+  }), []);
 
   const confirmPayment = async (event) => {
     event.preventDefault();
@@ -323,11 +345,19 @@ export default function BillsPage() {
       amount: Number(paymentForm.amount),
       paidDate: paymentForm.paidDate,
       paymentSource: paymentForm.paymentSource,
+      incomeSourceId: paymentForm.paymentSource === 'tracked' ? (paymentForm.incomeSourceId || 'all') : 'all',
+      incomeSourceName: paymentForm.paymentSource === 'tracked'
+        ? (availableBillIncomeSources.find((income) => income.id === paymentForm.incomeSourceId)?.source || 'Toutes les sources disponibles')
+        : 'Tous les revenus',
     };
     try {
       let result = await payBill(payload);
       if (result.confirmationRequired) {
-        const accepted = window.confirm(t(result.message || 'Cette dépense risque de dépasser un budget. Veux-tu tout de même l’enregistrer ?'));
+        const accepted = await requestActionDialog({
+          mode: 'confirm', kind: 'warning', title: 'Confirmer le paiement',
+          message: t(result.message || 'Cette dépense risque de dépasser un budget. Veux-tu tout de même l’enregistrer ?'),
+          confirmLabel: 'Continuer',
+        });
         if (!accepted) return;
         result = await payBill({ ...payload, confirmBudgetOverrun: true });
       }
@@ -350,7 +380,12 @@ export default function BillsPage() {
   };
 
   const disableBill = async (bill) => {
-    if (!window.confirm(isEnglish ? 'Disable “' + bill.name + '”? Its history will be kept.' : 'Désactiver « ' + bill.name + ' » ? Son historique restera conservé.')) return;
+    const accepted = await requestActionDialog({
+      mode: 'confirm', kind: 'warning', title: 'Désactiver cette facture ?',
+      message: isEnglish ? 'Disable “' + bill.name + '”? Its history will be kept.' : 'Désactiver « ' + bill.name + ' » ? Son historique restera conservé.',
+      confirmLabel: 'Désactiver',
+    });
+    if (!accepted) return;
     setSaving(true);
     try {
       await deactivateBill(bill.id);
@@ -550,13 +585,39 @@ export default function BillsPage() {
               {PAYMENT_SOURCES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
             </select>
           </label>
-          {paymentForm.paymentSource === 'tracked' && <p className="rounded-lg bg-amber-50 p-3 text-xs leading-5 text-amber-800">Pata débitera les revenus encore disponibles que tu as enregistrés dans l’application. Choisis cette option uniquement si tu as suivi cet argent dans Pata.</p>}
+          {paymentForm.paymentSource === 'tracked' && <>
+            <label className="block text-sm font-medium text-slate-700">Source de revenu utilisée
+              <select value={paymentForm.incomeSourceId || 'all'} disabled={!balancesReady} onChange={(event) => setPaymentForm({ ...paymentForm, incomeSourceId: event.target.value })} className="mt-1 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm disabled:bg-slate-50 disabled:text-slate-400">
+                <option value="all">{balancesReady ? 'Répartir sur les revenus disponibles · ' + availableBillIncomeTotal.toLocaleString('fr-FR') + ' FCFA' : 'Vérification des soldes en cours…'}</option>
+                {availableBillIncomeSources.map((income) => (
+                  <option key={income.id} value={income.id}>
+                    {(income.source || 'Revenu sans nom') + ' · ' + (income.date || 'Date inconnue') + ' · ' + Number(income.remaining || 0).toLocaleString('fr-FR') + ' FCFA restant'}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {!balancesReady && <p className="text-[10px] text-slate-500">Pata vérifie les soldes disponibles avant de proposer une source.</p>}
+            {balancesReady && availableBillIncomeSources.length === 0
+              ? <p className="rounded-lg bg-amber-50 p-3 text-xs leading-5 text-amber-800">Aucun revenu suivi ne dispose d’un solde positif. Choisis un autre moyen de paiement ou attends d’enregistrer un revenu disponible.</p>
+              : <p className="rounded-lg bg-emerald-50 p-3 text-xs leading-5 text-emerald-800">Seuls les revenus encore disponibles sont proposés. Le solde de la source choisie sera vérifié au moment du paiement.</p>}
+          </>}
           <div className="flex flex-wrap justify-end gap-2 pt-2">
             <Button type="button" variant="outline" onClick={() => setPayingBill(null)}>Annuler</Button>
             <Button type="submit" disabled={saving}>{saving ? 'Enregistrement…' : 'Confirmer le paiement'}</Button>
           </div>
         </form>}
       </Modal>
+      <AppDialog
+        open={!!actionDialog}
+        kind={actionDialog?.kind || 'info'}
+        title={actionDialog?.title || 'Pata'}
+        message={actionDialog?.message || ''}
+        confirmLabel={actionDialog?.confirmLabel || 'Compris'}
+        cancelLabel={actionDialog?.cancelLabel || 'Annuler'}
+        showCancel={actionDialog?.mode === 'confirm'}
+        onClose={() => resolveActionDialog(false)}
+        onConfirm={() => resolveActionDialog(true)}
+      />
     </div>
   );
 }
