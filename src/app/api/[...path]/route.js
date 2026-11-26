@@ -4430,7 +4430,7 @@ async function handleUpsertBudgets(request) {
       if (createdCount > 0) {
         const current = Number(stats.budgets) || 0;
         if (!isPremiumAccount(userData) && current >= PLAN_LIMITS.FREE.budgets) {
-          throw new Error(\`Tu as atteint les \${PLAN_LIMITS.FREE.budgets} budgets autorisés ce mois-ci avec le compte gratuit. Passe à Premium pour continuer.\`);
+          throw new Error(`Tu as atteint les ${PLAN_LIMITS.FREE.budgets} budgets autorisés ce mois-ci avec le compte gratuit. Passe à Premium pour continuer.`);
         }
         // Toute une répartition (création ou édition) compte comme une seule création.
         stats.budgets = current + 1;
@@ -4514,7 +4514,7 @@ async function handleUpsertBudget(request) {
       const stats = normalizeMonthlyStatsForMonth(userData.monthlyStats || {}, currentMonth);
       const current = Number(stats.budgets) || 0;
       if (!isPremiumAccount(userData) && current >= PLAN_LIMITS.FREE.budgets) {
-        throw new Error(\`Tu as atteint les \${PLAN_LIMITS.FREE.budgets} budgets autorisés ce mois-ci avec le compte gratuit. Passe à Premium pour continuer.\`);
+        throw new Error(`Tu as atteint les ${PLAN_LIMITS.FREE.budgets} budgets autorisés ce mois-ci avec le compte gratuit. Passe à Premium pour continuer.`);
       }
       stats.budgets = current + 1;
       stats.lastResetMonth = currentMonth;
@@ -4842,7 +4842,7 @@ async function handleBudgetTemplates(request) {
         const existingByCategory = new Map();
         budgetsSnapshot.docs.forEach((document) => {
           const data = document.data() || {};
-          const key = \`\${String(data.categoryId || '')}::\${String(data.incomeSourceId || 'all')}\`;
+          const key = `${String(data.categoryId || '')}::${String(data.incomeSourceId || 'all')}`;
           if (!existingByCategory.has(key)) existingByCategory.set(key, document);
         });
 
@@ -4862,7 +4862,7 @@ async function handleBudgetTemplates(request) {
             ? legacyAmount
             : Math.round((calculationType === 'percentage' ? sourceBase * value / 100 : value) * multipliers[frequency]);
           if (!Number.isSafeInteger(amount) || amount < 0 || amount > 1_000_000_000) return;
-          const key = \`\${categoryId}::\${incomeSourceId}\`;
+          const key = `${categoryId}::${incomeSourceId}`;
           if (seen.has(key)) return;
           seen.add(key);
           prepared.push({
@@ -4967,7 +4967,7 @@ async function handleBudgetTemplates(request) {
       const stats = normalizeMonthlyStatsForMonth(userData.monthlyStats || {}, currentMonth);
       const current = Number(stats.budgets) || 0;
       if (!isPremiumAccount(userData) && current >= PLAN_LIMITS.FREE.budgets) {
-        throw new Error(\`Tu as atteint les \${PLAN_LIMITS.FREE.budgets} créations de budgets et de modèles autorisées ce mois-ci avec le compte gratuit. Passe à Premium pour enregistrer un autre modèle.\`);
+        throw new Error(`Tu as atteint les ${PLAN_LIMITS.FREE.budgets} créations de budgets et de modèles autorisées ce mois-ci avec le compte gratuit. Passe à Premium pour enregistrer un autre modèle.`);
       }
       stats.budgets = current + 1;
       stats.lastResetMonth = currentMonth;
