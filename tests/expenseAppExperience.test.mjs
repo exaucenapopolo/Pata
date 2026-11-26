@@ -314,6 +314,42 @@ test('la saisie multiple traite chaque ligne comme une dépense indépendante et
   assert.match(handler, /validateExpenseBatchRows/);
 });
 
+test('la sélection multiple affiche des commandes réelles pour modifier, dater, regrouper ou supprimer', () => {
+  const page = read('src/app/(app)/expenses/page.js');
+  assert.match(page, /Modifier ensemble/);
+  assert.match(page, /Changer la date/);
+  assert.match(page, /Regrouper les revenus/);
+  assert.match(page, /onClick=\{handleBulkDelete\}/);
+  assert.match(page, /const openBulkEditModal =/);
+  assert.match(page, /setBatchMode\('edit'\)/);
+  assert.match(page, /updateExpense\(user\.uid, row\.expenseId, payload\)/);
+  assert.match(page, /OptionalTransactionFields value=\{row\}/);
+  assert.match(page, /selectedFundingSources\.map/);
+  assert.match(page, /bulkSourceAlreadyUnified/);
+});
+
+test('le changement groupé de date conserve les répartitions et actualise les budgets atomiquement', () => {
+  const finance = read('src/lib/ai/financialTools.js');
+  const route = read('src/app/api/[...path]/route.js');
+  const client = read('src/lib/firestore/expenses.js');
+  const page = read('src/app/(app)/expenses/page.js');
+  const start = finance.indexOf('export async function updateExpenseOperationsDateForUser');
+  const end = finance.indexOf('export async function reassignExpenseOperationsToSourceForUser', start);
+  assert.ok(start >= 0 && end > start);
+  const handler = finance.slice(start, end);
+  assert.match(handler, /adminDb\.runTransaction/);
+  assert.match(handler, /getExpenseOperationKeys/);
+  assert.match(handler, /transaction\.update\(expensesRef\.doc\(part\.id\), \{\s*date: targetDate/);
+  assert.match(handler, /applyBudgetSpendDelta/);
+  assert.match(handler, /getBudgetSpendAmount/);
+  assert.match(handler, /confirmationRequired/);
+  assert.match(route, /'expenses\/update-date-many': \{ POST: handleUpdateExpensesDateBulk \}/);
+  assert.match(route, /updateExpenseOperationsDateForUser\(/);
+  assert.match(client, /postExpenseAction\('update-date-many'/);
+  assert.match(page, /updateExpenseOperationsDate\(/);
+  assert.match(page, /confirmBudgetOverrun: true/);
+});
+
 test('une tentative réseau répétée conserve la clé mais modifie l’empreinte lorsque la dépense change', () => {
   const first = {
     id: 'batch-unique-1', amount: '1500', categoryId: 'food',
