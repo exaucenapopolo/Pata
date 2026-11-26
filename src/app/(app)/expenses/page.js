@@ -608,6 +608,7 @@ export default function ExpensesPage() {
   };
 
   const openBatchEntry = () => {
+    clearExpenseSelection();
     setBatchRows([createExpenseBatchDraftRow(createBatchRowId(), todayIso())]);
     setBatchError('');
     setBatchModalOpen(true);
@@ -1156,7 +1157,7 @@ export default function ExpensesPage() {
         </div>
       )}
 
-      <Modal open={batchModalOpen} onClose={() => { if (!batchSaving) setBatchModalOpen(false); }} title="Saisir plusieurs dépenses" className="max-w-3xl">
+      <Modal open={batchModalOpen} priority onClose={() => { if (!batchSaving) setBatchModalOpen(false); }} title="Saisir plusieurs dépenses" className="max-w-3xl">
         <div className="space-y-4">
           <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
             <p className="text-sm font-semibold text-emerald-950">Une ligne = une dépense indépendante</p>
