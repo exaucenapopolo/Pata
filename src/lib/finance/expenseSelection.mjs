@@ -1,4 +1,4 @@
-import { getExpenseOperationKeys } from '@/lib/finance/expenseOperations.mjs';
+import { getExpenseOperationKeys } from './expenseOperations.mjs';
 
 export function isBulkSelectableExpense(expense) {
   return Boolean(expense)
