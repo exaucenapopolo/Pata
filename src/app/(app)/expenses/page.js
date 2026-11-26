@@ -803,6 +803,7 @@ export default function ExpensesPage() {
       ...batchRows.filter((row) => String(row.incomeSourceId || 'all') === 'all'),
     ];
     const updated = [];
+    const budgetImpactRows = [];
     try {
       for (let index = 0; index < orderedRows.length; index += 1) {
         const row = orderedRows[index];
@@ -847,6 +848,7 @@ export default function ExpensesPage() {
             result = await updateExpense(user.uid, row.expenseId, { ...payload, confirmBudgetOverrun: true });
           }
           if (!result?.success) throw new Error(result?.error || 'Modification refusée.');
+          budgetImpactRows.push(...(result.budgetImpact || []));
           updated.push(row.id);
         } catch (error) {
           setBatchRows(orderedRows.slice(index));
@@ -870,6 +872,7 @@ export default function ExpensesPage() {
         message: updated.length + ' dépense(s) sélectionnée(s) ont été modifiées. Chaque ligne a conservé son identité et ses informations propres ; Pata a recalculé les financements et les budgets.',
         confirmLabel: 'Terminer',
       });
+      if (budgetFeedbackEnabled && budgetImpactRows.length) setBudgetFeedback(budgetImpactRows);
     } finally {
       setBatchSaving(false);
     }
@@ -902,6 +905,7 @@ export default function ExpensesPage() {
       ...batchRows.filter((row) => row.incomeSourceId === 'all'),
     ];
     const created = [];
+    const budgetImpactRows = [];
     try {
       for (let index = 0; index < orderedRows.length; index += 1) {
         const row = orderedRows[index];
@@ -941,6 +945,7 @@ export default function ExpensesPage() {
             result = await createExpense(user.uid, { ...payload, confirmBudgetOverrun: true });
           }
           if (!result?.success) throw new Error(result?.error || 'Enregistrement refusé.');
+          budgetImpactRows.push(...(result.budgetImpact || []));
           created.push(row.id);
         } catch (error) {
           const remainingRows = orderedRows.slice(index);
@@ -965,6 +970,7 @@ export default function ExpensesPage() {
         message: created.length + ' dépense(s) ont été enregistrées séparément. Chaque ligne conserve sa catégorie, sa date et sa source de financement ; les soldes et les budgets ont été recalculés.',
         confirmLabel: 'Terminer',
       });
+      if (budgetFeedbackEnabled && budgetImpactRows.length) setBudgetFeedback(budgetImpactRows);
     } finally {
       setBatchSaving(false);
     }
