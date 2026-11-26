@@ -25,7 +25,6 @@ import { AppLoadingScreen } from '@/components/layout/AppLoadingScreen';
 import { AppNavigationProgress } from '@/components/layout/AppNavigationProgress';
 import { PageUsageTracker } from '@/components/layout/PageUsageTracker';
 import { NativeHaptics } from '@/components/layout/NativeHaptics';
-import { MoneyKeypad } from '@/components/layout/MoneyKeypad';
 import { NativeDatePicker } from '@/components/layout/NativeDatePicker';
 
 export default function AppLayout({ children }) {
