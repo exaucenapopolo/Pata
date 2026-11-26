@@ -1542,7 +1542,7 @@ export default function IncomePage() {
             </div>
           </div>}
           {form.flowType === 'repayment_received' && <div><label className="mb-1 block text-sm font-medium text-slate-700">Créance remboursée</label><select required value={form.repaymentDebtId} onChange={(event) => setForm({ ...form, repaymentDebtId: event.target.value })} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="">Choisir une créance</option>{activeReceivableDebts.map((debt) => <option key={debt.id} value={debt.id}>{debt.person} · {formatCurrency(Number(debt.remaining) || 0)} restant</option>)}</select>{!activeReceivableDebts.length && <p className="mt-1 text-xs text-slate-500">Aucune créance active à encaisser.</p>}</div>}
-          <Input label="Montant (FCFA)" type="number" min="0" step="1" required value={form.amount} disabled={form.amountLocked === true && !!form.id} onChange={(event) => setForm({ ...form, amount: event.target.value })}/>
+          <Input label="Montant (FCFA)" type="number" data-pata-money="true" min="0" step="1" required value={form.amount} disabled={form.amountLocked === true && !!form.id} onChange={(event) => setForm({ ...form, amount: event.target.value })}/>
           {form.amountLocked === true && !!form.id && <p className="rounded-lg bg-amber-50 p-2.5 text-[11px] leading-5 text-amber-800">Ce montant a déjà été utilisé pour financer une dépense. Il reste verrouillé pour préserver l’historique. Tu peux encore modifier la nature et les autres informations autorisées.</p>}
           {form.flowType === 'normal' ? <><div><p className="mb-2 text-sm font-medium text-slate-700">Catégorie de revenu</p><CategoryManager type="income" value={form.categoryId} onChange={(id) => setForm((current) => ({ ...current, categoryId: id, recurrenceEnabled: id === 'salary' ? true : current.categoryId === 'salary' ? false : current.recurrenceEnabled, scheduleFrequency: id === 'salary' ? 'monthly' : current.scheduleFrequency }))}/></div><Input label="Nom / Source" required value={form.source} onChange={(event) => setForm({ ...form, source: event.target.value })}/><CloudinaryImageField value={form.image || ''} onChange={(image) => setForm((current) => ({ ...current, image }))} folder="pata/incomes" language={language} label="Photo du revenu (facultatif)"/></> : form.flowType === 'debt_borrowed' ? <p className="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">Cette opération reste suivie dans Dettes & prêts. Seule une dette correspondant à de l’argent réellement reçu peut aussi financer des dépenses.</p> : null}
           <Input label="Date" type="date" required value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })}/>
@@ -1612,6 +1612,7 @@ export default function IncomePage() {
             <Input
               label="Revenu de référence (FCFA)"
               type="number"
+              data-pata-money="true"
               min="1"
               max="10000000000"
               step="1"
@@ -1664,6 +1665,7 @@ export default function IncomePage() {
                     <label className="col-span-2 block text-xs font-semibold text-slate-700">
                       {value.calculationType === 'percentage' ? 'Pourcentage par période (%)' : 'Montant par période (FCFA)'}
                       <input
+                        data-pata-money={value.calculationType === 'percentage' ? 'false' : 'true'}
                         type="number"
                         min="0"
                         max={value.calculationType === 'percentage' ? '100' : '1000000000'}

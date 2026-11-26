@@ -570,7 +570,7 @@ export default function BudgetsPage() {
           <select value={targetPeriod} onChange={(event) => setTargetPeriod(event.target.value)} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm">
             <option value="daily">Par jour</option><option value="weekly">Par semaine</option><option value="monthly">Par mois</option>
           </select>
-          <Input type="number" min="1" step="1" value={targetAmount} onChange={(event) => setTargetAmount(event.target.value)} placeholder="Montant en FCFA" />
+          <Input type="number" data-pata-money="true" min="1" step="1" value={targetAmount} onChange={(event) => setTargetAmount(event.target.value)} placeholder="Montant en FCFA" />
           <Button type="submit" disabled={savingTarget || !expenseCategories.length}>{savingTarget ? 'Enregistrement…' : 'Définir l’objectif'}</Button>
         </form>
         {targetMessage && <p role="status" className="mt-2 text-xs text-slate-600">{targetMessage}</p>}
@@ -836,6 +836,7 @@ export default function BudgetsPage() {
                     <label className="col-span-2 block text-[11px] font-semibold text-slate-600">
                       {item.calculationType === 'percentage' ? 'Pourcentage par période (%)' : 'Montant par période (FCFA)'}
                       <input
+                        data-pata-money={item.calculationType === 'amount' ? 'true' : 'false'}
                         type="number"
                         min="0"
                         max={item.calculationType === 'percentage' ? '100' : '1000000000'}
@@ -1028,6 +1029,7 @@ export default function BudgetsPage() {
                       <label className="col-span-2 block text-[11px] font-semibold text-slate-600">
                         {item.calculationType === 'percentage' ? 'Pourcentage appliqué à chaque période (%)' : 'Montant par période (FCFA)'}
                         <input
+                        data-pata-money={item.calculationType === 'amount' ? 'true' : 'false'}
                           type="number"
                           min="0"
                           max={item.calculationType === 'percentage' ? '100' : '1000000000'}
@@ -1104,6 +1106,7 @@ export default function BudgetsPage() {
             <Input
               label="Montant alloué (FCFA)"
               type="number"
+              data-pata-money="true"
               min="0"
               step="1"
               required

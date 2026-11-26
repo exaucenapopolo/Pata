@@ -54,7 +54,7 @@ test('la sélection multiple combine appui prolongé, touches simples et sélect
   assert.match(page, /selectionMode && \(\(\) => \{/);
   assert.match(page, /{selectionMode && \(/);
   assert.match(page, /Regrouper les revenus/);
-  assert.match(page, /onClick=\{handleBulkDelete\}/);
+  assert.match(page, /handleBulkDelete\(\)/);
   assert.match(helper, /toggleExpenseSelectionKey/);
   assert.match(helper, /toggleDayExpenseSelectionKeys/);
   assert.doesNotMatch(page, /Tout sélectionner|Sélectionner toutes les dépenses/i);
@@ -223,7 +223,8 @@ test('la page propose une sélection explicite, une sélection par journée et l
   assert.match(page, /Terminer la sélection/);
   assert.match(page, /Sélectionner la journée/);
   assert.match(page, /Regrouper les revenus/);
-  assert.match(page, /z-\[90\]/);
+  assert.match(page, /role="menu"/);
+  assert.match(page, /MoreVertical/);
   assert.doesNotMatch(page, /onPointerLeave=\{endExpenseLongPress\}/);
   assert.match(page, /onPointerMove=\{moveExpenseLongPress\}/);
 });
@@ -262,15 +263,28 @@ test('les dialogues Pata et la fenêtre de changement de source passent au-dessu
   assert.match(dialog, /<Modal open=\{open\}[^>]*priority/);
   assert.match(page, /<Modal open=\{bulkSourceOpen\} priority/);
   assert.match(modal, /priority \? 'z-\[130\]' : 'z-50'/);
-  assert.match(page, /z-\[90\]/);
+  assert.match(page, /role="menu"/);
+  assert.match(page, /MoreVertical/);
+});
+
+test('les actions groupées sont proposées dans un menu vertical en haut de la page, sans barre flottante en bas', () => {
+  const page = read('src/app/(app)/expenses/page.js');
+  assert.match(page, /MoreVertical/);
+  assert.match(page, /aria-haspopup="menu"/);
+  assert.match(page, /role="menu"/);
+  assert.match(page, /Modifier ensemble/);
+  assert.match(page, /Changer la date/);
+  assert.match(page, /Regrouper les revenus/);
+  assert.match(page, /handleBulkDelete\(\)/);
+  assert.doesNotMatch(page, /pointer-events-none fixed inset-x-2 bottom-/);
 });
 
 test('la sélection dispose des commandes, même avant la première dépense cochée', () => {
   const page = read('src/app/(app)/expenses/page.js');
-  assert.match(page, /Mode sélection activé/);
+  assert.match(page, /Sélection des dépenses/);
   assert.match(page, /onClick=\{clearExpenseSelection\}/);
-  assert.match(page, /onClick=\{handleBulkDelete\}/);
-  assert.match(page, /onClick=\{openBulkSourceModal\}/);
+  assert.match(page, /handleBulkDelete\(\)/);
+  assert.match(page, /openBulkSourceModal\(\)/);
 });
 
 test('le changement groupé de source est atomique et met à jour revenus et budgets dans la même transaction', () => {
@@ -320,7 +334,7 @@ test('la sélection multiple affiche des commandes réelles pour modifier, dater
   assert.match(page, /Modifier ensemble/);
   assert.match(page, /Changer la date/);
   assert.match(page, /Regrouper les revenus/);
-  assert.match(page, /onClick=\{handleBulkDelete\}/);
+  assert.match(page, /handleBulkDelete\(\)/);
   assert.match(page, /const openBulkEditModal =/);
   assert.match(page, /setBatchMode\('edit'\)/);
   assert.match(page, /updateExpense\(user\.uid, row\.expenseId, payload\)/);

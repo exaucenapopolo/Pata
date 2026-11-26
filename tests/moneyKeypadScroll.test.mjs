@@ -37,5 +37,9 @@ test('the calculator repositions the actual scroll container instead of closing 
   assert.match(component, /overflowY/);
   assert.match(component, /new ResizeObserver/);
   assert.match(component, /restoreKeypadScrollSpace/);
+  assert.match(component, /const scrollHosts = \[\]/);
+  assert.match(component, /while \(ancestor && ancestor !== document\.body/);
+  assert.match(component, /keypadScrollHostsRef/);
+  assert.match(component, /scrollHosts\.forEach/);
   assert.doesNotMatch(component, /setActiveField\(null\).*scroll/i);
 });

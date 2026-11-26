@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Plus, Trash2, Wallet, Pencil, Landmark, Calendar, Repeat, Clock3, MapPin, FolderPlus, Info, Briefcase, Check, Square, CheckSquare, Link2, X, ListPlus, MinusCircle } from 'lucide-react';
+import { Plus, Trash2, Wallet, Pencil, Landmark, Calendar, Repeat, Clock3, MapPin, FolderPlus, Info, Briefcase, Check, Square, CheckSquare, Link2, X, ListPlus, MinusCircle, MoreVertical } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -142,6 +142,7 @@ export default function ExpensesPage() {
   const longPressTimerRef = useRef(null);
   const longPressTriggeredRef = useRef(false);
   const [bulkOptionsOpen, setBulkOptionsOpen] = useState(false);
+  const bulkOptionsMenuRef = useRef(null);
   const [bulkSourceOpen, setBulkSourceOpen] = useState(false);
   const [bulkSourceId, setBulkSourceId] = useState('');
   const [bulkActionBusy, setBulkActionBusy] = useState(false);
@@ -333,8 +334,27 @@ export default function ExpensesPage() {
   }, [expenseOperationKeyById]);
 
   useEffect(() => {
-    if (selectedExpenseKeys.length === 0) setSelectionMode(false);
+    if (selectedExpenseKeys.length === 0) {
+      setSelectionMode(false);
+      setBulkOptionsOpen(false);
+    }
   }, [selectedExpenseKeys.length]);
+
+  useEffect(() => {
+    if (!bulkOptionsOpen) return undefined;
+    const closeOnOutsidePointer = (event) => {
+      if (!bulkOptionsMenuRef.current?.contains(event.target)) setBulkOptionsOpen(false);
+    };
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setBulkOptionsOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePointer, true);
+    document.addEventListener('keydown', closeOnEscape, true);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer, true);
+      document.removeEventListener('keydown', closeOnEscape, true);
+    };
+  }, [bulkOptionsOpen]);
 
   useEffect(() => () => {
     if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
@@ -1236,25 +1256,68 @@ export default function ExpensesPage() {
     <div className="space-y-4">
       {nextAction && <NextBestAction key={nextAction.sequence} actionKey="expense-saved" title={isEnglish ? 'Expense saved' : 'Dépense enregistrée'} description={isEnglish ? 'Check what remains in the budget for this category so you can adjust your next expenses.' : 'Vérifie ce qu’il te reste dans le budget de cette catégorie pour mieux préparer tes prochaines dépenses.'} href="/budgets" cta={isEnglish ? 'View my budgets' : 'Voir mes budgets'} />}
       <div className="pata-page-heading flex flex-wrap items-center justify-between gap-3">
-        <h1 className="pata-page-title text-2xl font-bold text-slate-900">Dépenses</h1>
-        <div className="flex flex-wrap items-center gap-2">
-          <AssistantShortcut label="Analyser mes dépenses" prompt="Analyse mes dépenses enregistrées dans Pata. Mets en évidence les catégories qui pèsent le plus, les évolutions utiles et les pistes réalistes pour mieux gérer mon argent. Ne modifie aucune opération sans me demander confirmation." promptEn="Analyze my recorded expenses in Pata. Highlight the categories that cost me the most, useful spending trends and realistic ways to manage my money better. Do not change any transaction without asking for my confirmation." />
-          {selectionMode ? (
-            <Button type="button" variant="outline" onClick={clearExpenseSelection} className="shadow-sm">
-              <X size={15}/> Terminer la sélection
-            </Button>
-          ) : (
+        <h1 className="pata-page-title text-2xl font-bold text-slate-900">
+          {selectionMode
+            ? selectedExpenseOperations.length > 0
+              ? `${selectedExpenseOperations.length} sélectionnée${selectedExpenseOperations.length > 1 ? 's' : ''}`
+              : 'Sélection des dépenses'
+            : 'Dépenses'}
+        </h1>
+        {selectionMode ? (
+          <div className="flex items-center gap-2">
+            {selectedExpenseOperations.length > 0 && (
+              <span className="hidden text-xs font-semibold tabular-nums text-slate-500 sm:inline">
+                {formatCurrency(selectedExpenseTotal)} au total
+              </span>
+            )}
+            <div className="relative" ref={bulkOptionsMenuRef}>
+              <button
+                type="button"
+                disabled={selectedExpenseOperations.length === 0 || bulkActionBusy || bulkDateBusy}
+                onClick={() => setBulkOptionsOpen((current) => !current)}
+                aria-label="Options des dépenses sélectionnées"
+                aria-haspopup="menu"
+                aria-expanded={bulkOptionsOpen}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <MoreVertical size={20}/>
+              </button>
+              {bulkOptionsOpen && selectedExpenseOperations.length > 0 && (
+                <div role="menu" aria-label="Actions groupées" className="absolute right-0 top-full z-[110] mt-2 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-[0_12px_36px_rgba(15,23,42,.16)]">
+                  <button type="button" role="menuitem" disabled={bulkActionBusy} onClick={() => { setBulkOptionsOpen(false); openBulkEditModal(); }} className="flex min-h-11 w-full items-center gap-3 px-3 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-40">
+                    <Pencil size={16} className="text-slate-500"/> Modifier ensemble
+                  </button>
+                  <button type="button" role="menuitem" disabled={bulkActionBusy || bulkDateBusy} onClick={() => { setBulkOptionsOpen(false); openBulkDateModal(); }} className="flex min-h-11 w-full items-center gap-3 px-3 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-40">
+                    <Calendar size={16} className="text-slate-500"/> Changer la date
+                  </button>
+                  <button type="button" role="menuitem" disabled={bulkActionBusy || bulkDestinationSourceOptions.length === 0} onClick={() => { setBulkOptionsOpen(false); openBulkSourceModal(); }} className="flex min-h-11 w-full items-center gap-3 px-3 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-40">
+                    <Link2 size={16} className="text-slate-500"/> Regrouper les revenus
+                  </button>
+                  <div className="my-1 border-t border-slate-100"/>
+                  <button type="button" role="menuitem" disabled={bulkActionBusy} onClick={() => { setBulkOptionsOpen(false); handleBulkDelete(); }} className="flex min-h-11 w-full items-center gap-3 px-3 text-left text-sm font-medium text-rose-700 transition hover:bg-rose-50 disabled:opacity-40">
+                    <Trash2 size={16}/> Supprimer
+                  </button>
+                </div>
+              )}
+            </div>
+            <button type="button" onClick={clearExpenseSelection} disabled={bulkActionBusy || bulkDateBusy} className="inline-flex h-10 items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-40">
+              <X size={15}/> Terminer
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-2">
+            <AssistantShortcut label="Analyser mes dépenses" prompt="Analyse mes dépenses enregistrées dans Pata. Mets en évidence les catégories qui pèsent le plus, les évolutions utiles et les pistes réalistes pour mieux gérer mon argent. Ne modifie aucune opération sans me demander confirmation." promptEn="Analyze my recorded expenses in Pata. Highlight the categories that cost me the most, useful spending trends and realistic ways to manage my money better. Do not change any transaction without asking for my confirmation." />
             <Button type="button" variant="outline" onClick={() => setSelectionMode(true)} className="shadow-sm">
               <CheckSquare size={15}/> Sélectionner
             </Button>
-          )}
-          <Button type="button" variant="outline" onClick={openBatchEntry} disabled={expenseQuotaReached} className="shadow-sm">
-            <ListPlus size={16}/> Saisie multiple
-          </Button>
-          <Button onClick={openNew} data-pata-tour="expense-create" className="shadow-sm">
-            <Plus size={16} /> Nouvelle dépense
-          </Button>
-        </div>
+            <Button type="button" variant="outline" onClick={openBatchEntry} disabled={expenseQuotaReached} className="shadow-sm">
+              <ListPlus size={16}/> Saisie multiple
+            </Button>
+            <Button onClick={openNew} data-pata-tour="expense-create" className="shadow-sm">
+              <Plus size={16} /> Nouvelle dépense
+            </Button>
+          </div>
+        )}
       </div>
       <div className="grid grid-cols-3 gap-2">
         <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5"><p className="text-[10px] leading-4 text-slate-500">Total dépensé</p><p className="mt-1 break-words text-sm font-extrabold tabular-nums text-slate-950 sm:text-base">{formatCurrency(total)}</p></div>
@@ -1473,59 +1536,6 @@ export default function ExpensesPage() {
               </ul>
             </div>
           ))}
-        </div>
-      )}
-
-      {selectionMode && (
-        <div className="pointer-events-none fixed inset-x-2 bottom-[calc(5.75rem+env(safe-area-inset-bottom))] z-[90] mx-auto max-w-xl sm:inset-x-4">
-          <div className="pointer-events-auto space-y-2 rounded-2xl border border-emerald-200 bg-white p-3 shadow-[0_16px_42px_rgba(10,45,32,.28)]">
-            <div className="flex min-w-0 items-center justify-between gap-2">
-              <div className="min-w-0 flex-1">
-                {selectedExpenseOperations.length > 0 ? (
-                  <>
-                    <p className="truncate text-xs font-bold text-slate-900">
-                      {selectedExpenseOperations.length} dépense{selectedExpenseOperations.length > 1 ? 's' : ''} sélectionnée{selectedExpenseOperations.length > 1 ? 's' : ''}
-                    </p>
-                    <p className="truncate text-[10px] font-semibold text-slate-500">{formatCurrency(selectedExpenseTotal)} au total</p>
-                  </>
-                ) : (
-                  <>
-                    <p className="truncate text-xs font-bold text-slate-900">Mode sélection activé</p>
-                    <p className="truncate text-[10px] text-slate-500">Coche les dépenses à traiter ensemble.</p>
-                  </>
-                )}
-              </div>
-              <button type="button" disabled={bulkActionBusy || bulkDateBusy} onClick={clearExpenseSelection} aria-label="Terminer la sélection" className="inline-flex h-9 shrink-0 items-center gap-1 rounded-lg px-2 text-xs font-semibold text-slate-500 hover:bg-slate-100 disabled:opacity-50">
-                <X size={16}/> Terminer
-              </button>
-            </div>
-            <button
-              type="button"
-              disabled={selectedExpenseOperations.length === 0 || bulkActionBusy || bulkDateBusy}
-              onClick={() => setBulkOptionsOpen((current) => !current)}
-              aria-expanded={bulkOptionsOpen}
-              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-3 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-45"
-            >
-              {bulkOptionsOpen ? 'Masquer les options' : 'Afficher les options'}
-              <span aria-hidden="true" className="text-base leading-none">{bulkOptionsOpen ? '−' : '+'}</span>
-            </button>
-            {bulkOptionsOpen && (
-              <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-                <button type="button" disabled={bulkActionBusy || !selectedExpenseOperations.length} onClick={openBulkEditModal} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2 text-[11px] font-bold text-slate-800 disabled:opacity-40">
-                  <Pencil size={14}/> Modifier ensemble
-                </button>
-                <button type="button" disabled={bulkActionBusy || bulkDateBusy || !selectedExpenseOperations.length} onClick={openBulkDateModal} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2 text-[11px] font-bold text-slate-800 disabled:opacity-40">
-                  <Calendar size={14}/> Changer la date
-                </button>
-                <button type="button" disabled={bulkActionBusy || !selectedExpenseOperations.length || bulkDestinationSourceOptions.length === 0} onClick={openBulkSourceModal} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-bold text-emerald-900 disabled:opacity-40">
-                  <Link2 size={14}/> Regrouper les revenus
-                </button>
-                <button type="button" disabled={bulkActionBusy || !selectedExpenseOperations.length} onClick={handleBulkDelete} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-2 text-[11px] font-bold text-rose-700 disabled:opacity-40">
-                  <Trash2 size={14}/> Supprimer
-                </button>
-              </div>
-            )}
-          </div>
         </div>
       )}
 

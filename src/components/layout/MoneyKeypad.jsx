@@ -9,6 +9,7 @@ import { applyMoneyKey, evaluateMoneyExpression } from '@/lib/finance/decimalExp
 import { normalizeClipboardAmount } from '@/lib/finance/clipboardAmount.mjs';
 import { hideNativeMoneyKeyboard, restoreNativeMoneyKeyboard } from '@/lib/finance/moneyInputKeyboard.mjs';
 import { getMoneyKeypadScrollOffset } from '@/lib/finance/moneyKeypadScroll.mjs';
+import { writeMoneyInputValue } from '@/lib/finance/moneyInputValue.mjs';
 
 const MONEY_HINTS = /montant|amount|budget|capital|dépense|depense|revenu|income|expense|somme|versement|cotisation|facture|bill|loyer|épargne|epargne|solde|balance|recharge|payment|paiement|prêt|pret|loan|dette|debt|prix|price|tarif|frais|fcfa|xaf|usd|eur/i;
 const NON_MONEY_HINTS = /pourcentage|percent|participants?|personnes?|jours?|days?|année|annee|years?|fréquence|frequence|frequency|quota|heures?|minutes?/i;
@@ -31,14 +32,6 @@ function isMoneyInput(input) {
   return MONEY_HINTS.test(hint);
 }
 
-function setInputValue(input, value) {
-  if (!input || String(input.value) === String(value)) return;
-  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-  if (setter) setter.call(input, value);
-  else input.value = value;
-  input.dispatchEvent(new Event('input', { bubbles: true }));
-  input.dispatchEvent(new Event('change', { bubbles: true }));
-}
 
 function formatAmount(value, language) {
   const amount = Number(value);
@@ -65,9 +58,7 @@ export function MoneyKeypad() {
   const [pasteFeedback, setPasteFeedback] = useState('');
   const activeInputRef = useRef(null);
   const activeInputOriginalInputModeRef = useRef(null);
-  const keypadScrollHostRef = useRef(null);
-  const keypadScrollHostStyleRef = useRef(null);
-  const keypadScrollHostBasePaddingRef = useRef(0);
+  const keypadScrollHostsRef = useRef([]);
   const syncingCalculatorValueRef = useRef(false);
   const allowNativeContextMenuRef = useRef(false);
 
@@ -81,15 +72,12 @@ export function MoneyKeypad() {
   }, [expression]);
 
   const restoreKeypadScrollSpace = useCallback(() => {
-    const host = keypadScrollHostRef.current;
-    const originalStyle = keypadScrollHostStyleRef.current;
-    if (host && originalStyle) {
+    keypadScrollHostsRef.current.forEach(({ host, originalStyle }) => {
+      if (!host?.isConnected) return;
       if (originalStyle.value) host.style.setProperty('padding-bottom', originalStyle.value, originalStyle.priority);
       else host.style.removeProperty('padding-bottom');
-    }
-    keypadScrollHostRef.current = null;
-    keypadScrollHostStyleRef.current = null;
-    keypadScrollHostBasePaddingRef.current = 0;
+    });
+    keypadScrollHostsRef.current = [];
   }, []);
 
   const keepActiveInputAboveKeypad = useCallback(() => {
@@ -97,30 +85,40 @@ export function MoneyKeypad() {
     const keypad = document.querySelector('[data-pata-money-keypad]');
     if (!input?.isConnected || !keypad) return;
 
-    let host = input.parentElement;
-    while (host && host !== document.body && host !== document.documentElement) {
-      const overflowY = window.getComputedStyle(host).overflowY;
-      if (/(auto|scroll|overlay)/.test(overflowY)) break;
-      host = host.parentElement;
+    const scrollHosts = [];
+    let ancestor = input.parentElement;
+    while (ancestor && ancestor !== document.body && ancestor !== document.documentElement) {
+      const overflowY = window.getComputedStyle(ancestor).overflowY;
+      if (/(auto|scroll|overlay)/.test(overflowY)) scrollHosts.push(ancestor);
+      ancestor = ancestor.parentElement;
     }
-    host = host && host !== document.body ? host : (document.scrollingElement || document.documentElement);
+    if (scrollHosts.length === 0) {
+      const pageScroller = document.scrollingElement || document.documentElement;
+      if (pageScroller) scrollHosts.push(pageScroller);
+    }
 
-    if (keypadScrollHostRef.current !== host) {
-      restoreKeypadScrollSpace();
-      keypadScrollHostRef.current = host;
-      keypadScrollHostStyleRef.current = {
+    // A field may sit inside a scrollable category list inside a scrollable
+    // modal. Give each scroll parent temporary room, then move inner-to-outer.
+    restoreKeypadScrollSpace();
+    const keypadHeight = keypad.getBoundingClientRect().height + 24;
+    scrollHosts.forEach((host) => {
+      const originalStyle = {
         value: host.style.getPropertyValue('padding-bottom'),
         priority: host.style.getPropertyPriority('padding-bottom'),
       };
-      keypadScrollHostBasePaddingRef.current = Number.parseFloat(window.getComputedStyle(host).paddingBottom) || 0;
-    }
+      const basePadding = Number.parseFloat(window.getComputedStyle(host).paddingBottom) || 0;
+      host.style.setProperty('padding-bottom', (basePadding + keypadHeight) + 'px');
+      keypadScrollHostsRef.current.push({ host, originalStyle });
+    });
 
-    const keypadRect = keypad.getBoundingClientRect();
-    const inputRect = input.getBoundingClientRect();
-    host.style.setProperty('padding-bottom', (keypadScrollHostBasePaddingRef.current + keypadRect.height + 24) + 'px');
-
-    const scrollOffset = getMoneyKeypadScrollOffset(inputRect, keypadRect, 16);
-    if (scrollOffset > 0) host.scrollBy({ top: scrollOffset, behavior: 'auto' });
+    scrollHosts.forEach((host) => {
+      const scrollOffset = getMoneyKeypadScrollOffset(
+        input.getBoundingClientRect(),
+        keypad.getBoundingClientRect(),
+        16
+      );
+      if (scrollOffset > 0) host.scrollBy({ top: scrollOffset, behavior: 'auto' });
+    });
   }, [restoreKeypadScrollSpace]);
 
   const restoreActiveInput = useCallback(() => {
@@ -348,7 +346,7 @@ export function MoneyKeypad() {
     const writeCalculatorValue = (value) => {
       syncingCalculatorValueRef.current = true;
       try {
-        setInputValue(input, value);
+        writeMoneyInputValue(input, value);
       } finally {
         syncingCalculatorValueRef.current = false;
       }
@@ -366,7 +364,7 @@ export function MoneyKeypad() {
     } catch {
       // Keep the last valid amount while an expression is being completed.
     }
-  }, [expression]);
+  }, [activeField, expression]);
 
   const appendKey = (key) => {
     setExpression((current) => applyMoneyKey(current, key));
