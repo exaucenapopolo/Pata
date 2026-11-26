@@ -29,7 +29,8 @@ import { useProjects } from '@/hooks/useProjects';
 import { useBudgetRules } from '@/hooks/useBudgetRules';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { createIncome, updateIncome, deleteIncome, setIncomePinned } from '@/lib/firestore/incomes';
-import { upsertBudget } from '@/lib/firestore/budgets';
+import { upsertBudgets } from '@/lib/firestore/budgets';
+import { calculateBudgetPlan, calculateBudgetLine } from '@/lib/finance/budgetPlanner.mjs';
 import { computeBudgetBreakdown } from '@/lib/budgetRules';
 import { INCOME_CATEGORIES, EXPENSE_CATEGORIES, CAMEROON_BANKS } from '@/lib/constants';
 import { formatCurrency, formatDate, normalizeExpenseCategoryId } from '@/lib/utils';
@@ -233,6 +234,10 @@ export default function IncomePage() {
   const [totalBudget, setTotalBudget] = useState('');
   const [savingVital, setSavingVital] = useState(false);
   const [showVerification, setShowVerification] = useState(false); // Pour le bouton "Vérifier"
+  const [vitalApplyOpen, setVitalApplyOpen] = useState(false);
+  const [vitalApplySourceId, setVitalApplySourceId] = useState('');
+  const [vitalCreateIncome, setVitalCreateIncome] = useState(false);
+  const [vitalApplyError, setVitalApplyError] = useState('');
   const [durationName, setDurationName] = useState('');
   const [durationCapital, setDurationCapital] = useState('');
   const [durationExpense, setDurationExpense] = useState('');
@@ -459,6 +464,47 @@ export default function IncomePage() {
     return [...defaults, ...customs];
   }, [customCategories]);
 
+  const vitalNeeds = useMemo(() => profile?.vitalNeeds || {}, [profile?.vitalNeeds]);
+  const allCategories = useMemo(() => {
+    const defaults = EXPENSE_CATEGORIES.filter((category) => category.id !== 'loan_given').map(c => ({ ...c, isCustom: false }));
+    const customs = customCategories.map(c => ({ ...c, isCustom: true, label: c.name }));
+    return [...defaults, ...customs];
+  }, [customCategories]);
+
+  const savedVitalRows = useMemo(() => allCategories.map((category) => {
+    const need = vitalNeeds[category.id] || {};
+    return {
+      categoryId: category.id,
+      value: need.value ?? need.amount ?? 0,
+      calculationType: need.calculationType === 'percentage' ? 'percentage' : 'amount',
+      frequency: need.frequency || 'monthly',
+    };
+  }), [allCategories, vitalNeeds]);
+  const savedTotalVital = useMemo(
+    () => calculateBudgetPlan(savedVitalRows, Number(profile?.vitalTotalBudget) || 0).total,
+    [savedVitalRows, profile?.vitalTotalBudget]
+  );
+
+  const draftVitalRows = useMemo(() => allCategories.map((category) => {
+    const need = vitalForm[category.id] || {};
+    return {
+      categoryId: category.id,
+      value: need.value ?? need.amount ?? 0,
+      calculationType: need.calculationType === 'percentage' ? 'percentage' : 'amount',
+      frequency: need.frequency || 'monthly',
+    };
+  }), [allCategories, vitalForm]);
+  const draftTotalVital = useMemo(
+    () => calculateBudgetPlan(draftVitalRows, Number(totalBudget) || 0).total,
+    [draftVitalRows, totalBudget]
+  );
+  const hasDraftPercentage = draftVitalRows.some((item) => item.calculationType === 'percentage' && Number(item.value) > 0);
+  const vitalDraftValid = Number(totalBudget) > 0 && Number.isFinite(Number(totalBudget))
+    && Number(totalBudget) <= 10_000_000_000
+    && calculateBudgetPlan(draftVitalRows.filter((item) => Number(item.value) > 0), Number(totalBudget)).valid;
+  const isSavedOverBudget = Number(totalBudget) > 0 && savedTotalVital > Number(totalBudget);
+  const isDraftOverBudget = Number(totalBudget) > 0 && draftTotalVital > Number(totalBudget);
+
   // 🟢 Calcul du total des prévisions ENREGISTRÉES
   const savedTotalVital = useMemo(() => {
     let total = 0;
@@ -490,16 +536,17 @@ export default function IncomePage() {
 
   const openVitalModal = () => {
     const initial = {};
-    allCategories.forEach(k => { 
-      const existing = vitalNeeds[k.id];
-      initial[k.id] = { 
-        amount: existing?.amount || '', 
-        frequency: existing?.frequency || 'monthly' 
+    allCategories.forEach((category) => {
+      const existing = vitalNeeds[category.id] || {};
+      initial[category.id] = {
+        value: String(existing.value ?? existing.amount ?? ''),
+        calculationType: existing.calculationType === 'percentage' ? 'percentage' : 'amount',
+        frequency: existing.frequency || 'monthly',
       };
     });
     setVitalForm(initial);
     setBudgetName(profile?.vitalBudgetName || 'Budget mensuel');
-    setTotalBudget(profile?.vitalTotalBudget || '');
+    setTotalBudget(String(profile?.vitalTotalBudget || ''));
     setShowVerification(false);
     setVitalOpen(true);
   };
@@ -516,16 +563,26 @@ export default function IncomePage() {
     setSavingVital(true);
     try {
       const cleaned = {};
-      allCategories.forEach(k => { 
-        const val = vitalForm[k.id];
-        if (val && val.amount && Number(val.amount) > 0) {
-          cleaned[k.id] = { amount: Number(val.amount), frequency: val.frequency };
+      allCategories.forEach((category) => {
+        const value = vitalForm[category.id] || {};
+        const numericValue = Number(value.value ?? value.amount);
+        if (Number.isFinite(numericValue) && numericValue > 0) {
+          cleaned[category.id] = {
+            amount: numericValue,
+            value: numericValue,
+            calculationType: value.calculationType === 'percentage' ? 'percentage' : 'amount',
+            frequency: value.frequency || 'monthly',
+          };
         }
       });
+      if (Object.values(cleaned).some((item) => item.calculationType === 'percentage') && !(Number(totalBudget) > 0)) {
+        setShowVerification(true);
+        throw new Error(isEnglish ? 'Enter the total income to calculate percentage-based envelopes.' : 'Indique le budget total pour calculer les enveloppes en pourcentage.');
+      }
       
       const result = await saveVitalForecast({
         name: budgetName || 'Prévision vitale',
-        totalBudget: Number(totalBudget) || draftTotalVital || 0,
+        totalBudget: Number(totalBudget) || 0,
         needs: cleaned,
       });
       if (!result?.success) throw new Error('La prévision n’a pas été enregistrée.');
@@ -539,53 +596,113 @@ export default function IncomePage() {
     await deleteVitalForecast();
   };
 
-  const applyVitalToBudget = async () => {
+  const applyVitalToBudget = () => {
     if (!savedTotalVital) return;
-    const premiumUntilDate = profile?.premiumUntil?.toDate ? profile.premiumUntil.toDate() : new Date(profile?.premiumUntil || 0);
-  const premiumActive = Number.isFinite(premiumUntilDate.getTime()) && premiumUntilDate > new Date();
-    const requiredBudgets = allCategories.filter((category) => Number(vitalNeeds[category.id]?.amount) > 0).length;
-    const currentMonthKey = todayMonth();
-    const stats = profile?.monthlyStats || {};
-    const usedBudgets = stats.lastResetMonth === currentMonthKey ? Number(stats.budgets) || 0 : 0;
-    if (!premiumActive && usedBudgets + requiredBudgets > 2) {
-      await appAlert(isEnglish ? `Your free plan can create 2 budgets per month. This allocation requires ${requiredBudgets}, and you have ${Math.max(0, 2 - usedBudgets)} remaining. Upgrade to Premium or reduce the number of categories before applying this forecast.` : `Ton compte gratuit peut créer 2 budgets par mois. Cette répartition en nécessite ${requiredBudgets} et il t’en reste ${Math.max(0, 2 - usedBudgets)}. Passe à Premium ou réduis le nombre de catégories avant de transformer cette prévision.`, { kind: 'warning', title: isEnglish ? 'Free plan limit' : 'Limite du compte gratuit' });
-      return;
-    }
+    const defaultSource = activeMonthSources[0] || null;
+    setVitalApplySourceId(defaultSource?.id || '');
+    setVitalCreateIncome(false);
+    setVitalApplyError('');
+    setVitalApplyOpen(true);
+  };
+
+  const confirmApplyVitalToBudget = async () => {
+    if (!savedTotalVital || savingApplied) return;
+    setVitalApplyError('');
     setSavingApplied(true);
     try {
-      const currentMonth = todayMonth();
-      const sourceName = budgetName || (isEnglish ? 'Forecast budget' : 'Budget Prévisionnel');
-      
-      const plannedIncomeAmount = Math.round(Number(totalBudget) > 0 ? Number(totalBudget) : Number(savedTotalVital));
-      if (!plannedIncomeAmount || plannedIncomeAmount <= 0) throw new Error(isEnglish ? 'The forecast total is zero. Check the category amounts before turning this forecast into income and budgets.' : 'Le montant total de la prévision est nul. Vérifie les montants des catégories avant de transformer cette prévision.');
-      const incomeRes = await createIncome(user.uid, {
-        amount: plannedIncomeAmount,
-        source: sourceName,
-        categoryId: 'salary',
-        note: isEnglish ? 'Generated from essential spending forecasts' : 'Généré depuis les prévisions vitales',
-        date: todayIso(),
-        month: currentMonth,
-      });
-
-      for (const cat of allCategories) {
-        const need = vitalNeeds[cat.id];
-        if (need && need.amount) {
-          const freq = FREQUENCIES.find(f => f.id === need.frequency);
-          const monthlyAmount = (need.amount || 0) * (freq ? freq.multiplier : 1);
-          if (monthlyAmount > 0) {
-            await upsertBudget(user.uid, {
-              categoryId: cat.id,
-              amount: Math.round(monthlyAmount),
-              month: currentMonth,
-              incomeSourceId: incomeRes.id,
-            });
-          }
-        }
+      const selectedSource = activeMonthSources.find((income) => income.id === vitalApplySourceId);
+      if (!vitalCreateIncome && !selectedSource) {
+        setVitalApplyError(isEnglish
+          ? 'Choose an available income source, or explicitly select the option to create a new income.'
+          : 'Choisis une source de revenu disponible ou coche explicitement la création d’un nouveau revenu.');
+        return;
       }
-      await appAlert(isEnglish ? 'Forecasts saved successfully!' : 'Prévisions enregistrées avec succès !', { kind: 'success', title: isEnglish ? 'Forecasts saved' : 'Prévisions enregistrées' });
-    } catch (err) {
-      await appAlert(isEnglish ? 'Error: ' + (err.message || 'Could not apply the forecast.') : 'Erreur: ' + err.message, { kind: 'danger', title: isEnglish ? 'Could not apply forecast' : 'Application impossible' });
-    } finally { setSavingApplied(false); }
+
+      const planBase = vitalCreateIncome
+        ? Math.round(Number(totalBudget) > 0 ? Number(totalBudget) : savedTotalVital)
+        : Math.max(0, Number(selectedSource?.amount) || 0);
+      if (!Number.isSafeInteger(planBase) || planBase <= 0) throw new Error(isEnglish ? 'The selected income amount is invalid.' : 'Le montant de la source choisie est invalide.');
+
+      const plannedItems = allCategories.map((category) => {
+        const need = vitalNeeds[category.id] || {};
+        const value = Number(need.value ?? need.amount ?? 0);
+        const calculationType = need.calculationType === 'percentage' ? 'percentage' : 'amount';
+        const frequency = need.frequency || 'monthly';
+        const calculated = calculateBudgetLine({
+          categoryId: category.id,
+          value,
+          calculationType,
+          frequency,
+        }, planBase);
+        return {
+          categoryId: category.id,
+          amount: calculated.amount,
+          value,
+          calculationType,
+          frequency,
+        };
+      }).filter((item) => item.amount > 0);
+
+      if (!plannedItems.length || plannedItems.length > 30) {
+        throw new Error(isEnglish ? 'The forecast contains no valid budget categories.' : 'Cette prévision ne contient aucune catégorie de budget valide.');
+      }
+
+      let incomeSourceId = vitalApplySourceId;
+      if (vitalCreateIncome) {
+        const plannedIncomeAmount = planBase;
+        const confirmed = await appConfirm(
+          isEnglish
+            ? 'Pata will add a new income of ' + formatCurrency(plannedIncomeAmount) + ' called "' + (budgetName || 'Forecast budget') + '" and attach these envelopes to it. This is a real income entry. Continue?'
+            : 'Pata va réellement enregistrer un nouveau revenu de ' + formatCurrency(plannedIncomeAmount) + ' nommé « ' + (budgetName || 'Budget prévisionnel') + ' », puis rattacher les enveloppes à ce revenu. Continuer ?',
+          { title: isEnglish ? 'Create an income too?' : 'Créer aussi un revenu ?', kind: 'warning', confirmLabel: isEnglish ? 'Create income and budgets' : 'Créer le revenu et les budgets' }
+        );
+        if (!confirmed) return;
+        const incomeResult = await createIncome(user.uid, {
+          amount: plannedIncomeAmount,
+          source: budgetName || (isEnglish ? 'Forecast budget' : 'Budget prévisionnel'),
+          categoryId: 'salary',
+          note: isEnglish ? 'Created deliberately from an essential spending forecast' : 'Créé volontairement depuis une prévision de dépenses essentielles',
+          date: month === todayMonth() ? todayIso() : month + '-01',
+          month,
+        });
+        incomeSourceId = incomeResult.id;
+      }
+
+      const source = vitalCreateIncome
+        ? { id: incomeSourceId, source: budgetName || 'Budget prévisionnel', remaining: planBase }
+        : selectedSource;
+      if (!incomeSourceId) throw new Error(isEnglish ? 'The income source could not be identified.' : 'La source de revenu n’a pas pu être identifiée.');
+
+      const totalToAllocate = plannedItems.reduce((sum, item) => sum + item.amount, 0);
+      if (totalToAllocate > Number(source.remaining || 0)) {
+        const confirmed = await appConfirm(
+          isEnglish
+            ? 'These envelopes total ' + formatCurrency(totalToAllocate) + ', while ' + formatCurrency(Number(source.remaining) || 0) + ' remains available on this income. Keep this budget plan anyway?'
+            : 'Ces enveloppes totalisent ' + formatCurrency(totalToAllocate) + ', alors qu’il reste ' + formatCurrency(Number(source.remaining) || 0) + ' sur ce revenu. Veux-tu quand même conserver ce budget ?',
+          { title: isEnglish ? 'Budget exceeds available balance' : 'Budget supérieur au solde disponible', kind: 'warning', confirmLabel: isEnglish ? 'Keep the budget' : 'Conserver le budget' }
+        );
+        if (!confirmed) return;
+      }
+
+      const result = await upsertBudgets(user.uid, {
+        items: plannedItems,
+        month,
+        incomeSourceId,
+      });
+      setSelectedIncomeToApply(incomeSourceId);
+      setApplied(false);
+      setVitalApplyOpen(false);
+      await appAlert(
+        isEnglish
+          ? 'Your forecast has been applied to ' + source.source + '. ' + (result.createdCount || 0) + ' envelope(s) created and ' + (result.updatedCount || 0) + ' updated.'
+          : 'Ta prévision est maintenant appliquée au revenu « ' + source.source + ' ». ' + (result.createdCount || 0) + ' enveloppe(s) créée(s) et ' + (result.updatedCount || 0) + ' mise(s) à jour.',
+        { kind: 'success', title: isEnglish ? 'Budgets applied' : 'Budgets appliqués' }
+      );
+    } catch (applyError) {
+      setVitalApplyError(applyError.message || (isEnglish ? 'Could not apply the forecast.' : 'Impossible d’appliquer cette prévision.'));
+    } finally {
+      setSavingApplied(false);
+    }
   };
 
   const openNewIncome = () => {
