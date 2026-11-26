@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
+import { AggregateField } from 'firebase-admin/firestore';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -29,23 +30,59 @@ export async function GET(request) {
       userRef.collection('debts').orderBy('createdAt', 'desc').limit(100).get(),
       userRef.collection('categories').orderBy('createdAt', 'asc').get(),
     ]);
-    const incomes = incomesSnap.docs
-      .filter((doc) => {
-        const data = doc.data() || {};
-        return (data.neutralFlow !== true || (data.flowType === 'debt_borrowed' && data.availableAsFunding === true))
-          && data.cashPocket !== true
-          && data.balanceAvailable !== false && Number(data.amount) > 0;
-      })
-      .map((doc) => {
-        const data = doc.data() || {};
-        return {
-          id: doc.id,
-          source: String(data.source || 'Revenu sans nom').slice(0, 100),
-          date: String(data.date || '').slice(0, 10),
-          amount: Math.max(0, Number(data.amount) || 0),
-          availableAsFunding: data.flowType === 'debt_borrowed' && data.availableAsFunding === true,
-        };
-      });
+    const eligibleIncomeDocs = incomesSnap.docs.filter((doc) => {
+      const data = doc.data() || {};
+      return (data.neutralFlow !== true || (data.flowType === 'debt_borrowed' && data.availableAsFunding === true))
+        && data.cashPocket !== true
+        && Number(data.amount) > 0;
+    });
+    const profileData = profile.data() || {};
+    let spentTotals = profileData.incomeSpentTotalsVersion === 1
+      ? (profileData.incomeSpentTotals || {})
+      : null;
+    if (!spentTotals && eligibleIncomeDocs.length) {
+      const expensesRef = userRef.collection('expenses');
+      try {
+        const totals = await Promise.all(eligibleIncomeDocs.map(async (doc) => {
+          const snapshot = await expensesRef.where('incomeSourceId', '==', doc.id)
+            .aggregate({ total: AggregateField.sum('amount') }).get();
+          return [doc.id, Math.max(0, Number(snapshot.data()?.total) || 0)];
+        }));
+        spentTotals = Object.fromEntries(totals);
+      } catch (aggregateError) {
+        const message = String(aggregateError?.message || aggregateError);
+        const missingIndex = aggregateError?.code === 9
+          || String(aggregateError?.code || '').toLowerCase().includes('failed-precondition')
+          || /requires an index|index is currently building/i.test(message);
+        if (!missingIndex) throw aggregateError;
+        const matchingExpenses = [];
+        for (let offset = 0; offset < eligibleIncomeDocs.length; offset += 30) {
+          const ids = eligibleIncomeDocs.slice(offset, offset + 30).map((doc) => doc.id);
+          const snapshot = await expensesRef.where('incomeSourceId', 'in', ids).get();
+          matchingExpenses.push(...snapshot.docs.map((doc) => doc.data() || {}));
+        }
+        spentTotals = {};
+        matchingExpenses.forEach((expense) => {
+          const incomeId = String(expense.incomeSourceId || '');
+          if (incomeId && !incomeId.includes('/')) spentTotals[incomeId] = (Number(spentTotals[incomeId]) || 0) + Math.max(0, Number(expense.amount) || 0);
+        });
+      }
+    }
+    const incomes = eligibleIncomeDocs.map((doc) => {
+      const data = doc.data() || {};
+      const amount = Math.max(0, Number(data.amount) || 0);
+      const spent = Math.max(0, Number(spentTotals?.[doc.id]) || 0);
+      return {
+        id: doc.id,
+        source: String(data.source || 'Revenu sans nom').slice(0, 100),
+        date: String(data.date || '').slice(0, 10),
+        amount,
+        spent,
+        remaining: Math.max(0, amount - spent),
+        balanceAvailable: true,
+        availableAsFunding: data.flowType === 'debt_borrowed' && data.availableAsFunding === true,
+      };
+    }).filter((income) => income.remaining > 0);
     const mapDebt = (doc) => {
       const data = doc.data() || {};
       return {
