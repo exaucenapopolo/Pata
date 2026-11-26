@@ -29,12 +29,14 @@ import { useLanguage } from '@/context/LanguageContext';
 import { NextBestActionPreferences } from '@/components/NextBestAction';
 import { translateText } from '@/lib/i18n/translations';
 import { usePersistentPageState } from '@/hooks/usePersistentPageState';
+import { useAppDialog } from '@/hooks/useAppDialog';
 
 export default function SettingsPage() {
   const { user, logout } = useAuth();
   const { profile, save } = useProfile();
   const { language, setLanguage, isLanguageSaving } = useLanguage();
   const isEnglish = language === 'en';
+  const { appConfirm, appAlert, dialog } = useAppDialog();
   const t = (value) => translateText(value, language);
   const { expenses } = useExpenses();
   const { incomes } = useIncomes();
@@ -154,7 +156,7 @@ export default function SettingsPage() {
     const rows = getExportRows();
     const table = rows.map((row, index) => `<tr>${row.map((cell) => `<${index === 0 ? 'th' : 'td'}>${String(cell ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]))}</${index === 0 ? 'th' : 'td'}>`).join('')}</tr>`).join('');
     const popup = window.open('', '_blank', 'width=1000,height=800');
-    if (!popup) { alert(isEnglish ? 'Allow pop-ups to download the PDF report.' : 'Autorise les fenêtres contextuelles pour télécharger le rapport PDF.'); return; }
+    if (!popup) { void appAlert(isEnglish ? 'Allow pop-ups to download the PDF report.' : 'Autorise les fenêtres contextuelles pour télécharger le rapport PDF.', { kind: 'warning', title: isEnglish ? 'Pop-up blocked' : 'Fenêtre bloquée' }); return; }
     popup.document.write(`<!doctype html><html lang="${language}"><head><meta charset="utf-8"><title>${isEnglish ? "Pata data export" : "Export Pata"}</title><style>body{font:12px Arial,sans-serif;color:#172033;padding:28px}h1{font-size:22px}p{color:#64748b}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #dbe2ea;padding:7px;text-align:left}th{background:#edf2f7}tr:nth-child(even){background:#f8fafc}@media print{button{display:none}}</style></head><body><h1>${isEnglish ? "Pata data report" : "Rapport de données Pata"}</h1><p>${isEnglish ? "Account: " : "Compte : "}${String(profile?.displayName || user?.email || '').replace(/[&<>"']/g, '')} · ${isEnglish ? "Generated on " : "Généré le "}${new Date().toLocaleDateString(getPreferredLocale())}</p><p>${isEnglish ? "Amounts are converted to the displayed currency (" + getPreferredCurrencyCode() + ") for easier reading. Pata reference values remain stored in XAF." : "Les montants sont convertis dans la devise d’affichage " + getPreferredCurrencyCode() + " pour faciliter la lecture. Les valeurs de référence de Pata restent enregistrées en XAF."}</p><table>${table}</table><script>window.onload=()=>window.print()</script></body></html>`);
     popup.document.close();
   };
@@ -204,7 +206,7 @@ export default function SettingsPage() {
   };
 
   const onLogout = async () => {
-    if (!confirm(isEnglish ? 'Sign out?' : 'Se déconnecter ?')) return;
+    if (!(await appConfirm(isEnglish ? 'Sign out?' : 'Se déconnecter ?', { title: isEnglish ? 'Sign out of Pata?' : 'Se déconnecter de Pata ?', confirmLabel: isEnglish ? 'Sign out' : 'Me déconnecter' }))) return;
     // Désactive l’accès natif permanent sur cet appareil avant de fermer la session.
     await Promise.all([
       PataQuickCapture.setPersistentNotification({ enabled: false, uid: user?.uid || '' }).catch(() => {}),
@@ -313,7 +315,7 @@ export default function SettingsPage() {
             />
             <Input label="Nom affiché" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
             <Input label="Adresse e-mail" value={user?.email || ''} disabled />
-            <Select label="Langue" value={language} onChange={(e) => setLanguage(e.target.value).catch(() => alert(isEnglish ? 'Could not save the language. Check your connection and try again.' : 'Impossible d’enregistrer la langue. Vérifie ta connexion puis réessaie.'))}>
+            <Select label="Langue" value={language} onChange={(e) => setLanguage(e.target.value).catch(() => { void appAlert(isEnglish ? 'Could not save the language. Check your connection and try again.' : 'Impossible d’enregistrer la langue. Vérifie ta connexion puis réessaie.', { kind: 'danger', title: isEnglish ? 'Language not saved' : 'Langue non enregistrée' }); })}>
               <option value="fr">Français</option>
               <option value="en">English</option>
             </Select>
@@ -451,6 +453,7 @@ export default function SettingsPage() {
           </div>
         )}
       </Modal>
+      {dialog}
     </div>
   );
 }
