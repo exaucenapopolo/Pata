@@ -3,16 +3,18 @@
 import { Sparkles } from 'lucide-react';
 import { AssistantButton } from '@/components/ai/AssistantButton';
 import { useLanguage } from '@/context/LanguageContext';
+import { useAppDialog } from '@/hooks/useAppDialog';
 
 export function LegalSummaryButton({ documentTitle }) {
   const { language } = useLanguage();
   const isEnglish = language === 'en';
+  const { appAlert, dialog } = useAppDialog();
 
   const openSummary = () => {
     const documentElement = window.document.querySelector('[data-legal-document]');
     const documentText = String(documentElement?.innerText || '').trim();
     if (!documentText) {
-      window.alert(isEnglish ? 'The document content is not available right now.' : "Le contenu du document n'est pas disponible pour le moment.");
+      void appAlert(isEnglish ? 'The document content is not available right now.' : "Le contenu du document n'est pas disponible pour le moment.", { kind: 'warning', title: isEnglish ? 'Document unavailable' : 'Document indisponible' });
       return;
     }
 
@@ -54,6 +56,7 @@ export function LegalSummaryButton({ documentTitle }) {
         <Sparkles size={15}/>
         Comprendre avec Mč
       </button>
+      {dialog}
     </>
   );
 }
