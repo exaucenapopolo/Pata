@@ -42,7 +42,8 @@
     "test:money-keypad": "node --test tests/moneyInputKeyboard.test.mjs",
     "test:money-keypad-scroll": "node --test tests/moneyKeypadScroll.test.mjs",
     "test:available-income-sources": "node --test tests/availableIncomeSources.test.mjs tests/quickCaptureAvailableIncomeSources.test.mjs",
-    "test:expense-app-experience": "node --test tests/expenseOperations.test.mjs tests/expenseAppExperience.test.mjs"
+    "test:expense-app-experience": "node --test tests/expenseOperations.test.mjs tests/expenseAppExperience.test.mjs",
+    "test:native-scroll-actions": "node --test tests/nativeAndScrollActions.test.mjs"
   },
   "dependencies": {
     "@capacitor-firebase/authentication": "6.3.1",

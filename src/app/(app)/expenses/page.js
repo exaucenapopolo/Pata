@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Plus, Trash2, Wallet, Pencil, Landmark, Calendar, Repeat, Clock3, MapPin, FolderPlus, Info, Briefcase, Check, Square, CheckSquare, Link2, X, ListPlus, MinusCircle, MoreVertical } from 'lucide-react';
+import { Plus, Trash2, Wallet, Pencil, Landmark, Calendar, Repeat, Clock3, MapPin, FolderPlus, Info, Briefcase, Check, Square, CheckSquare, Link2, X, ListPlus, MinusCircle } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -37,6 +37,8 @@ import { translateText } from '@/lib/i18n/translations';
 import { EXPENSE_CATEGORIES } from '@/lib/constants';
 import { NextBestAction } from '@/components/NextBestAction';
 import { DateRangePicker } from '@/components/layout/NativeDatePicker';
+import { ScrollAwareAddButton } from '@/components/layout/ScrollAwareAddButton';
+import { ExpenseSelectionActionDock } from '@/components/layout/ExpenseSelectionActionDock';
 import { usePersistentPageState } from '@/hooks/usePersistentPageState';
 
 const todayIso = () => {
@@ -141,8 +143,6 @@ export default function ExpensesPage() {
   const [selectedExpenseKeys, setSelectedExpenseKeys] = useState([]);
   const longPressTimerRef = useRef(null);
   const longPressTriggeredRef = useRef(false);
-  const [bulkOptionsOpen, setBulkOptionsOpen] = useState(false);
-  const bulkOptionsMenuRef = useRef(null);
   const [bulkSourceOpen, setBulkSourceOpen] = useState(false);
   const [bulkSourceId, setBulkSourceId] = useState('');
   const [bulkActionBusy, setBulkActionBusy] = useState(false);
@@ -339,22 +339,6 @@ export default function ExpensesPage() {
       setBulkOptionsOpen(false);
     }
   }, [selectedExpenseKeys.length]);
-
-  useEffect(() => {
-    if (!bulkOptionsOpen) return undefined;
-    const closeOnOutsidePointer = (event) => {
-      if (!bulkOptionsMenuRef.current?.contains(event.target)) setBulkOptionsOpen(false);
-    };
-    const closeOnEscape = (event) => {
-      if (event.key === 'Escape') setBulkOptionsOpen(false);
-    };
-    document.addEventListener('pointerdown', closeOnOutsidePointer, true);
-    document.addEventListener('keydown', closeOnEscape, true);
-    return () => {
-      document.removeEventListener('pointerdown', closeOnOutsidePointer, true);
-      document.removeEventListener('keydown', closeOnEscape, true);
-    };
-  }, [bulkOptionsOpen]);
 
   useEffect(() => () => {
     if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
@@ -1003,7 +987,6 @@ export default function ExpensesPage() {
   const clearExpenseSelection = () => {
     setSelectedExpenseKeys([]);
     setSelectionMode(false);
-    setBulkOptionsOpen(false);
     if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
     longPressTimerRef.current = null;
     longPressTriggeredRef.current = false;
@@ -1254,6 +1237,18 @@ export default function ExpensesPage() {
 
   return (
     <div className="space-y-4">
+      <ScrollAwareAddButton label="Nouvelle dépense" ariaLabel="Ajouter une dépense" onClick={openNew} disabled={expenseQuotaReached} visible={!selectionMode && !open && !batchModalOpen && !bulkSourceOpen && !bulkDateOpen && !projectModalOpen && !projectToDelete && !deleteId && !selectedExpense}/>
+      <ExpenseSelectionActionDock
+        selectedCount={selectedExpenseOperations.length}
+        totalLabel={formatCurrency(selectedExpenseTotal)}
+        visible={selectionMode && !batchModalOpen && !bulkSourceOpen && !bulkDateOpen && !deleteId && !actionDialog && budgetFeedback.length === 0}
+        busy={bulkActionBusy || bulkDateBusy}
+        sourceDisabled={bulkDestinationSourceOptions.length === 0}
+        onEdit={openBulkEditModal}
+        onDate={openBulkDateModal}
+        onSource={openBulkSourceModal}
+        onDelete={handleBulkDelete}
+      />
       {nextAction && <NextBestAction key={nextAction.sequence} actionKey="expense-saved" title={isEnglish ? 'Expense saved' : 'Dépense enregistrée'} description={isEnglish ? 'Check what remains in the budget for this category so you can adjust your next expenses.' : 'Vérifie ce qu’il te reste dans le budget de cette catégorie pour mieux préparer tes prochaines dépenses.'} href="/budgets" cta={isEnglish ? 'View my budgets' : 'Voir mes budgets'} />}
       <div className="pata-page-heading flex flex-wrap items-center justify-between gap-3">
         <h1 className="pata-page-title text-2xl font-bold text-slate-900">
@@ -1270,36 +1265,6 @@ export default function ExpensesPage() {
                 {formatCurrency(selectedExpenseTotal)} au total
               </span>
             )}
-            <div className="relative" ref={bulkOptionsMenuRef}>
-              <button
-                type="button"
-                disabled={selectedExpenseOperations.length === 0 || bulkActionBusy || bulkDateBusy}
-                onClick={() => setBulkOptionsOpen((current) => !current)}
-                aria-label="Options des dépenses sélectionnées"
-                aria-haspopup="menu"
-                aria-expanded={bulkOptionsOpen}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <MoreVertical size={20}/>
-              </button>
-              {bulkOptionsOpen && selectedExpenseOperations.length > 0 && (
-                <div role="menu" aria-label="Actions groupées" className="absolute right-0 top-full z-[110] mt-2 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-[0_12px_36px_rgba(15,23,42,.16)]">
-                  <button type="button" role="menuitem" disabled={bulkActionBusy} onClick={() => { setBulkOptionsOpen(false); openBulkEditModal(); }} className="flex min-h-11 w-full items-center gap-3 px-3 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-40">
-                    <Pencil size={16} className="text-slate-500"/> Modifier ensemble
-                  </button>
-                  <button type="button" role="menuitem" disabled={bulkActionBusy || bulkDateBusy} onClick={() => { setBulkOptionsOpen(false); openBulkDateModal(); }} className="flex min-h-11 w-full items-center gap-3 px-3 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-40">
-                    <Calendar size={16} className="text-slate-500"/> Changer la date
-                  </button>
-                  <button type="button" role="menuitem" disabled={bulkActionBusy || bulkDestinationSourceOptions.length === 0} onClick={() => { setBulkOptionsOpen(false); openBulkSourceModal(); }} className="flex min-h-11 w-full items-center gap-3 px-3 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-40">
-                    <Link2 size={16} className="text-slate-500"/> Regrouper les revenus
-                  </button>
-                  <div className="my-1 border-t border-slate-100"/>
-                  <button type="button" role="menuitem" disabled={bulkActionBusy} onClick={() => { setBulkOptionsOpen(false); handleBulkDelete(); }} className="flex min-h-11 w-full items-center gap-3 px-3 text-left text-sm font-medium text-rose-700 transition hover:bg-rose-50 disabled:opacity-40">
-                    <Trash2 size={16}/> Supprimer
-                  </button>
-                </div>
-              )}
-            </div>
             <button type="button" onClick={clearExpenseSelection} disabled={bulkActionBusy || bulkDateBusy} className="inline-flex h-10 items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-40">
               <X size={15}/> Terminer
             </button>

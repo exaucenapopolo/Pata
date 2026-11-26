@@ -38,12 +38,15 @@ test('les API et les requêtes non GET ne sont jamais mises en cache par le serv
   assert.match(worker, /url\.pathname\.startsWith\('\/_next\/image'\)/);
 });
 
-test('l’enregistrement du service worker ne lance plus de vérifications réseau à chaque retour en ligne ou affichage', () => {
+test('le service worker reste réservé à la PWA navigateur et est désactivé dans la WebView Android', () => {
   const registration = read('../src/components/PWARegister.jsx');
-  assert.match(registration, /serviceWorker\.register\('\/sw\.js'/);
-  assert.doesNotMatch(registration, /registration\.update\(/);
-  assert.doesNotMatch(registration, /visibilitychange/);
-  assert.doesNotMatch(registration, /addEventListener\('online'/);
+  assert.ok(registration.includes('Capacitor.isNativePlatform()'));
+  assert.ok(registration.includes("navigator.serviceWorker.register('/sw.js'"));
+  assert.ok(registration.includes('getRegistrations()'));
+  assert.ok(registration.includes('registration.unregister()'));
+  assert.ok(registration.includes('window.caches.delete'));
+  assert.ok(registration.includes('appStateChange'));
+  assert.ok(registration.includes('/api/app-version'));
 });
 
 test('la page hors connexion est un squelette discret avec un seul statut réseau', () => {

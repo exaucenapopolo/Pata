@@ -40,6 +40,8 @@ jobs:
         run: npm run test:money-keypad
       - name: Tester la visibilité du champ au-dessus de la calculatrice
         run: npm run test:money-keypad-scroll
+      - name: Tester les raccourcis flottants et la synchronisation de la WebView Android
+        run: npm run test:native-scroll-actions
       - name: Tester le rattachement des paiements SMS aux factures impayées
         run: npm run test:sms-bill-payment
       - name: Tester les analyses et projections par catégorie

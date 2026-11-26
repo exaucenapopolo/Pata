@@ -46,6 +46,7 @@ import { checkFinancialOperation } from '@/lib/firestore/financialTargets';
 import { NextBestAction } from '@/components/NextBestAction';
 import { usePersistentPageState } from '@/hooks/usePersistentPageState';
 import { useAppDialog } from '@/hooks/useAppDialog';
+import { ScrollAwareAddButton } from '@/components/layout/ScrollAwareAddButton';
 
 // 🟢 DATES LOCALES (Pas de décalage UTC)
 const todayMonth = () => {
@@ -858,6 +859,7 @@ export default function IncomePage() {
 
   return (
     <div className="space-y-4">
+      <ScrollAwareAddButton label="Ajouter un revenu" ariaLabel="Ajouter un revenu" onClick={openNewIncome} disabled={incomeQuotaReached} visible={!open && !selectedIncome && !deleteId && !vitalOpen && !vitalApplyOpen && !incomeBudgetPrompt}/>
       {nextAction && <NextBestAction key={nextAction.sequence} actionKey="income-saved" title={isEnglish ? 'Income saved' : 'Revenu enregistré'} description={isEnglish ? 'You can now allocate part of this income to your budgets and keep track of what remains available.' : 'Tu peux maintenant répartir une partie de ce revenu entre tes budgets et suivre ce qu’il te reste.'} href="/budgets" cta={isEnglish ? 'Organise this income' : 'Organiser ce revenu'} />}
       {showCotisationReminder && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand-200 bg-brand-50 px-4 py-3"><div><p className="text-sm font-semibold text-brand-900">Revenu enregistré.</p><p className="mt-0.5 text-xs text-brand-800">Pense à vérifier ta prochaine cotisation si tu participes à un groupe.</p></div><div className="flex items-center gap-3"><Link href="/cotisations" className="text-xs font-bold text-brand-800 underline">Voir mes cotisations</Link><button type="button" onClick={() => setShowCotisationReminder(false)} className="text-xs text-brand-700">Fermer</button></div></div>}
       <div className="pata-page-heading flex flex-wrap items-center justify-between gap-3">
