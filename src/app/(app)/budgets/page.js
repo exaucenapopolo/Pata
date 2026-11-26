@@ -26,6 +26,7 @@ import { isIncomeCountedAsSource } from '@/lib/finance/incomeBalances.mjs';
 import { usePersistentPageState } from '@/hooks/usePersistentPageState';
 import { NextBestAction } from '@/components/NextBestAction';
 import { useAppDialog } from '@/hooks/useAppDialog';
+import { calculateBudgetPlan, restoreBudgetPlannerLine } from '@/lib/finance/budgetPlanner.mjs';
 
 const todayMonth = () => getLocalMonth();
 const getMonthEndDate = (monthKey) => {
@@ -87,7 +88,8 @@ export default function BudgetsPage() {
   const [applySuggestedAfterSave, setApplySuggestedAfterSave] = useState(false);
   const [createBudgetOpen, setCreateBudgetOpen] = usePersistentPageState('budgets', 'createBudgetOpen', false, user?.uid);
   const [createBudgetIncomeSourceId, setCreateBudgetIncomeSourceId] = usePersistentPageState('budgets', 'createBudgetIncomeSourceId', '', user?.uid);
-  const [createBudgetItems, setCreateBudgetItems] = usePersistentPageState('budgets', 'createBudgetItems', [{ categoryId: '', amount: '' }], user?.uid);
+  const [createBudgetItems, setCreateBudgetItems] = usePersistentPageState('budgets', 'createBudgetItems', [{ categoryId: '', value: '', calculationType: 'amount', frequency: 'monthly' }], user?.uid);
+  const [createBudgetMode, setCreateBudgetMode] = useState('create');
   const [targetPeriod, setTargetPeriod] = usePersistentPageState('budgets', 'targetPeriod', 'monthly', user?.uid);
   const [targetAmount, setTargetAmount] = usePersistentPageState('budgets', 'targetAmount', '', user?.uid);
   const [savingTarget, setSavingTarget] = useState(false);
@@ -196,12 +198,15 @@ export default function BudgetsPage() {
   const createBudgetIncome = budgetIncomeSources.find((income) => income.id === createBudgetIncomeSourceId);
   const createBudgetSelectedCategoryIds = new Set(createBudgetItems.map((item) => item.categoryId).filter(Boolean));
   const createBudgetExistingTotal = budgets.reduce((sum, budget) => sum + Math.max(0, Number(budget.amount) || 0), 0);
-  const createBudgetReplacementTotal = budgets
-    .filter((budget) => createBudgetSelectedCategoryIds.has(String(budget.categoryId || '')))
-    .reduce((sum, budget) => sum + Math.max(0, Number(budget.amount) || 0), 0);
+  const createBudgetReplacementTotal = createBudgetMode === 'edit'
+    ? createBudgetExistingTotal
+    : budgets
+      .filter((budget) => createBudgetSelectedCategoryIds.has(String(budget.categoryId || '')))
+      .reduce((sum, budget) => sum + Math.max(0, Number(budget.amount) || 0), 0);
   const createBudgetOtherAllocated = Math.max(0, createBudgetExistingTotal - createBudgetReplacementTotal);
   const createBudgetAvailableToAllocate = Math.max(0, Number(createBudgetIncome?.remaining || 0) - createBudgetOtherAllocated);
-  const createBudgetItemsTotal = createBudgetItems.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const createBudgetPlan = calculateBudgetPlan(createBudgetItems, Number(createBudgetIncome?.remaining) || 0);
+  const createBudgetItemsTotal = createBudgetPlan.total;
   const spendingInsights = useMemo(
     () => enriched
       .filter((category) => Number(category.spent) > 0)
@@ -256,9 +261,19 @@ export default function BudgetsPage() {
       setTemplateMessage(isEnglish ? 'Add an income with a verified positive balance before creating a budget.' : 'Ajoute un revenu dont le solde restant est positif et vérifié avant de créer un budget.');
       return;
     }
+    setCreateBudgetMode('create');
     setCreateBudgetIncomeSourceId(chosenSource.id);
     setSelectedIncome(chosenSource.id);
-    setCreateBudgetItems([{ categoryId: expenseCategories[0]?.id || '', amount: '' }]);
+    setCreateBudgetItems([{ categoryId: expenseCategories[0]?.id || '', value: '', calculationType: 'amount', frequency: 'monthly' }]);
+    setSaveError('');
+    setCreateBudgetOpen(true);
+  };
+
+  const openEditBudgetPlan = () => {
+    if (selectedIncome === 'all' || !budgetIncomeSources.some((income) => income.id === selectedIncome)) return;
+    setCreateBudgetMode('edit');
+    setCreateBudgetIncomeSourceId(selectedIncome);
+    setCreateBudgetItems(budgets.map((budget) => restoreBudgetPlannerLine(budget)));
     setSaveError('');
     setCreateBudgetOpen(true);
   };
@@ -266,11 +281,15 @@ export default function BudgetsPage() {
   const onCreateBudget = async (event) => {
     event.preventDefault();
     const source = budgetIncomeSources.find((income) => income.id === createBudgetIncomeSourceId);
-    const normalizedItems = createBudgetItems.map((item) => ({
-      categoryId: String(item.categoryId || '').trim(),
-      amount: Number(item.amount),
+    const prepared = createBudgetPlan.rows.map((item) => ({
+      categoryId: item.categoryId,
+      amount: item.amount,
+      value: item.value,
+      calculationType: item.calculationType,
+      frequency: item.frequency,
     }));
-    const categoryIds = normalizedItems.map((item) => item.categoryId);
+    const activeItems = prepared.filter((item) => item.amount > 0);
+    const categoryIds = prepared.map((item) => item.categoryId);
     if (!source || source.balanceAvailable !== true || Number(source.remaining) <= 0) {
       setSaveError(isEnglish ? 'This income is no longer available. Choose another source with a positive remaining balance.' : 'Ce revenu n’est plus disponible. Choisis une autre source dont le solde restant est positif.');
       return;
@@ -279,38 +298,55 @@ export default function BudgetsPage() {
       setSaveError(isEnglish ? 'Pata is checking the budgets already assigned to this income. Try again in a moment.' : 'Pata vérifie les budgets déjà rattachés à ce revenu. Réessaie dans un instant.');
       return;
     }
-    if (!normalizedItems.length || normalizedItems.length > 30
-      || normalizedItems.some((item) => !item.categoryId || !Number.isSafeInteger(item.amount) || item.amount <= 0 || item.amount > 1_000_000_000)
-      || new Set(categoryIds).size !== normalizedItems.length) {
-      setSaveError(isEnglish ? 'Choose a different expense category for each line and enter a valid positive amount.' : 'Choisis une catégorie différente sur chaque ligne et saisis un montant positif valide.');
+    if (createBudgetMode === 'create' && (!prepared.length || prepared.some((item) => !item.categoryId || item.amount <= 0))) {
+      setSaveError(isEnglish ? 'Choose a category and enter a positive amount or percentage for each envelope.' : 'Choisis une catégorie et indique un montant ou un pourcentage positif pour chaque enveloppe.');
       return;
     }
-    const newAllocation = normalizedItems.reduce((sum, item) => sum + item.amount, 0);
-    if (newAllocation > createBudgetAvailableToAllocate) {
-      setSaveError(isEnglish
-        ? 'These envelopes exceed the ' + formatCurrency(createBudgetAvailableToAllocate) + ' still available to allocate from this income. Reduce the amounts.'
-        : 'Ces enveloppes dépassent les ' + formatCurrency(createBudgetAvailableToAllocate) + ' encore disponibles à répartir sur ce revenu. Réduis les montants pour respecter son solde.');
+    if (prepared.length > 30 || prepared.some((item) => !item.categoryId || !Number.isSafeInteger(item.amount) || item.amount < 0 || item.amount > 1_000_000_000)
+      || new Set(categoryIds).size !== categoryIds.length) {
+      setSaveError(isEnglish ? 'Check the category, amount, percentage and frequency on every line.' : 'Vérifie la catégorie, le montant, le pourcentage et la fréquence de chaque ligne.');
       return;
+    }
+    if (createBudgetMode === 'edit' && !prepared.length) {
+      const confirmed = await appConfirm(
+        isEnglish ? 'Remove every envelope assigned to this income for this month?' : 'Supprimer toutes les enveloppes de ce revenu pour ce mois ?',
+        { title: isEnglish ? 'Remove this complete budget?' : 'Supprimer tout ce budget ?', kind: 'danger', confirmLabel: isEnglish ? 'Remove all envelopes' : 'Supprimer toutes les enveloppes' }
+      );
+      if (!confirmed) return;
+    }
+    if (createBudgetItemsTotal > createBudgetAvailableToAllocate) {
+      const over = createBudgetItemsTotal - createBudgetAvailableToAllocate;
+      const confirmed = await appConfirm(
+        isEnglish
+          ? 'The planned envelopes exceed the remaining available balance by ' + formatCurrency(over) + '. You can keep your plan, but future expenses may be difficult to fund. Save it anyway?'
+          : 'Les enveloppes prévues dépassent le solde restant disponible de ' + formatCurrency(over) + '. Tu peux conserver ton plan, mais certaines dépenses risquent de ne plus être finançables. Veux-tu quand même enregistrer ce budget ?',
+        { title: isEnglish ? 'Plan exceeds available income' : 'Budget supérieur au revenu disponible', kind: 'warning', confirmLabel: isEnglish ? 'Keep my budget' : 'Conserver mon budget' }
+      );
+      if (!confirmed) return;
     }
     setCreatingBudget(true);
     setSaveError('');
     try {
-      await upsertBudgets(user.uid, {
-        items: normalizedItems,
+      const result = await upsertBudgets(user.uid, {
+        items: prepared,
         month,
         incomeSourceId: createBudgetIncomeSourceId,
+        replaceExisting: createBudgetMode === 'edit',
       });
       setSelectedIncome(createBudgetIncomeSourceId);
       setCreateBudgetOpen(false);
-      setCreateBudgetItems([{ categoryId: expenseCategories[0]?.id || '', amount: '' }]);
+      setCreateBudgetMode('create');
+      setCreateBudgetItems([{ categoryId: expenseCategories[0]?.id || '', value: '', calculationType: 'amount', frequency: 'monthly' }]);
       setNextAction({ sequence: Date.now() });
+      setTemplateMessage(isEnglish
+        ? 'Budget updated: ' + (result.createdCount || 0) + ' envelope(s) created, ' + (result.updatedCount || 0) + ' updated and ' + (result.deletedCount || 0) + ' removed.'
+        : 'Budget mis à jour : ' + (result.createdCount || 0) + ' enveloppe(s) créée(s), ' + (result.updatedCount || 0) + ' mise(s) à jour et ' + (result.deletedCount || 0) + ' supprimée(s).');
     } catch (error) {
-      setSaveError(error.message || (isEnglish ? 'Could not create this budget.' : 'Impossible de créer ce budget.'));
+      setSaveError(error.message || (isEnglish ? 'Could not save this budget.' : 'Impossible d’enregistrer ce budget.'));
     } finally {
       setCreatingBudget(false);
     }
   };
-
   const openSuggestedBudget = () => {
     const items = buildBudgetSuggestions({ incomes, expenses, categories: expenseCategories, persona: budgetPersona, month });
     if (!items.length) {
@@ -753,8 +789,8 @@ export default function BudgetsPage() {
 
       <Modal
         open={createBudgetOpen}
-        onClose={() => { if (!creatingBudget) setCreateBudgetOpen(false); }}
-        title="Créer un budget"
+        onClose={() => { if (!creatingBudget) { setCreateBudgetOpen(false); setCreateBudgetMode('create'); } }}
+        title={createBudgetMode === 'edit' ? 'Modifier tout le budget' : 'Ajouter des enveloppes'}
         className="max-w-xl"
       >
         <form onSubmit={onCreateBudget} className="space-y-4">
@@ -784,7 +820,7 @@ export default function BudgetsPage() {
                 <strong className="text-sm font-extrabold tabular-nums text-slate-900">{formatCurrency(createBudgetIncome.remaining)}</strong>
               </div>
               {budgetsLoading || selectedIncome !== createBudgetIncomeSourceId ? (
-                <p className="mt-2 text-[11px] text-slate-500">Vérification des enveloppes déjà prévues…</p>
+                <p className="mt-2 text-[11px] text-slate-500">Pata vérifie les enveloppes déjà prévues pour ce revenu…</p>
               ) : (
                 <>
                   <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-slate-500">
@@ -792,7 +828,7 @@ export default function BudgetsPage() {
                     <strong className="tabular-nums text-slate-700">{formatCurrency(createBudgetOtherAllocated)}</strong>
                   </div>
                   <div className="mt-2 flex items-center justify-between gap-3 border-t border-brand-100 pt-2 text-xs">
-                    <span className="font-semibold text-slate-700">Encore disponible à répartir</span>
+                    <span className="font-semibold text-slate-700">Disponible pour ce plan</span>
                     <strong className="font-extrabold tabular-nums text-brand-800">{formatCurrency(createBudgetAvailableToAllocate)}</strong>
                   </div>
                 </>
@@ -803,87 +839,143 @@ export default function BudgetsPage() {
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
               <div>
-                <p className="text-sm font-bold text-slate-800">Catégories à budgétiser</p>
-                <p className="mt-0.5 text-[11px] text-slate-500">Une ligne par catégorie, avec son propre montant.</p>
+                <p className="text-sm font-bold text-slate-800">Enveloppes par catégorie</p>
+                <p className="mt-0.5 text-[11px] leading-4 text-slate-500">Pour chaque catégorie, choisis un montant ou un pourcentage et sa fréquence. Le montant mensuel est calculé automatiquement.</p>
               </div>
               <button
                 type="button"
-                onClick={() => setCreateBudgetItems((current) => [...current, { categoryId: expenseCategories.find((category) => !current.some((item) => item.categoryId === category.id))?.id || '', amount: '' }])}
+                onClick={() => setCreateBudgetItems((current) => [...current, {
+                  categoryId: expenseCategories.find((category) => !current.some((item) => item.categoryId === category.id))?.id || '',
+                  value: '',
+                  calculationType: 'amount',
+                  frequency: 'monthly',
+                }])}
                 disabled={createBudgetItems.length >= expenseCategories.length || createBudgetItems.length >= 30}
                 className="inline-flex min-h-9 shrink-0 items-center gap-1 rounded-lg px-2 text-xs font-bold text-brand-700 hover:bg-brand-50 disabled:opacity-40"
               >
                 <Plus size={14}/> Ajouter
               </button>
             </div>
-            <div className="space-y-2">
-              {createBudgetItems.map((item, index) => (
-                <div key={index} className="grid grid-cols-[minmax(0,1fr)_minmax(104px,.8fr)_34px] items-end gap-2 rounded-xl border border-slate-200 p-2">
-                  <label className="min-w-0 text-[11px] font-semibold text-slate-600">
-                    Catégorie
-                    <select
-                      required
-                      value={item.categoryId}
-                      onChange={(event) => setCreateBudgetItems((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, categoryId: event.target.value } : row))}
-                      className="pata-field mt-1 h-10 w-full min-w-0 rounded-lg border px-2 text-xs font-medium text-slate-800 outline-none"
-                    >
-                      {expenseCategories.map((category) => (
-                        <option
-                          key={category.id}
-                          value={category.id}
-                          disabled={createBudgetItems.some((row, rowIndex) => rowIndex !== index && row.categoryId === category.id)}
+            <div className="max-h-[48dvh] space-y-2 overflow-y-auto pr-1">
+              {createBudgetItems.map((item, index) => {
+                const calculated = createBudgetPlan.rows[index];
+                return (
+                  <section key={index} className="space-y-2 rounded-xl border border-slate-200 p-3">
+                    <div className="flex items-center gap-2">
+                      <label className="min-w-0 flex-1 text-[11px] font-semibold text-slate-600">
+                        Catégorie
+                        <select
+                          required
+                          value={item.categoryId}
+                          onChange={(event) => setCreateBudgetItems((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, categoryId: event.target.value } : row))}
+                          className="pata-field mt-1 h-10 w-full min-w-0 rounded-lg border px-2 text-xs font-medium text-slate-800 outline-none"
                         >
-                          {translateText(category.label, language)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="min-w-0 text-[11px] font-semibold text-slate-600">
-                    Montant (FCFA)
-                    <input
-                      type="number"
-                      min="1"
-                      max="1000000000"
-                      step="1"
-                      inputMode="numeric"
-                      required
-                      value={item.amount}
-                      onChange={(event) => setCreateBudgetItems((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, amount: event.target.value } : row))}
-                      className="pata-field mt-1 h-10 w-full min-w-0 rounded-lg border px-2 text-right text-xs font-bold text-slate-800 outline-none"
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setCreateBudgetItems((current) => current.filter((_, rowIndex) => rowIndex !== index))}
-                    disabled={createBudgetItems.length <= 1}
-                    aria-label="Retirer cette catégorie"
-                    className="mb-0.5 grid h-9 w-9 place-items-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-20"
-                  >
-                    <Trash2 size={14}/>
-                  </button>
-                </div>
-              ))}
+                          <option value="">Choisir une catégorie</option>
+                          {expenseCategories.map((category) => (
+                            <option
+                              key={category.id}
+                              value={category.id}
+                              disabled={createBudgetItems.some((row, rowIndex) => rowIndex !== index && row.categoryId === category.id)}
+                            >
+                              {translateText(category.label, language)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setCreateBudgetItems((current) => current.filter((_, rowIndex) => rowIndex !== index))}
+                        aria-label="Retirer cette catégorie"
+                        className="mt-4 grid h-9 w-9 shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600"
+                      >
+                        <Trash2 size={14}/>
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="block text-[11px] font-semibold text-slate-600">
+                        Calcul
+                        <select
+                          value={item.calculationType || 'amount'}
+                          onChange={(event) => setCreateBudgetItems((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, calculationType: event.target.value } : row))}
+                          className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs font-medium"
+                        >
+                          <option value="amount">Montant en FCFA</option>
+                          <option value="percentage">Pourcentage du revenu</option>
+                        </select>
+                      </label>
+                      <label className="block text-[11px] font-semibold text-slate-600">
+                        Fréquence
+                        <select
+                          value={item.frequency || 'monthly'}
+                          onChange={(event) => setCreateBudgetItems((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, frequency: event.target.value } : row))}
+                          className="mt-1 h-10 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs font-medium"
+                        >
+                          <option value="daily">Par jour</option>
+                          <option value="weekly">Par semaine</option>
+                          <option value="monthly">Par mois</option>
+                        </select>
+                      </label>
+                      <label className="col-span-2 block text-[11px] font-semibold text-slate-600">
+                        {item.calculationType === 'percentage' ? 'Pourcentage appliqué à chaque période (%)' : 'Montant par période (FCFA)'}
+                        <input
+                          type="number"
+                          min="0"
+                          max={item.calculationType === 'percentage' ? '100' : '1000000000'}
+                          step={item.calculationType === 'percentage' ? '0.1' : '1'}
+                          inputMode="decimal"
+                          required
+                          value={item.value ?? ''}
+                          onChange={(event) => setCreateBudgetItems((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, value: event.target.value } : row))}
+                          className="pata-field mt-1 h-10 w-full rounded-lg border px-3 text-right text-sm font-bold text-slate-800 outline-none"
+                        />
+                      </label>
+                    </div>
+                    <div className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2 text-xs">
+                      <span className="text-slate-500">Prévision mensuelle calculée</span>
+                      <strong className="tabular-nums text-slate-900">{formatCurrency(calculated?.amount || 0)}</strong>
+                    </div>
+                  </section>
+                );
+              })}
+              {!createBudgetItems.length && (
+                <p className="rounded-xl border border-dashed border-slate-300 p-4 text-center text-xs text-slate-500">Aucune enveloppe. Ajoute une catégorie pour commencer ou enregistre pour supprimer tout le budget actuel.</p>
+              )}
             </div>
-            {budgetsLoading || selectedIncome !== createBudgetIncomeSourceId ? (
-              <p className="text-[11px] text-slate-500">Pata vérifie les enveloppes existantes de cette source avant l’enregistrement.</p>
-            ) : (
-              <div className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2.5">
-                <span className="text-xs font-semibold text-slate-600">Total des nouvelles enveloppes</span>
-                <strong className="text-sm font-extrabold tabular-nums text-slate-900">{formatCurrency(createBudgetItemsTotal)}</strong>
-              </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span className="font-semibold text-slate-700">Total mensuel prévu</span>
+              <strong className="text-base font-extrabold tabular-nums text-slate-900">{formatCurrency(createBudgetItemsTotal)}</strong>
+            </div>
+            <div className="mt-2 flex items-center justify-between gap-3 text-xs">
+              <span className="text-slate-500">Solde disponible après les enveloppes</span>
+              <strong className={createBudgetAvailableToAllocate - createBudgetItemsTotal < 0 ? 'text-amber-700' : 'text-emerald-700'}>
+                {formatCurrency(createBudgetAvailableToAllocate - createBudgetItemsTotal)}
+              </strong>
+            </div>
+            {createBudgetPlan.percentageTotal > 100 && (
+              <p className="mt-2 text-[11px] leading-4 text-amber-700">Les pourcentages cumulés avec leur fréquence dépassent 100 % du revenu. Vérifie cette répartition avant de continuer.</p>
             )}
           </div>
 
           {saveError && <p role="alert" className="rounded-lg bg-red-50 p-2 text-xs text-red-700">{saveError}</p>}
-          <Button
-            type="submit"
-            className="w-full"
-            disabled={creatingBudget || budgetsLoading || selectedIncome !== createBudgetIncomeSourceId || !createBudgetIncomeSourceId || !createBudgetItems.length || createBudgetItems.some((item) => !item.categoryId || !Number.isSafeInteger(Number(item.amount)) || Number(item.amount) <= 0 || Number(item.amount) > 1_000_000_000) || createBudgetItemsTotal > createBudgetAvailableToAllocate}
-          >
-            {creatingBudget ? 'Création…' : createBudgetItems.length > 1 ? 'Créer ' + createBudgetItems.length + ' enveloppes' : 'Créer le budget'}
-          </Button>
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" className="flex-1" onClick={() => setCreateBudgetOpen(false)} disabled={creatingBudget}>Fermer</Button>
+            <Button
+              type="submit"
+              className="flex-1"
+              disabled={creatingBudget || budgetsLoading || selectedIncome !== createBudgetIncomeSourceId
+                || !createBudgetIncomeSourceId
+                || (createBudgetMode === 'create' && !createBudgetItems.length)
+                || createBudgetItems.some((item) => !item.categoryId || !Number.isFinite(Number(item.value)) || Number(item.value) < 0)
+                || createBudgetPlan.rows.some((item) => !item.valid)}
+            >
+              {creatingBudget ? 'Enregistrement…' : createBudgetMode === 'edit' ? 'Enregistrer le budget complet' : 'Enregistrer les enveloppes'}
+            </Button>
+          </div>
         </form>
       </Modal>
-
       <Modal
         open={!!editing}
         onClose={() => setEditing(null)}
