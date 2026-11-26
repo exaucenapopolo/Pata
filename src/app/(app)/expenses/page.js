@@ -1266,6 +1266,22 @@ export default function ExpensesPage() {
         ].map(([label, amount]) => <div key={label} className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2"><p className="text-[10px] leading-4 text-slate-500">{label}</p><p className="mt-1 break-words text-xs font-bold tabular-nums text-slate-900 sm:text-sm">{formatCurrency(amount)}</p></div>)}
       </div>
 
+      <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs text-slate-600">
+        <input
+          type="checkbox"
+          checked={budgetFeedbackEnabled}
+          onChange={(event) => setBudgetFeedbackEnabled(event.target.checked)}
+          className="h-4 w-4 rounded border-slate-300 text-brand-600"
+        />
+        <span className="min-w-0 flex-1">
+          <strong className="block text-slate-800">Suivi automatique des enveloppes</strong>
+          <span className="block text-[10px] leading-4 text-slate-500">Afficher le montant dépensé et le reste du budget après chaque dépense.</span>
+        </span>
+        <span className={'shrink-0 rounded-full px-2 py-1 text-[10px] font-bold ' + (budgetFeedbackEnabled ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500')}>
+          {budgetFeedbackEnabled ? 'Activé' : 'Désactivé'}
+        </span>
+      </label>
+
       {showExpenseQuota && (
         <section role="status" className={'rounded-2xl border p-3.5 ' + (expenseQuotaReached ? 'border-amber-200 bg-amber-50/90' : 'border-emerald-100 bg-white/90')}>
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1591,6 +1607,64 @@ export default function ExpensesPage() {
                   ? 'Enregistrer les ' + batchRows.length + ' modifications'
                   : 'Enregistrer les ' + batchRows.length + ' dépenses'}
             </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={budgetFeedback.length > 0} priority onClose={() => setBudgetFeedback([])} title="Suivi de tes enveloppes">
+        <div className="space-y-3">
+          <p className="text-xs leading-5 text-slate-600">Voici l’état de tes budgets après cette dépense. Chaque enveloppe reste liée à sa catégorie et à sa source de revenu.</p>
+          <div className="max-h-[52dvh] space-y-2 overflow-y-auto pr-1">
+            {budgetFeedback.map((item, index) => {
+              const category = batchExpenseCategories.find((candidate) => candidate.id === item.categoryId);
+              const over = item.status === 'over_limit';
+              const near = item.status === 'near_limit';
+              return (
+                <section key={String(item.budgetId || item.categoryId) + '-' + String(item.incomeSourceId || 'all') + '-' + index}
+                  className={'rounded-xl border p-3 ' + (over ? 'border-red-200 bg-red-50/70' : near ? 'border-amber-200 bg-amber-50/70' : 'border-emerald-100 bg-emerald-50/50')}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-bold text-slate-900">{category?.label || category?.name || item.categoryId}</p>
+                      <p className="mt-0.5 truncate text-[11px] text-slate-500">{item.incomeSourceName || 'Tous les revenus'}</p>
+                    </div>
+                    <span className={'shrink-0 rounded-full px-2 py-1 text-[10px] font-bold ' + (over ? 'bg-red-100 text-red-700' : near ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800')}>
+                      {over ? 'Budget dépassé' : near ? 'Proche de la limite' : 'Dans le budget'}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                    <div className="rounded-lg bg-white/80 p-2">
+                      <p className="text-[10px] text-slate-500">Déjà dépensé</p>
+                      <p className="mt-1 font-bold tabular-nums text-slate-800">{formatCurrency(item.alreadySpent || 0)}</p>
+                    </div>
+                    <div className="rounded-lg bg-white/80 p-2">
+                      <p className="text-[10px] text-slate-500">Cette dépense</p>
+                      <p className="mt-1 font-bold tabular-nums text-slate-800">+{formatCurrency(item.planned || 0)}</p>
+                    </div>
+                    <div className="rounded-lg bg-white/80 p-2">
+                      <p className="text-[10px] text-slate-500">Total après dépense</p>
+                      <p className="mt-1 font-bold tabular-nums text-slate-800">{formatCurrency(item.after || 0)}</p>
+                    </div>
+                    <div className="rounded-lg bg-white/80 p-2">
+                      <p className="text-[10px] text-slate-500">{over ? 'Dépassement' : 'Reste dans l’enveloppe'}</p>
+                      <p className={'mt-1 font-extrabold tabular-nums ' + (over ? 'text-red-700' : near ? 'text-amber-800' : 'text-emerald-800')}>
+                        {formatCurrency(Math.abs(Number(item.remaining) || 0))}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between text-[10px] text-slate-500">
+                    <span>Enveloppe : {formatCurrency(item.allocated || 0)}</span>
+                    <strong className="tabular-nums">{Number(item.percentUsed || 0).toLocaleString('fr-FR')} % utilisé</strong>
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+          <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-slate-200 p-3 text-xs text-slate-600">
+            <input type="checkbox" checked={budgetFeedbackEnabled} onChange={(event) => setBudgetFeedbackEnabled(event.target.checked)} className="mt-0.5 h-4 w-4 rounded border-slate-300"/>
+            <span>Afficher automatiquement ce suivi après chaque dépense. Tu pourras changer ce choix depuis la page Dépenses.</span>
+          </label>
+          <div className="flex justify-end border-t border-slate-100 pt-3">
+            <Button type="button" onClick={() => setBudgetFeedback([])}>Fermer</Button>
           </div>
         </div>
       </Modal>
