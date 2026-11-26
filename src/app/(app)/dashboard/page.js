@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
-  TrendingUp, TrendingDown, Wallet, Target, PiggyBank, ChevronRight,
+  TrendingUp, TrendingDown, Wallet, Target, PiggyBank, ChevronRight, Calculator,
   CheckCircle2, AlertTriangle, Lightbulb, Info, Landmark, Calendar, ArrowUpRight, ArrowDownLeft, Plus
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
@@ -92,6 +92,7 @@ const DASHBOARD_USAGE_LINKS = [
   { href: '/cotisations', label: 'Cotisations', english: 'Contributions', description: 'Gérer mes groupes', descriptionEn: 'Manage my groups', icon: Wallet, tone: 'bg-teal-50 text-teal-700' },
   { href: '/wallet', label: 'Portefeuille', english: 'Wallet', description: 'Consulter mon portefeuille', descriptionEn: 'Check my wallet', icon: Wallet, tone: 'bg-lime-50 text-lime-700' },
   { href: '/reports', label: 'Rapports', english: 'Reports', description: 'Consulter mes analyses', descriptionEn: 'Review my reports', icon: Lightbulb, tone: 'bg-purple-50 text-purple-700' },
+  { href: '/calculator', label: 'Calculatrice', english: 'Calculator', description: 'Faire un calcul indépendant', descriptionEn: 'Perform a standalone calculation', icon: Calculator, tone: 'bg-slate-100 text-slate-700' },
   { href: '/premium', label: 'Premium', english: 'Premium', description: 'Découvrir les automatismes', descriptionEn: 'Explore automation', icon: CheckCircle2, tone: 'bg-emerald-50 text-emerald-800' },
 ];
 
