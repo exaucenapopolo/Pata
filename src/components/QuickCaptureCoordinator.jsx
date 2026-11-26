@@ -14,6 +14,8 @@ import { parseMobileMoneySms } from '@/lib/sms/parseMobileMoneySms.mjs';
 import { PataQuickCapture } from '@/lib/quickCapture/nativePlugin';
 import { uploadBillImage } from '@/lib/bills/uploadBillImage.mjs';
 import { enqueueOfflineCapture, listOfflineCaptures, removeOfflineCapture } from '@/lib/quickCapture/offlineQueue.mjs';
+import { useIncomes } from '@/hooks/useIncomes';
+import { getAvailableIncomeSources, getAvailableIncomeTotal } from '@/lib/finance/availableIncomeSources.mjs';
 
 function restoreOfflineCaptureDraft(item, confirmationMessage = '') {
   const payload = item?.payload || {};
@@ -71,6 +73,9 @@ export function QuickCaptureCoordinator() {
   const router = useRouter();
   const { user } = useAuth();
   const { profile, loading: profileLoading } = useProfile();
+  const { incomes: trackedIncomes, balancesReady: incomeBalancesReady } = useIncomes();
+  const availableCaptureIncomes = useMemo(() => getAvailableIncomeSources(trackedIncomes), [trackedIncomes]);
+  const availableCaptureIncomeTotal = useMemo(() => getAvailableIncomeTotal(availableCaptureIncomes), [availableCaptureIncomes]);
   const premium = premiumActive(profile);
   const [draft, setDraft] = useState(null);
   const [working, setWorking] = useState(false);
@@ -415,7 +420,7 @@ export function QuickCaptureCoordinator() {
           const normalize = (value) => String(value || '').normalize('NFD')
             .replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
           const sourceMatches = current.incomeSourceName
-            ? incomes.filter((income) => normalize(income.source) === normalize(current.incomeSourceName))
+            ? availableCaptureIncomes.filter((income) => normalize(income.source) === normalize(current.incomeSourceName))
             : [];
           const counterpartyName = current.type === 'income' ? current.incomePerson : current.person;
           const debtChoices = current.type === 'income' && current.incomeFlowType === 'repayment_received'
@@ -444,7 +449,7 @@ export function QuickCaptureCoordinator() {
       }
     })();
     return () => { active = false; };
-  }, [user, premium, draft?.id, draft?.type, draft?.incomeFlowType, draft?.incomeSourceName, draft?.person, draft?.incomePerson]);
+  }, [user, premium, draft?.id, draft?.type, draft?.incomeFlowType, draft?.incomeSourceName, draft?.person, draft?.incomePerson, availableCaptureIncomes]);
 
   const closeDraft = async () => {
     if (draft?.nativeCaptureId) await PataQuickCapture.clearPendingCapture({ id: draft.nativeCaptureId }).catch(() => {});
@@ -788,13 +793,15 @@ export function QuickCaptureCoordinator() {
             </select>
           </label>}
           {(draft.type === 'expense' || draft.type === 'debt_repayment') && <label className="block text-xs font-semibold text-slate-700">Source du montant (facultatif)
-            <select value={draft.incomeSourceId || 'all'} onChange={(event) => setDraft((current) => ({ ...current, incomeSourceId: event.target.value, incomeSourceName: '' }))} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal">
-              <option value="all">Répartir sur mes revenus disponibles</option>
+            <select value={draft.incomeSourceId || 'all'} disabled={!incomeBalancesReady} onChange={(event) => setDraft((current) => ({ ...current, incomeSourceId: event.target.value, incomeSourceName: '' }))} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal disabled:bg-slate-50 disabled:text-slate-400">
+              <option value="all">{incomeBalancesReady ? 'Répartir sur les revenus disponibles · ' + availableCaptureIncomeTotal.toLocaleString('fr-FR') + ' FCFA' : 'Vérification des soldes en cours…'}</option>
               <option value="external">Solde externe / revenu non suivi</option>
-              {captureOptions.incomes.map((income) => <option key={income.id} value={income.id}>{income.availableAsFunding ? 'Emprunt reçu · ' : ''}{income.source} · {income.date || 'Date inconnue'} · {Number(income.amount || 0).toLocaleString('fr-FR')} FCFA initialement</option>)}
+              {availableCaptureIncomes.map((income) => <option key={income.id} value={income.id}>{income.availableAsFunding ? 'Emprunt reçu · ' : ''}{income.source || 'Revenu sans nom'} · {income.date || 'Date inconnue'} · {Number(income.remaining || 0).toLocaleString('fr-FR')} FCFA restant</option>)}
             </select>
+            {incomeBalancesReady && availableCaptureIncomes.length === 0 && <span className="mt-1 block text-[10px] font-normal text-amber-700">Aucune source suivie ne dispose encore d’un solde disponible. Tu peux utiliser un solde externe.</span>}
+            {!incomeBalancesReady && <span className="mt-1 block text-[10px] font-normal text-slate-500">Pata vérifie les montants déjà dépensés avant de proposer les sources.</span>}
             {draft.incomeSourceName && <span className="mt-1 block text-[10px] font-normal text-emerald-700">Source reconnue dans ta phrase : {draft.incomeSourceName}. Vérifie le revenu sélectionné.</span>}
-            <span className="mt-1 block text-[10px] font-normal text-slate-500">Tu peux relier cette sortie à un revenu précis. Le solde est vérifié au moment de l’enregistrement.</span>
+            <span className="mt-1 block text-[10px] font-normal text-slate-500">Seules les sources avec un solde restant positif sont proposées.</span>
           </label>}
           {optionsLoading && <p className="text-[10px] text-slate-500">Chargement des sources et dettes actives…</p>}
           {optionsError && <p role="alert" className="rounded-lg bg-amber-50 p-2 text-[10px] text-amber-800">{optionsError}</p>}
