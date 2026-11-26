@@ -34,3 +34,14 @@ test('un revenu emprunté est proposé uniquement lorsque l’utilisateur l’a 
   ];
   assert.deepEqual(getAvailableIncomeSources(options).map((item) => item.id), ['loan-cash']);
 });
+
+test('le paiement d’une facture propose les revenus suivis avec leur solde restant', () => {
+  const billsPage = read('src/app/(app)/bills/page.js');
+  const billsApi = read('src/app/api/[...path]/route.js');
+  assert.match(billsPage, /getAvailableIncomeSources\(incomes\)/);
+  assert.match(billsPage, /getAvailableIncomeTotal\(availableBillIncomeSources\)/);
+  assert.match(billsPage, /value=\{paymentForm\.incomeSourceId \|\| 'all'\}/);
+  assert.match(billsPage, /availableBillIncomeSources\.map/);
+  assert.match(billsPage, /Number\(income\.remaining \|\| 0\)\.toLocaleString\('fr-FR'\) \+ ' FCFA restant'/);
+  assert.match(billsApi, /incomeSourceId: paymentSource === 'tracked' \? String\(body\.incomeSourceId \|\| 'all'\)\.trim\(\) : 'all'/);
+});
