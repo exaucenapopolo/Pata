@@ -2,6 +2,16 @@ const MAX_EXPRESSION_LENGTH = 120;
 const MAX_DIGITS = 24;
 const MAX_INTEGER_DIGITS = 78;
 const MAX_SAFE_INTEGER = BigInt(Number.MAX_SAFE_INTEGER);
+const MAX_POWER = 20n;
+
+function integerSqrt(value) {
+  if (value < 0n) throw new Error('Racine carrée impossible pour un nombre négatif.');
+  if (value < 2n) return value;
+  let x = value;
+  let y = (x + 1n) >> 1n;
+  while (y < x) { x = y; y = (x + value / x) >> 1n; }
+  return x;
+}
 
 function gcd(a, b) {
   let left = a < 0n ? -a : a;
@@ -29,7 +39,7 @@ function fraction(numerator, denominator = 1n) {
 }
 
 function tokenize(source) {
-  const expression = String(source ?? '').trim().replace(/,/g, '.').replace(/[×xX]/g, '*').replace(/÷/g, '/').replace(/−/g, '-');
+  const expression = String(source ?? '').trim().replace(/,/g, '.').replace(/[×xX]/g, '*').replace(/÷/g, '/').replace(/−/g, '-').replace(/²/g, '^2').replace(/√\s*\(/g, 'sqrt(');
   if (!expression) return [];
   if (expression.length > MAX_EXPRESSION_LENGTH) throw new Error('Calcul trop long.');
   const tokens = [];
@@ -55,7 +65,10 @@ function tokenize(source) {
       const scale = 10n ** BigInt(decimalPart.length);
       const value = BigInt(digits || '0');
       tokens.push({ type: 'number', value: fraction(value, scale) });
-    } else if ('+-*/()'.includes(char)) {
+    } else if (expression.slice(index, index + 4).toLowerCase() === 'sqrt') {
+      tokens.push({ type: 'sqrt', value: 'sqrt' });
+      index += 4;
+    } else if ('+-*/()^%'.includes(char)) {
       tokens.push({ type: char, value: char });
       index += 1;
     } else {
@@ -75,6 +88,16 @@ function evaluateTokens(tokens) {
   };
 
   const parsePrimary = () => {
+    if (peek()?.type === 'sqrt') {
+      consume('sqrt');
+      consume('(');
+      const value = parseSum();
+      consume(')');
+      if (value.n < 0n) throw new Error('Racine carrée impossible pour un nombre négatif.');
+      const scale = 10n ** 12n;
+      const scaledRoot = integerSqrt((value.n * scale * scale) / value.d);
+      return fraction(scaledRoot, scale);
+    }
     if (peek()?.type === '+') {
       consume('+');
       return parsePrimary();
@@ -90,14 +113,33 @@ function evaluateTokens(tokens) {
       consume(')');
       return value;
     }
-    return consume('number').value;
+    let value = consume('number').value;
+    while (peek()?.type === '%') {
+      consume('%');
+      value = fraction(value.n, value.d * 100n);
+    }
+    return value;
+  };
+
+  const parsePower = () => {
+    const value = parsePrimary();
+    if (peek()?.type !== '^') return value;
+    consume('^');
+    const exponent = parsePower();
+    if (exponent.d !== 1n || exponent.n > MAX_POWER || exponent.n < -MAX_POWER) throw new Error('La puissance doit être un entier entre -20 et 20.');
+    const power = Number(exponent.n);
+    if (power === 0) return fraction(1n);
+    const magnitude = BigInt(Math.abs(power));
+    const numerator = value.n ** magnitude;
+    const denominator = value.d ** magnitude;
+    return power > 0 ? fraction(numerator, denominator) : fraction(denominator, numerator);
   };
 
   const parseProduct = () => {
-    let value = parsePrimary();
+    let value = parsePower();
     while (peek()?.type === '*' || peek()?.type === '/') {
       const operator = tokens[cursor++].type;
-      const right = parsePrimary();
+      const right = parsePower();
       value = operator === '*'
         ? fraction(value.n * right.n, value.d * right.d)
         : fraction(value.n * right.d, value.d * right.n);
@@ -145,7 +187,7 @@ function roundToWhole(value) {
 
 /**
  * Evaluates a basic arithmetic expression with exact rational arithmetic.
- * Supported operators: +, -, *, /, ×, ÷, parentheses and decimal commas.
+ * Supports arithmetic, percentages, integer powers, square roots, parentheses and decimal commas.
  * No eval or floating-point arithmetic is used for the calculation itself.
  */
 export function evaluateMoneyExpression(source) {
@@ -168,5 +210,7 @@ export function applyMoneyKey(expression, key) {
   const action = String(key ?? '');
   if (action === 'clear' || action === 'C') return '';
   if (action === 'delete' || action === '⌫') return current.slice(0, -1);
+  if (action === 'sqrt') return current + 'sqrt(';
+  if (action === 'square') return current + '^2';
   return current + action;
 }
