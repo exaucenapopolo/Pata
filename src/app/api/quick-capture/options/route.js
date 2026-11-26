@@ -67,6 +67,22 @@ export async function GET(request) {
           if (incomeId && !incomeId.includes('/')) spentTotals[incomeId] = (Number(spentTotals[incomeId]) || 0) + Math.max(0, Number(expense.amount) || 0);
         });
       }
+
+      // Persist the legacy balance summary once, just like the income balance
+      // endpoint. Future Quick Capture openings then need only the profile read.
+      spentTotals = await adminDb.runTransaction(async (transaction) => {
+        const latestProfile = await transaction.get(userRef);
+        const latestData = latestProfile.exists ? latestProfile.data() || {} : {};
+        if (latestData.incomeSpentTotalsVersion === 1) {
+          return latestData.incomeSpentTotals || {};
+        }
+        transaction.set(userRef, {
+          incomeSpentTotals: spentTotals,
+          incomeSpentTotalsVersion: 1,
+          incomeSpentTotalsUpdatedAt: new Date(),
+        }, { merge: true });
+        return spentTotals;
+      });
     }
     const incomes = eligibleIncomeDocs.map((doc) => {
       const data = doc.data() || {};
