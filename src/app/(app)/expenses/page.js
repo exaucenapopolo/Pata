@@ -755,7 +755,7 @@ export default function ExpensesPage() {
         setBatchError('Dépense ' + (index + 1) + ' : choisis une nature de dépense valide.');
         return;
       }
-      if (row.expenseType === 'project' && (!isPremium || !row.projectId || !projects.some((project) => project.id === row.projectId && !['completed', 'archived'].includes(project.status)))) {
+      if (row.expenseType === 'project' && (!isPremium || !row.projectId || !projects.some((project) => project.id === row.projectId))) {
         setBatchError('Dépense ' + (index + 1) + ' : sélectionne un projet actif avec un compte Premium.');
         return;
       }
@@ -1072,7 +1072,7 @@ export default function ExpensesPage() {
         kind: result.updatedCount > 0 ? 'success' : 'info',
         title: result.updatedCount > 0 ? 'Dates mises à jour' : 'Aucun changement nécessaire',
         message: result.updatedCount > 0
-          ? 'La date du ' + result.updatedCount + ' dépense(s) a été modifiée en une seule opération. Les répartitions financières sont conservées et les budgets mensuels ont été recalculés.'
+          ? 'La date de ' + result.updatedCount + ' dépense(s) a été modifiée en une seule opération. Les répartitions financières sont conservées et les budgets mensuels ont été recalculés.'
           : 'Toutes les dépenses sélectionnées utilisent déjà cette date.',
         confirmLabel: 'Terminer',
       });
@@ -1522,7 +1522,7 @@ export default function ExpensesPage() {
                     <label className="block text-xs font-semibold text-slate-700">Projet concerné
                       <select value={row.projectId || ''} onChange={(event) => updateBatchRow(row.id, { projectId: event.target.value })} disabled={batchSaving} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal">
                         <option value="">Choisir un projet</option>
-                        {projects.filter((project) => project.status === 'active').map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+                        {projects.map((project) => <option key={project.id} value={project.id}>{project.name}{['completed', 'archived'].includes(project.status) ? ' · Terminé' : ''}</option>)}
                       </select>
                     </label>
                   )}
@@ -1604,7 +1604,7 @@ export default function ExpensesPage() {
             {bulkSourceAlreadyUnified && <p className="mt-2 rounded-lg bg-emerald-50 p-2 text-[11px] leading-4 text-emerald-800">Ces dépenses sont déjà toutes rattachées à « {selectedFundingSources[0]?.name} ». Choisis une autre source uniquement si tu souhaites réellement les déplacer.</p>}
           </div>
           <label className="block text-xs font-semibold text-slate-700">Nouvelle source de revenu
-            <select value={bulkSourceId} onChange={(event) => setBulkSourceId(event.target.value)} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal">
+            <select value={bulkSourceId} onChange={(event) => { setBulkSourceId(event.target.value); setBulkSourceError(''); }} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal">
               <option value="">Choisir un revenu disponible…</option>
               {bulkDestinationSourceOptions.map((income) => (
                 <option key={income.id} value={income.id} disabled={income.adjustedRemaining < selectedExpenseTotal}>
