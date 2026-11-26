@@ -442,6 +442,15 @@ test('le suivi budgétaire est calculé pour la bonne catégorie et la bonne sou
   assert.match(page, /Afficher automatiquement ce suivi après chaque dépense/);
 });
 
+test('la préférence de suivi automatique des enveloppes est enregistrée sur le profil utilisateur', () => {
+  const page = read('src/app/(app)/expenses/page.js');
+  assert.match(page, /const \{ profile, save: saveProfile \} = useProfile\(\)/);
+  assert.match(page, /profile\.budgetFeedbackEnabled !== false/);
+  assert.match(page, /await saveProfile\(\{ budgetFeedbackEnabled: nextValue \}\)/);
+  assert.match(page, /setBudgetFeedbackPreferenceError/);
+  assert.match(page, /budgetFeedbackEnabled && budgetImpactToShow\.length/);
+});
+
 test('les alertes de proximité et de dépassement peuvent interrompre la sauvegarde pour confirmation', () => {
   const finance = read('src/lib/ai/financialTools.js');
   const page = read('src/app/(app)/expenses/page.js');
