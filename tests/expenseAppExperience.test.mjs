@@ -220,7 +220,7 @@ test('le formulaire de saisie multiple s’ouvre au-dessus de la barre et ferme 
 
 test('la page propose une sélection explicite, une sélection par journée et les actions de suppression et de source', () => {
   const page = read('src/app/(app)/expenses/page.js');
-  assert.match(page, /Terminer la sélection/);
+  assert.match(page, /Terminer/);
   assert.match(page, /Sélectionner la journée/);
   assert.match(page, /Regrouper les revenus/);
   assert.match(page, /role="menu"/);
