@@ -26,7 +26,7 @@ import { useDebts } from '@/hooks/useDebts';
 import { ScheduledTransactionsPanel } from '@/components/transactions/ScheduledTransactionsPanel';
 import { createScheduledTransaction } from '@/lib/firestore/scheduledTransactions';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
-import { createExpense, updateExpense, deleteExpense, reassignExpensesToIncome, deleteExpenseOperations } from '@/lib/firestore/expenses';
+import { createExpense, updateExpense, deleteExpense, reassignExpensesToIncome, deleteExpenseOperations, updateExpenseOperationsDate } from '@/lib/firestore/expenses';
 import { createAutomation } from '@/lib/firestore/automations';
 import { formatCurrency, formatDate, resolveCategory, getFirstOfMonth, getLastOfMonth, getLocalMonth, normalizeExpenseCategoryId } from '@/lib/utils';
 import { OptionalTransactionFields } from '@/components/transactions/OptionalTransactionFields';
@@ -144,7 +144,12 @@ export default function ExpensesPage() {
   const [bulkSourceOpen, setBulkSourceOpen] = useState(false);
   const [bulkSourceId, setBulkSourceId] = useState('');
   const [bulkActionBusy, setBulkActionBusy] = useState(false);
+  const [bulkDateOpen, setBulkDateOpen] = useState(false);
+  const [bulkDate, setBulkDate] = useState('');
+  const [bulkDateBusy, setBulkDateBusy] = useState(false);
+  const [bulkDateError, setBulkDateError] = useState('');
   const [batchModalOpen, setBatchModalOpen] = useState(false);
+  const [batchMode, setBatchMode] = useState('create');
   const [batchRows, setBatchRows] = useState(() => [createExpenseBatchDraftRow('batch-1', todayIso())]);
   const [batchSaving, setBatchSaving] = useState(false);
   const [batchError, setBatchError] = useState('');
@@ -383,6 +388,45 @@ export default function ExpensesPage() {
       .sort((a, b) => b.adjustedRemaining - a.adjustedRemaining);
   }, [sortedIncomesForSelect, selectedExpenseOperations]);
 
+
+  const selectedFundingSources = useMemo(() => {
+    const groupedSources = new Map();
+    selectedExpenseOperations.forEach((operation) => {
+      operation.rows.forEach((row) => {
+        const sourceId = String(row.incomeSourceId || 'all');
+        const source = sortedIncomesForSelect.find((income) => income.id === sourceId);
+        const current = groupedSources.get(sourceId) || {
+          id: sourceId,
+          name: sourceId === 'all'
+            ? 'Toutes les sources disponibles'
+            : sourceId === 'external'
+              ? 'Financement externe'
+              : source?.source || row.incomeSourceName || 'Source non disponible',
+          amount: 0,
+          operationIds: new Set(),
+        };
+        current.amount += Math.max(0, Number(row.amount) || 0);
+        current.operationIds.add(operation.key);
+        groupedSources.set(sourceId, current);
+      });
+    });
+    return [...groupedSources.values()]
+      .map(({ operationIds, ...source }) => ({ ...source, operationCount: operationIds.size }))
+      .sort((a, b) => b.amount - a.amount);
+  }, [selectedExpenseOperations, sortedIncomesForSelect]);
+
+  const bulkSourceAlreadyUnified = selectedFundingSources.length === 1
+    && !['all', 'external'].includes(selectedFundingSources[0].id)
+    && selectedExpenseOperations.length > 0
+    && selectedExpenseOperations.every((operation) =>
+      operation.rows.every((row) => String(row.incomeSourceId || '') === selectedFundingSources[0].id)
+    );
+
+  const bulkDestinationSourceOptions = useMemo(
+    () => bulkSourceOptions.filter((income) => !bulkSourceAlreadyUnified || income.id !== selectedFundingSources[0]?.id),
+    [bulkSourceOptions, bulkSourceAlreadyUnified, selectedFundingSources]
+  );
+
   const openNew = () => {
     setForm(emptyForm());
     setError('');
@@ -609,6 +653,7 @@ export default function ExpensesPage() {
 
   const openBatchEntry = () => {
     clearExpenseSelection();
+    setBatchMode('create');
     setBatchRows([createExpenseBatchDraftRow(createBatchRowId(), todayIso())]);
     setBatchError('');
     setBatchModalOpen(true);
@@ -631,7 +676,202 @@ export default function ExpensesPage() {
     setBatchError('');
   };
 
+
+  const openBulkEditModal = () => {
+    if (!selectedExpenseOperations.length || bulkActionBusy) return;
+    const rows = selectedExpenseOperations.map((operation, index) => {
+      const root = operation.root || {};
+      const sourceIds = [...new Set(operation.rows.map((row) => String(row.incomeSourceId || 'all')))];
+      const singleSourceId = sourceIds.length === 1 && !['all', 'external'].includes(sourceIds[0])
+        ? sourceIds[0] : 'all';
+      const source = sortedIncomesForSelect.find((income) => income.id === singleSourceId);
+      return {
+        id: 'edit-' + String(root.id || index),
+        expenseId: root.id,
+        amount: String(operation.amount),
+        categoryId: root.categoryId || 'food',
+        expenseType: root.expenseType || 'consumption',
+        projectId: root.projectId || '',
+        date: String(root.date || todayIso()).slice(0, 10),
+        time: root.time || '',
+        note: root.note || '',
+        locationLabel: root.locationLabel || '',
+        latitude: root.latitude ?? null,
+        longitude: root.longitude ?? null,
+        locationAccuracy: root.locationAccuracy ?? null,
+        paymentMethod: root.paymentMethod || '',
+        details: root.details || '',
+        incomeSourceId: singleSourceId,
+        incomeSourceName: singleSourceId === 'all'
+          ? 'Toutes les sources disponibles'
+          : source?.source || root.incomeSourceName || 'Revenu sans nom',
+        usesMultipleSources: sourceIds.length > 1,
+      };
+    });
+    setBatchMode('edit');
+    setBatchRows(rows);
+    setBatchError('');
+    setBatchModalOpen(true);
+  };
+
+  const submitExpenseBulkEdits = async () => {
+    setBatchError('');
+    if (!balancesReady) {
+      setBatchError('Attends que Pata ait vérifié les soldes des revenus avant de modifier ces dépenses.');
+      return;
+    }
+    if (!batchRows.length) {
+      setBatchError('Aucune dépense à modifier.');
+      return;
+    }
+
+    const sourceBalances = new Map(bulkSourceOptions.map((income) => [income.id, Math.max(0, Number(income.adjustedRemaining) || 0)]));
+    const explicitSourceTotals = new Map();
+    let automaticTotal = 0;
+    for (let index = 0; index < batchRows.length; index += 1) {
+      const row = batchRows[index] || {};
+      const amount = Number(row.amount);
+      if (!row.expenseId) {
+        setBatchError('Dépense ' + (index + 1) + ' : identifiant introuvable. Ferme puis rouvre le formulaire de modification.');
+        return;
+      }
+      if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 1000000000) {
+        setBatchError('Dépense ' + (index + 1) + ' : indique un montant entier supérieur à zéro.');
+        return;
+      }
+      if (!batchExpenseCategories.some((category) => category.id === row.categoryId)) {
+        setBatchError('Dépense ' + (index + 1) + ' : choisis une catégorie valide.');
+        return;
+      }
+      const parsedDate = new Date(String(row.date || '') + 'T00:00:00.000Z');
+      if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(String(row.date || ''))
+        || Number.isNaN(parsedDate.getTime())
+        || parsedDate.toISOString().slice(0, 10) !== row.date) {
+        setBatchError('Dépense ' + (index + 1) + ' : date invalide.');
+        return;
+      }
+      if (!['consumption', 'project', 'savings', 'investment'].includes(row.expenseType || 'consumption')) {
+        setBatchError('Dépense ' + (index + 1) + ' : choisis une nature de dépense valide.');
+        return;
+      }
+      if (row.expenseType === 'project' && (!isPremium || !row.projectId || !projects.some((project) => project.id === row.projectId && project.status === 'active'))) {
+        setBatchError('Dépense ' + (index + 1) + ' : sélectionne un projet actif avec un compte Premium.');
+        return;
+      }
+
+      const sourceId = String(row.incomeSourceId || 'all');
+      if (sourceId === 'all') {
+        automaticTotal += amount;
+      } else {
+        if (!sourceBalances.has(sourceId)) {
+          setBatchError('Dépense ' + (index + 1) + ' : la source choisie n’est plus disponible. Actualise les soldes.');
+          return;
+        }
+        explicitSourceTotals.set(sourceId, (explicitSourceTotals.get(sourceId) || 0) + amount);
+      }
+    }
+
+    let explicitlyReserved = 0;
+    for (const [sourceId, amount] of explicitSourceTotals.entries()) {
+      const available = sourceBalances.get(sourceId) || 0;
+      if (amount > available) {
+        const source = bulkSourceOptions.find((income) => income.id === sourceId);
+        setBatchError('Les dépenses prévues sur « ' + (source?.source || 'ce revenu') + ' » totalisent '
+          + formatCurrency(amount) + ', mais seulement ' + formatCurrency(available) + ' seront disponibles après libération des dépenses sélectionnées.');
+        return;
+      }
+      explicitlyReserved += amount;
+    }
+    const adjustedTotal = [...sourceBalances.values()].reduce((sum, amount) => sum + amount, 0);
+    if (getExpenseBatchTotal(batchRows) > adjustedTotal
+      || automaticTotal > Math.max(0, adjustedTotal - explicitlyReserved)) {
+      setBatchError('Le total modifié dépasse les revenus disponibles après prise en compte des dépenses sélectionnées.');
+      return;
+    }
+
+    setBatchSaving(true);
+    const orderedRows = [
+      ...batchRows.filter((row) => String(row.incomeSourceId || 'all') !== 'all'),
+      ...batchRows.filter((row) => String(row.incomeSourceId || 'all') === 'all'),
+    ];
+    const updated = [];
+    try {
+      for (let index = 0; index < orderedRows.length; index += 1) {
+        const row = orderedRows[index];
+        const source = sortedIncomesForSelect.find((income) => income.id === row.incomeSourceId);
+        const payload = {
+          amount: Number(row.amount),
+          categoryId: row.categoryId,
+          flowType: 'normal',
+          expenseType: row.expenseType || 'consumption',
+          projectId: row.expenseType === 'project' ? row.projectId : '',
+          date: row.date,
+          note: String(row.note || '').trim(),
+          incomeSourceId: row.incomeSourceId || 'all',
+          incomeSourceName: row.incomeSourceId === 'all'
+            ? 'Tous les revenus'
+            : source?.source || row.incomeSourceName || '',
+          time: row.time || '',
+          locationLabel: row.locationLabel || '',
+          latitude: row.latitude ?? null,
+          longitude: row.longitude ?? null,
+          locationAccuracy: row.locationAccuracy ?? null,
+          paymentMethod: row.paymentMethod || '',
+          details: row.details || '',
+        };
+
+        try {
+          let result = await updateExpense(user.uid, row.expenseId, payload);
+          if (result.confirmationRequired) {
+            const accepted = await requestActionDialog({
+              mode: 'confirm',
+              kind: 'warning',
+              title: 'Confirmer cette modification',
+              message: result.message || 'Cette modification peut faire dépasser un budget. Souhaites-tu continuer ?',
+              confirmLabel: 'Enregistrer cette dépense',
+            });
+            if (!accepted) {
+              setBatchRows(orderedRows.slice(index));
+              setBatchError((updated.length ? updated.length + ' dépense(s) déjà mises à jour. ' : '')
+                + 'Les lignes restantes sont conservées pour reprendre la modification.');
+              return;
+            }
+            result = await updateExpense(user.uid, row.expenseId, { ...payload, confirmBudgetOverrun: true });
+          }
+          if (!result?.success) throw new Error(result?.error || 'Modification refusée.');
+          updated.push(row.id);
+        } catch (error) {
+          setBatchRows(orderedRows.slice(index));
+          setBatchError(
+            (updated.length ? updated.length + ' dépense(s) mise(s) à jour. ' : 'Aucune modification supplémentaire enregistrée. ')
+            + 'La ligne en échec et les suivantes sont conservées : '
+            + (error?.message || 'Erreur de modification.')
+          );
+          return;
+        }
+      }
+
+      setBatchModalOpen(false);
+      setBatchMode('create');
+      setBatchRows([createExpenseBatchDraftRow(createBatchRowId(), todayIso())]);
+      clearExpenseSelection();
+      await requestActionDialog({
+        mode: 'alert',
+        kind: 'success',
+        title: 'Dépenses mises à jour',
+        message: updated.length + ' dépense(s) sélectionnée(s) ont été modifiées. Chaque ligne a conservé son identité et ses informations propres ; Pata a recalculé les financements et les budgets.',
+        confirmLabel: 'Terminer',
+      });
+    } finally {
+      setBatchSaving(false);
+    }
+  };
+
   const submitExpenseBatch = async () => {
+    if (batchMode === 'edit') {
+      await submitExpenseBulkEdits();
+      return;
+    }
     setBatchError('');
     if (!balancesReady) {
       setBatchError('Attends que Pata ait vérifié les soldes des revenus avant de continuer.');
@@ -784,6 +1024,62 @@ export default function ExpensesPage() {
     if (!dayKeys.length) return;
     setSelectionMode(true);
     setSelectedExpenseKeys((current) => toggleExpenseDayKeys(current, dayKeys));
+  };
+
+
+  const openBulkDateModal = () => {
+    if (!selectedExpenseOperations.length || bulkActionBusy) return;
+    setBulkDate('');
+    setBulkDateError('');
+    setBulkDateOpen(true);
+  };
+
+  const handleBulkChangeDate = async () => {
+    if (!selectedExpenseOperations.length || !bulkDate || bulkDateBusy) {
+      if (!bulkDate) setBulkDateError('Choisis la nouvelle date à appliquer.');
+      return;
+    }
+    setBulkDateError('');
+    setBulkDateBusy(true);
+    try {
+      let result = await updateExpenseOperationsDate(
+        user.uid,
+        selectedExpenseOperations.map((operation) => operation.root.id),
+        bulkDate
+      );
+      if (result.confirmationRequired) {
+        const accepted = await requestActionDialog({
+          mode: 'confirm',
+          kind: 'warning',
+          title: 'Confirmer le changement de date',
+          message: result.message || 'Cette date ferait dépasser un budget mensuel. Souhaites-tu continuer ?',
+          confirmLabel: 'Changer les dates',
+        });
+        if (!accepted) return;
+        result = await updateExpenseOperationsDate(
+          user.uid,
+          selectedExpenseOperations.map((operation) => operation.root.id),
+          bulkDate,
+          { confirmBudgetOverrun: true }
+        );
+      }
+      if (!result?.success) throw new Error(result?.error || 'Pata n’a pas confirmé le changement de date.');
+      setBulkDateOpen(false);
+      if (result.updatedCount > 0) clearExpenseSelection();
+      await requestActionDialog({
+        mode: 'alert',
+        kind: result.updatedCount > 0 ? 'success' : 'info',
+        title: result.updatedCount > 0 ? 'Dates mises à jour' : 'Aucun changement nécessaire',
+        message: result.updatedCount > 0
+          ? 'La date du ' + result.updatedCount + ' dépense(s) a été modifiée en une seule opération. Les répartitions financières sont conservées et les budgets mensuels ont été recalculés.'
+          : 'Toutes les dépenses sélectionnées utilisent déjà cette date.',
+        confirmLabel: 'Terminer',
+      });
+    } catch (error) {
+      setBulkDateError(t(error.message || 'Pata n’a pas pu modifier les dates sélectionnées.'));
+    } finally {
+      setBulkDateBusy(false);
+    }
   };
 
   const handleBulkDelete = async () => {
@@ -1130,72 +1426,123 @@ export default function ExpensesPage() {
 
       {selectionMode && (
         <div className="pointer-events-none fixed inset-x-2 bottom-[calc(5.75rem+env(safe-area-inset-bottom))] z-[90] mx-auto max-w-xl sm:inset-x-4">
-          <div className="pointer-events-auto flex items-center gap-2 rounded-2xl border border-emerald-200 bg-white p-2.5 shadow-[0_16px_42px_rgba(10,45,32,.28)]">
-            <div className="min-w-0 flex-1 pl-1">
-              {selectedExpenseOperations.length > 0 ? (
-                <>
-                  <p className="truncate text-xs font-bold text-slate-900">{selectedExpenseOperations.length} opération{selectedExpenseOperations.length > 1 ? 's' : ''} sélectionnée{selectedExpenseOperations.length > 1 ? 's' : ''}</p>
-                  <p className="truncate text-[10px] font-semibold text-slate-500">{formatCurrency(selectedExpenseTotal)} au total</p>
-                </>
-              ) : (
-                <>
-                  <p className="truncate text-xs font-bold text-slate-900">Mode sélection activé</p>
-                  <p className="truncate text-[10px] text-slate-500">Coche une dépense ou toute une journée.</p>
-                </>
-              )}
+          <div className="pointer-events-auto space-y-2 rounded-2xl border border-emerald-200 bg-white p-3 shadow-[0_16px_42px_rgba(10,45,32,.28)]">
+            <div className="flex min-w-0 items-center justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                {selectedExpenseOperations.length > 0 ? (
+                  <>
+                    <p className="truncate text-xs font-bold text-slate-900">
+                      {selectedExpenseOperations.length} dépense{selectedExpenseOperations.length > 1 ? 's' : ''} sélectionnée{selectedExpenseOperations.length > 1 ? 's' : ''}
+                    </p>
+                    <p className="truncate text-[10px] font-semibold text-slate-500">{formatCurrency(selectedExpenseTotal)} au total</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="truncate text-xs font-bold text-slate-900">Mode sélection activé</p>
+                    <p className="truncate text-[10px] text-slate-500">Coche les dépenses à traiter ensemble.</p>
+                  </>
+                )}
+              </div>
+              <button type="button" disabled={bulkActionBusy || bulkDateBusy} onClick={clearExpenseSelection} aria-label="Terminer la sélection" className="inline-flex h-9 shrink-0 items-center gap-1 rounded-lg px-2 text-xs font-semibold text-slate-500 hover:bg-slate-100 disabled:opacity-50">
+                <X size={16}/> Terminer
+              </button>
             </div>
-            <button type="button" disabled={bulkActionBusy || selectedExpenseOperations.length === 0} onClick={handleBulkDelete} className="inline-flex h-10 shrink-0 items-center gap-1 rounded-xl border border-rose-200 bg-rose-50 px-2.5 text-[11px] font-bold text-rose-700 disabled:opacity-40 sm:gap-1.5 sm:px-3">
-              <Trash2 size={15}/> Supprimer
-            </button>
-            <button type="button" disabled={bulkActionBusy || selectedExpenseOperations.length === 0 || bulkSourceOptions.length === 0} onClick={openBulkSourceModal} className="inline-flex h-10 shrink-0 items-center gap-1 rounded-xl bg-[#075b43] px-2.5 text-[11px] font-bold text-white disabled:opacity-40 sm:gap-1.5 sm:px-3">
-              <Link2 size={15}/> Changer source
-            </button>
-            <button type="button" disabled={bulkActionBusy} onClick={clearExpenseSelection} aria-label="Terminer la sélection" className="grid h-10 w-9 shrink-0 place-items-center rounded-xl text-slate-500 hover:bg-slate-100 disabled:opacity-50">
-              <X size={18}/>
-            </button>
+            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+              <button type="button" disabled={bulkActionBusy || !selectedExpenseOperations.length} onClick={openBulkEditModal} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2 text-[11px] font-bold text-slate-800 disabled:opacity-40">
+                <Pencil size={14}/> Modifier ensemble
+              </button>
+              <button type="button" disabled={bulkActionBusy || bulkDateBusy || !selectedExpenseOperations.length} onClick={openBulkDateModal} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2 text-[11px] font-bold text-slate-800 disabled:opacity-40">
+                <Calendar size={14}/> Changer la date
+              </button>
+              <button type="button" disabled={bulkActionBusy || !selectedExpenseOperations.length || bulkDestinationSourceOptions.length === 0} onClick={openBulkSourceModal} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-bold text-emerald-900 disabled:opacity-40">
+                <Link2 size={14}/> Regrouper les revenus
+              </button>
+              <button type="button" disabled={bulkActionBusy || !selectedExpenseOperations.length} onClick={handleBulkDelete} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-2 text-[11px] font-bold text-rose-700 disabled:opacity-40">
+                <Trash2 size={14}/> Supprimer
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      <Modal open={batchModalOpen} priority onClose={() => { if (!batchSaving) setBatchModalOpen(false); }} title="Saisir plusieurs dépenses" className="max-w-3xl">
+      <Modal open={batchModalOpen} priority onClose={() => { if (!batchSaving) setBatchModalOpen(false); }} title={batchMode === 'edit' ? 'Modifier les dépenses sélectionnées' : 'Saisir plusieurs dépenses'} className="max-w-3xl">
         <div className="space-y-4">
-          <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
-            <p className="text-sm font-semibold text-emerald-950">Une ligne = une dépense indépendante</p>
-            <p className="mt-1 text-xs leading-5 text-emerald-900">Pour chaque ligne, choisis son montant, sa catégorie, sa date et son revenu. Pata enregistrera chaque dépense séparément et mettra à jour les soldes au fur et à mesure.</p>
-            <p className="mt-2 text-[11px] font-semibold text-emerald-900">{balancesReady ? 'Revenus disponibles : ' + formatCurrency(availableBatchIncomeSources.reduce((sum, income) => sum + (Number(income.remaining) || 0), 0)) : 'Vérification des soldes en cours…'}</p>
-          </div>
+          {batchMode === 'edit' ? (
+            <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-3">
+              <p className="text-sm font-semibold text-blue-950">Une ligne = une dépense déjà enregistrée</p>
+              <p className="mt-1 text-xs leading-5 text-blue-900">Chaque dépense reste indépendante. Modifie son montant, sa catégorie, sa nature, son revenu, sa date et ses autres informations, puis enregistre les changements. Pata ne créera pas de doublons.</p>
+              <p className="mt-2 text-[11px] font-semibold text-blue-900">{batchRows.length} dépense(s) à modifier · {formatCurrency(getExpenseBatchTotal(batchRows))}</p>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
+              <p className="text-sm font-semibold text-emerald-950">Une ligne = une dépense indépendante</p>
+              <p className="mt-1 text-xs leading-5 text-emerald-900">Pour chaque ligne, choisis son montant, sa catégorie, sa date et son revenu. Pata enregistrera chaque dépense séparément et mettra à jour les soldes au fur et à mesure.</p>
+              <p className="mt-2 text-[11px] font-semibold text-emerald-900">{balancesReady ? 'Revenus disponibles : ' + formatCurrency(availableBatchIncomeSources.reduce((sum, income) => sum + (Number(income.remaining) || 0), 0)) : 'Vérification des soldes en cours…'}</p>
+            </div>
+          )}
 
-          <div className="max-h-[55vh] space-y-3 overflow-y-auto pr-1">
+          <div className="space-y-3">
             {batchRows.map((row, index) => (
               <section key={row.id} className="rounded-2xl border border-slate-200 bg-white p-3 sm:p-4">
                 <div className="mb-3 flex items-center justify-between gap-2">
                   <p className="text-xs font-bold uppercase tracking-wide text-slate-700">Dépense {index + 1}</p>
-                  <button type="button" disabled={batchSaving} onClick={() => removeBatchRow(row.id)} className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-40">
-                    <MinusCircle size={14}/> Retirer
-                  </button>
+                  {batchMode === 'create' && (
+                    <button type="button" disabled={batchSaving} onClick={() => removeBatchRow(row.id)} className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-40">
+                      <MinusCircle size={14}/> Retirer
+                    </button>
+                  )}
                 </div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <label className="block text-xs font-semibold text-slate-700">Montant (FCFA)
-                    <input type="number" min="1" step="1" inputMode="numeric" value={row.amount} onChange={(event) => updateBatchRow(row.id, { amount: event.target.value })} disabled={batchSaving} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"/>
+                    <input type="text" inputMode="numeric" data-pata-money="true" pattern="[0-9]*" value={row.amount} onChange={(event) => updateBatchRow(row.id, { amount: event.target.value })} disabled={batchSaving} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"/>
                   </label>
+                  {batchMode === 'edit' && (
+                    <label className="block text-xs font-semibold text-slate-700">Nature de la dépense
+                      <select value={row.expenseType || 'consumption'} onChange={(event) => updateBatchRow(row.id, { expenseType: event.target.value, projectId: event.target.value === 'project' ? row.projectId : '' })} disabled={batchSaving} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal">
+                        <option value="consumption">Dépense courante</option>
+                        <option value="project">Projet</option>
+                        <option value="savings">Épargne</option>
+                        <option value="investment">Investissement</option>
+                      </select>
+                    </label>
+                  )}
                   <label className="block text-xs font-semibold text-slate-700">Catégorie
                     <select value={row.categoryId} onChange={(event) => updateBatchRow(row.id, { categoryId: event.target.value })} disabled={batchSaving} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal">
                       {batchExpenseCategories.map((category) => <option key={category.id} value={category.id}>{category.label || category.name}</option>)}
                     </select>
                   </label>
+                  {batchMode === 'edit' && row.expenseType === 'project' && (
+                    <label className="block text-xs font-semibold text-slate-700">Projet concerné
+                      <select value={row.projectId || ''} onChange={(event) => updateBatchRow(row.id, { projectId: event.target.value })} disabled={batchSaving} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal">
+                        <option value="">Choisir un projet</option>
+                        {projects.filter((project) => project.status === 'active').map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+                      </select>
+                    </label>
+                  )}
                   <label className="block text-xs font-semibold text-slate-700">Source de revenu
-                    <select value={row.incomeSourceId || 'all'} onChange={(event) => updateBatchRow(row.id, { incomeSourceId: event.target.value })} disabled={batchSaving || !balancesReady} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal disabled:bg-slate-50">
+                    <select value={row.incomeSourceId || 'all'} onChange={(event) => {
+                      const income = bulkSourceOptions.find((item) => item.id === event.target.value)
+                        || availableBatchIncomeSources.find((item) => item.id === event.target.value);
+                      updateBatchRow(row.id, { incomeSourceId: event.target.value, incomeSourceName: event.target.value === 'all' ? 'Toutes les sources disponibles' : income?.source || '' });
+                    }} disabled={batchSaving || !balancesReady} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal disabled:bg-slate-50">
                       <option value="all">Toutes les sources disponibles</option>
-                      {availableBatchIncomeSources.map((income) => <option key={income.id} value={income.id}>{income.cashPocket ? 'Espèces · ' + (income.cashPocketProvider === 'mtn_momo' ? 'MTN MoMo' : 'Orange Money') : income.flowType === 'debt_borrowed' ? 'Emprunt reçu · ' + (income.source || income.person || 'Créancier') : income.source} · {formatCurrency(income.remaining)} restant</option>)}
+                      {(batchMode === 'edit' ? bulkSourceOptions : availableBatchIncomeSources).map((income) => (
+                        <option key={income.id} value={income.id}>
+                          {(income.cashPocket ? 'Espèces · ' : '') + (income.flowType === 'debt_borrowed' ? 'Emprunt reçu · ' : '') + (income.source || income.person || 'Revenu')}
+                          {' · ' + formatCurrency(batchMode === 'edit' ? income.adjustedRemaining : income.remaining) + ' restant'}
+                        </option>
+                      ))}
                     </select>
+                    {batchMode === 'edit' && row.usesMultipleSources && <span className="mt-1 block text-[10px] font-normal leading-4 text-slate-500">Cette dépense utilisait plusieurs revenus. « Toutes les sources » permet de recalculer sa répartition ; choisis un revenu précis pour la rattacher à une seule source.</span>}
                   </label>
                   <label className="block text-xs font-semibold text-slate-700">Date
                     <input type="date" value={row.date} onChange={(event) => updateBatchRow(row.id, { date: event.target.value })} disabled={batchSaving} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal"/>
                   </label>
                   <label className="block text-xs font-semibold text-slate-700 sm:col-span-2">Note ou précision (facultatif)
-                    <input type="text" maxLength={250} value={row.note} onChange={(event) => updateBatchRow(row.id, { note: event.target.value })} disabled={batchSaving} placeholder="Ex. Achat au marché, taxi, pain…" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal"/>
+                    <input type="text" maxLength="250" value={row.note} onChange={(event) => updateBatchRow(row.id, { note: event.target.value })} disabled={batchSaving} placeholder="Ex. Achat au marché, taxi, pain…" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal"/>
                   </label>
                 </div>
+                {batchMode === 'edit' && <div className="mt-3"><OptionalTransactionFields value={row} onChange={(next) => updateBatchRow(row.id, next)} kind="expense"/></div>}
               </section>
             ))}
           </div>
@@ -1211,11 +1558,16 @@ export default function ExpensesPage() {
           </div>
           {batchError && <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">{batchError}</p>}
           {!balancesReady && <p className="text-xs text-slate-500">Pata vérifie les revenus disponibles. L’enregistrement sera activé dès que les soldes seront fiables.</p>}
-          {expenseQuotaReached && <p className="text-xs font-medium text-amber-800">La limite mensuelle de dépenses du compte gratuit est atteinte.</p>}
+          {batchMode === 'create' && expenseQuotaReached && <p className="text-xs font-medium text-amber-800">La limite mensuelle de dépenses du compte gratuit est atteinte.</p>}
           <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-3">
             <Button type="button" variant="outline" disabled={batchSaving} onClick={() => setBatchModalOpen(false)}>Fermer</Button>
-            <Button type="button" disabled={batchSaving || !balancesReady || expenseQuotaReached || batchRows.length === 0} onClick={submitExpenseBatch}>
-              <ListPlus size={15}/>{batchSaving ? 'Enregistrement…' : 'Enregistrer les ' + batchRows.length + ' dépenses'}
+            <Button type="button" disabled={batchSaving || !balancesReady || (batchMode === 'create' && expenseQuotaReached) || batchRows.length === 0} onClick={submitExpenseBatch}>
+              {batchMode === 'edit' ? <Pencil size={15}/> : <ListPlus size={15}/>}
+              {batchSaving
+                ? (batchMode === 'edit' ? 'Mise à jour…' : 'Enregistrement…')
+                : batchMode === 'edit'
+                  ? 'Enregistrer les ' + batchRows.length + ' modifications'
+                  : 'Enregistrer les ' + batchRows.length + ' dépenses'}
             </Button>
           </div>
         </div>
@@ -1224,14 +1576,28 @@ export default function ExpensesPage() {
       <Modal open={bulkSourceOpen} priority onClose={() => { if (!bulkActionBusy) setBulkSourceOpen(false); }} title="Rattacher les dépenses à un revenu" className="max-w-md">
         <div className="space-y-4">
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <p className="text-xs font-semibold text-slate-700">{selectedExpenseOperations.length} opération{selectedExpenseOperations.length > 1 ? 's' : ''} sélectionnée{selectedExpenseOperations.length > 1 ? 's' : ''}</p>
+            <p className="text-xs font-semibold text-slate-700">{selectedExpenseOperations.length} dépense{selectedExpenseOperations.length > 1 ? 's' : ''} sélectionnée{selectedExpenseOperations.length > 1 ? 's' : ''}</p>
             <p className="mt-1 text-lg font-extrabold tracking-tight text-slate-900">{formatCurrency(selectedExpenseTotal)}</p>
             <p className="mt-1 text-[10px] leading-4 text-slate-500">Pata regroupera leurs financements sur une source unique et recalculera les soldes et les budgets de chaque opération.</p>
+          </div>
+          <div className="rounded-xl border border-slate-200 p-3">
+            <p className="mb-2 text-xs font-bold text-slate-800">Sources actuellement utilisées</p>
+            {selectedFundingSources.length ? (
+              <div className="space-y-2">
+                {selectedFundingSources.map((source) => (
+                  <div key={source.id} className="flex items-center justify-between gap-3 text-xs">
+                    <span className="min-w-0 truncate font-medium text-slate-700">{source.name} <span className="text-slate-400">· {source.operationCount} dépense(s)</span></span>
+                    <strong className="shrink-0 tabular-nums text-slate-900">{formatCurrency(source.amount)}</strong>
+                  </div>
+                ))}
+              </div>
+            ) : <p className="text-xs text-slate-500">Aucune source de financement individuelle détectée.</p>}
+            {bulkSourceAlreadyUnified && <p className="mt-2 rounded-lg bg-emerald-50 p-2 text-[11px] leading-4 text-emerald-800">Ces dépenses sont déjà toutes rattachées à « {selectedFundingSources[0]?.name} ». Choisis une autre source uniquement si tu souhaites réellement les déplacer.</p>}
           </div>
           <label className="block text-xs font-semibold text-slate-700">Nouvelle source de revenu
             <select value={bulkSourceId} onChange={(event) => setBulkSourceId(event.target.value)} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal">
               <option value="">Choisir un revenu disponible…</option>
-              {bulkSourceOptions.map((income) => (
+              {bulkDestinationSourceOptions.map((income) => (
                 <option key={income.id} value={income.id} disabled={income.adjustedRemaining < selectedExpenseTotal}>
                   {(income.source || 'Revenu sans nom') + ' · ' + formatCurrency(income.adjustedRemaining) + ' restant'}
                   {income.adjustedRemaining < selectedExpenseTotal ? ' · solde insuffisant' : ''}
@@ -1239,12 +1605,32 @@ export default function ExpensesPage() {
               ))}
             </select>
           </label>
-          {bulkSourceOptions.length === 0 && <p className="rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900">Aucune source vérifiée ne dispose d’un solde suffisant pour cette sélection.</p>}
+          {bulkDestinationSourceOptions.length === 0 && <p className="rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900">{bulkSourceAlreadyUnified ? 'Toutes les dépenses utilisent déjà la même source. Aucune fusion n’est nécessaire.' : 'Aucune autre source vérifiée ne dispose d’un solde suffisant pour cette sélection.'}</p>}
           {bulkSourceId && bulkSourceOptions.find((income) => income.id === bulkSourceId)?.adjustedRemaining < selectedExpenseTotal && <p className="text-xs text-rose-700">Le solde disponible est inférieur au total sélectionné.</p>}
           <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
             <Button type="button" variant="outline" disabled={bulkActionBusy} onClick={() => setBulkSourceOpen(false)}>Annuler</Button>
-            <Button type="button" disabled={bulkActionBusy || !bulkSourceId || selectedExpenseTotal > (bulkSourceOptions.find((income) => income.id === bulkSourceId)?.adjustedRemaining || 0)} onClick={handleBulkAssignSource}>
+            <Button type="button" disabled={bulkActionBusy || !bulkSourceId || (bulkSourceAlreadyUnified && bulkSourceId === selectedFundingSources[0]?.id) || selectedExpenseTotal > (bulkDestinationSourceOptions.find((income) => income.id === bulkSourceId)?.adjustedRemaining || 0)} onClick={handleBulkAssignSource}>
               <Link2 size={15}/>{bulkActionBusy ? 'Rattachement…' : 'Rattacher les dépenses'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal open={bulkDateOpen} priority onClose={() => { if (!bulkDateBusy) setBulkDateOpen(false); }} title="Changer la date des dépenses">
+        <div className="space-y-4">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs font-semibold text-slate-800">{selectedExpenseOperations.length} dépense(s) concernée(s)</p>
+            <p className="mt-1 text-lg font-extrabold text-slate-900">{formatCurrency(selectedExpenseTotal)}</p>
+            <p className="mt-1 text-xs leading-5 text-slate-500">La nouvelle date sera appliquée à toutes les dépenses sélectionnées. Les sources de financement et les répartitions resteront inchangées.</p>
+          </div>
+          <label className="block text-xs font-semibold text-slate-700">Nouvelle date commune
+            <input type="date" required value={bulkDate} onChange={(event) => { setBulkDate(event.target.value); setBulkDateError(''); }} disabled={bulkDateBusy} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal"/>
+          </label>
+          {bulkDateError && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-xs leading-5 text-rose-800">{bulkDateError}</p>}
+          <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
+            <Button type="button" variant="outline" disabled={bulkDateBusy} onClick={() => setBulkDateOpen(false)}>Annuler</Button>
+            <Button type="button" disabled={bulkDateBusy || !bulkDate || !selectedExpenseOperations.length} onClick={handleBulkChangeDate}>
+              <Calendar size={15}/>{bulkDateBusy ? 'Mise à jour…' : 'Appliquer cette date'}
             </Button>
           </div>
         </div>
