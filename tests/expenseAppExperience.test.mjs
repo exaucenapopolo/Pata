@@ -208,6 +208,15 @@ test('la saisie multiple refuse une quantité au-delà du quota avant d’enregi
   assert.match(result.error, /Il te reste 1/);
 });
 
+test('le formulaire de saisie multiple s’ouvre au-dessus de la barre et ferme le mode sélection', () => {
+  const page = read('src/app/(app)/expenses/page.js');
+  const openStart = page.indexOf('const openBatchEntry =');
+  const openEnd = page.indexOf('const updateBatchRow =', openStart);
+  const openHandler = page.slice(openStart, openEnd);
+  assert.match(openHandler, /clearExpenseSelection\(\)/);
+  assert.match(page, /<Modal open=\{batchModalOpen\} priority/);
+});
+
 test('la page propose une sélection explicite, une sélection par journée et les actions de suppression et de source', () => {
   const page = read('src/app/(app)/expenses/page.js');
   assert.match(page, /Terminer la sélection/);
