@@ -728,9 +728,11 @@ export default function ExpensesPage() {
   };
 
   const startExpenseLongPress = (event, expense) => {
+    // Certains WebViews Android ne génèrent pas de clic après un appui long.
+    // Réinitialiser à chaque nouveau toucher, y compris quand la sélection est active.
+    longPressTriggeredRef.current = false;
     if (selectionMode || !isBulkSelectableExpense(expense) || (event.pointerType === 'mouse' && event.button !== 0)) return;
     if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
-    longPressTriggeredRef.current = false;
     longPressStartRef.current = { x: event.clientX, y: event.clientY };
     longPressTimerRef.current = window.setTimeout(() => {
       longPressTimerRef.current = null;
@@ -1242,7 +1244,7 @@ export default function ExpensesPage() {
         </div>
       </Modal>
 
-      <Modal open={bulkSourceOpen} onClose={() => { if (!bulkActionBusy) setBulkSourceOpen(false); }} title="Rattacher les dépenses à un revenu" className="max-w-md">
+      <Modal open={bulkSourceOpen} priority onClose={() => { if (!bulkActionBusy) setBulkSourceOpen(false); }} title="Rattacher les dépenses à un revenu" className="max-w-md">
         <div className="space-y-4">
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
             <p className="text-xs font-semibold text-slate-700">{selectedExpenseOperations.length} opération{selectedExpenseOperations.length > 1 ? 's' : ''} sélectionnée{selectedExpenseOperations.length > 1 ? 's' : ''}</p>
