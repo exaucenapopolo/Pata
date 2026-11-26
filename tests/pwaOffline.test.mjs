@@ -19,6 +19,8 @@ test('le service worker prépare une page de secours et met les fichiers statiqu
   assert.match(worker, /request\.mode === 'navigate'/);
   assert.match(worker, /handleStaticAsset/);
   assert.match(worker, /handleNavigation/);
+  assert.match(worker, /self\.navigator\?\.onLine !== false/);
+  assert.match(worker, /setTimeout\(resolve, 900\)/);
 });
 
 test('les routes App Router peuvent réutiliser un résultat récent ou le dernier cache hors ligne', () => {
@@ -44,9 +46,12 @@ test('l’enregistrement du service worker ne lance plus de vérifications rése
   assert.doesNotMatch(registration, /addEventListener\('online'/);
 });
 
-test('la page hors connexion explique clairement les limites des fonctions serveur', () => {
+test('la page hors connexion est un squelette discret avec un seul statut réseau', () => {
   const offlinePage = read('../public/offline.html');
-  assert.match(offlinePage, /Tu es hors connexion/);
-  assert.match(offlinePage, /synchronis/);
-  assert.match(offlinePage, /assistante IA/);
+  assert.match(offlinePage, /Connexion indisponible/);
+  assert.match(offlinePage, /class="skeleton"/);
+  assert.match(offlinePage, /@keyframes shimmer/);
+  assert.doesNotMatch(offlinePage, /Tu es hors connexion/);
+  assert.doesNotMatch(offlinePage, /assistante IA/);
+  assert.doesNotMatch(offlinePage, /<button|<a /);
 });
