@@ -19,6 +19,7 @@ import { createProject, updateProject, deleteProject } from '@/lib/firestore/pro
 import { useExpenses } from '@/hooks/useExpenses';
 import { countExpenseOperations, getExpenseOperationKeys } from '@/lib/finance/expenseOperations.mjs';
 import { useIncomes } from '@/hooks/useIncomes';
+import { getAvailableIncomeSources } from '@/lib/finance/availableIncomeSources.mjs';
 import { useDebts } from '@/hooks/useDebts';
 import { ScheduledTransactionsPanel } from '@/components/transactions/ScheduledTransactionsPanel';
 import { createScheduledTransaction } from '@/lib/firestore/scheduledTransactions';
@@ -300,11 +301,9 @@ export default function ExpensesPage() {
   const activeProjects = projectTotals.filter((project) => project.status !== 'completed' && project.status !== 'archived');
   const completedProjects = projectTotals.filter((project) => project.status === 'completed' || project.status === 'archived');
   const displayedProjects = showCompletedProjects ? [...activeProjects, ...completedProjects] : activeProjects;
-  const eligibleIncomesForExpense = sortedIncomesForSelect.filter((income) =>
-    income.balanceAvailable
-    && (!income.neutralFlow || (income.flowType === 'debt_borrowed' && income.availableAsFunding === true))
-    && (!income.projectId || income.projectId === (form.expenseType === 'project' ? form.projectId : ''))
-  );
+  const eligibleIncomesForExpense = getAvailableIncomeSources(sortedIncomesForSelect, {
+    projectId: form.expenseType === 'project' ? form.projectId : '',
+  });
 
   const openNew = () => {
     setForm(emptyForm());
