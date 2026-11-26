@@ -17,7 +17,6 @@ const MORE_NAV = [
   { href: '/bills', label: 'Factures', icon: Receipt, description: 'Électricité, eau, loyer et abonnements', position: 'middle-right' },
   { href: '/debts', label: 'Dettes & prêts', icon: HandCoins, description: 'Créances, échéances et remboursements', position: 'bottom-left' },
   { href: '/reports', label: 'Rapports', icon: BarChart3, description: 'Bilans et analyses', position: 'bottom-center' },
-  { href: '/calculator', label: 'Calculatrice', icon: Calculator, description: 'Faire un calcul et copier le résultat', position: 'top-center' },
   { href: '/premium', label: 'Premium', icon: Crown, description: 'Options et abonnement', position: 'center' },
   { href: '/settings', label: 'Paramètres', icon: Settings, description: 'Compte et préférences', position: 'bottom-right' },
 ];
