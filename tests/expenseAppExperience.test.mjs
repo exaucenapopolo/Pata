@@ -51,6 +51,7 @@ test('la sélection multiple combine appui prolongé, touches simples et sélect
   assert.match(page, /if \(selectionMode\)\s*\{\s*toggleExpenseSelection\(expense\)/);
   assert.match(page, /toggleExpenseDaySelection\(items\)/);
   assert.match(page, /Sélectionner la journée/);
+  assert.match(page, /selectionMode && \(\(\) => \{/);
   assert.match(page, /{selectionMode && \(/);
   assert.match(page, /Regrouper les revenus/);
   assert.match(page, /onClick=\{handleBulkDelete\}/);
@@ -415,4 +416,38 @@ test('les transactions groupées refusent une répartition trop volumineuse avan
     assert.match(handler, /totalFundingRows > 350/);
     assert.ok(handler.indexOf('totalFundingRows > 350') < handler.indexOf('transaction\.set('));
   }
+});
+
+
+test('le suivi budgétaire est calculé pour la bonne catégorie et la bonne source avant chaque dépense', () => {
+  const finance = read('src/lib/ai/financialTools.js');
+  const page = read('src/app/(app)/expenses/page.js');
+  const createStart = finance.indexOf('export async function createExpenseForUser');
+  const createEnd = finance.indexOf('export async function updateExpenseForUser', createStart);
+  const updateStart = createEnd;
+  const updateEnd = finance.indexOf('export async function reassignExpenseOperationsToSourceForUser', updateStart);
+  const create = finance.slice(createStart, createEnd);
+  const update = finance.slice(updateStart, updateEnd);
+  assert.match(create, /getBudgetSpendAmount\(budgetSpendSummary, categoryId, sourceId\)/);
+  assert.match(create, /const planned = sourceId === 'all' \? amount : \(plannedBySource\.get\(sourceId\) \|\| 0\)/);
+  assert.match(create, /status = spentAfter > limit \? 'over_limit' : percentUsed >= 90 \? 'near_limit'/);
+  assert.match(create, /budgetImpact,/);
+  assert.match(update, /getBudgetSpendAmount\(summaryForBudgetCheck, categoryId, budgetSourceId\)/);
+  assert.match(update, /budgetImpact,/);
+  assert.match(page, /budgetFeedbackEnabled/);
+  assert.match(page, /Suivi automatique des enveloppes/);
+  assert.match(page, /item\.incomeSourceName/);
+  assert.match(page, /item\.alreadySpent/);
+  assert.match(page, /item\.remaining/);
+  assert.match(page, /Afficher automatiquement ce suivi après chaque dépense/);
+});
+
+test('les alertes de proximité et de dépassement peuvent interrompre la sauvegarde pour confirmation', () => {
+  const finance = read('src/lib/ai/financialTools.js');
+  const page = read('src/app/(app)/expenses/page.js');
+  assert.match(finance, /if \(warnings\.length && input\.confirmBudgetOverrun !== true && !skipBudgetConfirmation\)/);
+  assert.match(finance, /if \(budgetWarnings\.length && input\.confirmBudgetOverrun !== true\)/);
+  assert.match(finance, /confirmationRequired: true/);
+  assert.match(page, /result\.confirmationRequired/);
+  assert.match(page, /confirmBudgetOverrun: true/);
 });
