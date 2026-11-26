@@ -19,7 +19,7 @@ import { createProject, updateProject, deleteProject } from '@/lib/firestore/pro
 import { useExpenses } from '@/hooks/useExpenses';
 import { countExpenseOperations, getExpenseOperationKeys } from '@/lib/finance/expenseOperations.mjs';
 import { getSelectableExpenseDayKeys, getSelectedExpenseOperations, toggleExpenseDayKeys, toggleExpenseSelectionKey } from '@/lib/finance/expenseSelection.mjs';
-import { createExpenseBatchDraftRow, getExpenseBatchIdempotencyKey, getExpenseBatchTotal, validateExpenseBatchRows } from '@/lib/finance/expenseBatch.mjs';
+import { createExpenseBatchDraftRow, getExpenseBatchFingerprint, getExpenseBatchIdempotencyKey, getExpenseBatchTotal, validateExpenseBatchRows } from '@/lib/finance/expenseBatch.mjs';
 import { useIncomes } from '@/hooks/useIncomes';
 import { getAvailableIncomeSources } from '@/lib/finance/availableIncomeSources.mjs';
 import { useDebts } from '@/hooks/useDebts';
@@ -670,6 +670,7 @@ export default function ExpensesPage() {
           incomeSourceName: row.incomeSourceId === 'all' ? 'Tous les revenus' : (source?.source || 'Revenu sans nom'),
           paymentMethod: row.paymentMethod || '',
           batchIdempotencyKey: getExpenseBatchIdempotencyKey(row),
+          batchIdempotencyFingerprint: getExpenseBatchFingerprint(row),
         };
 
         try {
