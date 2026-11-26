@@ -917,7 +917,7 @@ export default function BudgetsPage() {
             >
               {budgetIncomeSources.map((income) => (
                 <option key={income.id} value={income.id}>
-                  {income.source || 'Revenu'} · {formatCurrency(income.remaining)} restant
+                  {(income.source || 'Revenu') + ' · ' + (income.balanceAvailable === true ? formatCurrency(income.remaining) + ' restant' : 'solde à vérifier')}
                 </option>
               ))}
             </select>
@@ -935,11 +935,11 @@ export default function BudgetsPage() {
                 <>
                   <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-slate-500">
                     <span>Déjà réparti dans les autres catégories</span>
-                    <strong className="tabular-nums text-slate-700">{formatCurrency(createBudgetOtherAllocated)}</strong>
+                    <strong className="tabular-nums text-slate-700">{createBudgetIncome.balanceAvailable === true ? formatCurrency(createBudgetOtherAllocated) : 'À vérifier'}</strong>
                   </div>
                   <div className="mt-2 flex items-center justify-between gap-3 border-t border-brand-100 pt-2 text-xs">
                     <span className="font-semibold text-slate-700">Disponible pour ce plan</span>
-                    <strong className="font-extrabold tabular-nums text-brand-800">{formatCurrency(createBudgetAvailableToAllocate)}</strong>
+                    <strong className="font-extrabold tabular-nums text-brand-800">{createBudgetIncome.balanceAvailable === true ? formatCurrency(createBudgetAvailableToAllocate) : 'À vérifier'}</strong>
                   </div>
                 </>
               )}
@@ -1060,8 +1060,8 @@ export default function BudgetsPage() {
             </div>
             <div className="mt-2 flex items-center justify-between gap-3 text-xs">
               <span className="text-slate-500">Solde disponible après les enveloppes</span>
-              <strong className={createBudgetAvailableToAllocate - createBudgetItemsTotal < 0 ? 'text-amber-700' : 'text-emerald-700'}>
-                {formatCurrency(createBudgetAvailableToAllocate - createBudgetItemsTotal)}
+              <strong className={createBudgetIncome?.balanceAvailable === true && createBudgetAvailableToAllocate - createBudgetItemsTotal < 0 ? 'text-amber-700' : 'text-emerald-700'}>
+                {createBudgetIncome?.balanceAvailable === true ? formatCurrency(createBudgetAvailableToAllocate - createBudgetItemsTotal) : 'À vérifier'}
               </strong>
             </div>
             {createBudgetPlan.percentageTotal > 100 && (
