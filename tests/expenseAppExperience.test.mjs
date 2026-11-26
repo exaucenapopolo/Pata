@@ -369,3 +369,18 @@ test('la suppression groupée est atomique et recalcule les soldes, budgets et h
   assert.doesNotMatch(action, /for \(const operation of/);
   assert.match(action, /Aucune suppression partielle/);
 });
+
+test('les transactions groupées refusent une répartition trop volumineuse avant toute écriture', () => {
+  const finance = read('src/lib/ai/financialTools.js');
+  const reassignmentStart = finance.indexOf('export async function reassignExpenseOperationsToSourceForUser');
+  const deleteStart = finance.indexOf('export async function deleteExpenseOperationsForUser');
+  const afterDelete = finance.indexOf('export async function deleteExpenseForUser', deleteStart);
+  assert.ok(reassignmentStart >= 0 && deleteStart > reassignmentStart && afterDelete > deleteStart);
+  const reassign = finance.slice(reassignmentStart, deleteStart);
+  const deletion = finance.slice(deleteStart, afterDelete);
+  for (const handler of [reassign, deletion]) {
+    assert.match(handler, /totalFundingRows = operations\.reduce/);
+    assert.match(handler, /totalFundingRows > 350/);
+    assert.ok(handler.indexOf('totalFundingRows > 350') < handler.indexOf('transaction\.set('));
+  }
+});
