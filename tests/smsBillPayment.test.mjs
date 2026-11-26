@@ -198,3 +198,28 @@ test('le paiement SMS d’une facture existante réutilise le traitement idempot
   assert.match(billsRoute, /alreadyPaid: true/);
   assert.match(billsRoute, /lastPaidExpenseId/);
 });
+
+test('le paiement SMS d’une facture existante réutilise le paiement sécurisé de la facture', () => {
+  const route = fs.readFileSync('src/app/api/sms-import/route.js', 'utf8');
+  const billsRoute = fs.readFileSync('src/app/api/[...path]/route.js', 'utf8');
+  const claimAt = route.indexOf('if (claim.existingBillId)');
+  const standardExpenseAt = route.indexOf('} else if (isExpense) {', claimAt);
+  assert.ok(claimAt >= 0 && standardExpenseAt > claimAt);
+  const selectedBillBranch = route.slice(claimAt, standardExpenseAt);
+  assert.match(selectedBillBranch, /new URL\('\/api\/bills\/pay', request\.url\)/);
+  assert.match(selectedBillBranch, /billId: claim\.existingBillId/);
+  assert.match(selectedBillBranch, /dueDate: claim\.billDueDate/);
+  assert.match(selectedBillBranch, /paymentSource: item\.provider/);
+  assert.match(route, /alreadyPaid = Boolean\(claim\.existingBillId && operationResult\.alreadyPaid === true\)/);
+  assert.match(billsRoute, /bill_pay_' \+ billId \+ '_' \+ dueDate/);
+  assert.match(billsRoute, /lastPaidExpenseId/);
+});
+
+test('le serveur vérifie que la facture appartient au compte et que son échéance est toujours la même', () => {
+  const route = fs.readFileSync('src/app/api/sms-import/route.js', 'utf8');
+  assert.match(route, /userRef\.collection\('bills'\)\.doc\(selectedBillId\)/);
+  assert.match(route, /selectedBillSnap\?\.exists/);
+  assert.match(route, /selectedBill\.active === false/);
+  assert.match(route, /String\(selectedBill\.nextDueDate \|\| ''\) !== selectedBillDueDate/);
+  assert.match(route, /!\/\^\\d\{4\}-\\d\{2\}-\\d\{2\}\$\//);
+});
