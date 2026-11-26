@@ -623,7 +623,7 @@ export default function IncomePage() {
   const confirmApplyVitalToBudget = async () => {
     if (!savedTotalVital || savingApplied) return;
     setVitalApplyError('');
-    setSavingApplied(true);
+    setVitalApplyBusy(true);
     try {
       const selectedSource = activeMonthSources.find((income) => income.id === vitalApplySourceId);
       if (!vitalCreateIncome && !selectedSource) {
@@ -716,7 +716,7 @@ export default function IncomePage() {
     } catch (applyError) {
       setVitalApplyError(applyError.message || (isEnglish ? 'Could not apply the forecast.' : 'Impossible d’appliquer cette prévision.'));
     } finally {
-      setSavingApplied(false);
+      setVitalApplyBusy(false);
     }
   };
 
@@ -1052,12 +1052,18 @@ export default function IncomePage() {
                     frequency: need.frequency || 'monthly',
                   }, Number(profile?.vitalTotalBudget) || 0).amount;
                   return (
-                    <li key={k.id} className="flex justify-between text-xs text-slate-600">
-                      <span className="flex items-center gap-2">
+                    <li key={k.id} className="flex items-center justify-between gap-3 text-xs text-slate-600">
+                      <span className="flex min-w-0 items-center gap-2">
                         <CategoryImage categoryId={k.id} image={k.image} size="sm" />
-                        {k.label}
+                        <span className="min-w-0">
+                          <strong className="block truncate font-semibold text-slate-700">{k.label}</strong>
+                          <span className="block text-[10px] text-slate-400">
+                            {need.calculationType === 'percentage' ? (Number(need.value ?? need.amount) + '% du revenu') : (formatCurrency(Number(need.value ?? need.amount)) + ' par période')}
+                            {' · ' + (FREQUENCIES.find((frequency) => frequency.id === need.frequency)?.label?.toLowerCase() || 'par mois')}
+                          </span>
+                        </span>
                       </span>
-                      <span>{formatCurrency(Math.round(monthly))}</span>
+                      <span className="shrink-0 font-medium tabular-nums">{formatCurrency(Math.round(monthly))}</span>
                     </li>
                   );
                 })}
