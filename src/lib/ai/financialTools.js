@@ -1114,6 +1114,11 @@ export async function reassignExpenseOperationsToSourceForUser(uid, expenseIds, 
       throw new Error('Cette source est réservée à un autre projet. Sélectionne uniquement les dépenses de ce projet.');
     }
 
+    const totalFundingRows = operations.reduce((sum, operation) => sum + operation.parts.length, 0);
+    if (totalFundingRows > 350) {
+      throw new Error('Cette sélection contient trop de lignes de répartition. Traite au maximum 350 lignes de financement à la fois.');
+    }
+
     const userData = userSnap.data() || {};
     let spentTotals = normalizeIncomeSpentTotals(userData.incomeSpentTotals);
     if (userData.incomeSpentTotalsVersion !== 1) {
@@ -1343,6 +1348,11 @@ export async function deleteExpenseOperationsForUser(uid, expenseIds) {
       if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error('Une dépense sélectionnée contient un montant invalide.');
       return { id, ref, data, date, parts, amount };
     });
+
+    const totalFundingRows = operations.reduce((sum, operation) => sum + operation.parts.length, 0);
+    if (totalFundingRows > 350) {
+      throw new Error('Cette sélection contient trop de lignes de répartition. Traite au maximum 350 lignes de financement à la fois.');
+    }
 
     const userData = userSnap.data() || {};
     let nextSpentTotals = normalizeIncomeSpentTotals(userData.incomeSpentTotals);
