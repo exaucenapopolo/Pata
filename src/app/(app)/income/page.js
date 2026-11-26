@@ -29,7 +29,7 @@ import { useProjects } from '@/hooks/useProjects';
 import { useBudgetRules } from '@/hooks/useBudgetRules';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { createIncome, updateIncome, deleteIncome, setIncomePinned } from '@/lib/firestore/incomes';
-import { upsertBudgets } from '@/lib/firestore/budgets';
+import { upsertBudget, upsertBudgets } from '@/lib/firestore/budgets';
 import { calculateBudgetPlan, calculateBudgetLine } from '@/lib/finance/budgetPlanner.mjs';
 import { computeBudgetBreakdown } from '@/lib/budgetRules';
 import { INCOME_CATEGORIES, EXPENSE_CATEGORIES, CAMEROON_BANKS } from '@/lib/constants';
