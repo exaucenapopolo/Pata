@@ -228,3 +228,11 @@ test('le serveur vérifie que la facture appartient au compte et que son échéa
   assert.match(route, /String\(selectedBill\.nextDueDate \|\| ''\) !== selectedBillDueDate/);
   assert.match(route, /!\/\^\\d\{4\}-\\d\{2\}-\\d\{2\}\$\//);
 });
+
+test('les imports SMS interrompus redeviennent visibles après le délai de sécurité pour reprendre le même paiement', () => {
+  const route = fs.readFileSync('src/app/api/sms-import/route.js', 'utf8');
+  assert.match(route, /item\.status === 'PENDING'/);
+  assert.match(route, /item\.status !== 'PROCESSING'/);
+  assert.match(route, /Date\.now\(\) - processingAt >= 120000/);
+  assert.match(route, /billDueDate: billDueDate \|\| null/);
+});
