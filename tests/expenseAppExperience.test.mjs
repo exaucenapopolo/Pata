@@ -34,7 +34,7 @@ test('une dépense répartie entre plusieurs sources reste une seule opération 
 
   const page = read('src/app/(app)/expenses/page.js');
   assert.match(page, /expenseRowsByOperation/);
-  assert.match(page, /rows:\s*rows/);
+  assert.match(page, /rows,\s*amount/);
   assert.match(page, /rows\.reduce\(\(sum, row\)/);
 });
 
