@@ -74,6 +74,14 @@ export async function updateExpense(uid, id, patch) {
   return postExpenseAction('update', { ...patch, expenseId: id });
 }
 
+export async function updateExpenseOperationsDate(uid, expenseIds, date, options = {}) {
+  return postExpenseAction('update-date-many', {
+    expenseIds,
+    date,
+    confirmBudgetOverrun: options.confirmBudgetOverrun === true,
+  });
+}
+
 export async function reassignExpensesToIncome(uid, expenseIds, incomeSourceId, options = {}) {
   return postExpenseAction('reassign-source', {
     expenseIds,
