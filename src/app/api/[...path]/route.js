@@ -5181,18 +5181,56 @@ async function handleSaveVitalForecast(request) {
     const body = await request.json();
     const name = String(body.name || 'Prévision vitale').trim().slice(0, 100) || 'Prévision vitale';
     const needsInput = body.needs && typeof body.needs === 'object' && !Array.isArray(body.needs) ? body.needs : {};
-    const needs = {};
     const multipliers = { daily: 30, weekly: 4, monthly: 1 };
-    let computedTotal = 0;
-    for (const [categoryId, value] of Object.entries(needsInput).slice(0, 40)) {
-      const amount = Math.round(Number(value?.amount));
-      const frequency = String(value?.frequency || 'monthly');
-      if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 1_000_000_000 || !multipliers[frequency]) continue;
-      needs[String(categoryId).slice(0, 80)] = { amount, frequency };
-      computedTotal += amount * multipliers[frequency];
+    const totalBudgetInput = Math.round(Number(body.totalBudget) || 0);
+    const rawNeeds = [];
+
+    for (const [categoryId, raw] of Object.entries(needsInput).slice(0, 40)) {
+      const value = Number(raw?.value ?? raw?.amount);
+      const calculationType = raw?.calculationType === 'percentage' ? 'percentage' : 'amount';
+      const frequency = String(raw?.frequency || 'monthly');
+      if (!Number.isFinite(value) || value <= 0 || !multipliers[frequency]
+        || (calculationType === 'percentage' ? value > 100 : value > 1_000_000_000)) continue;
+      rawNeeds.push({
+        categoryId: String(categoryId).slice(0, 80),
+        value,
+        calculationType,
+        frequency,
+      });
     }
-    const totalBudget = Math.round(Number(body.totalBudget) || computedTotal);
-    if (!Object.keys(needs).length || !Number.isSafeInteger(totalBudget) || totalBudget <= 0 || totalBudget > 10_000_000_000) return errorResponse('Ajoute au moins un besoin avec un montant valide.', 400);
+
+    const hasPercentage = rawNeeds.some((item) => item.calculationType === 'percentage');
+    if (hasPercentage && (!Number.isSafeInteger(totalBudgetInput) || totalBudgetInput <= 0 || totalBudgetInput > 10_000_000_000)) {
+      return errorResponse('Indique un budget total valide pour calculer les enveloppes en pourcentage.', 400);
+    }
+    const totalBudget = totalBudgetInput > 0
+      ? totalBudgetInput
+      : Math.round(rawNeeds.reduce((sum, item) => sum + item.value * multipliers[item.frequency], 0));
+    if (!Number.isSafeInteger(totalBudget) || totalBudget <= 0 || totalBudget > 10_000_000_000) {
+      return errorResponse('Ajoute un budget total valide et au moins une catégorie.', 400);
+    }
+
+    const needs = {};
+    let computedTotal = 0;
+    for (const item of rawNeeds) {
+      const monthlyAmount = Math.round(
+        (item.calculationType === 'percentage' ? totalBudget * item.value / 100 : item.value)
+        * multipliers[item.frequency]
+      );
+      if (!Number.isSafeInteger(monthlyAmount) || monthlyAmount < 0 || monthlyAmount > 10_000_000_000) {
+        return errorResponse('Une enveloppe calculée dépasse le montant autorisé.', 400);
+      }
+      needs[item.categoryId] = {
+        amount: item.value,
+        value: item.value,
+        calculationType: item.calculationType,
+        frequency: item.frequency,
+        monthlyAmount,
+      };
+      computedTotal += monthlyAmount;
+    }
+    if (!Object.keys(needs).length) return errorResponse('Ajoute au moins un besoin avec un montant ou un pourcentage valide.', 400);
+
     const userRef = adminDb.collection('users').doc(uid);
     const month = getDoualaMonthKey();
     const result = await adminDb.runTransaction(async (transaction) => {
@@ -5207,17 +5245,31 @@ async function handleSaveVitalForecast(request) {
         stats.vitalForecasts = (Number(stats.vitalForecasts) || 0) + 1;
       }
       stats.lastResetMonth = month;
-      const snapshot = { id: `vital_${Date.now()}`, name, totalBudget, needs, month, createdAt: new Date().toISOString() };
+      const snapshot = {
+        id: 'vital_' + Date.now(),
+        name,
+        totalBudget,
+        computedTotal,
+        needs,
+        month,
+        createdAt: new Date().toISOString(),
+      };
       const history = Array.isArray(userData.vitalForecastHistory) ? userData.vitalForecastHistory : [];
-      transaction.update(userRef, { vitalNeeds: needs, vitalBudgetName: name, vitalTotalBudget: totalBudget, vitalForecastCreatedMonth: month, vitalForecastHistory: [...history, snapshot].slice(-50), monthlyStats: stats });
-      return { totalBudget, snapshot };
+      transaction.update(userRef, {
+        vitalNeeds: needs,
+        vitalBudgetName: name,
+        vitalTotalBudget: totalBudget,
+        vitalForecastCreatedMonth: month,
+        vitalForecastHistory: [...history, snapshot].slice(-50),
+        monthlyStats: stats,
+      });
+      return { totalBudget, computedTotal, snapshot };
     });
     return NextResponse.json({ success: true, ...result });
   } catch (error) {
     return errorResponse(error.message || 'Impossible d’enregistrer cette prévision.', /atteint|introuvable/i.test(error.message || '') ? 403 : 400);
   }
 }
-
 async function handleDeleteVitalForecast(request) {
   try {
     const { uid } = await authenticate(request);
