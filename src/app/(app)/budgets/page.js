@@ -38,9 +38,11 @@ const todayIso = () => {
   return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
 };
 const formatBudgetDate = (value, language = 'fr') => {
-  const match = String(value || '').slice(0, 10).match(/^(\\d{4})-(\\d{2})-(\\d{2})$/);
-  if (!match) return value || 'Date inconnue';
-  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12);
+  const parts = String(value || '').slice(0, 10).split('-').map(Number);
+  if (parts.length !== 3 || parts.some((part) => !Number.isInteger(part) || part <= 0)) return value || 'Date inconnue';
+  const [year, month, day] = parts;
+  const date = new Date(year, month - 1, day, 12);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return value || 'Date inconnue';
   return date.toLocaleDateString(language === 'en' ? 'en-GB' : 'fr-FR', {
     day: '2-digit', month: 'long', year: 'numeric',
   });
