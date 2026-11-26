@@ -18,7 +18,7 @@ import { useProjects } from '@/hooks/useProjects';
 import { createProject, updateProject, deleteProject } from '@/lib/firestore/projects';
 import { useExpenses } from '@/hooks/useExpenses';
 import { countExpenseOperations, getExpenseOperationKeys, sortExpenseOperationsForSourceReassignment } from '@/lib/finance/expenseOperations.mjs';
-import { getSelectableExpenseDayKeys, toggleExpenseDayKeys, toggleExpenseSelectionKey } from '@/lib/finance/expenseSelection.mjs';
+import { getSelectableExpenseDayKeys, getSelectedExpenseOperations, toggleExpenseDayKeys, toggleExpenseSelectionKey } from '@/lib/finance/expenseSelection.mjs';
 import { createExpenseBatchDraftRow, getExpenseBatchTotal, validateExpenseBatchRows } from '@/lib/finance/expenseBatch.mjs';
 import { useIncomes } from '@/hooks/useIncomes';
 import { getAvailableIncomeSources } from '@/lib/finance/availableIncomeSources.mjs';
@@ -306,37 +306,17 @@ export default function ExpensesPage() {
     return new Map(expenses.map((expense, index) => [expense.id, keys[index]]));
   }, [expenses]);
 
-  const expenseRowsByOperation = useMemo(() => {
-    const groupedRows = new Map();
-    expenses.forEach((expense) => {
-      const key = expenseOperationKeyById.get(expense.id) || expense.id;
-      const rows = groupedRows.get(key) || [];
-      rows.push(expense);
-      groupedRows.set(key, rows);
-    });
-    return groupedRows;
-  }, [expenses, expenseOperationKeyById]);
-
-  const selectedExpenseOperations = useMemo(() => selectedExpenseKeys
-    .map((key) => {
-      const rows = expenseRowsByOperation.get(key) || [];
-      const root = rows.find((row) => row.id === key) || rows[0] || null;
-      if (!root || !rows.every(isBulkSelectableExpense)) return null;
-      return {
-        key,
-        root,
-        rows,
-        amount: rows.reduce((sum, row) => sum + Math.max(0, Number(row.amount) || 0), 0),
-      };
-    })
-    .filter(Boolean), [selectedExpenseKeys, expenseRowsByOperation]);
+  const selectedExpenseOperations = useMemo(
+    () => getSelectedExpenseOperations(expenses, selectedExpenseKeys),
+    [expenses, selectedExpenseKeys]
+  );
 
   const selectedExpenseTotal = selectedExpenseOperations.reduce((sum, operation) => sum + operation.amount, 0);
 
   useEffect(() => {
-    const validKeys = new Set(expenseRowsByOperation.keys());
+    const validKeys = new Set(expenseOperationKeyById.values());
     setSelectedExpenseKeys((current) => current.filter((key) => validKeys.has(key)));
-  }, [expenseRowsByOperation]);
+  }, [expenseOperationKeyById]);
 
   useEffect(() => {
     if (selectedExpenseKeys.length === 0) setSelectionMode(false);
