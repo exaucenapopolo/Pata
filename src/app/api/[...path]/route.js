@@ -11031,19 +11031,22 @@ async function handleBillsPay(request) {
     const billSnapshot = await billRef.get();
     if (!billSnapshot.exists) return errorResponse('Facture introuvable.', 404);
     const bill = billSnapshot.data() || {};
-    if (bill.active === false) return errorResponse('Cette facture est désactivée.', 400);
-    if (bill.pendingDetails === true || bill.frequencyPending === true
-      || !/^\d{4}-\d{2}-\d{2}$/.test(String(bill.nextDueDate || ''))) {
-      return errorResponse('Complète d’abord la prochaine échéance et la fréquence de cette facture.', 409);
-    }
     const dueDate = String(body.dueDate || bill.nextDueDate || '').trim();
-    if (dueDate !== String(bill.nextDueDate || '')) return errorResponse('Cette échéance a changé. Actualise la liste des factures.', 409);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return errorResponse('La date d’échéance est invalide.', 400);
+    // Check the paid marker before active/next-due validation: retries for an
+    // already-paid cycle must never create a second expense.
     if (bill.lastPaidDueDate === dueDate) return NextResponse.json({
       success: true,
       alreadyPaid: true,
       nextDueDate: bill.nextDueDate,
       expenseId: bill.lastPaidExpenseId || null,
     });
+    if (bill.active === false) return errorResponse('Cette facture est désactivée.', 400);
+    if (bill.pendingDetails === true || bill.frequencyPending === true
+      || !/^\d{4}-\d{2}-\d{2}$/.test(String(bill.nextDueDate || ''))) {
+      return errorResponse('Complète d’abord la prochaine échéance et la fréquence de cette facture.', 409);
+    }
+    if (dueDate !== String(bill.nextDueDate || '')) return errorResponse('Cette échéance a changé. Actualise la liste des factures.', 409);
     const paidDate = String(body.paidDate || getDoualaToday());
     if (!/^\d{4}-\d{2}-\d{2}$/.test(paidDate)) return errorResponse('La date de paiement est invalide.', 400);
     const amount = Math.round(Number(body.amount));
