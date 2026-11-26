@@ -17,7 +17,7 @@ import { useProfile } from '@/hooks/useProfile';
 import { useProjects } from '@/hooks/useProjects';
 import { createProject, updateProject, deleteProject } from '@/lib/firestore/projects';
 import { useExpenses } from '@/hooks/useExpenses';
-import { countExpenseOperations, getExpenseOperationKeys, sortExpenseOperationsForSourceReassignment } from '@/lib/finance/expenseOperations.mjs';
+import { countExpenseOperations, getExpenseOperationKeys } from '@/lib/finance/expenseOperations.mjs';
 import { getSelectableExpenseDayKeys, getSelectedExpenseOperations, toggleExpenseDayKeys, toggleExpenseSelectionKey } from '@/lib/finance/expenseSelection.mjs';
 import { createExpenseBatchDraftRow, getExpenseBatchTotal, validateExpenseBatchRows } from '@/lib/finance/expenseBatch.mjs';
 import { useIncomes } from '@/hooks/useIncomes';
