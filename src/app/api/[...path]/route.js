@@ -10,7 +10,7 @@ import { completeWithGroq } from '@/lib/ai/groqClient';
 import { normalizeWebPushSubscription, webPushSubscriptionId, sendPataWebPush, isExpiredWebPushError } from '@/lib/notifications/webPush.mjs';
 import { dispatchPushNotification } from '@/lib/notifications/dispatcher.mjs';
 import { claimDailyRetentionSlot, claimDailyRetentionPassSlot, claimDailyNonEssentialSlot, buildCategoryAdviceNotification, buildCategoryBudgetForecastNotification, buildExpenseRecoveryNotification, buildSmallPurchaseNotification, buildUnusualSpendingNotification, claimDailySmartSlot, selectRetentionCandidates, getDoualaDateKey as getRetentionDoualaDateKey, isWithinDoualaEveningWindow } from '@/lib/notifications/retentionEngine.mjs';
-import { AI_TOOLS, createExpenseForUser, updateExpenseForUser, reassignExpenseOperationsToSourceForUser, deleteExpenseForUser, deleteIncomeForUser, deleteDebtForUser, executeAITool, runAutomationForUser, generateWeeklyReportForUser } from '@/lib/ai/financialTools';
+import { AI_TOOLS, createExpenseForUser, updateExpenseForUser, reassignExpenseOperationsToSourceForUser, deleteExpenseOperationsForUser, deleteExpenseForUser, deleteIncomeForUser, deleteDebtForUser, executeAITool, runAutomationForUser, generateWeeklyReportForUser } from '@/lib/ai/financialTools';
 import { generateAudioWithGemini } from '@/lib/ai/geminiTTS';
 import { buildIncomePriorityReminder } from '@/lib/finance/incomePriorities.mjs';
 import { buildIncomeBudgetRecommendation } from '@/lib/finance/incomeBudgetRecommendation.mjs';
@@ -5258,6 +5258,19 @@ async function handleReassignExpenseSource(request) {
   } catch (error) {
     const message = error.message || 'Impossible de regrouper les dépenses sur cette source.';
     const status = /introuvable|invalide|insuffisant|disponible|protégé|projet|sélection|sélectionnée|partagée|montant/i.test(message) ? 400 : 500;
+    return errorResponse(message, status);
+  }
+}
+
+async function handleDeleteExpensesBulk(request) {
+  try {
+    const decoded = await authenticate(request);
+    const body = await request.json();
+    const result = await deleteExpenseOperationsForUser(decoded.uid, body.expenseIds);
+    return NextResponse.json(result);
+  } catch (error) {
+    const message = error.message || 'Impossible de supprimer les dépenses sélectionnées.';
+    const status = /introuvable|invalide|manquant|protégé|sélection|partagée|montant/i.test(message) ? 400 : 500;
     return errorResponse(message, status);
   }
 }
@@ -11366,6 +11379,7 @@ const ROUTES = {
   'expenses/add':          { POST: handleAddExpense },
   'expenses/update':       { POST: handleUpdateExpense },
   'expenses/reassign-source': { POST: handleReassignExpenseSource },
+  'expenses/delete-many': { POST: handleDeleteExpensesBulk },
   'expenses/delete':       { POST: handleDeleteExpense },
   'ai/chats':              { GET: handleAIChats },
   'ai/chat':               { POST: handleAIChat },
