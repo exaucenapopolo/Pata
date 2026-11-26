@@ -26,7 +26,7 @@ import { useDebts } from '@/hooks/useDebts';
 import { ScheduledTransactionsPanel } from '@/components/transactions/ScheduledTransactionsPanel';
 import { createScheduledTransaction } from '@/lib/firestore/scheduledTransactions';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
-import { createExpense, updateExpense, deleteExpense, reassignExpensesToIncome } from '@/lib/firestore/expenses';
+import { createExpense, updateExpense, deleteExpense, reassignExpensesToIncome, deleteExpenseOperations } from '@/lib/firestore/expenses';
 import { createAutomation } from '@/lib/firestore/automations';
 import { formatCurrency, formatDate, resolveCategory, getFirstOfMonth, getLastOfMonth, getLocalMonth, normalizeExpenseCategoryId } from '@/lib/utils';
 import { OptionalTransactionFields } from '@/components/transactions/OptionalTransactionFields';
@@ -785,48 +785,39 @@ export default function ExpensesPage() {
   };
 
   const handleBulkDelete = async () => {
-    if (!selectedExpenseOperations.length) return;
+    if (!selectedExpenseOperations.length || bulkActionBusy) return;
     const accepted = await requestActionDialog({
       mode: 'confirm',
       kind: 'danger',
       title: 'Supprimer les dépenses sélectionnées ?',
-      message: selectedExpenseOperations.length + ' opération(s), pour un total de ' + formatCurrency(selectedExpenseTotal) + ', seront supprimées. Une dépense partagée sera supprimée dans toute sa répartition et les soldes seront recalculés.',
+      message: selectedExpenseOperations.length + ' opération(s), pour un total de ' + formatCurrency(selectedExpenseTotal) + ', seront supprimées. Les dépenses partagées seront supprimées dans toute leur répartition. Pata recalculera les soldes et les budgets ensemble.',
       confirmLabel: 'Supprimer les opérations',
     });
     if (!accepted) return;
+
     setBulkActionBusy(true);
-    const failedKeys = [];
-    let deleted = 0;
-    let firstError = '';
     try {
-      for (const operation of selectedExpenseOperations) {
-        try {
-          await deleteExpense(user.uid, operation.root.id);
-          deleted += 1;
-        } catch (error) {
-          failedKeys.push(operation.key);
-          firstError = firstError || error.message || 'Suppression impossible.';
-        }
-      }
-      if (failedKeys.length) {
-        setSelectedExpenseKeys(failedKeys);
-        await requestActionDialog({
-          mode: 'alert',
-          kind: 'warning',
-          title: 'Suppression partielle',
-          message: deleted + ' opération(s) supprimée(s). ' + failedKeys.length + ' opération(s) restent sélectionnées et n’ont pas été modifiées. ' + firstError,
-          confirmLabel: 'Compris',
-        });
-      } else {
-        clearExpenseSelection();
-        await requestActionDialog({
-          mode: 'alert',
-          kind: 'success',
-          title: 'Dépenses supprimées',
-          message: deleted + ' opération(s) supprimée(s). Les sources de financement et les soldes ont été mis à jour.',
-          confirmLabel: 'Terminer',
-        });
-      }
+      const result = await deleteExpenseOperations(
+        user.uid,
+        selectedExpenseOperations.map((operation) => operation.root.id)
+      );
+      if (!result?.success) throw new Error(result?.error || 'Pata n’a pas confirmé la suppression.');
+      clearExpenseSelection();
+      await requestActionDialog({
+        mode: 'alert',
+        kind: 'success',
+        title: 'Dépenses supprimées',
+        message: result.deletedCount + ' opération(s), soit ' + formatCurrency(result.amount) + ', ont été supprimées. Les sources de financement et les budgets ont été recalculés ensemble.',
+        confirmLabel: 'Terminer',
+      });
+    } catch (error) {
+      await requestActionDialog({
+        mode: 'alert',
+        kind: 'danger',
+        title: 'Suppression impossible',
+        message: t(error.message || 'Pata n’a pas pu supprimer ces dépenses. Aucune suppression partielle n’a été effectuée.'),
+        confirmLabel: 'Fermer',
+      });
     } finally {
       setBulkActionBusy(false);
     }
