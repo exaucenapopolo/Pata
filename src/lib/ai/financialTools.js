@@ -1037,6 +1037,211 @@ export async function updateExpenseForUser(uid, expenseId, input) {
  * root row, funding totals and monthly budget summaries are rebuilt exactly
  * once, and no partial reassignment can be committed.
  */
+
+/**
+ * Change the date of several complete expense operations without altering
+ * their funding allocations. Shared expenses keep all their allocation rows.
+ * Monthly budget summaries are moved atomically with the expense records.
+ */
+export async function updateExpenseOperationsDateForUser(uid, expenseIds, date, input = {}) {
+  const ids = [...new Set((Array.isArray(expenseIds) ? expenseIds : [])
+    .map((value) => cleanText(value, 150))
+    .filter((value) => value && !value.includes('/')))];
+  const targetDate = cleanText(date, 10);
+  if (!ids.length) throw new Error('Sélectionne au moins une dépense.');
+  if (ids.length > 50) throw new Error('Tu peux modifier la date de 50 opérations au maximum à la fois.');
+  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(targetDate)
+    || new Date(targetDate + 'T00:00:00.000Z').toISOString().slice(0, 10) !== targetDate) {
+    throw new Error('Date invalide. Choisis une date réelle au format AAAA-MM-JJ.');
+  }
+
+  const userRef = userRefFor(uid);
+  const expensesRef = subcol(uid, 'expenses');
+  const rootRefs = ids.map((id) => expensesRef.doc(id));
+
+  return adminDb.runTransaction(async (transaction) => {
+    const rootSnaps = await Promise.all(rootRefs.map((ref) => transaction.get(ref)));
+    const missingIndex = rootSnaps.findIndex((snapshot) => !snapshot.exists);
+    if (missingIndex >= 0) {
+      throw new Error('Une dépense sélectionnée n’existe plus. Actualise la liste avant de continuer.');
+    }
+
+    const roots = rootSnaps.map((snapshot, index) => ({
+      id: ids[index],
+      ref: rootRefs[index],
+      data: snapshot.data() || {},
+    }));
+    if (roots.some(({ data }) => data.neutralFlow === true || data.cashWithdrawal === true
+      || data.flowType === 'loan_given' || data.debtId || data.repaymentDebtId)) {
+      throw new Error('La sélection contient un mouvement protégé. Retire-le avant de modifier les dates.');
+    }
+
+    const dates = [...new Set(roots.map(({ data }) => String(data.date || '').slice(0, 10)).filter(Boolean))];
+    const dailySnapshots = await Promise.all(dates.map((day) =>
+      transaction.get(expensesRef.where('date', '==', day))
+    ));
+    const dailyRows = new Map(dates.map((day, index) => [
+      day,
+      dailySnapshots[index].docs.map((document) => ({ id: document.id, ...(document.data() || {}) })),
+    ]));
+
+    const operations = roots.map(({ id, ref, data }) => {
+      const previousDate = String(data.date || '').slice(0, 10);
+      const rows = dailyRows.get(previousDate) || [{ id, ...data }];
+      const keys = getExpenseOperationKeys(rows);
+      const rowIndex = rows.findIndex((row) => row.id === id);
+      const key = rowIndex >= 0 ? keys[rowIndex] : id;
+      if (key !== id) {
+        throw new Error('Une dépense sélectionnée est une ligne secondaire. Actualise la liste pour sélectionner la dépense principale.');
+      }
+      const parts = rows.filter((row, index) => index === rowIndex || keys[index] === id);
+      if (!parts.length || !parts.some((part) => part.id === id)) {
+        throw new Error('Une répartition de dépense est incomplète. Aucun changement n’a été effectué.');
+      }
+      if (parts.some((part) => part.neutralFlow === true || part.cashWithdrawal === true
+        || part.flowType === 'loan_given' || part.debtId || part.repaymentDebtId)) {
+        throw new Error('Une opération partagée contient un mouvement protégé. Aucun changement n’a été effectué.');
+      }
+      return { id, ref, data, previousDate, parts };
+    });
+
+    const changedOperations = operations.filter((operation) => operation.previousDate !== targetDate);
+    if (!changedOperations.length) {
+      return { success: true, updatedCount: 0, recordsUpdated: 0, date: targetDate, unchanged: true };
+    }
+
+    const totalFundingRows = changedOperations.reduce((sum, operation) => sum + operation.parts.length, 0);
+    if (totalFundingRows > 350) {
+      throw new Error('Cette sélection contient trop de lignes de répartition. Traite au maximum 350 lignes à la fois.');
+    }
+
+    const budgetOperations = changedOperations.filter((operation) =>
+      operation.data.neutralFlow !== true && getExpenseTypeForBudget(operation.data) === 'consumption'
+    );
+    const touchedMonths = [...new Set(budgetOperations.flatMap((operation) => [
+      operation.previousDate.slice(0, 7),
+      targetDate.slice(0, 7),
+    ]).filter((month) => /^\\d{4}-\\d{2}$/.test(month)))];
+    const monthData = new Map();
+
+    // Read all summaries, budget definitions and any required migration rows
+    // before the transaction starts writing.
+    for (const month of touchedMonths) {
+      const summaryRef = userRef.collection('budgetSpendSummaries').doc(month);
+      const [summarySnap, budgetSnap] = await Promise.all([
+        transaction.get(summaryRef),
+        transaction.get(userRef.collection('budgets').where('month', '==', month)),
+      ]);
+      let summary = summarySnap.exists && Number(summarySnap.data()?.version) === BUDGET_SPEND_SUMMARY_VERSION
+        ? normalizeBudgetSpendSummary(summarySnap.data(), month)
+        : null;
+      if (!summary) {
+        const [year, monthNumber] = month.split('-').map(Number);
+        const lastDay = new Date(Date.UTC(year, monthNumber, 0)).toISOString().slice(0, 10);
+        const monthExpensesSnap = await transaction.get(
+          expensesRef.where('date', '>=', month + '-01').where('date', '<=', lastDay)
+        );
+        summary = buildBudgetSpendSummary(
+          monthExpensesSnap.docs.map((document) => ({ id: document.id, ...(document.data() || {}) })),
+          month
+        );
+      }
+      monthData.set(month, {
+        summaryRef,
+        summary,
+        budgets: budgetSnap.docs.map((document) => document.data() || {}),
+      });
+    }
+
+    // First remove the selected expense allocations from their former months.
+    for (const operation of budgetOperations) {
+      const oldMonth = monthData.get(operation.previousDate.slice(0, 7));
+      if (!oldMonth) continue;
+      for (const [index, part] of operation.parts.entries()) {
+        oldMonth.summary = applyBudgetSpendDelta(
+          oldMonth.summary,
+          part,
+          -1,
+          { countOperation: index === 0 }
+        );
+      }
+    }
+
+    // Then add every allocation to the target month while preserving its
+    // original category, funding source, amount and shared-expense structure.
+    const targetMonth = monthData.get(targetDate.slice(0, 7));
+    for (const operation of budgetOperations) {
+      for (const [index, part] of operation.parts.entries()) {
+        targetMonth.summary = applyBudgetSpendDelta(
+          targetMonth.summary,
+          { ...part, date: targetDate },
+          1,
+          { countOperation: index === 0 }
+        );
+      }
+    }
+
+    const budgetWarnings = [];
+    if (targetMonth) {
+      for (const budget of targetMonth.budgets) {
+        const categoryId = String(budget.categoryId || '');
+        const budgetSourceId = String(budget.incomeSourceId || 'all');
+        const allocated = Number(budget.amount) || 0;
+        if (!categoryId || allocated <= 0) continue;
+        const after = getBudgetSpendAmount(targetMonth.summary, categoryId, budgetSourceId);
+        if (after > allocated) {
+          budgetWarnings.push({
+            categoryId,
+            source: budgetSourceId === 'all' ? 'tous les revenus' : 'ce revenu',
+            allocated,
+            after,
+            excess: after - allocated,
+          });
+        }
+      }
+    }
+
+    if (budgetWarnings.length && input.confirmBudgetOverrun !== true) {
+      const warningText = budgetWarnings.map((warning) =>
+        warning.categoryId + ' : budget ' + warning.allocated.toLocaleString('fr-FR')
+        + ' FCFA, après changement de date ' + warning.after.toLocaleString('fr-FR')
+        + ' FCFA (dépassement ' + warning.excess.toLocaleString('fr-FR') + ' FCFA)'
+      ).join(' ; ');
+      return {
+        success: false,
+        confirmationRequired: true,
+        message: 'Cette date ferait dépasser un ou plusieurs budgets mensuels. ' + warningText + '. Veux-tu quand même continuer ?',
+        warnings: budgetWarnings,
+        date: targetDate,
+      };
+    }
+
+    for (const operation of changedOperations) {
+      for (const part of operation.parts) {
+        transaction.update(expensesRef.doc(part.id), {
+          date: targetDate,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
+    }
+    for (const state of monthData.values()) {
+      transaction.set(state.summaryRef, {
+        ...state.summary,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
+
+    return {
+      success: true,
+      updatedCount: changedOperations.length,
+      recordsUpdated: totalFundingRows,
+      date: targetDate,
+      amount: changedOperations.reduce((sum, operation) =>
+        sum + operation.parts.reduce((operationSum, part) => operationSum + Math.max(0, Number(part.amount) || 0), 0), 0),
+    };
+  });
+}
+
 export async function reassignExpenseOperationsToSourceForUser(uid, expenseIds, incomeSourceId, input = {}) {
   const ids = [...new Set((Array.isArray(expenseIds) ? expenseIds : [])
     .map((value) => cleanText(value, 150))
