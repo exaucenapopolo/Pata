@@ -1270,6 +1270,157 @@ export async function reassignExpenseOperationsToSourceForUser(uid, expenseIds, 
   });
 }
 
+
+/**
+ * Delete several complete expense operations in one transaction.
+ * Related shared funding rows, income balances, budget summaries and activity
+ * history are updated together so a failed operation cannot leave half a batch.
+ */
+export async function deleteExpenseOperationsForUser(uid, expenseIds) {
+  const ids = [...new Set((Array.isArray(expenseIds) ? expenseIds : [])
+    .map((value) => cleanText(value, 150))
+    .filter((value) => value && !value.includes('/')))];
+  if (!ids.length) throw new Error('Sélectionne au moins une dépense à supprimer.');
+  if (ids.length > 50) throw new Error('Tu peux supprimer au maximum 50 opérations en une fois.');
+
+  const userRef = userRefFor(uid);
+  const expensesRef = subcol(uid, 'expenses');
+  const rootRefs = ids.map((id) => expensesRef.doc(id));
+  const activityRefs = ids.map(() => subcol(uid, 'activity_log').doc());
+
+  return adminDb.runTransaction(async (transaction) => {
+    const [userSnap, ...rootSnaps] = await Promise.all([
+      transaction.get(userRef),
+      ...rootRefs.map((ref) => transaction.get(ref)),
+    ]);
+    if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
+    const missing = rootSnaps.findIndex((snapshot) => !snapshot.exists);
+    if (missing >= 0) throw new Error('Une dépense sélectionnée n’existe plus. Actualise la liste puis réessaie.');
+
+    const roots = rootSnaps.map((snapshot, index) => ({
+      id: ids[index],
+      ref: rootRefs[index],
+      data: snapshot.data() || {},
+    }));
+    if (roots.some(({ data }) => data.neutralFlow === true || data.cashWithdrawal === true
+      || data.flowType === 'loan_given' || data.debtId || data.repaymentDebtId)) {
+      throw new Error('La sélection contient un mouvement protégé par le module Dettes & prêts ou un transfert neutre. Retire-le de la sélection.');
+    }
+
+    const dates = [...new Set(roots.map(({ data }) => String(data.date || '').slice(0, 10)).filter(Boolean))];
+    const dailySnapshots = await Promise.all(dates.map((date) =>
+      transaction.get(expensesRef.where('date', '==', date))
+    ));
+    const dailyRows = new Map(dates.map((date, index) => [
+      date,
+      dailySnapshots[index].docs.map((document) => ({ id: document.id, ...(document.data() || {}) })),
+    ]));
+
+    const operations = roots.map(({ id, ref, data }) => {
+      const date = String(data.date || '').slice(0, 10);
+      const rows = dailyRows.get(date) || [{ id, ...data }];
+      const keys = getExpenseOperationKeys(rows);
+      const rowIndex = rows.findIndex((row) => row.id === id);
+      const key = rowIndex >= 0 ? keys[rowIndex] : id;
+      if (key !== id) {
+        throw new Error('Une dépense sélectionnée est une ligne secondaire d’une opération partagée. Actualise la liste et sélectionne la dépense principale.');
+      }
+      const parts = rows.filter((row, index) => index === rowIndex || keys[index] === id);
+      if (!parts.length || !parts.some((part) => part.id === id)) throw new Error('Une répartition de dépense est incomplète. Aucune suppression n’a été effectuée.');
+      if (parts.some((part) => part.neutralFlow === true || part.cashWithdrawal === true
+        || part.flowType === 'loan_given' || part.debtId || part.repaymentDebtId)) {
+        throw new Error('Une opération partagée contient un mouvement protégé. Aucune suppression n’a été effectuée.');
+      }
+      const amount = parts.reduce((sum, part) => sum + Math.max(0, Number(part.amount) || 0), 0);
+      if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error('Une dépense sélectionnée contient un montant invalide.');
+      return { id, ref, data, date, parts, amount };
+    });
+
+    const userData = userSnap.data() || {};
+    let nextSpentTotals = normalizeIncomeSpentTotals(userData.incomeSpentTotals);
+    if (userData.incomeSpentTotalsVersion !== 1) {
+      const allExpensesSnapshot = await transaction.get(expensesRef);
+      nextSpentTotals = calculateIncomeSpentTotals(allExpensesSnapshot.docs.map((document) => document.data() || {}));
+    }
+    nextSpentTotals = { ...nextSpentTotals };
+    for (const operation of operations) {
+      for (const part of operation.parts) {
+        const incomeId = String(part.incomeSourceId || '');
+        if (!incomeId || incomeId === 'all' || incomeId === 'external'
+          || incomeId.startsWith('pending_source_')) continue;
+        nextSpentTotals[incomeId] = Math.max(0,
+          (Number(nextSpentTotals[incomeId]) || 0) - Math.max(0, Number(part.amount) || 0));
+      }
+    }
+
+    const months = [...new Set(operations
+      .filter((operation) => operation.data.neutralFlow !== true && getExpenseTypeForBudget(operation.data) === 'consumption')
+      .map((operation) => operation.date.slice(0, 7))
+      .filter((month) => /^\d{4}-\d{2}$/.test(month)))];
+    const monthData = new Map();
+    for (const month of months) {
+      const [year, monthNumber] = month.split('-').map(Number);
+      const lastDay = new Date(Date.UTC(year, monthNumber, 0)).toISOString().slice(0, 10);
+      const summaryRef = userRef.collection('budgetSpendSummaries').doc(month);
+      const summarySnap = await transaction.get(summaryRef);
+      let summary = summarySnap.exists && Number(summarySnap.data()?.version) === BUDGET_SPEND_SUMMARY_VERSION
+        ? normalizeBudgetSpendSummary(summarySnap.data(), month)
+        : null;
+      if (!summary) {
+        const monthExpensesSnap = await transaction.get(
+          expensesRef.where('date', '>=', month + '-01').where('date', '<=', lastDay)
+        );
+        summary = buildBudgetSpendSummary(
+          monthExpensesSnap.docs.map((document) => ({ id: document.id, ...(document.data() || {}) })),
+          month
+        );
+      }
+      monthData.set(month, { summaryRef, summary });
+    }
+
+    for (const operation of operations) {
+      const month = monthData.get(operation.date.slice(0, 7));
+      if (!month) continue;
+      for (const [index, part] of operation.parts.entries()) {
+        month.summary = applyBudgetSpendDelta(month.summary, part, -1, { countOperation: index === 0 });
+      }
+    }
+
+    transaction.set(userRef, {
+      incomeSpentTotals: normalizeIncomeSpentTotals(nextSpentTotals),
+      incomeSpentTotalsVersion: 1,
+      incomeSpentTotalsUpdatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    for (const month of monthData.values()) {
+      transaction.set(month.summaryRef, {
+        ...month.summary,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
+
+    operations.forEach((operation, index) => {
+      transaction.create(activityRefs[index], {
+        eventType: 'deleted',
+        entityType: 'expense',
+        entityId: operation.id,
+        amount: operation.amount,
+        date: operation.date,
+        categoryId: cleanText(operation.data.categoryId, 80) || 'other',
+        label: cleanText(operation.data.note, 120) || 'Dépense',
+        deletedAt: FieldValue.serverTimestamp(),
+      });
+      for (const part of operation.parts) transaction.delete(expensesRef.doc(part.id));
+    });
+
+    return {
+      success: true,
+      deletedCount: operations.length,
+      amount: operations.reduce((sum, operation) => sum + operation.amount, 0),
+    };
+  });
+}
+
 export async function deleteExpenseForUser(uid, expenseId) {
   const id = cleanText(expenseId, 150);
   if (!id) throw new Error('Identifiant de dépense manquant.');
