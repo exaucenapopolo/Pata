@@ -176,6 +176,8 @@ test('le flux SMS propose les factures impayées puis transmet l’identifiant e
   assert.match(component, /billId: selectedSmsBill\?\.id \|\| \(createNewBill \? 'new' : ''\)/);
   assert.match(component, /billDueDate: selectedSmsBill\?\.nextDueDate \|\| ''/);
   assert.match(component, /Cette facture était déjà marquée comme payée/);
+  assert.match(component, /getSmsChoiceForItem\(item, choices\[item\.id\]\)/);
+  assert.match(component, /Confirmation à reprendre|confirmation à reprendre/i);
 });
 
 test('le paiement SMS d’une facture existante réutilise le traitement idempotent des factures', () => {
@@ -213,6 +215,9 @@ test('le paiement SMS d’une facture existante réutilise le paiement sécuris�
   assert.match(route, /alreadyPaid = Boolean\(claim\.existingBillId && operationResult\.alreadyPaid === true\)/);
   assert.match(billsRoute, /bill_pay_' \+ billId \+ '_' \+ dueDate/);
   assert.match(billsRoute, /lastPaidExpenseId/);
+  assert.match(route, /persistedBillAssociation = Boolean\(persistedBillId && persistedBillDueDate\)/);
+  assert.match(route, /shouldRecordBill = recordBill \|\| persistedBillAssociation/);
+  assert.match(route, /selectedBillId = persistedBillAssociation \? persistedBillId : requestedBillId/);
 });
 
 test('le serveur vérifie que la facture appartient au compte et que son échéance est toujours la même', () => {
