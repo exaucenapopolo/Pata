@@ -805,6 +805,10 @@ export async function POST(request) {
       const projectId = String(body.projectId || '').trim().slice(0, 150);
       const confirmBudgetOverrun = body.confirmBudgetOverrun === true;
       const recordBill = body.recordBill === true;
+      const selectedBillId = String(body.billId || '').trim().slice(0, 150);
+      const selectedBillDueDate = String(body.billDueDate || '').trim();
+      const useExistingBill = recordBill && Boolean(selectedBillId) && selectedBillId !== 'new';
+      const createNewBill = recordBill && selectedBillId === 'new';
       const billName = String(body.billName || '').trim().slice(0, 100);
       const billType = String(body.billType || 'other').trim();
       const billFrequency = String(body.billFrequency || 'once').trim();
@@ -813,7 +817,8 @@ export async function POST(request) {
       const confirmWithdrawal = body.confirmWithdrawal === true;
       const withdrawalSourceIncomeId = String(body.withdrawalSourceIncomeId || 'external').trim().slice(0, 150);
       if (!['income', 'expense'].includes(operationType)) return responseError('Type d’opération invalide.', 400);
-      if (recordBill && (operationType !== 'expense' || !billName)) return responseError('Indique le nom de la facture payée avant de continuer.', 400);
+      if (recordBill && (operationType !== 'expense' || (!useExistingBill && (!createNewBill || !billName)))) return responseError('Choisis une facture existante ou indique le nom de la nouvelle facture.', 400);
+      if (useExistingBill && (selectedBillId.includes('/') || !/^\\d{4}-\\d{2}-\\d{2}$/.test(selectedBillDueDate))) return responseError('La facture ou son échéance est invalide. Actualise la liste des factures.', 400);
       if (repaymentDebtId && repaymentDebtId.includes('/')) return responseError('Identifiant de dette invalide.', 400);
       if (withdrawalSourceIncomeId.includes('/') || incomeSourceId.includes('/')) return responseError('Source de fonds invalide.', 400);
       if (!['external', 'all'].includes(incomeSourceId) && !incomeSourceId) return responseError('Source de revenu invalide.', 400);
@@ -832,7 +837,10 @@ export async function POST(request) {
 
       const { userRef } = await getUserAndPremium(uid);
       const claim = await adminDb.runTransaction(async (transaction) => {
-        const [userSnap, importSnap] = await Promise.all([transaction.get(userRef), transaction.get(ref)]);
+        const selectedBillRef = useExistingBill ? userRef.collection('bills').doc(selectedBillId) : null;
+        const snapshotsToRead = [transaction.get(userRef), transaction.get(ref)];
+        if (selectedBillRef) snapshotsToRead.push(transaction.get(selectedBillRef));
+        const [userSnap, importSnap, selectedBillSnap] = await Promise.all(snapshotsToRead);
         if (!userSnap.exists || !importSnap.exists) throw new Error('Import SMS introuvable.');
         const profile = userSnap.data() || {};
         if (!isPremium(profile)) throw new Error('Un abonnement Pata Premium actif est nécessaire pour confirmer cet import SMS.');
@@ -852,25 +860,36 @@ export async function POST(request) {
         if (recordBill && (item.direction !== 'expense' || item.eventType === 'withdrawal' || repaymentDebtId)) {
           throw new Error('Seul un paiement sortant ordinaire peut être enregistré comme facture. Les retraits et remboursements de dette restent séparés.');
         }
-        const billDetails = recordBill ? normalizeSmsBillPayment({
+        let selectedBill = null;
+        if (useExistingBill) {
+          if (!selectedBillSnap?.exists) throw new Error('Cette facture n’existe plus dans ton compte. Actualise la liste.');
+          selectedBill = selectedBillSnap.data() || {};
+          if (selectedBill.active === false) throw new Error('Cette facture est désactivée. Choisis une facture active.');
+          if (selectedBill.pendingDetails === true || selectedBill.frequencyPending === true
+            || String(selectedBill.nextDueDate || '') !== selectedBillDueDate) {
+            throw new Error('L’échéance de cette facture a changé. Actualise la liste avant de confirmer.');
+          }
+        }
+        const billDetails = createNewBill ? normalizeSmsBillPayment({
           name: billName, billType, frequency: billFrequency,
           nextDueDate: billNextDueDate, expenseCategoryId: billExpenseCategoryId,
         }, item.date) : null;
         if (item.eventType === 'withdrawal' && !confirmWithdrawal) throw new Error('Confirme explicitement que tu souhaites transférer ce retrait vers les espèces.');
         if (item.eventType === 'withdrawal' && repaymentDebtId) throw new Error('Un retrait ne peut pas être classé comme remboursement de dette.');
-        const effectiveCategoryId = billDetails?.expenseCategoryId || categoryId;
+        const effectiveCategoryId = billDetails?.expenseCategoryId || selectedBill?.expenseCategoryId || categoryId;
         transaction.update(ref, {
           status: 'PROCESSING',
           categoryId: effectiveCategoryId,
           operationType,
           ...(billDetails ? { billPayment: true, billName: billDetails.name, billType: billDetails.billType, billFrequency: billDetails.frequency, billNextDueDate: billDetails.nextDueDate } : {}),
+          ...(useExistingBill ? { billPayment: true, billId: selectedBillId, billDueDate: selectedBillDueDate } : {}),
           ...(operationType === 'expense' ? { expenseType: billDetails ? 'consumption' : expenseType, projectId: billDetails ? null : expenseType === 'project' ? projectId : null } : {}),
           ...(repaymentDebtId ? { repaymentDebtId, flowType: operationType === 'income' ? 'repayment_received' : 'repayment' } : {}),
           ...(item.eventType === 'withdrawal' ? { withdrawalSourceIncomeId, cashWithdrawalProvider: item.provider, flowType: 'cash_withdrawal' } : {}),
           ...(operationType === 'expense' && item.eventType !== 'withdrawal' ? { incomeSourceId } : {}),
           processingAt: FieldValue.serverTimestamp(),
         });
-        return { duplicate: false, item, profile, billDetails, categoryId: effectiveCategoryId };
+        return { duplicate: false, item, profile, billDetails, existingBillId: useExistingBill ? selectedBillId : '', billDueDate: useExistingBill ? selectedBillDueDate : '', categoryId: effectiveCategoryId };
       });
 
       if (claim.duplicate) return NextResponse.json({ success: true, duplicate: true, operationId: claim.item.operationId || null });
@@ -933,7 +952,27 @@ export async function POST(request) {
       let operationResponse;
       let operationResult;
       try {
-        if (isExpense) {
+        if (claim.existingBillId) {
+          const billPaymentResponse = await fetch(new URL('/api/bills/pay', request.url), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: request.headers.get('authorization') || '' },
+            body: JSON.stringify({
+              billId: claim.existingBillId,
+              dueDate: claim.billDueDate,
+              amount: item.amount,
+              paidDate: item.date,
+              paymentSource: item.provider,
+              confirmBudgetOverrun,
+            }),
+            cache: 'no-store',
+          });
+          operationResult = await billPaymentResponse.json().catch(() => ({}));
+          operationResponse = { ok: billPaymentResponse.ok, status: billPaymentResponse.status };
+          operationResult = {
+            ...operationResult,
+            id: operationResult.expenseId || null,
+          };
+        } else if (isExpense) {
           operationResult = await createExpenseForUser(uid, payload, {
             idempotencyKey: smsImportId,
             externalFunding: isCashWithdrawal ? item.withdrawalSourceIncomeId === 'external' : incomeSourceId === 'external',
@@ -986,12 +1025,13 @@ export async function POST(request) {
         return responseError(operationResult.error || 'Impossible d’enregistrer cette opération.', operationResponse.status || 500);
       }
 
+      const alreadyPaid = Boolean(claim.existingBillId && operationResult.alreadyPaid === true);
       const operationId = operationResult.id || null;
-      if (!operationId) {
+      if (!operationId && !alreadyPaid) {
         await ref.update({ status: 'PENDING', processingAt: FieldValue.delete(), lastError: 'MISSING_OPERATION_ID' });
         return responseError('Pata n’a pas retourné l’identifiant de l’opération. Actualise et réessaie.', 500);
       }
-      let billId = '';
+      let billId = claim.existingBillId || '';
       if (billDetails) {
         try {
           billId = await createBillRecordFromSms(uid, ref.id, billDetails, item, providerName, operationId);
@@ -1012,7 +1052,9 @@ export async function POST(request) {
         confirmedAt: FieldValue.serverTimestamp(), lastError: FieldValue.delete(),
       });
 
-      const notificationResult = await notifyAutomaticSmsTransaction(uid, claim.profile, {
+      const notificationResult = alreadyPaid
+        ? { inAppSent: false, fcmSent: 0, webPushSent: 0, emailSent: false, skipped: 'bill_already_paid' }
+        : await notifyAutomaticSmsTransaction(uid, claim.profile, {
         transactionHash: ref.id,
         direction: isExpense ? 'expense' : 'income',
         eventType: item.eventType,
@@ -1034,6 +1076,7 @@ export async function POST(request) {
       return NextResponse.json({
         success: true, operationId, target,
         ...(billId ? { billId } : {}),
+        ...(alreadyPaid ? { alreadyPaid: true } : {}),
         ...(operationResult.budgetRecommendation ? { budgetRecommendation: operationResult.budgetRecommendation } : {}),
         notifications: notificationResult,
       });
