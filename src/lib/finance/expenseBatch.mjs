@@ -47,7 +47,7 @@ export function validateExpenseBatchRows(rows = [], options = {}) {
     if (!balanceById.has(sourceId)) return { valid: false, error: 'Une source choisie n’est plus disponible. Actualise les soldes puis vérifie les lignes.' };
     if (amount > balanceById.get(sourceId)) {
       const source = sourceBalances.find((item) => String(item.id) === sourceId);
-      return { valid: false, error: 'Les dépenses rattachées à « ' + (source?.source || 'ce revenu') + ' » totalisent ' + amount.toLocaleString('fr-FR') + ' FCFA, mais il ne reste que ' + balanceById.get(sourceId).toLocaleString('fr-FR') + ' FCFA.';
+      return { valid: false, error: 'Les dépenses rattachées à « ' + (source?.source || 'ce revenu') + ' » totalisent ' + amount.toLocaleString('fr-FR') + ' FCFA, mais il ne reste que ' + balanceById.get(sourceId).toLocaleString('fr-FR') + ' FCFA.' };
     }
   }
   const total = getExpenseBatchTotal(entries);
