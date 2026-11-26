@@ -1022,6 +1022,254 @@ export async function updateExpenseForUser(uid, expenseId, input) {
   });
 }
 
+
+/**
+ * Move several complete expense operations onto one funding source in a
+ * single Firestore transaction. Shared allocations are collapsed to one
+ * root row, funding totals and monthly budget summaries are rebuilt exactly
+ * once, and no partial reassignment can be committed.
+ */
+export async function reassignExpenseOperationsToSourceForUser(uid, expenseIds, incomeSourceId, input = {}) {
+  const ids = [...new Set((Array.isArray(expenseIds) ? expenseIds : [])
+    .map((value) => cleanText(value, 150))
+    .filter((value) => value && !value.includes('/')))];
+  const targetId = cleanText(incomeSourceId, 150);
+  if (!ids.length) throw new Error('Sélectionne au moins une dépense.');
+  if (ids.length > 50) throw new Error('Tu peux rattacher au maximum 50 opérations en une fois.');
+  if (!targetId || targetId === 'all' || targetId === 'external') throw new Error('Choisis une source de revenu précise.');
+
+  const userRef = userRefFor(uid);
+  const incomesRef = subcol(uid, 'incomes');
+  const expensesRef = subcol(uid, 'expenses');
+  const rootRefs = ids.map((id) => expensesRef.doc(id));
+
+  return adminDb.runTransaction(async (transaction) => {
+    const [userSnap, incomesSnap, ...rootSnaps] = await Promise.all([
+      transaction.get(userRef),
+      transaction.get(incomesRef),
+      ...rootRefs.map((ref) => transaction.get(ref)),
+    ]);
+    if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
+    const missing = rootSnaps.findIndex((snapshot) => !snapshot.exists);
+    if (missing >= 0) throw new Error('Une dépense sélectionnée n’existe plus. Actualise la liste avant de continuer.');
+
+    const roots = rootSnaps.map((snapshot, index) => ({
+      id: ids[index],
+      ref: rootRefs[index],
+      data: snapshot.data() || {},
+    }));
+    if (roots.some(({ data }) => data.neutralFlow === true || data.cashWithdrawal === true
+      || data.flowType === 'loan_given' || data.debtId || data.repaymentDebtId)) {
+      throw new Error('La sélection contient un mouvement protégé par le module Dettes & prêts ou un transfert neutre. Retire-le de la sélection.');
+    }
+
+    const dates = [...new Set(roots.map(({ data }) => String(data.date || '').slice(0, 10)).filter(Boolean))];
+    const dailySnapshots = await Promise.all(dates.map((date) =>
+      transaction.get(expensesRef.where('date', '==', date))
+    ));
+    const dailyRows = new Map(dates.map((date, index) => [
+      date,
+      dailySnapshots[index].docs.map((document) => ({ id: document.id, ...(document.data() || {}) })),
+    ]));
+
+    const operations = roots.map(({ id, ref, data }) => {
+      const date = String(data.date || '').slice(0, 10);
+      const rows = dailyRows.get(date) || [{ id, ...data }];
+      const keys = getExpenseOperationKeys(rows);
+      const rowIndex = rows.findIndex((row) => row.id === id);
+      const key = rowIndex >= 0 ? keys[rowIndex] : id;
+      if (key !== id) {
+        throw new Error('Une dépense sélectionnée est une ligne secondaire. Actualise la liste pour sélectionner la dépense principale.');
+      }
+      const parts = rows.filter((row, index) => index === rowIndex || keys[index] === id);
+      if (!parts.length || !parts.some((part) => part.id === id)) throw new Error('Une répartition de dépense est incomplète. Aucun changement n’a été effectué.');
+      if (parts.some((part) => part.neutralFlow === true || part.cashWithdrawal === true
+        || part.flowType === 'loan_given' || part.debtId || part.repaymentDebtId)) {
+        throw new Error('Une opération partagée contient un mouvement protégé. Aucun changement n’a été effectué.');
+      }
+      const amount = parts.reduce((sum, part) => sum + Math.max(0, Number(part.amount) || 0), 0);
+      if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error('Une dépense sélectionnée contient un montant invalide.');
+      return { id, ref, data, date, parts, amount };
+    });
+
+    const targetIncome = incomesSnap.docs
+      .filter((document) => document.id === targetId)
+      .map((document) => ({ id: document.id, ...document.data() }))[0];
+    if (!targetIncome) throw new Error('Cette source de revenu n’existe plus. Actualise les soldes puis réessaie.');
+    if (targetIncome.cashPocket === true) throw new Error('Cette poche espèces n’est pas encore une source de financement directe.');
+    if (targetIncome.neutralFlow === true
+      && !(targetIncome.flowType === 'debt_borrowed' && targetIncome.availableAsFunding === true)) {
+      throw new Error('Cette source ne peut pas financer une dépense.');
+    }
+    if (operations.some((operation) => targetIncome.projectId
+      && String(operation.data.projectId || '') !== String(targetIncome.projectId))) {
+      throw new Error('Cette source est réservée à un autre projet. Sélectionne uniquement les dépenses de ce projet.');
+    }
+
+    const userData = userSnap.data() || {};
+    let spentTotals = normalizeIncomeSpentTotals(userData.incomeSpentTotals);
+    if (userData.incomeSpentTotalsVersion !== 1) {
+      const allExpensesSnapshot = await transaction.get(expensesRef);
+      spentTotals = calculateIncomeSpentTotals(allExpensesSnapshot.docs.map((document) => document.data() || {}));
+    }
+
+    // Release every selected allocation first, then validate the total against
+    // the resulting balance of the target source.
+    const nextSpentTotals = { ...spentTotals };
+    for (const operation of operations) {
+      for (const part of operation.parts) {
+        const previousSourceId = String(part.incomeSourceId || '');
+        if (!previousSourceId || previousSourceId === 'all' || previousSourceId === 'external'
+          || previousSourceId.startsWith('pending_source_')) continue;
+        nextSpentTotals[previousSourceId] = Math.max(0,
+          (Number(nextSpentTotals[previousSourceId]) || 0) - Math.max(0, Number(part.amount) || 0));
+      }
+    }
+    const balancesAfterRelease = buildIncomeBalancesFromTotals(
+      incomesSnap.docs.map((document) => ({ id: document.id, ...document.data() })),
+      nextSpentTotals
+    );
+    const targetBalance = balancesAfterRelease.find((income) => income.id === targetId);
+    const totalAmount = operations.reduce((sum, operation) => sum + operation.amount, 0);
+    if (!targetBalance || totalAmount > targetBalance.remaining) {
+      throw new Error('Solde insuffisant sur « ' + (targetIncome.source || 'ce revenu') + ' » : '
+        + (targetBalance?.remaining || 0).toLocaleString('fr-FR')
+        + ' FCFA disponibles après libération des dépenses sélectionnées, contre '
+        + totalAmount.toLocaleString('fr-FR') + ' FCFA nécessaires.');
+    }
+
+    const months = [...new Set(operations
+      .filter((operation) => operation.data.neutralFlow !== true && getExpenseTypeForBudget(operation.data) === 'consumption')
+      .map((operation) => operation.date.slice(0, 7))
+      .filter((month) => /^\d{4}-\d{2}$/.test(month)))];
+    const monthData = new Map();
+    for (const month of months) {
+      const [year, monthNumber] = month.split('-').map(Number);
+      const lastDay = new Date(Date.UTC(year, monthNumber, 0)).toISOString().slice(0, 10);
+      const summaryRef = userRef.collection('budgetSpendSummaries').doc(month);
+      const [budgetSnap, summarySnap] = await Promise.all([
+        transaction.get(userRef.collection('budgets').where('month', '==', month)),
+        transaction.get(summaryRef),
+      ]);
+      let summary = summarySnap.exists && Number(summarySnap.data()?.version) === BUDGET_SPEND_SUMMARY_VERSION
+        ? normalizeBudgetSpendSummary(summarySnap.data(), month)
+        : null;
+      if (!summary) {
+        const monthExpensesSnap = await transaction.get(
+          expensesRef.where('date', '>=', month + '-01').where('date', '<=', lastDay)
+        );
+        summary = buildBudgetSpendSummary(
+          monthExpensesSnap.docs.map((document) => ({ id: document.id, ...(document.data() || {}) })),
+          month
+        );
+      }
+      monthData.set(month, { summaryRef, summary, budgets: budgetSnap.docs.map((document) => document.data() || {}) });
+    }
+
+    // Remove the selected operations from each month's current budget totals
+    // before calculating the resulting source and category totals.
+    for (const operation of operations) {
+      const month = monthData.get(operation.date.slice(0, 7));
+      if (!month) continue;
+      for (const [index, part] of operation.parts.entries()) {
+        month.summary = applyBudgetSpendDelta(month.summary, part, -1, { countOperation: index === 0 });
+      }
+    }
+
+    const budgetWarnings = [];
+    for (const operation of operations) {
+      const month = monthData.get(operation.date.slice(0, 7));
+      if (month && getExpenseTypeForBudget(operation.data) === 'consumption') {
+        for (const budget of month.budgets) {
+          if (budget.categoryId !== operation.data.categoryId) continue;
+          const budgetSourceId = budget.incomeSourceId || 'all';
+          if (budgetSourceId !== 'all' && budgetSourceId !== targetId) continue;
+          const alreadySpent = getBudgetSpendAmount(month.summary, operation.data.categoryId, budgetSourceId);
+          const allocated = Number(budget.amount) || 0;
+          if (allocated > 0 && alreadySpent + operation.amount > allocated) {
+            budgetWarnings.push({
+              source: budgetSourceId === 'all' ? 'tous les revenus' : (targetIncome.source || 'ce revenu'),
+              categoryId: operation.data.categoryId,
+              allocated,
+              alreadySpent,
+              after: alreadySpent + operation.amount,
+              excess: alreadySpent + operation.amount - allocated,
+              date: operation.date,
+            });
+          }
+        }
+      }
+      if (month) {
+        month.summary = applyBudgetSpendDelta(month.summary, {
+          amount: operation.amount,
+          categoryId: operation.data.categoryId,
+          date: operation.date,
+          incomeSourceId: targetId,
+          expenseType: operation.data.expenseType || 'consumption',
+          neutralFlow: false,
+        }, 1);
+      }
+    }
+
+    if (budgetWarnings.length && input.confirmBudgetOverrun !== true) {
+      const warningText = budgetWarnings.map((warning) =>
+        warning.categoryId + ' : budget ' + warning.allocated.toLocaleString('fr-FR')
+        + ' FCFA, après rattachement ' + warning.after.toLocaleString('fr-FR')
+        + ' FCFA (dépassement ' + warning.excess.toLocaleString('fr-FR') + ' FCFA)'
+      ).join(' ; ');
+      return {
+        success: false,
+        confirmationRequired: true,
+        message: 'Le rattachement ferait dépasser un ou plusieurs budgets. ' + warningText + '. Veux-tu quand même continuer ?',
+        warnings: budgetWarnings,
+        amount: totalAmount,
+        sourceId: targetId,
+      };
+    }
+
+    const newSpentTotals = { ...nextSpentTotals };
+    newSpentTotals[targetId] = Math.max(0, (Number(newSpentTotals[targetId]) || 0) + totalAmount);
+    transaction.set(userRef, {
+      incomeSpentTotals: normalizeIncomeSpentTotals(newSpentTotals),
+      incomeSpentTotalsVersion: 1,
+      incomeSpentTotalsUpdatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    for (const month of monthData.values()) {
+      transaction.set(month.summaryRef, {
+        ...month.summary,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
+
+    for (const operation of operations) {
+      transaction.update(operation.ref, {
+        amount: operation.amount,
+        incomeSourceId: targetId,
+        incomeSourceName: targetIncome.source || 'Revenu sans nom',
+        awaitingIncomeSource: false,
+        pendingIncomeSourceName: FieldValue.delete(),
+        sharedExpenseId: FieldValue.delete(),
+        sharedExpensePart: FieldValue.delete(),
+        splitFromExpenseId: FieldValue.delete(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      for (const part of operation.parts) {
+        if (part.id !== operation.id) transaction.delete(expensesRef.doc(part.id));
+      }
+    }
+
+    return {
+      success: true,
+      updatedCount: operations.length,
+      expenseCount: operations.length,
+      amount: totalAmount,
+      incomeSourceId: targetId,
+      incomeSourceName: targetIncome.source || 'Revenu sans nom',
+    };
+  });
+}
+
 export async function deleteExpenseForUser(uid, expenseId) {
   const id = cleanText(expenseId, 150);
   if (!id) throw new Error('Identifiant de dépense manquant.');
