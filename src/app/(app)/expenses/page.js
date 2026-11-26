@@ -19,7 +19,7 @@ import { createProject, updateProject, deleteProject } from '@/lib/firestore/pro
 import { useExpenses } from '@/hooks/useExpenses';
 import { countExpenseOperations, getExpenseOperationKeys } from '@/lib/finance/expenseOperations.mjs';
 import { getSelectableExpenseDayKeys, getSelectedExpenseOperations, toggleExpenseDayKeys, toggleExpenseSelectionKey } from '@/lib/finance/expenseSelection.mjs';
-import { createExpenseBatchDraftRow, getExpenseBatchTotal, validateExpenseBatchRows } from '@/lib/finance/expenseBatch.mjs';
+import { createExpenseBatchDraftRow, getExpenseBatchIdempotencyKey, getExpenseBatchTotal, validateExpenseBatchRows } from '@/lib/finance/expenseBatch.mjs';
 import { useIncomes } from '@/hooks/useIncomes';
 import { getAvailableIncomeSources } from '@/lib/finance/availableIncomeSources.mjs';
 import { useDebts } from '@/hooks/useDebts';
@@ -669,7 +669,7 @@ export default function ExpensesPage() {
           incomeSourceId: row.incomeSourceId || 'all',
           incomeSourceName: row.incomeSourceId === 'all' ? 'Tous les revenus' : (source?.source || 'Revenu sans nom'),
           paymentMethod: row.paymentMethod || '',
-          batchIdempotencyKey: 'batch_' + String(row.id || '').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 110),
+          batchIdempotencyKey: getExpenseBatchIdempotencyKey(row),
         };
 
         try {
