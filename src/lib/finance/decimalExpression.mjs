@@ -109,8 +109,12 @@ function evaluateTokens(tokens) {
     }
     if (peek()?.type === '(') {
       consume('(');
-      const value = parseSum();
+      let value = parseSum();
       consume(')');
+      while (peek()?.type === '%') {
+        consume('%');
+        value = fraction(value.n, value.d * 100n);
+      }
       return value;
     }
     let value = consume('number').value;
