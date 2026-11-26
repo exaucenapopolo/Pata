@@ -57,15 +57,18 @@ test('la sélection multiple combine appui prolongé, touches simples et sélect
   assert.doesNotMatch(page, /Tout sélectionner|Sélectionner toutes les dépenses/i);
 });
 
-test('les actions groupées utilisent les opérations financières sécurisées et protègent les mouvements spéciaux', () => {
+test('les actions groupées suppriment les opérations entières et utilisent le rattachement atomique', () => {
   const page = read('src/app/(app)/expenses/page.js');
+  const client = read('src/lib/firestore/expenses.js');
+  const route = read('src/app/api/[...path]/route.js');
+  const finance = read('src/lib/ai/financialTools.js');
   assert.match(page, /deleteExpense\(user\.uid, operation\.root\.id\)/);
-  assert.match(page, /updateExpense\(user\.uid, operation\.root\.id, payload\)/);
+  assert.match(page, /const expenseIds = selectedExpenseOperations\.map\(\(operation\) => operation\.root\.id\)/);
   assert.match(page, /reassignExpensesToIncome\(user\.uid, expenseIds, selectedSource\.id\)/);
-  assert.match(page, /reassignExpensesToIncome\(user\.uid, expenseIds, selectedSource\.id, \{ confirmBudgetOverrun: true \}\)/);
-  assert.ok(read('src/lib/ai/financialTools.js').includes('reassignExpenseOperationsToSourceForUser'));
-  assert.ok(read('src/app/api/[...path]/route.js').includes("'expenses/reassign-source'"));
-  assert.match(page, /incomeSpentTotals|Les sources de financement et les soldes ont été mis à jour/);
+  assert.match(client, /postExpenseAction\('reassign-source'/);
+  assert.match(route, /reassignExpenseOperationsToSourceForUser\(/);
+  assert.match(finance, /export async function reassignExpenseOperationsToSourceForUser/);
+  assert.match(page, /isBulkSelectableExpense/);
   assert.match(page, /expense\.neutralFlow !== true/);
   assert.match(page, /!expense\.debtId/);
   assert.match(page, /!expense\.repaymentDebtId/);
