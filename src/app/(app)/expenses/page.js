@@ -85,7 +85,7 @@ export default function ExpensesPage() {
   const { language } = useLanguage();
   const isEnglish = language === 'en';
   const t = (value) => translateText(value, language);
-  const { profile } = useProfile();
+  const { profile, save: saveProfile } = useProfile();
   const { projects } = useProjects();
   const [projectFinancials, setProjectFinancials] = useState({});
   const premiumDate = profile?.premiumUntil?.toDate ? profile.premiumUntil.toDate() : new Date(profile?.premiumUntil || 0);
@@ -162,8 +162,13 @@ export default function ExpensesPage() {
   const [recurringSaving, setRecurringSaving] = useState(false);
   const [recurringError, setRecurringError] = useState('');
   const [nextAction, setNextAction] = useState(null);
-  const [budgetFeedbackEnabled, setBudgetFeedbackEnabled] = usePersistentPageState('expenses', 'budgetFeedbackEnabled', true, user?.uid);
+  const [budgetFeedbackEnabled, setBudgetFeedbackEnabled] = useState(true);
+  const [budgetFeedbackPreferenceError, setBudgetFeedbackPreferenceError] = useState('');
   const [budgetFeedback, setBudgetFeedback] = useState([]);
+
+  useEffect(() => {
+    if (profile) setBudgetFeedbackEnabled(profile.budgetFeedbackEnabled !== false);
+  }, [profile?.budgetFeedbackEnabled, profile]);
 
   useEffect(() => {
     const openFromShortcut = () => { setForm(emptyForm()); setError(''); setOpen(true); };
@@ -1270,7 +1275,18 @@ export default function ExpensesPage() {
         <input
           type="checkbox"
           checked={budgetFeedbackEnabled}
-          onChange={(event) => setBudgetFeedbackEnabled(event.target.checked)}
+          onChange={async (event) => {
+            const nextValue = event.target.checked;
+            const previousValue = budgetFeedbackEnabled;
+            setBudgetFeedbackEnabled(nextValue);
+            setBudgetFeedbackPreferenceError('');
+            try {
+              await saveProfile({ budgetFeedbackEnabled: nextValue });
+            } catch (preferenceError) {
+              setBudgetFeedbackEnabled(previousValue);
+              setBudgetFeedbackPreferenceError(preferenceError?.message || 'Impossible d’enregistrer cette préférence.');
+            }
+          }}
           className="h-4 w-4 rounded border-slate-300 text-brand-600"
         />
         <span className="min-w-0 flex-1">
@@ -1281,6 +1297,7 @@ export default function ExpensesPage() {
           {budgetFeedbackEnabled ? 'Activé' : 'Désactivé'}
         </span>
       </label>
+      {budgetFeedbackPreferenceError && <p role="alert" className="text-[11px] text-rose-700">{budgetFeedbackPreferenceError}</p>}
 
       {showExpenseQuota && (
         <section role="status" className={'rounded-2xl border p-3.5 ' + (expenseQuotaReached ? 'border-amber-200 bg-amber-50/90' : 'border-emerald-100 bg-white/90')}>
