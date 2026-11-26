@@ -40,6 +40,44 @@ function availableRepaymentDebtsForSms(item, debts) {
     .sort((a, b) => String(a.person || '').localeCompare(String(b.person || ''), 'fr'));
 }
 
+function getSmsChoiceForItem(item, savedChoice = {}) {
+  const persistedBillChoice = item?.billPayment === true ? {
+    recordBill: true,
+    billId: item.billId || 'new',
+    billName: item.billName ?? undefined,
+    billType: item.billType ?? undefined,
+    billFrequency: item.billFrequency ?? undefined,
+    billNextDueDate: item.billNextDueDate || '',
+    billExpenseCategoryId: item.billExpenseCategoryId || item.categoryId || undefined,
+  } : {};
+  return { ...persistedBillChoice, ...(savedChoice || {}) };
+}
+
+function getSelectedBillForSms(item, selectedBillId, bills) {
+  const id = String(selectedBillId || '').trim();
+  if (!id || id === 'new') return null;
+  const persistedForThisImport = item?.billPayment === true && item.billId === id && item.billDueDate;
+  const available = (Array.isArray(bills) ? bills : []).find((bill) => bill.id === id);
+  if (available) {
+    return persistedForThisImport ? {
+      ...available,
+      name: item.billName || available.name,
+      expenseCategoryId: item.billExpenseCategoryId || item.categoryId || available.expenseCategoryId,
+      nextDueDate: item.billDueDate,
+    } : available;
+  }
+  if (!persistedForThisImport) return null;
+  return {
+    id,
+    name: item.billName || 'Facture associée',
+    expenseCategoryId: item.billExpenseCategoryId || item.categoryId || 'other',
+    nextDueDate: item.billDueDate,
+    amount: null,
+    isVariable: false,
+    persistedPayment: true,
+  };
+}
+
 async function hashTransaction(provider, transactionId) {
   const input = new TextEncoder().encode(provider + ':' + transactionId);
   const digest = await crypto.subtle.digest('SHA-256', input);
@@ -191,15 +229,13 @@ export function SmsImportCoordinator() {
     setWorkingId(item.id);
     setNotice('');
     try {
-      const choice = choices[item.id] || {};
+      const choice = getSmsChoiceForItem(item, choices[item.id]);
       const { billName, billType, billFrequency, billExpenseCategoryId } = resolveSmsBillChoice(item, choice);
       const isIncome = item.direction === 'income';
       const isCashWithdrawal = item.eventType === 'withdrawal';
       const recordBill = !isIncome && !isCashWithdrawal && choice.recordBill === true;
       const selectedBillId = String(choice.billId || '').trim();
-      const selectedSmsBill = recordBill && selectedBillId && selectedBillId !== 'new'
-        ? availableBills.find((bill) => bill.id === selectedBillId) || null
-        : null;
+      const selectedSmsBill = recordBill ? getSelectedBillForSms(item, selectedBillId, availableBills) : null;
       const createNewBill = recordBill && selectedBillId === 'new';
       const withdrawalSuggestion = isCashWithdrawal ? getWithdrawalFundingSuggestion(incomes, expenses, item.provider, item.amount) : null;
       const withdrawalSourceIncomeId = isCashWithdrawal ? (choice.withdrawalSourceIncomeId || withdrawalSuggestion.defaultSourceId) : '';
@@ -326,9 +362,9 @@ export function SmsImportCoordinator() {
           <p className="text-xs leading-5 text-slate-600">Vérifie chaque opération détectée avant son enregistrement. Le SMS original reste sur le téléphone.</p>
           {pending.map((item) => {
             const incoming = item.direction === 'income';
-            const choice = choices[item.id] || {};
+            const choice = getSmsChoiceForItem(item, choices[item.id]);
             const { billName, billType, billFrequency, billExpenseCategoryId } = resolveSmsBillChoice(item, choice);
-            const selectedSmsBill = availableBills.find((bill) => bill.id === String(choice.billId || '')) || null;
+            const selectedSmsBill = choice.recordBill ? getSelectedBillForSms(item, choice.billId, availableBills) : null;
             const label = item.provider === 'mtn_momo' ? 'MTN MoMo' : 'Orange Money';
             const baseCategories = incoming
               ? INCOME_CATEGORIES.filter((category) => !['debt_borrowed', 'debt_repayment_received'].includes(category.id))
@@ -437,6 +473,7 @@ export function SmsImportCoordinator() {
                       className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800"
                     >
                       <option value="">{billsLoaded ? 'Choisir une facture impayée…' : 'Chargement des factures…'}</option>
+                      {item.billPayment === true && item.billId && !availableBills.some((bill) => bill.id === item.billId) && <option value={item.billId}>{(item.billName || 'Facture associée') + ' · échéance ' + item.billDueDate + ' · confirmation à reprendre'}</option>}
                       {availableBills.map((bill) => (
                         <option key={bill.id} value={bill.id}>
                           {(bill.name || 'Facture sans nom') + ' · ' + (bill.providerName || bill.billType || 'Facture') + ' · ' + (bill.isVariable ? 'Montant variable' : money.format(Number(bill.amount) || 0) + ' FCFA') + ' · échéance ' + bill.nextDueDate}
@@ -558,7 +595,7 @@ export function SmsImportCoordinator() {
                   <Button size="sm" disabled={workingId === item.id
                     || (item.direction === 'withdrawal' && choice.confirmWithdrawal !== true)
                     || (!incoming && selectedDebtRepayment && !suggestedDebtId)
-                    || (!incoming && choice.recordBill && (!billsLoaded || !choice.billId || (choice.billId !== 'new' && !availableBills.some((bill) => bill.id === choice.billId)) || (choice.billId === 'new' && (!String(choice.billName || billName || '').trim() || (billFrequency !== 'once' && !choice.billNextDueDate)))))
+                    || (!incoming && choice.recordBill && (!billsLoaded || !choice.billId || (choice.billId !== 'new' && !selectedSmsBill) || (choice.billId === 'new' && (!String(choice.billName || billName || '').trim() || (billFrequency !== 'once' && !choice.billNextDueDate)))))
                     || (!incoming && item.eventType !== 'withdrawal' && !selectedDebtRepayment && !choice.recordBill && (!selectedExpenseType || (selectedExpenseType === 'project' && !choice.projectId)))} onClick={() => confirm(item)}>
                     <Check size={14}/>{workingId === item.id ? 'Enregistrement…' : warnings[item.id] ? 'Confirmer malgré le budget' : item.eventType === 'withdrawal' ? 'Confirmer le transfert vers espèces' : 'Confirmer l’opération'}
                   </Button>
