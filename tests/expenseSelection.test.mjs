@@ -4,6 +4,7 @@ import {
   getDayExpenseSelectionKeys,
   getExpenseSelectionKey,
   getSelectedExpenseOperations,
+  isBulkSelectableExpense,
   toggleDayExpenseSelectionKeys,
   toggleExpenseSelectionKey,
 } from '../src/lib/finance/expenseSelection.mjs';
@@ -56,6 +57,6 @@ test('les opérations protégées par le module Dettes ne sont pas proposées da
     { id: 'bus', amount: 300 },
     { id: 'loan', amount: 1000, neutralFlow: true, debtId: 'd1', flowType: 'loan_given' },
   ];
-  const selected = getSelectedExpenseOperations(expenses, ['bus', 'loan']);
-  assert.deepEqual(selected.map((operation) => operation.key), ['bus']);
+  assert.deepEqual(getSelectedExpenseOperations(expenses, ['bus', 'loan']).map((operation) => operation.key), ['bus']);
+  assert.equal(isBulkSelectableExpense(expenses[1]), false);
 });
