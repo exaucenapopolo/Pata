@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Wallet, Banknote, TrendingUp, Target, BarChart3, Settings, PiggyBank, Crown, Users, HandCoins, Receipt } from 'lucide-react';
+import { LayoutDashboard, Wallet, Banknote, TrendingUp, Target, BarChart3, Settings, PiggyBank, Crown, Users, HandCoins, Receipt, Calculator } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const NAV = [
@@ -16,6 +16,7 @@ const NAV = [
   { href: '/cotisations', label: 'Cotisations', section: 'GESTION', icon: Users },
   { href: '/bills', label: 'Factures', section: 'GESTION', icon: Receipt },
   { href: '/reports', label: 'Rapports', section: 'ANALYSE', icon: BarChart3 },
+  { href: '/calculator', label: 'Calculatrice', section: 'ANALYSE', icon: Calculator },
   { href: '/premium', label: 'Pata Premium', section: 'COMPTE', icon: Crown },
   { href: '/settings', label: 'Paramètres', section: 'COMPTE', icon: Settings },
 ];
