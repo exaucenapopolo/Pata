@@ -4814,7 +4814,6 @@ async function handleBudgetTemplates(request) {
       }
       const budgetsRef = userRef.collection('budgets');
       const incomesRef = userRef.collection('incomes');
-      const expensesRef = userRef.collection('expenses');
 
       const result = await adminDb.runTransaction(async (transaction) => {
         const [userSnapshot, templateSnapshot, budgetsSnapshot, incomesSnapshot] = await Promise.all([
@@ -4826,30 +4825,15 @@ async function handleBudgetTemplates(request) {
         if (!userSnapshot.exists) throw new Error('Profil utilisateur introuvable.');
         if (!templateSnapshot.exists) throw new Error('Ce modèle n’existe plus.');
 
-        const userData = userSnapshot.data() || {};
-        let legacyExpenses = null;
-        if (userData.incomeSpentTotalsVersion !== 1) {
-          legacyExpenses = await transaction.get(expensesRef);
-        }
-        const spentTotals = userData.incomeSpentTotalsVersion === 1
-          ? (userData.incomeSpentTotals || {})
-          : legacyExpenses.docs.reduce((totals, document) => {
-            const expense = document.data() || {};
-            const sourceId = String(expense.incomeSourceId || '');
-            const amount = Number(expense.amount) || 0;
-            if (sourceId && sourceId !== 'external' && amount > 0) totals[sourceId] = (Number(totals[sourceId]) || 0) + amount;
-            return totals;
-          }, {});
-
         const monthSources = incomesSnapshot.docs
           .map((document) => ({ id: document.id, ...(document.data() || {}) }))
           .filter((income) => String(income.month || income.date || '').slice(0, 7) === month && isIncomeCountedAsSource(income));
         const sourceBase = incomeSourceId === 'all'
-          ? monthSources.reduce((sum, income) => sum + Math.max(0, (Number(income.amount) || 0) - (Number(spentTotals[income.id]) || 0)), 0)
+          ? monthSources.reduce((sum, income) => sum + Math.max(0, Number(income.amount) || 0), 0)
           : (() => {
             const source = monthSources.find((income) => income.id === incomeSourceId);
             if (!source) throw new Error('Cette source de revenu n’existe plus pour la période choisie.');
-            return Math.max(0, (Number(source.amount) || 0) - (Number(spentTotals[source.id]) || 0));
+            return Math.max(0, Number(source.amount) || 0);
           })();
 
         const sourceItems = Array.isArray(templateSnapshot.data()?.items) ? templateSnapshot.data().items.slice(0, 100) : [];
