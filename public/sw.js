@@ -1,5 +1,5 @@
 // Pata PWA — cache applicatif et navigation hors connexion.
-const CACHE_VERSION = 'v8';
+const CACHE_VERSION = 'v9';
 const STATIC_CACHE = 'pata-static-' + CACHE_VERSION;
 const PAGE_CACHE = 'pata-pages-' + CACHE_VERSION;
 const ROUTE_CACHE = 'pata-rsc-' + CACHE_VERSION;
@@ -135,10 +135,25 @@ async function handleNavigation(request) {
     const cachedPage = await cache.match(pageKey);
     if (cachedPage) return cachedPage;
 
+    // A brief retry helps on unstable networks without replacing a usable
+    // cached page or showing the offline surface for a momentary radio drop.
+    if (self.navigator?.onLine !== false) {
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      try {
+        const retryResponse = await fetch(request.clone());
+        const contentType = retryResponse.headers.get('Content-Type') || '';
+        if (retryResponse.ok && !retryResponse.redirected && /text\/html/i.test(contentType) && isCacheableResponse(retryResponse)) {
+          await cache.put(pageKey, retryResponse.clone());
+          await trimCache(cache, MAX_PAGE_ENTRIES);
+        }
+        return retryResponse;
+      } catch { /* la connexion reste indisponible : afficher le dernier secours */ }
+    }
+
     const offlinePage = await caches.match(OFFLINE_URL);
     if (offlinePage) return offlinePage;
 
-    return new Response('Pata est hors connexion. Reconnecte-toi puis réessaie.', {
+    return new Response('Pata est hors connexion.', {
       status: 503,
       statusText: 'Service Unavailable',
       headers: { 'Content-Type': 'text/plain; charset=utf-8' },
