@@ -20,6 +20,7 @@ const PAGE_TITLES = [
   { path: '/goals', fr: 'Épargne et objectifs', en: 'Savings & goals' },
   { path: '/wallet', fr: 'Portefeuille', en: 'Wallet' },
   { path: '/reports', fr: 'Rapports', en: 'Reports' },
+  { path: '/calculator', fr: 'Calculatrice', en: 'Calculator' },
   { path: '/premium', fr: 'Pata Premium', en: 'Pata Premium' },
   { path: '/settings', fr: 'Paramètres', en: 'Settings' },
 ];
