@@ -187,7 +187,7 @@ export default function BudgetsPage() {
     const map = {};
     monthExpenses.forEach((e) => {
       const categoryId = normalizeExpenseCategoryId(e.categoryId);
-      map[categoryId] = (map[categoryId] || 0) + (e.amount || 0);
+      map[categoryId] = (map[categoryId] || 0) + (Number(e.amount) || 0);
     });
     return map;
   }, [monthExpenses]);
@@ -358,11 +358,10 @@ export default function BudgetsPage() {
       return;
     }
     if (createBudgetMode === 'edit' && !prepared.length) {
-      const confirmed = await appConfirm(
-        isEnglish ? 'Remove every envelope assigned to this income for this month?' : 'Supprimer toutes les enveloppes de ce revenu pour ce mois ?',
-        { title: isEnglish ? 'Remove this complete budget?' : 'Supprimer tout ce budget ?', kind: 'danger', confirmLabel: isEnglish ? 'Remove all envelopes' : 'Supprimer toutes les enveloppes' }
-      );
-      if (!confirmed) return;
+      setSaveError(isEnglish
+        ? 'To remove every envelope at once, close this editor and use “Delete entire budget”. You will need to type DELETE to confirm.'
+        : 'Pour supprimer toutes les enveloppes à la fois, ferme cet éditeur et utilise « Supprimer tout le budget ». Tu devras taper SUPPRIMER pour confirmer.');
+      return;
     }
     if (createBudgetIncome.balanceAvailable === true && createBudgetItemsTotal > createBudgetAvailableToAllocate) {
       const over = createBudgetItemsTotal - createBudgetAvailableToAllocate;
@@ -523,7 +522,7 @@ export default function BudgetsPage() {
         incomeSourceId: selectedIncome,
         replaceExisting: true,
       });
-      const deletedCount = Number(result?.deletedCount) || budgets.length;
+      const deletedCount = Number.isFinite(Number(result?.deletedCount)) ? Number(result.deletedCount) : budgets.length;
       setDetails(null);
       setEditing(null);
       setDeleteCompleteBudgetOpen(false);
@@ -531,6 +530,7 @@ export default function BudgetsPage() {
         ? deletedCount + ' envelope(s) deleted. Your expenses and income history are unchanged.'
         : deletedCount + ' enveloppe(s) supprimée(s). Tes dépenses et l’historique de ton revenu sont conservés.');
     } catch (error) {
+      setDeleteCompleteBudgetOpen(false);
       setDeleteCompleteBudgetFeedback(error.message || (isEnglish
         ? 'Could not delete this complete budget.'
         : 'Impossible de supprimer toutes les enveloppes de ce budget.'));
