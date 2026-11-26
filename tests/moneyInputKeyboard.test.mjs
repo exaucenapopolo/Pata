@@ -102,6 +102,33 @@ test('writes calculator values into the real controlled field and forces React t
   assert.equal(events.length, 2);
 });
 
+test('temporarily unlocks the active read-only field while synchronizing its controlled value', () => {
+  let currentValue = '';
+  let readOnlyDuringInput = null;
+  function FakeHTMLInputElement() {}
+  Object.defineProperty(FakeHTMLInputElement.prototype, 'value', {
+    get() { return currentValue; },
+    set(value) { currentValue = String(value); },
+  });
+  class FakeEvent {
+    constructor(type, options = {}) { this.type = type; this.options = options; }
+  }
+  class FakeInputEvent extends FakeEvent {}
+  const input = Object.create(FakeHTMLInputElement.prototype);
+  input.readOnly = true;
+  input.ownerDocument = { defaultView: { HTMLInputElement: FakeHTMLInputElement, InputEvent: FakeInputEvent, Event: FakeEvent } };
+  input._valueTracker = { setValue() {} };
+  input.dispatchEvent = (event) => {
+    if (event.type === 'input') readOnlyDuringInput = input.readOnly;
+    return true;
+  };
+
+  assert.equal(writeMoneyInputValue(input, '25000'), true);
+  assert.equal(currentValue, '25000');
+  assert.equal(readOnlyDuringInput, false);
+  assert.equal(input.readOnly, true);
+});
+
 test('les champs de montant des pages Budget et Revenus sont reliés à la calculatrice, sans traiter les pourcentages comme des montants', () => {
   const budgets = fs.readFileSync('src/app/(app)/budgets/page.js', 'utf8');
   const income = fs.readFileSync('src/app/(app)/income/page.js', 'utf8');
