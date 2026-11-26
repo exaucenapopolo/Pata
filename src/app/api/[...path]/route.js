@@ -10,7 +10,7 @@ import { completeWithGroq } from '@/lib/ai/groqClient';
 import { normalizeWebPushSubscription, webPushSubscriptionId, sendPataWebPush, isExpiredWebPushError } from '@/lib/notifications/webPush.mjs';
 import { dispatchPushNotification } from '@/lib/notifications/dispatcher.mjs';
 import { claimDailyRetentionSlot, claimDailyRetentionPassSlot, claimDailyNonEssentialSlot, buildCategoryAdviceNotification, buildCategoryBudgetForecastNotification, buildExpenseRecoveryNotification, buildSmallPurchaseNotification, buildUnusualSpendingNotification, claimDailySmartSlot, selectRetentionCandidates, getDoualaDateKey as getRetentionDoualaDateKey, isWithinDoualaEveningWindow } from '@/lib/notifications/retentionEngine.mjs';
-import { AI_TOOLS, createExpenseForUser, updateExpenseForUser, deleteExpenseForUser, deleteIncomeForUser, deleteDebtForUser, executeAITool, runAutomationForUser, generateWeeklyReportForUser } from '@/lib/ai/financialTools';
+import { AI_TOOLS, createExpenseForUser, updateExpenseForUser, reassignExpenseOperationsToSourceForUser, deleteExpenseForUser, deleteIncomeForUser, deleteDebtForUser, executeAITool, runAutomationForUser, generateWeeklyReportForUser } from '@/lib/ai/financialTools';
 import { generateAudioWithGemini } from '@/lib/ai/geminiTTS';
 import { buildIncomePriorityReminder } from '@/lib/finance/incomePriorities.mjs';
 import { buildIncomeBudgetRecommendation } from '@/lib/finance/incomeBudgetRecommendation.mjs';
@@ -5239,6 +5239,24 @@ async function handleUpdateExpense(request) {
   } catch (error) {
     const message = error.message || 'Erreur lors de la modification de la dépense.';
     const status = /introuvable|invalide|insuffisants|nom exact|plusieurs revenus|n’existe plus|n'existe plus|ne trouve pas|disponible|manquant|catégorie/i.test(message) ? 400 : 500;
+    return errorResponse(message, status);
+  }
+}
+
+async function handleReassignExpenseSource(request) {
+  try {
+    const decoded = await authenticate(request);
+    const body = await request.json();
+    const result = await reassignExpenseOperationsToSourceForUser(
+      decoded.uid,
+      body.expenseIds,
+      body.incomeSourceId,
+      { confirmBudgetOverrun: body.confirmBudgetOverrun === true }
+    );
+    return NextResponse.json(result);
+  } catch (error) {
+    const message = error.message || 'Impossible de regrouper les dépenses sur cette source.';
+    const status = /introuvable|invalide|insuffisant|disponible|protégé|projet|sélection|sélectionnée|partagée|montant/i.test(message) ? 400 : 500;
     return errorResponse(message, status);
   }
 }
@@ -11346,6 +11364,7 @@ const ROUTES = {
   'debts/delete': { POST: handleDeleteDebt },
   'expenses/add':          { POST: handleAddExpense },
   'expenses/update':       { POST: handleUpdateExpense },
+  'expenses/reassign-source': { POST: handleReassignExpenseSource },
   'expenses/delete':       { POST: handleDeleteExpense },
   'ai/chats':              { GET: handleAIChats },
   'ai/chat':               { POST: handleAIChat },
