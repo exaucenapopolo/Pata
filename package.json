@@ -40,7 +40,9 @@
     "test:pwa-offline": "node --test tests/pwaOffline.test.mjs tests/offlineQuickCapture.test.mjs",
     "test:page-persistence": "node --test tests/pageStatePersistence.test.mjs tests/pageScrollPersistence.test.mjs tests/pageNavigationPersistence.test.mjs tests/clipboardAmount.test.mjs tests/incomePageRuntime.test.mjs tests/incomeBalances.test.mjs",
     "test:money-keypad": "node --test tests/moneyInputKeyboard.test.mjs",
-    "test:money-keypad-scroll": "node --test tests/moneyKeypadScroll.test.mjs"
+    "test:money-keypad-scroll": "node --test tests/moneyKeypadScroll.test.mjs",
+    "test:available-income-sources": "node --test tests/availableIncomeSources.test.mjs tests/quickCaptureAvailableIncomeSources.test.mjs",
+    "test:expense-app-experience": "node --test tests/expenseOperations.test.mjs tests/expenseAppExperience.test.mjs"
   },
   "dependencies": {
     "@capacitor-firebase/authentication": "6.3.1",
