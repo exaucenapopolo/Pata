@@ -61,7 +61,10 @@ test('les actions groupées utilisent les opérations financières sécurisées 
   const page = read('src/app/(app)/expenses/page.js');
   assert.match(page, /deleteExpense\(user\.uid, operation\.root\.id\)/);
   assert.match(page, /updateExpense\(user\.uid, operation\.root\.id, payload\)/);
-  assert.match(page, /sortExpenseOperationsForSourceReassignment/);
+  assert.match(page, /reassignExpensesToIncome\(user\.uid, expenseIds, selectedSource\.id\)/);
+  assert.match(page, /reassignExpensesToIncome\(user\.uid, expenseIds, selectedSource\.id, \{ confirmBudgetOverrun: true \}\)/);
+  assert.ok(read('src/lib/ai/financialTools.js').includes('reassignExpenseOperationsToSourceForUser'));
+  assert.ok(read('src/app/api/[...path]/route.js').includes("'expenses/reassign-source'"));
   assert.match(page, /incomeSpentTotals|Les sources de financement et les soldes ont été mis à jour/);
   assert.match(page, /expense\.neutralFlow !== true/);
   assert.match(page, /!expense\.debtId/);
