@@ -21,7 +21,7 @@ export function useAppDialog() {
   }, []);
 
   const request = useCallback((nextOptions) => new Promise((resolve) => {
-    if (resolverRef.current) resolverRef.current(false);
+    if (resolverRef.current) resolverRef.current(nextOptions?.mode === 'prompt' ? null : false);
     resolverRef.current = resolve;
     setOptions(nextOptions);
   }), []);
