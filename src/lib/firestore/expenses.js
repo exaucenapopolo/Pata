@@ -82,6 +82,10 @@ export async function reassignExpensesToIncome(uid, expenseIds, incomeSourceId, 
   });
 }
 
+export async function deleteExpenseOperations(uid, expenseIds) {
+  return postExpenseAction('delete-many', { expenseIds });
+}
+
 export async function deleteExpense(uid, id) {
   return postExpenseAction('delete', { expenseId: id });
 }
