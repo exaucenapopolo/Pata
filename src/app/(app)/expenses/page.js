@@ -26,7 +26,7 @@ import { useDebts } from '@/hooks/useDebts';
 import { ScheduledTransactionsPanel } from '@/components/transactions/ScheduledTransactionsPanel';
 import { createScheduledTransaction } from '@/lib/firestore/scheduledTransactions';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
-import { createExpense, updateExpense, deleteExpense } from '@/lib/firestore/expenses';
+import { createExpense, updateExpense, deleteExpense, reassignExpensesToIncome } from '@/lib/firestore/expenses';
 import { createAutomation } from '@/lib/firestore/automations';
 import { formatCurrency, formatDate, resolveCategory, getFirstOfMonth, getLastOfMonth, getLocalMonth, normalizeExpenseCategoryId } from '@/lib/utils';
 import { OptionalTransactionFields } from '@/components/transactions/OptionalTransactionFields';
@@ -840,69 +840,45 @@ export default function ExpensesPage() {
 
   const handleBulkAssignSource = async () => {
     const selectedSource = bulkSourceOptions.find((income) => income.id === bulkSourceId);
-    if (!selectedSource) return;
+    if (!selectedSource || !selectedExpenseOperations.length) return;
     if (selectedExpenseTotal > selectedSource.adjustedRemaining) {
       setError('Cette source ne dispose pas d’un solde suffisant pour toutes les dépenses sélectionnées.');
       return;
     }
+
     setBulkActionBusy(true);
-    const failedKeys = [];
-    let updated = 0;
-    let firstError = '';
     try {
-      const orderedOperations = sortExpenseOperationsForSourceReassignment(selectedExpenseOperations, selectedSource.id);
-      const completedKeys = new Set();
-      for (const operation of orderedOperations) {
-        try {
-          const payload = {
-            amount: operation.amount,
-            incomeSourceId: selectedSource.id,
-            incomeSourceName: selectedSource.source || 'Revenu sans nom',
-          };
-          let result = await updateExpense(user.uid, operation.root.id, payload);
-          if (result.confirmationRequired) {
-            const accepted = await requestActionDialog({
-              mode: 'confirm',
-              kind: 'warning',
-              title: 'Confirmer le rattachement',
-              message: result.message || 'Le rattachement de cette dépense dépasse un budget. Souhaites-tu continuer ?',
-              confirmLabel: 'Continuer',
-            });
-            if (!accepted) throw new Error('Action interrompue à ta demande.');
-            result = await updateExpense(user.uid, operation.root.id, { ...payload, confirmBudgetOverrun: true });
-          }
-          if (!result?.success) throw new Error(result?.error || 'Impossible de modifier la source de cette dépense.');
-          updated += 1;
-          completedKeys.add(operation.key);
-        } catch (error) {
-          failedKeys.push(operation.key);
-          firstError = firstError || error.message || 'Rattachement impossible.';
-          break;
-        }
-      }
-      setBulkSourceOpen(false);
-      if (failedKeys.length) {
-        const remainingKeys = selectedExpenseOperations
-          .filter((operation) => !completedKeys.has(operation.key))
-          .map((operation) => operation.key);
-        setSelectedExpenseKeys(remainingKeys);
-        await requestActionDialog({
-          mode: 'alert',
+      const expenseIds = selectedExpenseOperations.map((operation) => operation.root.id);
+      let result = await reassignExpensesToIncome(user.uid, expenseIds, selectedSource.id);
+      if (result.confirmationRequired) {
+        const accepted = await requestActionDialog({
+          mode: 'confirm',
           kind: 'warning',
-          title: 'Rattachement partiel',
-          message: updated + ' opération(s) rattachée(s) à « ' + (selectedSource.source || 'ce revenu') + ' ». ' + remainingKeys.length + ' opération(s) restent sélectionnées sans être modifiées. ' + firstError,
-          confirmLabel: 'Compris',
+          title: 'Confirmer le rattachement',
+          message: result.message || 'Le rattachement ferait dépasser un budget. Souhaites-tu continuer ?',
+          confirmLabel: 'Rattacher quand même',
         });
-      } else {
-        clearExpenseSelection();
-        await requestActionDialog({
-          mode: 'alert',
-          kind: 'success',
-          title: 'Sources regroupées',
-          message: updated + ' opération(s) sont maintenant rattachées à « ' + (selectedSource.source || 'ce revenu') + ' ». Pata a recalculé les répartitions, les soldes et les budgets pour chaque dépense.',
-          confirmLabel: 'Terminer',
-        });
+        if (!accepted) return;
+        result = await reassignExpensesToIncome(user.uid, expenseIds, selectedSource.id, { confirmBudgetOverrun: true });
       }
+      if (!result?.success) throw new Error(result?.error || 'Impossible de rattacher les dépenses à cette source.');
+      setBulkSourceOpen(false);
+      clearExpenseSelection();
+      await requestActionDialog({
+        mode: 'alert',
+        kind: 'success',
+        title: 'Source mise à jour',
+        message: result.updatedCount + ' opération(s), soit ' + formatCurrency(result.amount) + ', sont maintenant rattachées à « ' + (result.incomeSourceName || selectedSource.source || 'ce revenu') + ' ». Les soldes, répartitions et budgets ont été recalculés dans une seule opération comptable.',
+        confirmLabel: 'Terminer',
+      });
+    } catch (error) {
+      await requestActionDialog({
+        mode: 'alert',
+        kind: 'danger',
+        title: 'Rattachement impossible',
+        message: t(error.message || 'Pata n’a pas pu modifier la source de ces dépenses. Aucune modification partielle n’a été enregistrée.'),
+        confirmLabel: 'Fermer',
+      });
     } finally {
       setBulkActionBusy(false);
     }
