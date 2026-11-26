@@ -45,7 +45,7 @@ export function isIncomeCountedAsSource(item = {}) {
 export function sumAvailableIncomeBalances(incomes = [], balancesReady = true) {
   const earningSources = (Array.isArray(incomes) ? incomes : []).filter((income) =>
     isIncomeCountedAsSource(income)
-    && income.cashPocket !== true
+    && !income.cashPocket
     && income.flowType !== 'repayment_received'
     && income.categoryId !== 'debt_repayment_received'
   );
