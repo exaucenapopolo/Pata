@@ -72,3 +72,19 @@ export function countExpenseOperations(expenses = []) {
   const rows = (Array.isArray(expenses) ? expenses : []).filter((expense) => expense?.neutralFlow !== true);
   return new Set(getExpenseOperationKeys(rows)).size;
 }
+
+/**
+ * During a bulk reassignment, release allocations already attached to the
+ * destination source first. This prevents a valid aggregate balance from
+ * appearing temporarily insufficient while the remaining rows are moved.
+ */
+export function sortExpenseOperationsForSourceReassignment(operations = [], destinationIncomeId) {
+  const rows = Array.isArray(operations) ? operations : [];
+  const targetId = String(destinationIncomeId || '').trim();
+  const amountAlreadyOnTarget = (operation) => (operation?.rows || [])
+    .filter((row) => String(row?.incomeSourceId || '') === targetId)
+    .reduce((sum, row) => sum + Math.max(0, Number(row?.amount) || 0), 0);
+  return rows.map((operation, index) => ({ operation, index, allocated: amountAlreadyOnTarget(operation) }))
+    .sort((a, b) => b.allocated - a.allocated || a.index - b.index)
+    .map((entry) => entry.operation);
+}
