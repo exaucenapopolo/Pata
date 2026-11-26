@@ -33,6 +33,7 @@ export async function GET(request) {
     const eligibleIncomeDocs = incomesSnap.docs.filter((doc) => {
       const data = doc.data() || {};
       return (data.neutralFlow !== true || (data.flowType === 'debt_borrowed' && data.availableAsFunding === true))
+        && data.cashPocket !== true
         && Number(data.amount) > 0;
     });
     const profileData = profile.data() || {};
@@ -97,8 +98,6 @@ export async function GET(request) {
         remaining: Math.max(0, amount - spent),
         balanceAvailable: true,
         availableAsFunding: data.flowType === 'debt_borrowed' && data.availableAsFunding === true,
-        cashPocket: data.cashPocket === true,
-        cashPocketProvider: String(data.cashPocketProvider || '').slice(0, 30),
       };
     }).filter((income) => income.remaining > 0);
     const mapDebt = (doc) => {
