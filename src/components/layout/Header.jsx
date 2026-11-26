@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ChevronLeft, LogOut, Settings, User, HelpCircle } from 'lucide-react';
+import { ChevronLeft, LogOut, Settings, User, HelpCircle, Calculator } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
 import { useLanguage } from '@/context/LanguageContext';
@@ -127,6 +127,7 @@ export function Header() {
       </div>
 
       <div className="relative flex shrink-0 items-center gap-1.5 sm:gap-2">
+        <Link href="/calculator" aria-label={language === 'en' ? 'Open calculator' : 'Ouvrir la calculatrice'} title={language === 'en' ? 'Calculator' : 'Calculatrice'} className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:bg-slate-50"><Calculator size={18}/></Link>
         <NotificationInbox />
         <button
           type="button"
