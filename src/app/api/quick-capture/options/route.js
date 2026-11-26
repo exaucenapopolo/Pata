@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
-import { AggregateField } from 'firebase-admin/firestore';
+import { AggregateField, FieldValue } from 'firebase-admin/firestore';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -26,7 +26,7 @@ export async function GET(request) {
 
     // Cette lecture n'est exécutée qu'à l'ouverture de Quick Capture, jamais à l'installation.
     const [incomesSnap, debtsSnap, categoriesSnap] = await Promise.all([
-      userRef.collection('incomes').orderBy('date', 'desc').limit(100).get(),
+      userRef.collection('incomes').orderBy('date', 'desc').limit(250).get(),
       userRef.collection('debts').orderBy('createdAt', 'desc').limit(100).get(),
       userRef.collection('categories').orderBy('createdAt', 'asc').get(),
     ]);
@@ -40,10 +40,11 @@ export async function GET(request) {
     let spentTotals = profileData.incomeSpentTotalsVersion === 1
       ? (profileData.incomeSpentTotals || {})
       : null;
-    if (!spentTotals && eligibleIncomeDocs.length) {
+    if (!spentTotals && incomesSnap.docs.length) {
+      const balanceIncomeDocs = incomesSnap.docs;
       const expensesRef = userRef.collection('expenses');
       try {
-        const totals = await Promise.all(eligibleIncomeDocs.map(async (doc) => {
+        const totals = await Promise.all(balanceIncomeDocs.map(async (doc) => {
           const snapshot = await expensesRef.where('incomeSourceId', '==', doc.id)
             .aggregate({ total: AggregateField.sum('amount') }).get();
           return [doc.id, Math.max(0, Number(snapshot.data()?.total) || 0)];
@@ -56,8 +57,8 @@ export async function GET(request) {
           || /requires an index|index is currently building/i.test(message);
         if (!missingIndex) throw aggregateError;
         const matchingExpenses = [];
-        for (let offset = 0; offset < eligibleIncomeDocs.length; offset += 30) {
-          const ids = eligibleIncomeDocs.slice(offset, offset + 30).map((doc) => doc.id);
+        for (let offset = 0; offset < balanceIncomeDocs.length; offset += 30) {
+          const ids = balanceIncomeDocs.slice(offset, offset + 30).map((doc) => doc.id);
           const snapshot = await expensesRef.where('incomeSourceId', 'in', ids).get();
           matchingExpenses.push(...snapshot.docs.map((doc) => doc.data() || {}));
         }
@@ -79,7 +80,7 @@ export async function GET(request) {
         transaction.set(userRef, {
           incomeSpentTotals: spentTotals,
           incomeSpentTotalsVersion: 1,
-          incomeSpentTotalsUpdatedAt: new Date(),
+          incomeSpentTotalsUpdatedAt: FieldValue.serverTimestamp(),
         }, { merge: true });
         return spentTotals;
       });
