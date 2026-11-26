@@ -44,6 +44,7 @@ import { createScheduledTransaction } from '@/lib/firestore/scheduledTransaction
 import { checkFinancialOperation } from '@/lib/firestore/financialTargets';
 import { NextBestAction } from '@/components/NextBestAction';
 import { usePersistentPageState } from '@/hooks/usePersistentPageState';
+import { useAppDialog } from '@/hooks/useAppDialog';
 
 // 🟢 DATES LOCALES (Pas de décalage UTC)
 const todayMonth = () => {
@@ -95,6 +96,7 @@ export default function IncomePage() {
   const { user } = useAuth();
   const { language } = useLanguage();
   const isEnglish = language === 'en';
+  const { appConfirm, appAlert, dialog } = useAppDialog();
   const { incomes, loading: incomesLoading, balancesReady } = useIncomes();
   const { debts } = useDebts();
   const activeReceivableDebts = debts.filter((debt) => debt.type === 'owed_to_me' && ['active', 'partial', 'late'].includes(debt.status) && Number(debt.remaining) > 0);
@@ -379,7 +381,7 @@ export default function IncomePage() {
   };
 
   const removeDurationForecast = async (id) => {
-    if (!confirm(isEnglish ? 'Delete this forecast? Deleting it will not restore a free creation for this month.' : 'Supprimer cette prévision ? Cette suppression ne te rendra pas une création gratuite pour ce mois.')) return;
+    if (!(await appConfirm(isEnglish ? 'Delete this forecast? Deleting it will not restore a free creation for this month.' : 'Supprimer cette prévision ? Cette suppression ne te rendra pas une création gratuite pour ce mois.', { title: isEnglish ? 'Delete forecast?' : 'Supprimer cette prévision ?', kind: 'danger', confirmLabel: isEnglish ? 'Delete forecast' : 'Supprimer' }))) return;
     await deleteDurationForecast(id);
   };
 
@@ -533,7 +535,7 @@ export default function IncomePage() {
   };
 
   const deleteVital = async () => {
-    if (!confirm(isEnglish ? 'Do you really want to delete all your essential spending forecasts?' : 'Voulez-vous vraiment supprimer toutes vos prévisions vitales ?')) return;
+    if (!(await appConfirm(isEnglish ? 'Do you really want to delete all your essential spending forecasts?' : 'Voulez-vous vraiment supprimer toutes vos prévisions vitales ?', { title: isEnglish ? 'Delete all forecasts?' : 'Supprimer toutes les prévisions ?', kind: 'danger', confirmLabel: isEnglish ? 'Delete all' : 'Tout supprimer' }))) return;
     await deleteVitalForecast();
   };
 
@@ -546,7 +548,7 @@ export default function IncomePage() {
     const stats = profile?.monthlyStats || {};
     const usedBudgets = stats.lastResetMonth === currentMonthKey ? Number(stats.budgets) || 0 : 0;
     if (!premiumActive && usedBudgets + requiredBudgets > 2) {
-      alert(isEnglish ? `Your free plan can create 2 budgets per month. This allocation requires ${requiredBudgets}, and you have ${Math.max(0, 2 - usedBudgets)} remaining. Upgrade to Premium or reduce the number of categories before applying this forecast.` : `Ton compte gratuit peut créer 2 budgets par mois. Cette répartition en nécessite ${requiredBudgets} et il t’en reste ${Math.max(0, 2 - usedBudgets)}. Passe à Premium ou réduis le nombre de catégories avant de transformer cette prévision.`);
+      await appAlert(isEnglish ? `Your free plan can create 2 budgets per month. This allocation requires ${requiredBudgets}, and you have ${Math.max(0, 2 - usedBudgets)} remaining. Upgrade to Premium or reduce the number of categories before applying this forecast.` : `Ton compte gratuit peut créer 2 budgets par mois. Cette répartition en nécessite ${requiredBudgets} et il t’en reste ${Math.max(0, 2 - usedBudgets)}. Passe à Premium ou réduis le nombre de catégories avant de transformer cette prévision.`, { kind: 'warning', title: isEnglish ? 'Free plan limit' : 'Limite du compte gratuit' });
       return;
     }
     setSavingApplied(true);
@@ -580,9 +582,9 @@ export default function IncomePage() {
           }
         }
       }
-      alert(isEnglish ? 'Forecasts saved successfully!' : 'Prévisions enregistrées avec succès !');
+      await appAlert(isEnglish ? 'Forecasts saved successfully!' : 'Prévisions enregistrées avec succès !', { kind: 'success', title: isEnglish ? 'Forecasts saved' : 'Prévisions enregistrées' });
     } catch (err) {
-      alert(isEnglish ? 'Error: ' + (err.message || 'Could not apply the forecast.') : 'Erreur: ' + err.message);
+      await appAlert(isEnglish ? 'Error: ' + (err.message || 'Could not apply the forecast.') : 'Erreur: ' + err.message, { kind: 'danger', title: isEnglish ? 'Could not apply forecast' : 'Application impossible' });
     } finally { setSavingApplied(false); }
   };
 
@@ -638,10 +640,10 @@ export default function IncomePage() {
             const reminder = isEnglish
               ? 'A reminder from Pata:\n\n' + warningDetails + '\n\nYou can keep your commitment and cancel, or continue anyway. Would you like to continue?'
               : 'Petit rappel de Pata :\n\n' + warningDetails + '\n\nTu peux respecter ton engagement et annuler, ou continuer quand même. Souhaites-tu poursuivre ?';
-            if (!window.confirm(reminder)) return;
+            if (!(await appConfirm(reminder, { title: isEnglish ? 'Pata reminder' : 'Rappel de Pata', kind: 'warning', confirmLabel: isEnglish ? 'Continue anyway' : 'Continuer quand même' }))) return;
           }
         } catch {
-          if (!window.confirm(isEnglish ? 'Pata could not check your commitments right now. You can try again or continue without this check. Would you like to continue?' : 'Pata n’a pas pu vérifier tes engagements pour le moment. Tu peux réessayer ou continuer sans cette vérification. Souhaites-tu poursuivre ?')) return;
+          if (!(await appConfirm(isEnglish ? 'Pata could not check your commitments right now. You can try again or continue without this check. Would you like to continue?' : 'Pata n’a pas pu vérifier tes engagements pour le moment. Tu peux réessayer ou continuer sans cette vérification. Souhaites-tu poursuivre ?', { title: isEnglish ? 'Commitment check unavailable' : 'Vérification indisponible', kind: 'warning', confirmLabel: isEnglish ? 'Continue without check' : 'Continuer sans vérification' }))) return;
         }
       }
       const payload = {
@@ -677,7 +679,7 @@ export default function IncomePage() {
         const result = await createIncome(user.uid, payload);
         if (result.budgetRecommendation) setIncomeBudgetPrompt(result.budgetRecommendation);
         if (result.linkedDebt?.status === 'quota_reached') {
-          window.alert(translateText('Ta dette est bien enregistrée. Le quota gratuit de 2 liaisons de comptes par mois est atteint ; elle reste suivie normalement dans ton compte.', language));
+          await appAlert(translateText('Ta dette est bien enregistrée. Le quota gratuit de 2 liaisons de comptes par mois est atteint ; elle reste suivie normalement dans ton compte.', language), { kind: 'success', title: isEnglish ? 'Debt recorded' : 'Dette enregistrée' });
         }
         setShowCotisationReminder(true);
       }
@@ -694,7 +696,7 @@ export default function IncomePage() {
   };
 
   const onResetRules = async () => {
-    if (!confirm(isEnglish ? 'Reset the allocation percentages to their defaults?' : 'Réinitialiser les pourcentages par défaut ?')) return;
+    if (!(await appConfirm(isEnglish ? 'Reset the allocation percentages to their defaults?' : 'Réinitialiser les pourcentages par défaut ?', { title: isEnglish ? 'Reset allocation?' : 'Réinitialiser la répartition ?', confirmLabel: isEnglish ? 'Reset' : 'Réinitialiser' }))) return;
     await resetRules(); setRulesSavedAt(new Date());
   };
 
@@ -707,7 +709,7 @@ export default function IncomePage() {
     const stats = profile?.monthlyStats || {};
     const usedBudgets = stats.lastResetMonth === currentMonthKey ? Number(stats.budgets) || 0 : 0;
     if (!premiumActive && usedBudgets + newBudgetCount > 2) {
-      alert(isEnglish ? `You have ${Math.max(0, 2 - usedBudgets)} free budget creation(s) left this month, but this allocation requires ${newBudgetCount}. Existing budgets can be edited without using another creation.` : `Il te reste ${Math.max(0, 2 - usedBudgets)} création(s) de budget sur ton compte gratuit ce mois-ci, mais cette répartition en nécessite ${newBudgetCount}. Les budgets déjà existants peuvent être modifiés sans consommer une nouvelle création.`);
+      await appAlert(isEnglish ? `You have ${Math.max(0, 2 - usedBudgets)} free budget creation(s) left this month, but this allocation requires ${newBudgetCount}. Existing budgets can be edited without using another creation.` : `Il te reste ${Math.max(0, 2 - usedBudgets)} création(s) de budget sur ton compte gratuit ce mois-ci, mais cette répartition en nécessite ${newBudgetCount}. Les budgets déjà existants peuvent être modifiés sans consommer une nouvelle création.`, { kind: 'warning', title: isEnglish ? 'Free budget limit' : 'Limite de budgets gratuits' });
       return;
     }
     setSavingApplied(true);
@@ -1592,6 +1594,7 @@ export default function IncomePage() {
       </Modal>
 
       <ConfirmDialog open={!!deleteId} onClose={() => setDeleteId(null)} onConfirm={handleDelete} title="Supprimer ce revenu ?" message="Cette action est irréversible." confirmWord="SUPPRIMER" confirmLabel="Supprimer" variant="danger" />
+      {dialog}
     </div>
   );
             }
