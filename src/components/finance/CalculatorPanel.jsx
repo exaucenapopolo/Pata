@@ -53,7 +53,7 @@ export function CalculatorPanel({ onUse }) {
     <section className="w-full overflow-hidden rounded-3xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
       <div className="rounded-2xl bg-slate-950 px-4 py-4 text-right text-white">
         <p className="min-h-6 break-all text-sm text-slate-300">{expression || '0'}</p>
-        <p aria-live="polite" className="mt-2 min-h-10 break-all text-3xl font-extrabold tracking-tight tabular-nums">{result ? formatResult(result.exactValue) : '0'}</p>
+        <p aria-live="polite" className="mt-2 min-h-10 break-all text-3xl font-extrabold tracking-tight tabular-nums">{!expression ? '0' : result ? formatResult(result.exactValue) : '—'}</p>
         {result?.isRounded && <p className="mt-1 text-[11px] text-slate-300">Valeur entière : {formatResult(result.roundedValue)}</p>}
       </div>
       <div className="mt-3 grid grid-cols-4 gap-2">
@@ -64,8 +64,9 @@ export function CalculatorPanel({ onUse }) {
           </button>
         ))}
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <button type="button" onClick={() => { setExpression(''); setFeedback(''); }} className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-700"><RotateCcw size={16}/> Effacer</button>
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <button type="button" onClick={() => { setExpression(''); setFeedback(''); }} className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-700"><RotateCcw size={16}/> C</button>
+        <button type="button" disabled={!result} onClick={() => { setExpression(result.exactValue.replace('.', ',')); setFeedback(''); }} className="min-h-11 rounded-xl bg-slate-100 text-lg font-extrabold text-slate-800 disabled:opacity-40">=</button>
         {onUse ? (
           <button type="button" disabled={!result} onClick={useResult} className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-800 text-sm font-bold text-white disabled:opacity-40"><Check size={16}/> Utiliser le résultat</button>
         ) : (
