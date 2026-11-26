@@ -253,7 +253,7 @@ test('l’application des prévisions choisit un revenu existant par défaut et 
   const applyEnd = incomePage.indexOf('const openNewIncome', applyStart);
   const applyHandler = incomePage.slice(applyStart, applyEnd);
   assert.match(incomePage, /const \[vitalCreateIncome, setVitalCreateIncome\] = useState\(false\)/);
-  assert.match(incomePage, /activeMonthSources\.map/);
+  assert.match(incomePage, /budgetTargetMonthSources\.map/);
   assert.match(incomePage, /Appliquer aux budgets/);
   assert.match(incomePage, /Je veux aussi créer un nouveau revenu/);
   assert.match(applyHandler, /if \(vitalCreateIncome\)/);
