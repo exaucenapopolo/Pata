@@ -685,11 +685,19 @@ export async function GET(request) {
         return right - left;
       })
       .slice(0, 20)
-      .map(({ id, provider, eventType, direction, amount, date, time, counterparty, suggestedCategoryId, source, createdAt }) => ({
+      .map(({ id, provider, eventType, direction, amount, date, time, counterparty, suggestedCategoryId, source, createdAt, billPayment, billId, billDueDate, billName, billType, billFrequency, billNextDueDate, billExpenseCategoryId, categoryId }) => ({
         id, provider, eventType, direction, amount, date, time,
         counterparty: counterparty || null,
         suggestedCategoryId: suggestedCategoryId || null,
         source: source || 'sharesheet',
+        billPayment: billPayment === true,
+        billId: billId || null,
+        billDueDate: billDueDate || null,
+        billName: billName || null,
+        billType: billType || null,
+        billFrequency: billFrequency || null,
+        billNextDueDate: billNextDueDate || null,
+        billExpenseCategoryId: billExpenseCategoryId || categoryId || null,
         createdAt: createdAt?.toDate ? createdAt.toDate().toISOString() : null,
       }));
     return NextResponse.json({
