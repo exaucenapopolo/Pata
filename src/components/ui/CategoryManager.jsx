@@ -18,7 +18,7 @@ const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#6366f1', '#ef4444', '#ec4899'
 
 export function CategoryManager({ type, value, onChange }) {
   const { user } = useAuth();
-  const { appConfirm, dialog } = useAppDialog();
+  const { appConfirm, appAlert, dialog } = useAppDialog();
   const { language } = useLanguage();
   const isEnglish = language === 'en';
   const { categories } = useCustomCategories(type);
@@ -79,7 +79,14 @@ export function CategoryManager({ type, value, onChange }) {
     e.preventDefault();
     e.stopPropagation();
     if (!(await appConfirm(isEnglish ? 'Delete this category? Existing transactions will not be deleted.' : 'Supprimer cette catégorie ? Les transactions existantes ne seront pas supprimées.', { kind: 'danger', title: isEnglish ? 'Delete category?' : 'Supprimer cette catégorie ?', confirmLabel: isEnglish ? 'Delete category' : 'Supprimer' }))) return;
-    await deleteCategory(user.uid, id);
+    try {
+      await deleteCategory(user.uid, id);
+    } catch (error) {
+      await appAlert(error?.message || (isEnglish ? 'Could not delete this category.' : 'Impossible de supprimer cette catégorie.'), {
+        kind: 'danger',
+        title: isEnglish ? 'Category deletion failed' : 'Suppression impossible',
+      });
+    }
   };
 
   return (
