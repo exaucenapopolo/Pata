@@ -14,9 +14,10 @@ import { useIncomes } from '@/hooks/useIncomes';
 import { useExpenses } from '@/hooks/useExpenses';
 import { getWithdrawalFundingSuggestion } from '@/lib/finance/cashWithdrawal.mjs';
 import { subscribeProjects } from '@/lib/firestore/projects';
+import { subscribeBills } from '@/lib/firestore/bills';
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from '@/lib/constants';
 import { parseMobileMoneySms } from '@/lib/sms/parseMobileMoneySms.mjs';
-import { resolveSmsBillChoice, smsBillCategory } from '@/lib/sms/smsBillChoice.mjs';
+import { getAvailableSmsBillsForPayment, resolveSmsBillChoice, smsBillCategory } from '@/lib/sms/smsBillChoice.mjs';
 function normalizeDebtMatch(value) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
@@ -52,6 +53,9 @@ export function SmsImportCoordinator() {
   const { incomes } = useIncomes();
   const { expenses } = useExpenses();
   const [projects, setProjects] = useState([]);
+  const [bills, setBills] = useState([]);
+  const [billsLoaded, setBillsLoaded] = useState(false);
+  const availableBills = useMemo(() => getAvailableSmsBillsForPayment(bills), [bills]);
   const [pending, setPending] = useState([]);
   const [choices, setChoices] = useState({});
   const [warnings, setWarnings] = useState({});
@@ -68,6 +72,20 @@ export function SmsImportCoordinator() {
     }
     return subscribeProjects(user.uid, setProjects);
   }, [user, needsProjectOptions]);
+
+  useEffect(() => {
+    if (!user?.uid) {
+      setBills([]);
+      setBillsLoaded(false);
+      return undefined;
+    }
+    setBillsLoaded(false);
+    return subscribeBills(
+      user.uid,
+      (rows) => { setBills(rows); setBillsLoaded(true); },
+      () => { setBills([]); setBillsLoaded(true); }
+    );
+  }, [user?.uid]);
 
   const loadPending = useCallback(async () => {
     if (!user) return;
@@ -178,12 +196,17 @@ export function SmsImportCoordinator() {
       const isIncome = item.direction === 'income';
       const isCashWithdrawal = item.eventType === 'withdrawal';
       const recordBill = !isIncome && !isCashWithdrawal && choice.recordBill === true;
+      const selectedBillId = String(choice.billId || '').trim();
+      const selectedSmsBill = recordBill && selectedBillId && selectedBillId !== 'new'
+        ? availableBills.find((bill) => bill.id === selectedBillId) || null
+        : null;
+      const createNewBill = recordBill && selectedBillId === 'new';
       const withdrawalSuggestion = isCashWithdrawal ? getWithdrawalFundingSuggestion(incomes, expenses, item.provider, item.amount) : null;
       const withdrawalSourceIncomeId = isCashWithdrawal ? (choice.withdrawalSourceIncomeId || withdrawalSuggestion.defaultSourceId) : '';
       const debtCandidates = matchingDebtsForSms(item, debts);
       const repaymentDebtId = recordBill ? '' : (Object.prototype.hasOwnProperty.call(choice, 'repaymentDebtId') ? choice.repaymentDebtId : (debtCandidates.length === 1 ? debtCandidates[0].id : ''));
       const selectedCategoryId = recordBill
-        ? billExpenseCategoryId
+        ? (selectedSmsBill?.expenseCategoryId || billExpenseCategoryId)
         : choice.categoryId || (isIncome ? 'other_income' : item.suggestedCategoryId || 'other');
       const isDebtRepayment = !isIncome && !isCashWithdrawal && !recordBill
         && (selectedCategoryId === 'debt_repayment' || Boolean(repaymentDebtId));
@@ -197,11 +220,17 @@ export function SmsImportCoordinator() {
         throw new Error('Choisis la dette concernée pour enregistrer ce remboursement.');
       }
       if (recordBill) {
-        if (!billName) {
-          throw new Error('Indique le nom de la facture payée.');
+        if (!billsLoaded) throw new Error('Pata charge encore tes factures. Réessaie dans un instant.');
+        if (!selectedSmsBill && !createNewBill) {
+          throw new Error(selectedBillId
+            ? 'Cette facture n’est plus disponible ou a déjà été réglée. Actualise la liste avant de confirmer.'
+            : 'Choisis la facture impayée à laquelle rattacher ce paiement.');
         }
-        if (billFrequency !== 'once' && !String(choice.billNextDueDate || '').trim()) {
-          throw new Error('Indique la prochaine échéance pour recevoir un rappel.');
+        if (createNewBill) {
+          if (!billName) throw new Error('Indique le nom de la nouvelle facture.');
+          if (billFrequency !== 'once' && !String(choice.billNextDueDate || '').trim()) {
+            throw new Error('Indique la prochaine échéance pour recevoir un rappel.');
+          }
         }
       }
       if (!isIncome && !isCashWithdrawal && !isDebtRepayment && !['consumption', 'project', 'savings', 'investment'].includes(choice.expenseType || '')) {
@@ -227,11 +256,13 @@ export function SmsImportCoordinator() {
           confirmBudgetOverrun: warnings[item.id] === true,
           repaymentDebtId,
           recordBill,
+          billId: selectedSmsBill?.id || (createNewBill ? 'new' : ''),
+          billDueDate: selectedSmsBill?.nextDueDate || '',
           billName,
           billType,
           billFrequency,
           billNextDueDate: choice.billNextDueDate || '',
-          billExpenseCategoryId,
+          billExpenseCategoryId: selectedSmsBill?.expenseCategoryId || billExpenseCategoryId,
         }),
       });
       const result = await response.json().catch(() => ({}));
@@ -247,13 +278,15 @@ export function SmsImportCoordinator() {
       }
       setWarnings((current) => { const next = { ...current }; delete next[item.id]; return next; });
       if (result.budgetRecommendation) setBudgetPrompt(result.budgetRecommendation);
-      setNotice(result.budgetRecommendation
-        ? (result.budgetRecommendation.isSalary
-          ? 'Revenu Mobile Money enregistré. Pata te recommande fortement de créer des budgets pour organiser ce salaire.'
-          : 'Revenu Mobile Money enregistré. Pense à le répartir en budgets pour protéger tes priorités.')
-        : result.billId
-          ? 'Paiement enregistré comme dépense et facture. Le rappel de la prochaine échéance est maintenant configuré.'
-          : 'Opération enregistrée dans Pata.');
+      setNotice(result.alreadyPaid
+        ? 'Cette facture était déjà marquée comme payée. Pata n’a ajouté aucune deuxième dépense.'
+        : result.budgetRecommendation
+          ? (result.budgetRecommendation.isSalary
+            ? 'Revenu Mobile Money enregistré. Pata te recommande fortement de créer des budgets pour organiser ce salaire.'
+            : 'Revenu Mobile Money enregistré. Pense à le répartir en budgets pour protéger tes priorités.')
+          : result.billId
+            ? 'Paiement enregistré dans l’historique de la facture et dans tes dépenses. La prochaine échéance a été mise à jour.'
+            : 'Opération enregistrée dans Pata.');
     } catch (error) {
       setNotice(error.message || 'Confirmation impossible.');
     } finally {
@@ -295,6 +328,7 @@ export function SmsImportCoordinator() {
             const incoming = item.direction === 'income';
             const choice = choices[item.id] || {};
             const { billName, billType, billFrequency, billExpenseCategoryId } = resolveSmsBillChoice(item, choice);
+            const selectedSmsBill = availableBills.find((bill) => bill.id === String(choice.billId || '')) || null;
             const label = item.provider === 'mtn_momo' ? 'MTN MoMo' : 'Orange Money';
             const baseCategories = incoming
               ? INCOME_CATEGORIES.filter((category) => !['debt_borrowed', 'debt_repayment_received'].includes(category.id))
@@ -353,6 +387,7 @@ export function SmsImportCoordinator() {
                       recordBill: false,
                       categoryId: item.suggestedCategoryId || 'other',
                       repaymentDebtId: '',
+                      billId: '',
                     })} className={'min-h-10 rounded-lg border px-2 text-xs font-semibold ' + (!choice.recordBill ? 'border-emerald-700 bg-white text-emerald-900' : 'border-slate-200 bg-white text-slate-600')}>Dépense</button>
                     <button type="button" onClick={() => {
                       const defaults = resolveSmsBillChoice(item, choice);
@@ -363,6 +398,7 @@ export function SmsImportCoordinator() {
                         billFrequency: defaults.billFrequency,
                         billExpenseCategoryId: defaults.billExpenseCategoryId,
                         categoryId: defaults.billExpenseCategoryId,
+                        billId: billsLoaded && availableBills.length === 0 ? 'new' : '',
                         expenseType: 'consumption',
                         projectId: '',
                         repaymentDebtId: '',
@@ -371,36 +407,96 @@ export function SmsImportCoordinator() {
                   </div>
                 </div>}
                 {choice.recordBill && !incoming && item.eventType !== 'withdrawal' && <>
-                  <label className="mt-3 block text-xs font-semibold text-slate-700">Nom de la facture
-                    <input maxLength={100} value={billName} onChange={(event) => updateChoice(item.id, { billName: event.target.value })} placeholder="Ex. Facture ENEO" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800"/>
+                  <label className="mt-3 block text-xs font-semibold text-slate-700">
+                    Facture impayée à associer à ce paiement
+                    <select
+                      value={choice.billId || ''}
+                      onChange={(event) => {
+                        const nextBillId = event.target.value;
+                        const selected = availableBills.find((bill) => bill.id === nextBillId);
+                        if (nextBillId === 'new') {
+                          const defaults = resolveSmsBillChoice(item, choice);
+                          updateChoice(item.id, {
+                            billId: 'new',
+                            billName: defaults.billName,
+                            billType: defaults.billType,
+                            billFrequency: defaults.billFrequency,
+                            billExpenseCategoryId: defaults.billExpenseCategoryId,
+                            categoryId: defaults.billExpenseCategoryId,
+                          });
+                        } else {
+                          updateChoice(item.id, {
+                            billId: nextBillId,
+                            ...(selected ? {
+                              billExpenseCategoryId: selected.expenseCategoryId || 'other',
+                              categoryId: selected.expenseCategoryId || 'other',
+                            } : {}),
+                          });
+                        }
+                      }}
+                      className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800"
+                    >
+                      <option value="">{billsLoaded ? 'Choisir une facture impayée…' : 'Chargement des factures…'}</option>
+                      {availableBills.map((bill) => (
+                        <option key={bill.id} value={bill.id}>
+                          {(bill.name || 'Facture sans nom') + ' · ' + (bill.providerName || bill.billType || 'Facture') + ' · ' + (bill.isVariable ? 'Montant variable' : money.format(Number(bill.amount) || 0) + ' FCFA') + ' · échéance ' + bill.nextDueDate}
+                        </option>
+                      ))}
+                      <option value="new">La facture n’est pas encore enregistrée — créer son suivi</option>
+                    </select>
                   </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className="mt-2 block text-xs font-semibold text-slate-700">Type de facture
-                      <select value={billType} onChange={(event) => {
-                        const nextType = event.target.value;
-                        const nextCategory = smsBillCategory(nextType);
-                        updateChoice(item.id, { billType: nextType, billExpenseCategoryId: nextCategory, categoryId: nextCategory });
-                      }} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-2 text-xs font-normal text-slate-800">
-                        <option value="electricity">Électricité</option><option value="water">Eau</option><option value="rent">Loyer</option><option value="television">Télévision</option><option value="internet">Internet</option><option value="telephone">Téléphone</option><option value="taxes">Impôts et taxes</option><option value="insurance">Assurance</option><option value="school">Scolarité</option><option value="subscription">Abonnement</option><option value="other">Autre facture</option>
-                      </select>
-                    </label>
-                    <label className="mt-2 block text-xs font-semibold text-slate-700">Catégorie de dépense
-                      <select value={billExpenseCategoryId} onChange={(event) => updateChoice(item.id, { billExpenseCategoryId: event.target.value, categoryId: event.target.value })} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-2 text-xs font-normal text-slate-800">
-                        {baseCategories.filter((category) => ['food', 'transport', 'housing', 'internet', 'health', 'leisure', 'gift_donation', 'contribution', 'other'].includes(category.id)).map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}
-                      </select>
-                    </label>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <label className="mt-2 block text-xs font-semibold text-slate-700">Fréquence
-                      <select value={billFrequency} onChange={(event) => updateChoice(item.id, { billFrequency: event.target.value, ...(event.target.value === 'once' ? { billNextDueDate: '' } : {}) })} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-2 text-xs font-normal text-slate-800">
-                        <option value="monthly">Chaque mois</option><option value="weekly">Chaque semaine</option><option value="quarterly">Tous les 3 mois</option><option value="yearly">Chaque année</option><option value="once">Une seule fois</option>
-                      </select>
-                    </label>
-                    {billFrequency !== 'once' && <label className="mt-2 block text-xs font-semibold text-slate-700">Prochaine échéance
-                      <input type="date" value={choice.billNextDueDate || ''} onChange={(event) => updateChoice(item.id, { billNextDueDate: event.target.value })} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-2 text-xs font-normal text-slate-800"/>
-                    </label>}
-                  </div>
-                  <p className="mt-2 rounded-lg bg-emerald-50 p-2 text-[10px] leading-4 text-emerald-900">Pata enregistrera le montant comme dépense, conservera le paiement dans l’historique de cette facture et activera un rappel avant la prochaine échéance.</p>
+                  {selectedSmsBill ? (
+                    <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                      <p className="text-xs font-bold text-emerald-900">Facture sélectionnée : {selectedSmsBill.name}</p>
+                      <p className="mt-1 text-[10px] leading-4 text-emerald-800">
+                        Prochaine échéance : {selectedSmsBill.nextDueDate}
+                        {' · '}
+                        Montant prévu : {selectedSmsBill.isVariable ? 'variable' : money.format(Number(selectedSmsBill.amount) || 0) + ' FCFA'}
+                      </p>
+                      <p className="mt-2 text-[10px] leading-4 text-emerald-900">
+                        Le paiement réel de {money.format(item.amount)} FCFA sera ajouté à l’historique de cette facture. Pata mettra à jour son échéance sans créer une seconde dépense.
+                      </p>
+                    </div>
+                  ) : choice.billId === 'new' ? (
+                    <>
+                      <label className="mt-3 block text-xs font-semibold text-slate-700">Nom de la nouvelle facture
+                        <input maxLength={100} value={billName} onChange={(event) => updateChoice(item.id, { billName: event.target.value })} placeholder="Ex. Facture ENEO" className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal text-slate-800"/>
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="mt-2 block text-xs font-semibold text-slate-700">Type de facture
+                          <select value={billType} onChange={(event) => {
+                            const nextType = event.target.value;
+                            const nextCategory = smsBillCategory(nextType);
+                            updateChoice(item.id, { billType: nextType, billExpenseCategoryId: nextCategory, categoryId: nextCategory });
+                          }} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-2 text-xs font-normal text-slate-800">
+                            <option value="electricity">Électricité</option><option value="water">Eau</option><option value="rent">Loyer</option><option value="television">Télévision</option><option value="internet">Internet</option><option value="telephone">Téléphone</option><option value="taxes">Impôts et taxes</option><option value="insurance">Assurance</option><option value="school">Scolarité</option><option value="subscription">Abonnement</option><option value="other">Autre facture</option>
+                          </select>
+                        </label>
+                        <label className="mt-2 block text-xs font-semibold text-slate-700">Catégorie de dépense
+                          <select value={billExpenseCategoryId} onChange={(event) => updateChoice(item.id, { billExpenseCategoryId: event.target.value, categoryId: event.target.value })} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-2 text-xs font-normal text-slate-800">
+                            {baseCategories.filter((category) => ['food', 'transport', 'housing', 'internet', 'health', 'leisure', 'gift_donation', 'contribution', 'other'].includes(category.id)).map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}
+                          </select>
+                        </label>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="mt-2 block text-xs font-semibold text-slate-700">Fréquence
+                          <select value={billFrequency} onChange={(event) => updateChoice(item.id, { billFrequency: event.target.value, ...(event.target.value === 'once' ? { billNextDueDate: '' } : {}) })} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-2 text-xs font-normal text-slate-800">
+                            <option value="monthly">Chaque mois</option><option value="weekly">Chaque semaine</option><option value="quarterly">Tous les 3 mois</option><option value="yearly">Chaque année</option><option value="once">Une seule fois</option>
+                          </select>
+                        </label>
+                        {billFrequency !== 'once' && <label className="mt-2 block text-xs font-semibold text-slate-700">Prochaine échéance
+                          <input type="date" value={choice.billNextDueDate || ''} onChange={(event) => updateChoice(item.id, { billNextDueDate: event.target.value })} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-2 text-xs font-normal text-slate-800"/>
+                        </label>}
+                      </div>
+                      <p className="mt-2 rounded-lg bg-emerald-50 p-2 text-[10px] leading-4 text-emerald-900">Pata enregistrera cette facture comme nouvelle facture déjà payée et conservera le paiement dans son historique.</p>
+                    </>
+                  ) : (
+                    <p className="mt-2 rounded-lg bg-amber-50 p-2 text-[10px] leading-4 text-amber-900">
+                      {billsLoaded
+                        ? 'Sélectionne une facture impayée dans la liste, ou choisis de créer son suivi si elle n’est pas encore enregistrée.'
+                        : 'Pata charge les factures de ton compte…'}
+                    </p>
+                  )}
                 </>}
                 {repaymentOptions.length > 0 && !choice.recordBill && <label className="mt-3 block rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-semibold text-emerald-900">
                   {incoming ? 'Ce revenu correspond-il au remboursement d’une somme que tu avais prêtée ?' : 'Cette opération rembourse-t-elle une dette que tu as enregistrée ?'}
@@ -462,7 +558,7 @@ export function SmsImportCoordinator() {
                   <Button size="sm" disabled={workingId === item.id
                     || (item.direction === 'withdrawal' && choice.confirmWithdrawal !== true)
                     || (!incoming && selectedDebtRepayment && !suggestedDebtId)
-                    || (!incoming && choice.recordBill && (!String(choice.billName || '').trim() || (billFrequency !== 'once' && !choice.billNextDueDate)))
+                    || (!incoming && choice.recordBill && (!billsLoaded || !choice.billId || (choice.billId !== 'new' && !availableBills.some((bill) => bill.id === choice.billId)) || (choice.billId === 'new' && (!String(choice.billName || billName || '').trim() || (billFrequency !== 'once' && !choice.billNextDueDate)))))
                     || (!incoming && item.eventType !== 'withdrawal' && !selectedDebtRepayment && !choice.recordBill && (!selectedExpenseType || (selectedExpenseType === 'project' && !choice.projectId)))} onClick={() => confirm(item)}>
                     <Check size={14}/>{workingId === item.id ? 'Enregistrement…' : warnings[item.id] ? 'Confirmer malgré le budget' : item.eventType === 'withdrawal' ? 'Confirmer le transfert vers espèces' : 'Confirmer l’opération'}
                   </Button>
