@@ -196,7 +196,7 @@ function getExpenseTypeForBudget(expense) {
     ? expense.expenseType : 'consumption';
 }
 
-export async function createExpenseForUser(uid, input, { countQuota = true, sourceOverride = null, idempotencyKey = null, externalFunding = false, skipBudgetConfirmation = false, premiumOnly = false } = {}) {
+export async function createExpenseForUser(uid, input, { countQuota = true, sourceOverride = null, idempotencyKey = null, idempotencyFingerprint = null, externalFunding = false, skipBudgetConfirmation = false, premiumOnly = false } = {}) {
   const amount = asPositiveMoney(input.amount, 'Dépense');
   const flowType = cleanText(input.flowType || (input.repaymentDebtId ? 'repayment' : 'normal'), 30);
   const cashWithdrawal = flowType === 'cash_withdrawal';
@@ -278,7 +278,15 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
     const activeDebtsSnap = newDebtRef ? readResults[readIndex++] : null;
     const repaymentDebtSnap = repaymentDebtRef ? readResults[readIndex++] : null;
     const cashWalletSnap = cashWalletRef ? readResults[readIndex] : null;
-    if (idempotencyRef && idempotencySnap?.exists) return idempotencySnap.data().result;
+    if (idempotencyRef && idempotencySnap?.exists) {
+      const saved = idempotencySnap.data() || {};
+      const previousFingerprint = String(saved.fingerprint || '');
+      const currentFingerprint = String(idempotencyFingerprint || '');
+      if (previousFingerprint && currentFingerprint && previousFingerprint !== currentFingerprint) {
+        throw new Error('Cette ligne a déjà été enregistrée avec d’autres informations. Actualise les dépenses pour vérifier l’enregistrement, puis ajoute une nouvelle ligne si tu souhaites créer une autre dépense.');
+      }
+      return saved.result;
+    }
     if (cashWalletSnap?.exists) throw new Error('Ce retrait est déjà enregistré dans la poche espèces. Actualise les opérations avant de recommencer.');
     if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
     if (repaymentDebtRef) {
@@ -697,7 +705,7 @@ export async function createExpenseForUser(uid, input, { countQuota = true, sour
       ...(cashWalletRef ? { cashPocketIncomeId: cashWalletRef.id } : {}),
       ...(skipBudgetConfirmation && warnings.length ? { budgetWarnings: warnings } : {}),
     };
-    if (idempotencyRef) transaction.create(idempotencyRef, { result, createdAt: FieldValue.serverTimestamp() });
+    if (idempotencyRef) transaction.create(idempotencyRef, { result, fingerprint: String(idempotencyFingerprint || '').slice(0, 64), createdAt: FieldValue.serverTimestamp() });
     return result;
   });
 }
