@@ -149,6 +149,10 @@ export default function BudgetsPage() {
     && Number(income.remaining) > 0
   ), [monthIncomes]);
 
+  const templateBaseAmount = selectedIncome === 'all'
+    ? budgetIncomeSources.reduce((sum, income) => sum + Math.max(0, Number(income.remaining) || 0), 0)
+    : Math.max(0, Number(budgetIncomeSources.find((income) => income.id === selectedIncome)?.remaining) || 0);
+
   const monthExpenses = useMemo(() => {
     let filtered = expenses.filter((e) => !e.neutralFlow && e.date?.startsWith(month));
     // En vue globale, inclure toutes les parts des dépenses réparties entre plusieurs revenus.
@@ -173,7 +177,19 @@ export default function BudgetsPage() {
       const spent = spentByCategory[c.id] || 0;
       const allocated = budget?.amount || 0;
       const usage = allocated > 0 ? (spent / allocated) * 100 : spent > 0 ? 100 : 0;
-      return { ...c, budgetId: budget?.id, isPinned: budget?.isPinned === true, allocated, spent, usage, remaining: allocated - spent, expenses: monthExpenses.filter((expense) => normalizeExpenseCategoryId(expense.categoryId) === c.id) };
+      return {
+        ...c,
+        budgetId: budget?.id,
+        isPinned: budget?.isPinned === true,
+        allocated,
+        budgetValue: budget?.value ?? allocated,
+        budgetCalculationType: budget?.calculationType === 'percentage' ? 'percentage' : 'amount',
+        budgetFrequency: ['daily', 'weekly', 'monthly'].includes(budget?.frequency) ? budget.frequency : 'monthly',
+        spent,
+        usage,
+        remaining: allocated - spent,
+        expenses: monthExpenses.filter((expense) => normalizeExpenseCategoryId(expense.categoryId) === c.id),
+      };
     });
   }, [budgets, spentByCategory, monthExpenses, expenseCategories]);
 
@@ -356,7 +372,7 @@ export default function BudgetsPage() {
     const roleLabels = isEnglish ? { employee: 'employee', student: 'student', self_employed: 'self-employed', family: 'household', retired: 'retired' } : { employee: 'salarié', student: 'élève ou étudiant', self_employed: 'indépendant', family: 'foyer', retired: 'retraité' };
     setEditingTemplateId(null);
     setTemplateName((isEnglish ? 'Suggested budget — ' : 'Budget conseillé — ') + roleLabels[budgetPersona]);
-    setTemplateItems(items.map((item) => ({ categoryId: item.categoryId, label: item.label, amount: String(item.amount) })));
+    setTemplateItems(items.map((item) => ({ categoryId: item.categoryId, label: item.label, value: String(item.amount), calculationType: 'amount', frequency: 'monthly' })));
     setTemplateMessage(isEnglish ? 'Pata has prepared an initial allocation using your history. Adjust the amounts before confirming.' : 'Pata a préparé une première répartition avec ton historique. Modifie librement les montants avant de valider.');
     setApplySuggestedAfterSave(true);
     setTemplateModalOpen(true);
@@ -371,7 +387,9 @@ export default function BudgetsPage() {
     setTemplateItems(enriched.map((category) => ({
       categoryId: category.id,
       label: category.label,
-      amount: String(Number(category.allocated) || 0),
+      value: String(Number(category.budgetValue) || 0),
+      calculationType: category.budgetCalculationType || 'amount',
+      frequency: category.budgetFrequency || 'monthly',
     })));
     setTemplateMessage('');
     setTemplateModalOpen(true);
@@ -384,9 +402,8 @@ export default function BudgetsPage() {
     setTemplateItems((template.items || []).map((item) => {
       const category = expenseCategories.find((candidate) => candidate.id === item.categoryId);
       return {
-        categoryId: item.categoryId,
+        ...restoreBudgetPlannerLine(item),
         label: category?.label || item.categoryId,
-        amount: String(Number(item.amount) || 0),
       };
     }));
     setTemplateMessage('');
@@ -395,12 +412,16 @@ export default function BudgetsPage() {
 
   const onSaveTemplate = async (event) => {
     event.preventDefault();
-    const items = templateItems.map((item) => ({
+    const plan = calculateBudgetPlan(templateItems, templateBaseAmount);
+    const items = plan.rows.map((item) => ({
       categoryId: item.categoryId,
-      amount: Math.max(0, Math.round(Number(item.amount) || 0)),
+      amount: item.amount,
+      value: item.value,
+      calculationType: item.calculationType,
+      frequency: item.frequency,
     }));
-    if (!items.length || items.some((item) => !item.categoryId)) {
-      setTemplateMessage(isEnglish ? 'The template must contain at least one category.' : 'Le modèle doit contenir au moins une catégorie.');
+    if (!items.length || items.some((item) => !item.categoryId || !Number.isSafeInteger(item.amount))) {
+      setTemplateMessage(isEnglish ? 'The template must contain at least one valid category.' : 'Le modèle doit contenir au moins une catégorie valide.');
       return;
     }
     setSavingTemplate(true);
@@ -410,7 +431,7 @@ export default function BudgetsPage() {
       setTemplates(await getBudgetTemplates());
       if (applySuggestedAfterSave && !editingTemplateId) {
         const applied = await applyBudgetTemplate(savedTemplateId, month, selectedIncome);
-        setTemplateMessage(isEnglish ? `Suggested budget saved and applied to ${month}: ${applied.createdCount || 0} budget limit(s) created, ${applied.updatedCount || 0} updated. You can still adjust each amount.` : 'Budget conseillé enregistré et appliqué à ' + month + ' : ' + (applied.createdCount || 0) + ' enveloppe(s) créée(s), ' + (applied.updatedCount || 0) + ' mise(s) à jour. Tu peux encore ajuster chaque montant.');
+        setTemplateMessage(isEnglish ? \`Suggested budget saved and applied to \${month}: \${applied.createdCount || 0} budget limit(s) created, \${applied.updatedCount || 0} updated. You can still adjust each amount.\` : 'Budget conseillé enregistré et appliqué à ' + month + ' : ' + (applied.createdCount || 0) + ' enveloppe(s) créée(s), ' + (applied.updatedCount || 0) + ' mise(s) à jour. Tu peux encore ajuster chaque montant.');
       } else {
         setTemplateMessage(editingTemplateId
           ? (isEnglish ? 'Template updated. Previously applied versions are unchanged.' : 'Modèle mis à jour. Les versions déjà appliquées ne sont pas modifiées.')
@@ -425,7 +446,6 @@ export default function BudgetsPage() {
       setSavingTemplate(false);
     }
   };
-
   const applyTemplate = async (template) => {
     if (!Array.isArray(template.items) || !template.items.length) return;
     const existingCount = template.items.filter((item) => budgets.some((budget) => normalizeExpenseCategoryId(budget.categoryId) === normalizeExpenseCategoryId(item.categoryId))).length;
