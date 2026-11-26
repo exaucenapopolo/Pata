@@ -4369,7 +4369,7 @@ async function handleUpsertBudgets(request) {
     if (!/^\d{4}-\d{2}$/.test(month) || !incomeSourceId || incomeSourceId === 'all' || incomeSourceId.includes('/')) {
       return errorResponse('Choisis une source de revenus disponible et une période valide.', 400);
     }
-    if (!rawItems.length || rawItems.length > 30) return errorResponse('Un budget doit contenir entre 1 et 30 catégories.', 400);
+    if ((!rawItems.length && !replaceExisting) || rawItems.length > 30) return errorResponse('Un budget doit contenir entre 1 et 30 catégories. Pour supprimer toutes les enveloppes, confirme le remplacement complet.', 400);
 
     const items = rawItems.map((item) => ({
       categoryId: String(item?.categoryId || '').trim().slice(0, 100),
@@ -4812,7 +4812,6 @@ async function handleBudgetTemplates(request) {
         || !incomeSourceId || incomeSourceId.includes('/')) {
         return errorResponse('Modèle, source ou période invalide.', 400);
       }
-      const templateRef = templatesRef.doc();
       const budgetsRef = userRef.collection('budgets');
       const incomesRef = userRef.collection('incomes');
       const expensesRef = userRef.collection('expenses');
