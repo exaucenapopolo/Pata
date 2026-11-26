@@ -8,6 +8,7 @@ import { useLanguage } from '@/context/LanguageContext';
 import { applyMoneyKey, evaluateMoneyExpression } from '@/lib/finance/decimalExpression.mjs';
 import { normalizeClipboardAmount } from '@/lib/finance/clipboardAmount.mjs';
 import { hideNativeMoneyKeyboard, restoreNativeMoneyKeyboard } from '@/lib/finance/moneyInputKeyboard.mjs';
+import { getMoneyKeypadScrollOffset } from '@/lib/finance/moneyKeypadScroll.mjs';
 
 const MONEY_HINTS = /montant|amount|budget|capital|dépense|depense|revenu|income|expense|somme|versement|cotisation|facture|bill|loyer|épargne|epargne|solde|balance|recharge|payment|paiement|prêt|pret|loan|dette|debt|prix|price|tarif|frais|fcfa|xaf|usd|eur/i;
 const NON_MONEY_HINTS = /pourcentage|percent|participants?|personnes?|jours?|days?|année|annee|years?|fréquence|frequence|frequency|quota|heures?|minutes?/i;
@@ -64,6 +65,9 @@ export function MoneyKeypad() {
   const [pasteFeedback, setPasteFeedback] = useState('');
   const activeInputRef = useRef(null);
   const activeInputOriginalInputModeRef = useRef(null);
+  const keypadScrollHostRef = useRef(null);
+  const keypadScrollHostStyleRef = useRef(null);
+  const keypadScrollHostBasePaddingRef = useRef(0);
   const syncingCalculatorValueRef = useRef(false);
   const allowNativeContextMenuRef = useRef(false);
 
@@ -76,6 +80,49 @@ export function MoneyKeypad() {
     }
   }, [expression]);
 
+  const restoreKeypadScrollSpace = useCallback(() => {
+    const host = keypadScrollHostRef.current;
+    const originalStyle = keypadScrollHostStyleRef.current;
+    if (host && originalStyle) {
+      if (originalStyle.value) host.style.setProperty('padding-bottom', originalStyle.value, originalStyle.priority);
+      else host.style.removeProperty('padding-bottom');
+    }
+    keypadScrollHostRef.current = null;
+    keypadScrollHostStyleRef.current = null;
+    keypadScrollHostBasePaddingRef.current = 0;
+  }, []);
+
+  const keepActiveInputAboveKeypad = useCallback(() => {
+    const input = activeInputRef.current;
+    const keypad = document.querySelector('[data-pata-money-keypad]');
+    if (!input?.isConnected || !keypad) return;
+
+    let host = input.parentElement;
+    while (host && host !== document.body && host !== document.documentElement) {
+      const overflowY = window.getComputedStyle(host).overflowY;
+      if (/(auto|scroll|overlay)/.test(overflowY)) break;
+      host = host.parentElement;
+    }
+    host = host && host !== document.body ? host : (document.scrollingElement || document.documentElement);
+
+    if (keypadScrollHostRef.current !== host) {
+      restoreKeypadScrollSpace();
+      keypadScrollHostRef.current = host;
+      keypadScrollHostStyleRef.current = {
+        value: host.style.getPropertyValue('padding-bottom'),
+        priority: host.style.getPropertyPriority('padding-bottom'),
+      };
+      keypadScrollHostBasePaddingRef.current = Number.parseFloat(window.getComputedStyle(host).paddingBottom) || 0;
+    }
+
+    const keypadRect = keypad.getBoundingClientRect();
+    const inputRect = input.getBoundingClientRect();
+    host.style.setProperty('padding-bottom', (keypadScrollHostBasePaddingRef.current + keypadRect.height + 24) + 'px');
+
+    const scrollOffset = getMoneyKeypadScrollOffset(inputRect, keypadRect, 16);
+    if (scrollOffset > 0) host.scrollBy({ top: scrollOffset, behavior: 'smooth' });
+  }, [restoreKeypadScrollSpace]);
+
   const restoreActiveInput = useCallback(() => {
     const input = activeInputRef.current;
     if (input) {
@@ -84,7 +131,8 @@ export function MoneyKeypad() {
     }
     activeInputOriginalInputModeRef.current = null;
     activeInputRef.current = null;
-  }, []);
+    restoreKeypadScrollSpace();
+  }, [restoreKeypadScrollSpace]);
 
   const close = useCallback(() => {
     allowNativeContextMenuRef.current = false;
@@ -109,6 +157,32 @@ export function MoneyKeypad() {
     setPasteMenuOpen(false);
     setPasteFeedback('');
   }, [language, restoreActiveInput]);
+
+  useEffect(() => {
+    if (!activeField) return undefined;
+    let frame = 0;
+    let observer = null;
+    const schedulePosition = () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        keepActiveInputAboveKeypad();
+      });
+    };
+    schedulePosition();
+    const keypad = document.querySelector('[data-pata-money-keypad]');
+    if (keypad && typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(schedulePosition);
+      observer.observe(keypad);
+    }
+    window.addEventListener('resize', schedulePosition);
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+      window.removeEventListener('resize', schedulePosition);
+      restoreKeypadScrollSpace();
+    };
+  }, [activeField, pasteMenuOpen, keepActiveInputAboveKeypad, restoreKeypadScrollSpace]);
 
   const pasteClipboardAmount = useCallback(async () => {
     const input = activeInputRef.current;
