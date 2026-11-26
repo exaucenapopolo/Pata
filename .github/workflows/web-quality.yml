@@ -28,6 +28,8 @@ jobs:
           node-version: "20"
       - name: Tester les soldes disponibles et le tableau de bord
         run: node --test tests/incomeBalances.test.mjs tests/dashboard-income-balance.test.mjs
+      - name: Tester les budgets, les enveloppes et leurs prévisions
+        run: npm run test:budget-spend-summary
       - name: Installer les dépendances
         run: npm install --no-audit --no-fund
       - name: Tester les notifications et leurs quotas existants
