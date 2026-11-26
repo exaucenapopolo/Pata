@@ -277,9 +277,9 @@ test('la page Budget reprend un éditeur complet et un calcul commun à celui de
 test('le serveur sauvegarde les fréquences et pourcentages, applique les modèles au revenu choisi et remplace un budget entier', () => {
   const apiRoute = fs.readFileSync(new URL('../src/app/api/[...path]/route.js', import.meta.url), 'utf8');
   const multiStart = apiRoute.indexOf('async function handleUpsertBudgets');
-  const multiEnd = apiRoute.indexOf('async function handleUpsertBudget', multiStart);
+  const multiEnd = apiRoute.indexOf('async function handleUpsertBudget(request)', multiStart + 1);
   const templateStart = apiRoute.indexOf('async function handleBudgetTemplates');
-  const templateEnd = apiRoute.indexOf('async function handleFinancialTargets', templateStart);
+  const templateEnd = apiRoute.indexOf('function getFinancialTargetRange', templateStart);
   const multi = apiRoute.slice(multiStart, multiEnd);
   const templates = apiRoute.slice(templateStart, templateEnd);
   assert.match(multi, /replaceExisting = body\.replaceExisting === true/);
