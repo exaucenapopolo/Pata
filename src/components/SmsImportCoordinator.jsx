@@ -419,12 +419,12 @@ export function SmsImportCoordinator() {
                 {!incoming && item.eventType !== 'withdrawal' && <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
                   <p className="mb-2 text-xs font-semibold text-slate-800">Comment classer cette sortie ?</p>
                   <div className="grid grid-cols-2 gap-2">
-                    <button type="button" onClick={() => updateChoice(item.id, {
+                    <button type="button" disabled={item.billPayment === true && Boolean(item.billId)} onClick={() => updateChoice(item.id, {
                       recordBill: false,
                       categoryId: item.suggestedCategoryId || 'other',
                       repaymentDebtId: '',
                       billId: '',
-                    })} className={'min-h-10 rounded-lg border px-2 text-xs font-semibold ' + (!choice.recordBill ? 'border-emerald-700 bg-white text-emerald-900' : 'border-slate-200 bg-white text-slate-600')}>Dépense</button>
+                    })} className={'min-h-10 rounded-lg border px-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50 ' + (!choice.recordBill ? 'border-emerald-700 bg-white text-emerald-900' : 'border-slate-200 bg-white text-slate-600')}>Dépense</button>
                     <button type="button" onClick={() => {
                       const defaults = resolveSmsBillChoice(item, choice);
                       updateChoice(item.id, {
@@ -447,6 +447,7 @@ export function SmsImportCoordinator() {
                     Facture impayée à associer à ce paiement
                     <select
                       value={choice.billId || ''}
+                      disabled={item.billPayment === true && Boolean(item.billId)}
                       onChange={(event) => {
                         const nextBillId = event.target.value;
                         const selected = availableBills.find((bill) => bill.id === nextBillId);
@@ -479,7 +480,7 @@ export function SmsImportCoordinator() {
                           {(bill.name || 'Facture sans nom') + ' · ' + (bill.providerName || bill.billType || 'Facture') + ' · ' + (bill.isVariable ? 'Montant variable' : money.format(Number(bill.amount) || 0) + ' FCFA') + ' · échéance ' + bill.nextDueDate}
                         </option>
                       ))}
-                      <option value="new">La facture n’est pas encore enregistrée — créer son suivi</option>
+                      {!(item.billPayment === true && item.billId) && <option value="new">La facture n’est pas encore enregistrée — créer son suivi</option>}
                     </select>
                   </label>
                   {selectedSmsBill ? (
