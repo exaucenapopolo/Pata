@@ -4808,20 +4808,50 @@ async function handleBudgetTemplates(request) {
       const templateId = String(body.templateId || '').trim().slice(0, 150);
       const month = String(body.month || '');
       const incomeSourceId = String(body.incomeSourceId || 'all').trim().slice(0, 150);
-      if (!templateId || templateId.includes('/') || !/^\d{4}-\d{2}$/.test(month)) {
-        return errorResponse('Modèle ou période invalide.', 400);
+      if (!templateId || templateId.includes('/') || !/^\d{4}-\d{2}$/.test(month)
+        || !incomeSourceId || incomeSourceId.includes('/')) {
+        return errorResponse('Modèle, source ou période invalide.', 400);
       }
-      const templateRef = templatesRef.doc(templateId);
+      const templateRef = templatesRef.doc();
       const budgetsRef = userRef.collection('budgets');
+      const incomesRef = userRef.collection('incomes');
+      const expensesRef = userRef.collection('expenses');
 
       const result = await adminDb.runTransaction(async (transaction) => {
-        const [userSnapshot, templateSnapshot, budgetsSnapshot] = await Promise.all([
+        const [userSnapshot, templateSnapshot, budgetsSnapshot, incomesSnapshot] = await Promise.all([
           transaction.get(userRef),
-          transaction.get(templateRef),
+          transaction.get(templatesRef.doc(templateId)),
           transaction.get(budgetsRef.where('month', '==', month)),
+          transaction.get(incomesRef),
         ]);
         if (!userSnapshot.exists) throw new Error('Profil utilisateur introuvable.');
         if (!templateSnapshot.exists) throw new Error('Ce modèle n’existe plus.');
+
+        const userData = userSnapshot.data() || {};
+        let legacyExpenses = null;
+        if (userData.incomeSpentTotalsVersion !== 1) {
+          legacyExpenses = await transaction.get(expensesRef);
+        }
+        const spentTotals = userData.incomeSpentTotalsVersion === 1
+          ? (userData.incomeSpentTotals || {})
+          : legacyExpenses.docs.reduce((totals, document) => {
+            const expense = document.data() || {};
+            const sourceId = String(expense.incomeSourceId || '');
+            const amount = Number(expense.amount) || 0;
+            if (sourceId && sourceId !== 'external' && amount > 0) totals[sourceId] = (Number(totals[sourceId]) || 0) + amount;
+            return totals;
+          }, {});
+
+        const monthSources = incomesSnapshot.docs
+          .map((document) => ({ id: document.id, ...(document.data() || {}) }))
+          .filter((income) => String(income.month || income.date || '').slice(0, 7) === month && isIncomeCountedAsSource(income));
+        const sourceBase = incomeSourceId === 'all'
+          ? monthSources.reduce((sum, income) => sum + Math.max(0, (Number(income.amount) || 0) - (Number(spentTotals[income.id]) || 0)), 0)
+          : (() => {
+            const source = monthSources.find((income) => income.id === incomeSourceId);
+            if (!source) throw new Error('Cette source de revenu n’existe plus pour la période choisie.');
+            return Math.max(0, (Number(source.amount) || 0) - (Number(spentTotals[source.id]) || 0));
+          })();
 
         const sourceItems = Array.isArray(templateSnapshot.data()?.items) ? templateSnapshot.data().items.slice(0, 100) : [];
         if (!sourceItems.length) throw new Error('Ce modèle ne contient aucune catégorie.');
@@ -4829,29 +4859,39 @@ async function handleBudgetTemplates(request) {
         const existingByCategory = new Map();
         budgetsSnapshot.docs.forEach((document) => {
           const data = document.data() || {};
-          const key = `${String(data.categoryId || '')}::${String(data.incomeSourceId || 'all')}`;
+          const key = \`\${String(data.categoryId || '')}::\${String(data.incomeSourceId || 'all')}\`;
           if (!existingByCategory.has(key)) existingByCategory.set(key, document);
         });
 
+        const multipliers = { daily: 30, weekly: 4, monthly: 1 };
         const seen = new Set();
         const prepared = [];
         sourceItems.forEach((item) => {
           const categoryId = String(item?.categoryId || '').trim().slice(0, 100);
-          const amount = Math.round(Number(item?.amount));
-          // Zéro est une valeur intentionnelle du modèle : elle signifie qu’aucune
-          // enveloppe ne doit être affectée à cette catégorie pour cette période.
-          if (!categoryId || !Number.isSafeInteger(amount) || amount < 0 || amount > 1_000_000_000) return;
-          const key = `${categoryId}::${incomeSourceId}`;
+          const calculationType = item?.calculationType === 'percentage' ? 'percentage' : 'amount';
+          const frequency = Object.prototype.hasOwnProperty.call(multipliers, item?.frequency) ? item.frequency : 'monthly';
+          const value = Number(item?.value ?? item?.amount);
+          const legacyAmount = item?.value === undefined && item?.calculationType === undefined
+            ? Math.round(Number(item?.amount)) : null;
+          if (!categoryId || !Number.isFinite(value) || value < 0
+            || (calculationType === 'percentage' ? value > 100 : value > 1_000_000_000)) return;
+          const amount = legacyAmount !== null
+            ? legacyAmount
+            : Math.round((calculationType === 'percentage' ? sourceBase * value / 100 : value) * multipliers[frequency]);
+          if (!Number.isSafeInteger(amount) || amount < 0 || amount > 1_000_000_000) return;
+          const key = \`\${categoryId}::\${incomeSourceId}\`;
           if (seen.has(key)) return;
           seen.add(key);
-          prepared.push({ categoryId, amount, existing: existingByCategory.get(key) || null });
+          prepared.push({
+            categoryId,
+            amount,
+            value,
+            calculationType,
+            frequency,
+            existing: existingByCategory.get(key) || null,
+          });
         });
         if (!prepared.length) throw new Error('Ce modèle ne contient aucune catégorie valide.');
-
-        // La création du modèle consomme déjà une place du quota gratuit.
-        // Réappliquer ce modèle est une réutilisation du budget enregistré, pas
-        // une nouvelle création de modèle ; toutes ses catégories peuvent donc
-        // être matérialisées sans compter une place par catégorie.
 
         let createdCount = 0;
         let updatedCount = 0;
@@ -4864,7 +4904,13 @@ async function handleBudgetTemplates(request) {
             }
             return;
           }
-          const data = { amount: item.amount, updatedAt: FieldValue.serverTimestamp() };
+          const data = {
+            amount: item.amount,
+            value: item.value,
+            calculationType: item.calculationType,
+            frequency: item.frequency,
+            updatedAt: FieldValue.serverTimestamp(),
+          };
           if (item.existing) {
             transaction.update(item.existing.ref, data);
             updatedCount += 1;
@@ -4872,6 +4918,9 @@ async function handleBudgetTemplates(request) {
             transaction.create(budgetsRef.doc(), {
               categoryId: item.categoryId,
               amount: item.amount,
+              value: item.value,
+              calculationType: item.calculationType,
+              frequency: item.frequency,
               month,
               incomeSourceId,
               createdAt: FieldValue.serverTimestamp(),
@@ -4890,9 +4939,15 @@ async function handleBudgetTemplates(request) {
     const byCategory = new Map();
     itemsInput.slice(0, 100).forEach((item) => {
       const categoryId = String(item?.categoryId || '').trim().slice(0, 100);
+      const calculationType = item?.calculationType === 'percentage' ? 'percentage' : 'amount';
+      const frequency = ['daily', 'weekly', 'monthly'].includes(String(item?.frequency || 'monthly'))
+        ? String(item?.frequency || 'monthly') : 'monthly';
+      const value = Number(item?.value ?? item?.amount);
       const amount = Math.round(Number(item?.amount));
-      if (categoryId && Number.isSafeInteger(amount) && amount >= 0 && amount <= 1_000_000_000) {
-        byCategory.set(categoryId, { categoryId, amount });
+      if (categoryId && Number.isSafeInteger(amount) && amount >= 0 && amount <= 1_000_000_000
+        && Number.isFinite(value) && value >= 0
+        && (calculationType === 'percentage' ? value <= 100 : value <= 1_000_000_000)) {
+        byCategory.set(categoryId, { categoryId, amount, value, calculationType, frequency });
       }
     });
     const items = [...byCategory.values()];
@@ -4929,7 +4984,7 @@ async function handleBudgetTemplates(request) {
       const stats = normalizeMonthlyStatsForMonth(userData.monthlyStats || {}, currentMonth);
       const current = Number(stats.budgets) || 0;
       if (!isPremiumAccount(userData) && current >= PLAN_LIMITS.FREE.budgets) {
-        throw new Error(`Tu as atteint les ${PLAN_LIMITS.FREE.budgets} créations de budgets et de modèles autorisées ce mois-ci avec le compte gratuit. Passe à Premium pour enregistrer un autre modèle.`);
+        throw new Error(\`Tu as atteint les \${PLAN_LIMITS.FREE.budgets} créations de budgets et de modèles autorisées ce mois-ci avec le compte gratuit. Passe à Premium pour enregistrer un autre modèle.\`);
       }
       stats.budgets = current + 1;
       stats.lastResetMonth = currentMonth;
