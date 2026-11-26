@@ -76,3 +76,7 @@ export function getSelectedExpenseOperations(expenses = [], selectedKeys = []) {
     };
   }).filter(Boolean);
 }
+
+// Names consumed by the expenses screen.
+export const getSelectableExpenseDayKeys = getDayExpenseSelectionKeys;
+export const toggleExpenseDayKeys = toggleDayExpenseSelectionKeys;
