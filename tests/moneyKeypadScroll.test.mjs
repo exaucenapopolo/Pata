@@ -33,7 +33,7 @@ test('the calculator repositions the actual scroll container instead of closing 
   const component = fs.readFileSync('src/components/layout/MoneyKeypad.jsx', 'utf8');
 
   assert.match(component, /keepActiveInputAboveKeypad/);
-  assert.match(component, /host\.scrollBy\(\{ top: scrollOffset, behavior: 'smooth' \}\)/);
+  assert.match(component, /host\.scrollBy\(\{ top: scrollOffset, behavior: 'auto' \}\)/);
   assert.match(component, /overflowY/);
   assert.match(component, /new ResizeObserver/);
   assert.match(component, /restoreKeypadScrollSpace/);
