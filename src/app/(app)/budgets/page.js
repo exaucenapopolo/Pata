@@ -950,7 +950,7 @@ export default function BudgetsPage() {
         message={isEnglish
           ? 'This permanently removes all ' + budgets.length + ' envelopes assigned to “' + (selectedBudgetIncome?.source || 'this income') + '” for ' + month + ' (' + formatCurrency(budgets.reduce((sum, item) => sum + (Number(item.amount) || 0), 0)) + ' allocated). Expense records, the income source and its history will be kept. This cannot be undone.'
           : 'Cette action supprimera définitivement les ' + budgets.length + ' enveloppe(s) rattachée(s) au revenu « ' + (selectedBudgetIncome?.source || 'ce revenu') + ' » pour ' + month + ' (' + formatCurrency(budgets.reduce((sum, item) => sum + (Number(item.amount) || 0), 0)) + ' alloué). Les dépenses, la source de revenu et son historique seront conservés. Cette action ne peut pas être annulée.'}
-        confirmWord="SUPPRIMER"
+        confirmWord={isEnglish ? 'DELETE' : 'SUPPRIMER'}
         confirmLabel={isEnglish ? 'Delete all envelopes' : 'Supprimer toutes les enveloppes'}
         busy={deletingCompleteBudget}
       />
@@ -960,7 +960,7 @@ export default function BudgetsPage() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs text-slate-500">{translateText(liveDetails.label, language)} · {month}</p>
               <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-600">
-                {liveDetails.budgetFrequency === 'daily' ? 'Allocation quotidienne' : liveDetails.budgetFrequency === 'weekly' ? 'Allocation hebdomadaire' : 'Allocation mensuelle'}
+                {liveDetails.budgetFrequency === 'daily' ? 'Base quotidienne' : liveDetails.budgetFrequency === 'weekly' ? 'Base hebdomadaire' : 'Base mensuelle'}
               </span>
             </div>
             <div className="grid grid-cols-3 gap-2">
