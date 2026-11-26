@@ -4364,17 +4364,27 @@ async function handleUpsertBudgets(request) {
     const body = await request.json();
     const month = String(body.month || '');
     const incomeSourceId = String(body.incomeSourceId || '').trim().slice(0, 150);
+    const replaceExisting = body.replaceExisting === true;
     const rawItems = Array.isArray(body.items) ? body.items : [];
     if (!/^\d{4}-\d{2}$/.test(month) || !incomeSourceId || incomeSourceId === 'all' || incomeSourceId.includes('/')) {
       return errorResponse('Choisis une source de revenus disponible et une période valide.', 400);
     }
     if (!rawItems.length || rawItems.length > 30) return errorResponse('Un budget doit contenir entre 1 et 30 catégories.', 400);
+
     const items = rawItems.map((item) => ({
       categoryId: String(item?.categoryId || '').trim().slice(0, 100),
       amount: Math.round(Number(item?.amount)),
+      value: Number(item?.value ?? item?.amount),
+      calculationType: item?.calculationType === 'percentage' ? 'percentage' : 'amount',
+      frequency: ['daily', 'weekly', 'monthly'].includes(String(item?.frequency || 'monthly'))
+        ? String(item?.frequency || 'monthly') : '',
     }));
-    if (items.some((item) => !item.categoryId || item.categoryId.includes('/') || !Number.isSafeInteger(item.amount) || item.amount <= 0 || item.amount > 1_000_000_000)) {
-      return errorResponse('Vérifie les catégories et les montants de chaque enveloppe.', 400);
+    if (items.some((item) => !item.categoryId || item.categoryId.includes('/')
+      || !Number.isSafeInteger(item.amount) || item.amount < 0 || item.amount > 1_000_000_000
+      || !Number.isFinite(item.value) || item.value < 0
+      || (item.calculationType === 'percentage' ? item.value > 100 : item.value > 1_000_000_000)
+      || !item.frequency)) {
+      return errorResponse('Vérifie les catégories, les montants, les pourcentages et les fréquences de chaque enveloppe.', 400);
     }
     if (new Set(items.map((item) => item.categoryId)).size !== items.length) {
       return errorResponse('Une catégorie ne peut apparaître qu’une seule fois dans ce budget.', 400);
@@ -4384,16 +4394,10 @@ async function handleUpsertBudgets(request) {
     const incomeRef = userRef.collection('incomes').doc(incomeSourceId);
     const budgetCollection = userRef.collection('budgets');
     const result = await adminDb.runTransaction(async (transaction) => {
-      const [userSnap, incomeSnap, ...existingSnapshots] = await Promise.all([
+      const [userSnap, incomeSnap, existingSnap] = await Promise.all([
         transaction.get(userRef),
         transaction.get(incomeRef),
-        ...items.map((item) => transaction.get(
-          budgetCollection
-            .where('month', '==', month)
-            .where('categoryId', '==', item.categoryId)
-            .where('incomeSourceId', '==', incomeSourceId)
-            .limit(1)
-        )),
+        transaction.get(budgetCollection.where('month', '==', month).where('incomeSourceId', '==', incomeSourceId)),
       ]);
       if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
       if (!incomeSnap.exists) throw new Error('Cette source de revenus n’existe plus.');
@@ -4406,66 +4410,103 @@ async function handleUpsertBudgets(request) {
         throw new Error('Cette source ne peut pas financer un budget pour cette période.');
       }
 
+      const existingByCategory = new Map();
+      existingSnap.docs.forEach((document) => {
+        const categoryId = String(document.data()?.categoryId || '');
+        if (!existingByCategory.has(categoryId)) existingByCategory.set(categoryId, document);
+      });
+      const seen = new Set(items.map((item) => item.categoryId));
+      const createdCount = items.filter((item) => item.amount > 0 && !existingByCategory.has(item.categoryId)).length;
+      const updatedCount = items.filter((item) => item.amount > 0 && existingByCategory.has(item.categoryId)).length;
+      const explicitDeleteCount = items.filter((item) => item.amount === 0 && existingByCategory.has(item.categoryId)).length;
+      const omittedDeleteCount = replaceExisting
+        ? [...existingByCategory.keys()].filter((categoryId) => !seen.has(categoryId)).length
+        : 0;
+      const deletedCount = explicitDeleteCount + omittedDeleteCount;
+
       const userData = userSnap.data();
       const currentMonth = getDoualaMonthKey();
       const stats = normalizeMonthlyStatsForMonth(userData.monthlyStats || {}, currentMonth);
-      const createdCount = existingSnapshots.filter((snapshot) => snapshot.empty).length;
-      const updatedCount = items.length - createdCount;
       if (createdCount > 0) {
         const current = Number(stats.budgets) || 0;
         if (!isPremiumAccount(userData) && current >= PLAN_LIMITS.FREE.budgets) {
-          throw new Error(`Tu as atteint les ${PLAN_LIMITS.FREE.budgets} budgets autorisés ce mois-ci avec le compte gratuit. Passe à Premium pour continuer.`);
+          throw new Error(\`Tu as atteint les \${PLAN_LIMITS.FREE.budgets} budgets autorisés ce mois-ci avec le compte gratuit. Passe à Premium pour continuer.\`);
         }
-        // One multi-category budget group is one creation for the free quota.
+        // Toute une répartition (création ou édition) compte comme une seule création.
         stats.budgets = current + 1;
         stats.lastResetMonth = currentMonth;
       }
 
-      const ids = [];
-      items.forEach((item, index) => {
-        const existing = existingSnapshots[index];
-        if (!existing.empty) {
-          const document = existing.docs[0];
-          transaction.update(document.ref, { amount: item.amount, updatedAt: FieldValue.serverTimestamp() });
-          ids.push(document.id);
+      items.forEach((item) => {
+        const existing = existingByCategory.get(item.categoryId);
+        if (item.amount === 0) {
+          if (existing) transaction.delete(existing.ref);
+          return;
+        }
+        const data = {
+          amount: item.amount,
+          value: item.value,
+          calculationType: item.calculationType,
+          frequency: item.frequency,
+          updatedAt: FieldValue.serverTimestamp(),
+        };
+        if (existing) {
+          transaction.update(existing.ref, data);
         } else {
-          const budgetRef = budgetCollection.doc();
-          transaction.create(budgetRef, {
+          transaction.create(budgetCollection.doc(), {
             categoryId: item.categoryId,
-            amount: item.amount,
             month,
             incomeSourceId,
             createdAt: FieldValue.serverTimestamp(),
+            ...data,
           });
-          ids.push(budgetRef.id);
         }
       });
+      if (replaceExisting) {
+        existingByCategory.forEach((document, categoryId) => {
+          if (!seen.has(categoryId)) transaction.delete(document.ref);
+        });
+      }
       if (createdCount > 0) transaction.update(userRef, { monthlyStats: stats });
-      return { ids, createdCount, updatedCount, quotaCounted: createdCount > 0 ? stats.budgets : Number(stats.budgets) || 0 };
+      return {
+        createdCount,
+        updatedCount,
+        deletedCount,
+        totalCategories: items.length,
+        quotaCounted: createdCount > 0 ? stats.budgets : Number(stats.budgets) || 0,
+      };
     });
     return NextResponse.json({ success: true, ...result });
   } catch (error) {
-    return errorResponse(error.message || 'Impossible d’enregistrer ce budget.', /atteint|introuvable|invalide/i.test(error.message || '') ? 403 : 500);
+    return errorResponse(error.message || 'Impossible d’enregistrer ce budget.', /atteint|introuvable|invalide|ne peut pas financer/i.test(error.message || '') ? 403 : 500);
   }
 }
-
 async function handleUpsertBudget(request) {
   try {
     const { uid } = await authenticate(request);
     const body = await request.json();
     const categoryId = String(body.categoryId || '').trim().slice(0, 100);
     const amount = Math.round(Number(body.amount));
+    const value = Number(body.value ?? amount);
+    const calculationType = body.calculationType === 'percentage' ? 'percentage' : 'amount';
+    const frequency = ['daily', 'weekly', 'monthly'].includes(String(body.frequency || 'monthly'))
+      ? String(body.frequency || 'monthly') : '';
     const month = String(body.month || '');
     const incomeSourceId = String(body.incomeSourceId || 'all').trim().slice(0, 150);
-    if (!categoryId || !/^\d{4}-\d{2}$/.test(month) || !Number.isSafeInteger(amount) || amount <= 0) return errorResponse('Vérifie la catégorie, la période et le montant du budget.', 400);
+    if (!categoryId || !/^\d{4}-\d{2}$/.test(month) || !Number.isSafeInteger(amount) || amount <= 0
+      || !Number.isFinite(value) || value <= 0
+      || (calculationType === 'percentage' ? value > 100 : value > 1_000_000_000) || !frequency) {
+      return errorResponse('Vérifie la catégorie, la période, le montant et les paramètres de l’enveloppe.', 400);
+    }
     const userRef = adminDb.collection('users').doc(uid);
     const budgetQuery = userRef.collection('budgets').where('month', '==', month).where('categoryId', '==', categoryId).where('incomeSourceId', '==', incomeSourceId);
     const result = await adminDb.runTransaction(async (transaction) => {
       const [userSnap, existingSnap] = await Promise.all([transaction.get(userRef), transaction.get(budgetQuery)]);
       if (!userSnap.exists) throw new Error('Profil utilisateur introuvable.');
+      const budgetData = { amount, value, calculationType, frequency, updatedAt: FieldValue.serverTimestamp() };
       if (!existingSnap.empty) {
         const existing = existingSnap.docs[0];
-        transaction.update(existing.ref, { amount, updatedAt: FieldValue.serverTimestamp() });
+        transaction.update(existing.ref, budgetData);
         return { id: existing.id, updated: true };
       }
       const userData = userSnap.data();
@@ -4473,12 +4514,12 @@ async function handleUpsertBudget(request) {
       const stats = normalizeMonthlyStatsForMonth(userData.monthlyStats || {}, currentMonth);
       const current = Number(stats.budgets) || 0;
       if (!isPremiumAccount(userData) && current >= PLAN_LIMITS.FREE.budgets) {
-        throw new Error(`Tu as atteint les ${PLAN_LIMITS.FREE.budgets} budgets autorisés ce mois-ci avec le compte gratuit. Passe à Premium pour continuer.`);
+        throw new Error(\`Tu as atteint les \${PLAN_LIMITS.FREE.budgets} budgets autorisés ce mois-ci avec le compte gratuit. Passe à Premium pour continuer.\`);
       }
       stats.budgets = current + 1;
       stats.lastResetMonth = currentMonth;
       const budgetRef = userRef.collection('budgets').doc();
-      transaction.create(budgetRef, { categoryId, amount, month, incomeSourceId, createdAt: FieldValue.serverTimestamp() });
+      transaction.create(budgetRef, { categoryId, month, incomeSourceId, createdAt: FieldValue.serverTimestamp(), ...budgetData });
       transaction.update(userRef, { monthlyStats: stats });
       return { id: budgetRef.id, created: true, current: stats.budgets, limit: PLAN_LIMITS.FREE.budgets };
     });
@@ -4487,7 +4528,6 @@ async function handleUpsertBudget(request) {
     return errorResponse(error.message || 'Impossible d’enregistrer ce budget.', /atteint|introuvable|invalide/i.test(error.message || '') ? 403 : 500);
   }
 }
-
 function getFinancialTargetRange(periodType, periodKey) {
   if (periodType === 'day') {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(periodKey)) throw new Error('Date journalière invalide.');
