@@ -10,19 +10,22 @@ import { AppDialog } from '@/components/ui/AppDialog';
 export function useAppDialog() {
   const [options, setOptions] = useState(null);
   const resolverRef = useRef(null);
+  const pendingModeRef = useRef(null);
   const [promptValue, setPromptValue] = useState('');
 
   const settle = useCallback((value) => {
     const resolve = resolverRef.current;
     resolverRef.current = null;
+    pendingModeRef.current = null;
     setOptions(null);
     setPromptValue('');
     resolve?.(value);
   }, []);
 
   const request = useCallback((nextOptions) => new Promise((resolve) => {
-    if (resolverRef.current) resolverRef.current(nextOptions?.mode === 'prompt' ? null : false);
+    if (resolverRef.current) resolverRef.current(pendingModeRef.current === 'prompt' ? null : false);
     resolverRef.current = resolve;
+    pendingModeRef.current = nextOptions?.mode || null;
     setOptions(nextOptions);
   }), []);
 
