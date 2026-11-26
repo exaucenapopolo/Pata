@@ -10,6 +10,7 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/context/LanguageContext';
 import { getDateLocale } from '@/lib/i18n/dateLocale.mjs';
+import { useAppDialog } from '@/hooks/useAppDialog';
 import { fetchChats, fetchChatMessages, createChat, updateChatMessages, deleteChat, updateChatTitle, updateChatPinned } from '@/lib/firestore/ai_chats';
 
 const SUGGESTIONS = {
@@ -182,7 +183,7 @@ function MessageContent({ text, language = 'fr' }) {
               <span className="text-xs font-bold text-[#174b35]">{language === 'en' ? 'Financial details' : 'Détails du tableau'}</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <button type="button" onClick={() => copyMarkdownTable(headers, rows).catch(() => alert(language === 'en' ? 'Could not copy this table.' : 'Impossible de copier ce tableau.'))} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-[#c8dfd0] bg-white px-2.5 text-[11px] font-semibold text-[#0b5c46] transition hover:bg-[#e7f2eb]">
+              <button type="button" onClick={() => copyMarkdownTable(headers, rows).catch(() => { void appAlert(language === 'en' ? 'Could not copy this table.' : 'Impossible de copier ce tableau.', { kind: 'warning', title: language === 'en' ? 'Copy unavailable' : 'Copie impossible' }); })} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-[#c8dfd0] bg-white px-2.5 text-[11px] font-semibold text-[#0b5c46] transition hover:bg-[#e7f2eb]">
                 <Copy size={12}/>{language === 'en' ? 'Copy' : 'Copier'}
               </button>
               <button type="button" onClick={() => downloadMarkdownTable(headers, rows)} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg bg-[#0b5c46] px-2.5 text-[11px] font-semibold text-white transition hover:bg-[#084b39]">
@@ -356,6 +357,7 @@ function setCachedChatMessages(uid, chatId, messages) {
 
 export function AssistantChat({ open, onClose, initialPrompt = "" }) {
   const { user } = useAuth();
+  const { appConfirm, appAlert, dialog } = useAppDialog();
   const { language } = useLanguage();
   const [chats, setChats] = useState([]);
   const [chatsLoading, setChatsLoading] = useState(false);
@@ -498,7 +500,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
       if (requestSequence === chatLoadSequenceRef.current) {
         setActiveChatId(null);
         setMessages([]);
-        alert(error?.message || (language === 'en' ? 'Could not load this conversation.' : 'Impossible de charger cette discussion.'));
+        await appAlert(error?.message || (language === 'en' ? 'Could not load this conversation.' : 'Impossible de charger cette discussion.'), { kind: 'danger', title: language === 'en' ? 'Could not load conversation' : 'Chargement impossible' });
       }
     } finally {
       if (requestSequence === chatLoadSequenceRef.current) setLoadingChat(false);
@@ -542,7 +544,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
 
   const handleDeleteChat = async (e, chatId) => {
     e.stopPropagation();
-    if (confirm(language === 'en' ? 'Delete this conversation?' : 'Supprimer cette conversation ?')) {
+    if (await appConfirm(language === 'en' ? 'Delete this conversation?' : 'Supprimer cette conversation ?', { kind: 'danger', title: language === 'en' ? 'Delete conversation?' : 'Supprimer cette discussion ?', confirmLabel: language === 'en' ? 'Delete' : 'Supprimer' })) {
       await deleteChat(user.uid, chatId);
       chatMessagesCache.delete(user.uid + ':' + chatId);
       setChats((current) => {
@@ -565,7 +567,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
         return next;
       });
     } catch (error) {
-      alert(error?.message || (language === 'en' ? 'Could not update this conversation.' : 'Impossible de modifier cette discussion.'));
+      await appAlert(error?.message || (language === 'en' ? 'Could not update this conversation.' : 'Impossible de modifier cette discussion.'), { kind: 'danger', title: language === 'en' ? 'Update failed' : 'Mise à jour impossible' });
     }
   };
 
@@ -654,7 +656,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
     let text = rawText.replace(/@audio/gi, '').replace(/@image/gi, '').replace(/@vision/gi, '').trim();
 
     if (hasVision && !text) text = language === 'en' ? 'Analyze this image.' : 'Analyse cette image.';
-    if (hasImageGen && !text) return alert(language === 'en' ? 'Describe the image you want to generate.' : "Décris l'image que tu veux générer.");
+    if (hasImageGen && !text) { await appAlert(language === 'en' ? 'Describe the image you want to generate.' : "Décris l'image que tu veux générer.", { kind: 'info', title: language === 'en' ? 'Image description required' : 'Description nécessaire' }); return; }
 
     setLoading(true);
     const clientRequestId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -1043,6 +1045,7 @@ export function AssistantChat({ open, onClose, initialPrompt = "" }) {
           </div>
         )}
 
+        {dialog}
       </div>
     </div>
   );
