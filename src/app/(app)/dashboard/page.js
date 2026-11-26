@@ -28,7 +28,7 @@ import { generateAdvice, adviceIconColor } from '@/lib/advisor';
 import { formatCurrency, formatDate, resolveCategory, getFirstOfMonth, normalizeExpenseCategoryId } from '@/lib/utils';
 import { buildFinancialSuggestions, FINANCIAL_RESOLUTIONS, getPeriodBounds, getPeriodKey } from '@/lib/financialPlanning';
 import { translateText } from '@/lib/i18n/translations';
-import { isIncomeCountedAsSource } from '@/lib/finance/incomeBalances.mjs';
+import { isIncomeCountedAsSource, sumAvailableIncomeBalances } from '@/lib/finance/incomeBalances.mjs';
 import { usePersistentPageState } from '@/hooks/usePersistentPageState';
 
 const getDashboardExpenseType = (expense) => ['consumption', 'project', 'savings', 'investment'].includes(expense?.expenseType)
@@ -339,13 +339,20 @@ export default function DashboardPage() {
     [prevIncomes]
   );
 
-  // Use the exact same period totals already displayed in the dashboard cards below.
-  // The available balance is only their difference; there is no second calculation.
-  const periodIncomeTotal = periodIncomes.filter(isIncomeCountedAsSource).reduce((s, i) => s + (Number(i.amount) || 0), 0);
-  const periodExpenseTotal = periodExpenses.filter((expense) => !expense.neutralFlow).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+  // Reprendre strictement les sources et les soldes vérifiés de la page Revenus.
+  // Les statistiques d'entrées/sorties restent propres à la période sélectionnée,
+  // mais le disponible n'est plus recalculé par une soustraction globale.
+  const periodIncomeSources = useMemo(() => periodIncomes.filter((income) =>
+    isIncomeCountedAsSource(income)
+    && income.cashPocket !== true
+    && income.flowType !== 'repayment_received'
+    && income.categoryId !== 'debt_repayment_received'
+  ), [periodIncomes]);
+  const periodIncomeTotal = periodIncomeSources.reduce((sum, income) => sum + (Number(income.amount) || 0), 0);
+  const periodExpenseTotal = periodExpenses.filter((expense) => !expense.neutralFlow).reduce((sum, expense) => sum + (Number(expense.amount) || 0), 0);
   const totalIncome = periodIncomeTotal;
   const totalExpense = periodExpenseTotal;
-  const globalBalance = totalIncome - totalExpense;
+  const globalBalance = sumAvailableIncomeBalances(periodIncomeSources, balancesReady);
   const widgetDebtBalances = useMemo(() => debts.reduce((totals, debt) => {
     if (!['active', 'partial', 'late'].includes(debt.status) || Number(debt.remaining) <= 0) return totals;
     if (debt.type === 'owed_to_me') totals.receivable += Number(debt.remaining) || 0;
@@ -532,8 +539,8 @@ export default function DashboardPage() {
             <p className="mt-1 break-words text-sm font-bold leading-tight tracking-tight sm:text-xl">{formatCurrency(periodExpenseTotal)}</p>
           </div>
           <div className="min-w-0 rounded-xl border border-white/20 bg-white/15 px-2.5 py-2.5 sm:px-3">
-            <p className="truncate text-[10px] font-semibold text-white sm:text-[11px]">Solde de la période</p>
-            <p className="mt-1 break-words text-sm font-bold leading-tight tracking-tight sm:text-xl">{formatCurrency(periodIncomeTotal - periodExpenseTotal)}</p>
+            <p className="truncate text-[10px] font-semibold text-white sm:text-[11px]">Disponible (dettes incluses)</p>
+            <p className="mt-1 break-words text-sm font-bold leading-tight tracking-tight sm:text-xl">{globalBalance == null ? '—' : formatCurrency(globalBalance)}</p>
           </div>
         </div>
       </section>
@@ -778,12 +785,12 @@ export default function DashboardPage() {
         <Card>
           <div className="flex items-center gap-2 text-slate-500">
             <Wallet size={16} />
-            <CardTitle>Solde de la période</CardTitle>
+            <CardTitle>Disponible (dettes incluses)</CardTitle>
           </div>
-          <CardValue className={globalBalance < 0 ? 'text-red-600' : 'text-slate-900'}>
-            {formatCurrency(globalBalance)}
+          <CardValue className={globalBalance == null ? 'text-slate-500' : 'text-slate-900'}>
+            {globalBalance == null ? '—' : formatCurrency(globalBalance)}
           </CardValue>
-          <p className="mt-1 text-xs text-slate-500">Entrées moins sorties sur la période affichée.</p>
+          <p className="mt-1 text-xs text-slate-500">Somme des soldes restants des revenus de la période, calculée comme dans la page Revenus.</p>
         </Card>
         <Card>
           <div className="flex items-center gap-2 text-slate-500">
