@@ -164,3 +164,37 @@ test('ne retourne aucune facture déjà réglée ou désactivée', () => {
     { id: 'disabled', active: false, nextDueDate: '2026-11-11' },
   ]), []);
 });
+
+test('le flux SMS propose les factures impayées puis transmet l’identifiant et l’échéance choisis', () => {
+  const component = fs.readFileSync(
+    path.join(process.cwd(), 'src/components/SmsImportCoordinator.jsx'),
+    'utf8'
+  );
+  assert.match(component, /subscribeBills\(/);
+  assert.match(component, /getAvailableSmsBillsForPayment\(bills\)/);
+  assert.match(component, /value=\{choice\.billId \|\| ''\}/);
+  assert.match(component, /billId: selectedSmsBill\?\.id \|\| \(createNewBill \? 'new' : ''\)/);
+  assert.match(component, /billDueDate: selectedSmsBill\?\.nextDueDate \|\| ''/);
+  assert.match(component, /Cette facture était déjà marquée comme payée/);
+});
+
+test('le paiement SMS d’une facture existante réutilise le traitement idempotent des factures', () => {
+  const route = fs.readFileSync(
+    path.join(process.cwd(), 'src/app/api/sms-import/route.js'),
+    'utf8'
+  );
+  const billsRoute = fs.readFileSync(
+    path.join(process.cwd(), 'src/app/api/[...path]/route.js'),
+    'utf8'
+  );
+  const claimAt = route.indexOf("if (claim.existingBillId)");
+  const regularExpenseAt = route.indexOf("} else if (isExpense) {", claimAt);
+
+  assert.ok(claimAt >= 0, 'une facture sélectionnée doit emprunter le flux de paiement des factures');
+  assert.ok(regularExpenseAt > claimAt, 'la dépense SMS standard ne doit pas être utilisée pour une facture existante');
+  assert.match(route.slice(claimAt, regularExpenseAt), /new URL\('\/api\/bills\/pay', request\.url\)/);
+  assert.match(route.slice(claimAt, regularExpenseAt), /paymentSource: item\.provider/);
+  assert.match(billsRoute, /bill_pay_' \+ billId \+ '_' \+ dueDate/);
+  assert.match(billsRoute, /alreadyPaid: true/);
+  assert.match(billsRoute, /lastPaidExpenseId/);
+});
