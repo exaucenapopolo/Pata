@@ -114,6 +114,7 @@ function evaluateTokens(tokens) {
       while (peek()?.type === '%') {
         consume('%');
         value = fraction(value.n, value.d * 100n);
+        value.percent = true;
       }
       return value;
     }
@@ -121,6 +122,7 @@ function evaluateTokens(tokens) {
     while (peek()?.type === '%') {
       consume('%');
       value = fraction(value.n, value.d * 100n);
+      value.percent = true;
     }
     return value;
   };
@@ -156,9 +158,12 @@ function evaluateTokens(tokens) {
     while (peek()?.type === '+' || peek()?.type === '-') {
       const operator = tokens[cursor++].type;
       const right = parseProduct();
+      const adjustedRight = right.percent
+        ? fraction(value.n * right.n, value.d * right.d)
+        : right;
       value = operator === '+'
-        ? fraction(value.n * right.d + right.n * value.d, value.d * right.d)
-        : fraction(value.n * right.d - right.n * value.d, value.d * right.d);
+        ? fraction(value.n * adjustedRight.d + adjustedRight.n * value.d, value.d * adjustedRight.d)
+        : fraction(value.n * adjustedRight.d - adjustedRight.n * value.d, value.d * adjustedRight.d);
     }
     return value;
   };
