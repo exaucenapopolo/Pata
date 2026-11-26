@@ -9,6 +9,8 @@ test('Quick Capture n’affiche que les revenus dont le solde restant a été ca
   const api = read('src/app/api/quick-capture/options/route.js');
   const component = read('src/components/QuickCaptureCoordinator.jsx');
   assert.match(api, /incomeSpentTotalsVersion === 1/);
+  assert.match(api, /balanceIncomeDocs = incomesSnap\.docs/);
+  assert.match(api, /incomeSpentTotalsUpdatedAt: FieldValue\.serverTimestamp\(\)/);
   assert.match(api, /AggregateField\.sum\('amount'\)/);
   assert.match(api, /remaining: Math\.max\(0, amount - spent\)/);
   assert.match(api, /\.filter\(\(income\) => income\.remaining > 0\)/);
@@ -43,5 +45,6 @@ test('le paiement d’une facture propose les revenus suivis avec leur solde res
   assert.match(billsPage, /value=\{paymentForm\.incomeSourceId \|\| 'all'\}/);
   assert.match(billsPage, /availableBillIncomeSources\.map/);
   assert.match(billsPage, /Number\(income\.remaining \|\| 0\)\.toLocaleString\('fr-FR'\) \+ ' FCFA restant'/);
-  assert.match(billsApi, /incomeSourceId: paymentSource === 'tracked' \? String\(body\.incomeSourceId \|\| 'all'\)\.trim\(\) : 'all'/);
+  assert.match(billsApi, /incomeSourceId: paymentSource === 'tracked' \? trackedIncomeSourceId : 'all'/);
+  assert.match(billsApi, /trackedIncomeSourceId\.includes\('\\/'\)/);
 });
