@@ -52,8 +52,8 @@ test('la sélection multiple combine appui prolongé, touches simples et sélect
   assert.match(page, /toggleExpenseDaySelection\(items\)/);
   assert.match(page, /Sélectionner la journée/);
   assert.match(page, /{selectionMode && \(/);
-  assert.match(page, /Changer source/);
-  assert.match(page, /<Trash2 size=\{15\}\/>/);
+  assert.match(page, /Regrouper les revenus/);
+  assert.match(page, /onClick=\{handleBulkDelete\}/);
   assert.match(helper, /toggleExpenseSelectionKey/);
   assert.match(helper, /toggleDayExpenseSelectionKeys/);
   assert.doesNotMatch(page, /Tout sélectionner|Sélectionner toutes les dépenses/i);
@@ -231,7 +231,7 @@ test('la saisie multiple enregistre chaque ligne par createExpense avec sa propr
   const page = read('src/app/(app)/expenses/page.js');
   assert.match(page, /<Modal open=\{batchModalOpen\}/);
   assert.match(page, /batchExpenseCategories\.map/);
-  assert.match(page, /availableBatchIncomeSources\.map/);
+  assert.match(page, /availableBatchIncomeSources/);
   assert.match(page, /date=|type="date"/);
   assert.match(page, /createExpense\(user\.uid, payload\)/);
   assert.match(page, /batchIdempotencyKey: getExpenseBatchIdempotencyKey\(row\)/);
