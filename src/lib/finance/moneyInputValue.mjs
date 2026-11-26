@@ -16,25 +16,34 @@ export function writeMoneyInputValue(input, value) {
     ? Object.getOwnPropertyDescriptor(prototype, 'value')?.set
     : null;
 
-  if (nativeSetter) nativeSetter.call(input, nextValue);
-  else input.value = nextValue;
+  // Android's custom keypad keeps the real field read-only to suppress Gboard.
+  // Temporarily unlock it while dispatching the events so controlled form
+  // handlers can process the update in WebViews that ignore input on readonly fields.
+  const wasReadOnly = Boolean(input.readOnly);
+  try {
+    if (wasReadOnly) input.readOnly = false;
+    if (nativeSetter) nativeSetter.call(input, nextValue);
+    else input.value = nextValue;
 
-  // React attaches this tracker to controlled inputs. Keep its old value so
-  // the following input event is recognized as a real value change.
-  input._valueTracker?.setValue?.(previousValue);
+    // React attaches this tracker to controlled inputs. Keep its old value so
+    // the following input event is recognized as a real value change.
+    input._valueTracker?.setValue?.(previousValue);
 
-  const InputEventConstructor = view?.InputEvent;
-  const EventConstructor = view?.Event || globalThis.Event;
-  const inputEvent = typeof InputEventConstructor === 'function'
-    ? new InputEventConstructor('input', {
-      bubbles: true,
-      composed: true,
-      inputType: 'insertReplacementText',
-      data: nextValue,
-    })
-    : new EventConstructor('input', { bubbles: true, composed: true });
+    const InputEventConstructor = view?.InputEvent;
+    const EventConstructor = view?.Event || globalThis.Event;
+    const inputEvent = typeof InputEventConstructor === 'function'
+      ? new InputEventConstructor('input', {
+        bubbles: true,
+        composed: true,
+        inputType: 'insertReplacementText',
+        data: nextValue,
+      })
+      : new EventConstructor('input', { bubbles: true, composed: true });
 
-  input.dispatchEvent(inputEvent);
-  input.dispatchEvent(new EventConstructor('change', { bubbles: true, composed: true }));
+    input.dispatchEvent(inputEvent);
+    input.dispatchEvent(new EventConstructor('change', { bubbles: true, composed: true }));
+  } finally {
+    if (wasReadOnly) input.readOnly = true;
+  }
   return true;
 }
