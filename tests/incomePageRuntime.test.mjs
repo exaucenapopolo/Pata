@@ -236,3 +236,69 @@ test('les indicateurs revenus séparent le total encaissé, les emprunts et le r
   assert.match(incomePage, /activeMonthSources\.reduce\(\(sum, income\) => sum \+ \(Number\(income\.remaining\) \|\| 0\), 0\)/);
   assert.match(incomePage, /grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6/);
 });
+
+
+test('les prévisions vitales utilisent le même calcul par montant, pourcentage et fréquence que les budgets', () => {
+  assert.match(incomePage, /calculateBudgetPlan\(savedVitalRows, Number\(profile\?\.vitalTotalBudget\)/);
+  assert.match(incomePage, /calculateBudgetLine\(/);
+  assert.match(incomePage, /calculationType: value\.calculationType === 'percentage'/);
+  assert.match(incomePage, /value: numericValue/);
+  assert.match(incomePage, /frequency: value\.frequency \|\| 'monthly'/);
+  assert.match(incomePage, /Pourcentage par période/);
+  assert.match(incomePage, /Équivalent mensuel/);
+});
+
+test('l’application des prévisions choisit un revenu existant par défaut et ne crée un revenu que sur demande', () => {
+  const applyStart = incomePage.indexOf('const applyVitalToBudget =');
+  const applyEnd = incomePage.indexOf('const openNewIncome', applyStart);
+  const applyHandler = incomePage.slice(applyStart, applyEnd);
+  assert.match(incomePage, /const \[vitalCreateIncome, setVitalCreateIncome\] = useState\(false\)/);
+  assert.match(incomePage, /activeMonthSources\.map/);
+  assert.match(incomePage, /Appliquer aux budgets/);
+  assert.match(incomePage, /Je veux aussi créer un nouveau revenu/);
+  assert.match(applyHandler, /if \(vitalCreateIncome\)/);
+  assert.match(applyHandler, /createIncome\(user\.uid/);
+  assert.match(applyHandler, /upsertBudgets\(user\.uid/);
+  assert.match(applyHandler, /incomeSourceId/);
+  assert.doesNotMatch(applyHandler, /const incomeRes = await createIncome/);
+});
+
+test('la page Budget reprend un éditeur complet et un calcul commun à celui des prévisions', () => {
+  assert.match(budgetsPage, /calculateBudgetPlan/);
+  assert.match(budgetsPage, /restoreBudgetPlannerLine/);
+  assert.match(budgetsPage, /openEditBudgetPlan/);
+  assert.match(budgetsPage, /Modifier tout le budget/);
+  assert.match(budgetsPage, /replaceExisting: createBudgetMode === 'edit'/);
+  assert.match(budgetsPage, /value=\{item\.value \?\? ''\}/);
+  assert.match(budgetsPage, /Pourcentage du revenu/);
+  assert.match(budgetsPage, /Prévision mensuelle calculée/);
+});
+
+test('le serveur sauvegarde les fréquences et pourcentages, applique les modèles au revenu choisi et remplace un budget entier', () => {
+  const apiRoute = fs.readFileSync(new URL('../src/app/api/[...path]/route.js', import.meta.url), 'utf8');
+  const multiStart = apiRoute.indexOf('async function handleUpsertBudgets');
+  const multiEnd = apiRoute.indexOf('async function handleUpsertBudget', multiStart);
+  const templateStart = apiRoute.indexOf('async function handleBudgetTemplates');
+  const templateEnd = apiRoute.indexOf('async function handleFinancialTargets', templateStart);
+  const multi = apiRoute.slice(multiStart, multiEnd);
+  const templates = apiRoute.slice(templateStart, templateEnd);
+  assert.match(multi, /replaceExisting = body\.replaceExisting === true/);
+  assert.match(multi, /calculationType: item\?\.calculationType/);
+  assert.match(multi, /frequency: \['daily', 'weekly', 'monthly'\]/);
+  assert.match(multi, /if \(replaceExisting\)/);
+  assert.match(templates, /item\.calculationType/);
+  assert.match(templates, /sourceBase \* value \/ 100/);
+  assert.match(templates, /incomeSourceId/);
+  assert.match(templates, /frequency: item\.frequency/);
+});
+
+test('la confirmation d’une prévision vitale conserve la fréquence et le type de calcul', () => {
+  const apiRoute = fs.readFileSync(new URL('../src/app/api/[...path]/route.js', import.meta.url), 'utf8');
+  const start = apiRoute.indexOf('async function handleSaveVitalForecast');
+  const end = apiRoute.indexOf('async function handleDeleteVitalForecast', start);
+  const handler = apiRoute.slice(start, end);
+  assert.match(handler, /calculationType = raw\?\.calculationType/);
+  assert.match(handler, /value: item\.value/);
+  assert.match(handler, /frequency: item\.frequency/);
+  assert.match(handler, /totalBudget \* item\.value \/ 100/);
+});
