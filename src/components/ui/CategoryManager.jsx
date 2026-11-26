@@ -11,12 +11,14 @@ import { CloudinaryImageField } from '@/components/ui/CloudinaryImageField';
 import { useLanguage } from '@/context/LanguageContext';
 import { useAuth } from '@/hooks/useAuth';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
+import { useAppDialog } from '@/hooks/useAppDialog';
 import { createCategory, updateCategory, deleteCategory } from '@/lib/firestore/categories';
 
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#6366f1', '#ef4444', '#ec4899', '#8b5cf6', '#94a3b8'];
 
 export function CategoryManager({ type, value, onChange }) {
   const { user } = useAuth();
+  const { appConfirm, dialog } = useAppDialog();
   const { language } = useLanguage();
   const isEnglish = language === 'en';
   const { categories } = useCustomCategories(type);
@@ -76,7 +78,7 @@ export function CategoryManager({ type, value, onChange }) {
   const onDelete = async (e, id) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!confirm('Supprimer cette catégorie ? Les transactions existantes ne seront pas supprimées.')) return;
+    if (!(await appConfirm(isEnglish ? 'Delete this category? Existing transactions will not be deleted.' : 'Supprimer cette catégorie ? Les transactions existantes ne seront pas supprimées.', { kind: 'danger', title: isEnglish ? 'Delete category?' : 'Supprimer cette catégorie ?', confirmLabel: isEnglish ? 'Delete category' : 'Supprimer' }))) return;
     await deleteCategory(user.uid, id);
   };
 
@@ -135,6 +137,7 @@ export function CategoryManager({ type, value, onChange }) {
           </Button>
         </form>
       </Modal>
+      {dialog}
     </div>
   );
                 }
