@@ -120,7 +120,7 @@ export function MoneyKeypad() {
     host.style.setProperty('padding-bottom', (keypadScrollHostBasePaddingRef.current + keypadRect.height + 24) + 'px');
 
     const scrollOffset = getMoneyKeypadScrollOffset(inputRect, keypadRect, 16);
-    if (scrollOffset > 0) host.scrollBy({ top: scrollOffset, behavior: 'smooth' });
+    if (scrollOffset > 0) host.scrollBy({ top: scrollOffset, behavior: 'auto' });
   }, [restoreKeypadScrollSpace]);
 
   const restoreActiveInput = useCallback(() => {
