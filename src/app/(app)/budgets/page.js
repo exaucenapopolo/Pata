@@ -430,7 +430,7 @@ export default function BudgetsPage() {
       setTemplates(await getBudgetTemplates());
       if (applySuggestedAfterSave && !editingTemplateId) {
         const applied = await applyBudgetTemplate(savedTemplateId, month, selectedIncome);
-        setTemplateMessage(isEnglish ? \`Suggested budget saved and applied to \${month}: \${applied.createdCount || 0} budget limit(s) created, \${applied.updatedCount || 0} updated. You can still adjust each amount.\` : 'Budget conseillé enregistré et appliqué à ' + month + ' : ' + (applied.createdCount || 0) + ' enveloppe(s) créée(s), ' + (applied.updatedCount || 0) + ' mise(s) à jour. Tu peux encore ajuster chaque montant.');
+        setTemplateMessage(isEnglish ? `Suggested budget saved and applied to ${month}: ${applied.createdCount || 0} budget limit(s) created, ${applied.updatedCount || 0} updated. You can still adjust each amount.` : 'Budget conseillé enregistré et appliqué à ' + month + ' : ' + (applied.createdCount || 0) + ' enveloppe(s) créée(s), ' + (applied.updatedCount || 0) + ' mise(s) à jour. Tu peux encore ajuster chaque montant.');
       } else {
         setTemplateMessage(editingTemplateId
           ? (isEnglish ? 'Template updated. Previously applied versions are unchanged.' : 'Modèle mis à jour. Les versions déjà appliquées ne sont pas modifiées.')
