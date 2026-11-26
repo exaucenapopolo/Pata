@@ -34,6 +34,10 @@ jobs:
         run: npm run test:quick-capture
       - name: Tester le clavier de montant Android et la restauration des champs
         run: npm run test:money-keypad
+      - name: Tester la visibilité du champ au-dessus de la calculatrice
+        run: npm run test:money-keypad-scroll
+      - name: Tester le rattachement des paiements SMS aux factures impayées
+        run: npm run test:sms-bill-payment
       - name: Tester les analyses et projections par catégorie
         run: npm run test:category-analysis
       - name: Tester le guide court et le guide complet
