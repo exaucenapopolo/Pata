@@ -11,6 +11,7 @@ import { useLanguage } from '@/context/LanguageContext';
 import { translateText } from '@/lib/i18n/translations';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useAuth } from '@/hooks/useAuth';
 import { useProfile } from '@/hooks/useProfile';
@@ -23,6 +24,8 @@ import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { formatCurrency, getLocalMonth, normalizeExpenseCategoryId } from '@/lib/utils';
 import { buildBudgetSuggestions } from '@/lib/financialPlanning';
 import { isIncomeCountedAsSource } from '@/lib/finance/incomeBalances.mjs';
+import { isBudgetCountedExpense } from '@/lib/finance/budgetSpendSummary.mjs';
+import { buildBudgetRunway } from '@/lib/finance/budgetRunway.mjs';
 import { usePersistentPageState } from '@/hooks/usePersistentPageState';
 import { NextBestAction } from '@/components/NextBestAction';
 import { useAppDialog } from '@/hooks/useAppDialog';
@@ -30,6 +33,18 @@ import { CalculatorLauncher } from '@/components/finance/CalculatorPanel';
 import { calculateBudgetPlan, restoreBudgetPlannerLine } from '@/lib/finance/budgetPlanner.mjs';
 
 const todayMonth = () => getLocalMonth();
+const todayIso = () => {
+  const date = new Date();
+  return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
+};
+const formatBudgetDate = (value, language = 'fr') => {
+  const match = String(value || '').slice(0, 10).match(/^(\\d{4})-(\\d{2})-(\\d{2})$/);
+  if (!match) return value || 'Date inconnue';
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12);
+  return date.toLocaleDateString(language === 'en' ? 'en-GB' : 'fr-FR', {
+    day: '2-digit', month: 'long', year: 'numeric',
+  });
+};
 const getMonthEndDate = (monthKey) => {
   const [year, monthNumber] = String(monthKey).split('-').map(Number);
   const lastDay = new Date(year, monthNumber, 0).getDate();
@@ -96,6 +111,9 @@ export default function BudgetsPage() {
   const [savingTarget, setSavingTarget] = useState(false);
   const [targetMessage, setTargetMessage] = useState('');
   const [creatingBudget, setCreatingBudget] = useState(false);
+  const [deleteCompleteBudgetOpen, setDeleteCompleteBudgetOpen] = useState(false);
+  const [deletingCompleteBudget, setDeletingCompleteBudget] = useState(false);
+  const [deleteCompleteBudgetFeedback, setDeleteCompleteBudgetFeedback] = useState('');
 
   const [pinMenuId, setPinMenuId] = useState(null);
   const [pinSavingId, setPinSavingId] = useState('');
@@ -153,7 +171,9 @@ export default function BudgetsPage() {
     : Math.max(0, Number(budgetIncomeSources.find((income) => income.id === selectedIncome)?.amount) || 0);
 
   const monthExpenses = useMemo(() => {
-    let filtered = expenses.filter((e) => !e.neutralFlow && e.date?.startsWith(month));
+    let filtered = expenses.filter((e) =>
+      String(e.date || '').startsWith(month) && isBudgetCountedExpense(e)
+    );
     // En vue globale, inclure toutes les parts des dépenses réparties entre plusieurs revenus.
     if (selectedIncome !== 'all') {
       filtered = filtered.filter(e => e.incomeSourceId === selectedIncome);
@@ -173,7 +193,7 @@ export default function BudgetsPage() {
   const enriched = useMemo(() => {
     return expenseCategories.map((c) => {
       const budget = budgets.find((b) => normalizeExpenseCategoryId(b.categoryId) === c.id);
-      const spent = spentByCategory[c.id] || 0;
+      const spent = Number(spentByCategory[c.id]) || 0;
       const allocated = budget?.amount || 0;
       const usage = allocated > 0 ? (spent / allocated) * 100 : spent > 0 ? 100 : 0;
       return {
@@ -210,6 +230,18 @@ export default function BudgetsPage() {
   const totalAllocated = enriched.reduce((s, c) => s + c.allocated, 0);
   const totalSpent = enriched.reduce((s, c) => s + c.spent, 0);
   const budgetRemaining = totalAllocated - totalSpent;
+  const selectedBudgetIncome = budgetIncomeSources.find((income) => income.id === selectedIncome) || null;
+  const liveDetails = details ? (enriched.find((category) => category.id === details.id) || details) : null;
+  const detailsRunway = useMemo(() => {
+    if (!liveDetails) return null;
+    const asOfDate = month === todayMonth() ? todayIso() : getMonthEndDate(month);
+    return buildBudgetRunway({
+      expenses: liveDetails.expenses || [],
+      remaining: liveDetails.remaining,
+      asOfDate,
+    });
+  }, [liveDetails, month]);
+  const isCurrentBudgetMonth = month === todayMonth();
   const createBudgetIncome = budgetIncomeSources.find((income) => income.id === createBudgetIncomeSourceId);
   const createBudgetSelectedCategoryIds = new Set(createBudgetItems.map((item) => item.categoryId).filter(Boolean));
   const createBudgetExistingTotal = budgets.reduce((sum, budget) => sum + Math.max(0, Number(budget.amount) || 0), 0);
@@ -476,6 +508,35 @@ export default function BudgetsPage() {
     }
   };
 
+  const deleteCompleteBudget = async () => {
+    if (!user?.uid || selectedIncome === 'all' || !budgets.length || budgetsLoading || deletingCompleteBudget) return;
+    setDeletingCompleteBudget(true);
+    setDeleteCompleteBudgetFeedback('');
+    try {
+      // Le serveur supprime toute la répartition en une seule transaction,
+      // après avoir revérifié la source et le mois. Les dépenses restent intactes.
+      const result = await upsertBudgets(user.uid, {
+        items: [],
+        month,
+        incomeSourceId: selectedIncome,
+        replaceExisting: true,
+      });
+      const deletedCount = Number(result?.deletedCount) || budgets.length;
+      setDetails(null);
+      setEditing(null);
+      setDeleteCompleteBudgetOpen(false);
+      setDeleteCompleteBudgetFeedback(isEnglish
+        ? deletedCount + ' envelope(s) deleted. Your expenses and income history are unchanged.'
+        : deletedCount + ' enveloppe(s) supprimée(s). Tes dépenses et l’historique de ton revenu sont conservés.');
+    } catch (error) {
+      setDeleteCompleteBudgetFeedback(error.message || (isEnglish
+        ? 'Could not delete this complete budget.'
+        : 'Impossible de supprimer toutes les enveloppes de ce budget.'));
+    } finally {
+      setDeletingCompleteBudget(false);
+    }
+  };
+
   const onSave = async (e) => {
     e.preventDefault();
     const value = Number(amount);
@@ -514,10 +575,22 @@ export default function BudgetsPage() {
           <Button type="button" size="sm" onClick={() => openCreateBudget()} disabled={!expenseCategories.length || !budgetIncomeSources.length || budgetQuotaReached}>
             <Plus size={14}/> Ajouter des enveloppes
           </Button>
-          {selectedIncome !== 'all' && budgetedCategories.length > 0 && (
-            <Button type="button" size="sm" variant="outline" onClick={openEditBudgetPlan}>
-              <Pencil size={14}/> Modifier tout le budget
-            </Button>
+          {selectedIncome !== 'all' && budgets.length > 0 && (
+            <>
+              <Button type="button" size="sm" variant="outline" onClick={openEditBudgetPlan} disabled={budgetsLoading || deletingCompleteBudget}>
+                <Pencil size={14}/> Modifier tout le budget
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => { setDeleteCompleteBudgetFeedback(''); setDeleteCompleteBudgetOpen(true); }}
+                disabled={budgetsLoading || deletingCompleteBudget}
+                className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+              >
+                <Trash2 size={14}/> Supprimer tout le budget
+              </Button>
+            </>
           )}
           <Button type="button" variant="outline" size="sm" onClick={() => {
             const prompt = isEnglish
@@ -547,6 +620,7 @@ export default function BudgetsPage() {
           </select>
         </div>
       </div>
+      {deleteCompleteBudgetFeedback && <p role="status" className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs leading-5 text-slate-700">{deleteCompleteBudgetFeedback}</p>}
       {!incomesLoading && budgetIncomeSources.length === 0 && (
         <p role="status" className="rounded-xl border border-slate-200 bg-white/70 px-3 py-2.5 text-xs leading-5 text-slate-600">
           Aucun revenu de cette période ne possède un solde restant vérifié et positif. Pata masquera les revenus épuisés lors de la création d’un budget.
@@ -866,33 +940,128 @@ export default function BudgetsPage() {
           </Button>
         </form>
       </Modal>
-      <Modal open={!!details} onClose={() => setDetails(null)} title={details ? (isEnglish ? `Budget details — ${translateText(details.label, 'en')}` : `Détail du budget — ${details.label}`) : ''}>
-        {details && (
+      <ConfirmDialog
+        open={deleteCompleteBudgetOpen}
+        onClose={() => { if (!deletingCompleteBudget) setDeleteCompleteBudgetOpen(false); }}
+        onConfirm={deleteCompleteBudget}
+        title={isEnglish ? 'Delete this complete budget?' : 'Supprimer tout ce budget ?'}
+        message={isEnglish
+          ? 'This permanently removes all ' + budgets.length + ' envelopes assigned to “' + (selectedBudgetIncome?.source || 'this income') + '” for ' + month + ' (' + formatCurrency(budgets.reduce((sum, item) => sum + (Number(item.amount) || 0), 0)) + ' allocated). Expense records, the income source and its history will be kept. This cannot be undone.'
+          : 'Cette action supprimera définitivement les ' + budgets.length + ' enveloppe(s) rattachée(s) au revenu « ' + (selectedBudgetIncome?.source || 'ce revenu') + ' » pour ' + month + ' (' + formatCurrency(budgets.reduce((sum, item) => sum + (Number(item.amount) || 0), 0)) + ' alloué). Les dépenses, la source de revenu et son historique seront conservés. Cette action ne peut pas être annulée.'}
+        confirmWord="SUPPRIMER"
+        confirmLabel={isEnglish ? 'Delete all envelopes' : 'Supprimer toutes les enveloppes'}
+        busy={deletingCompleteBudget}
+      />
+      <Modal open={!!liveDetails} onClose={() => setDetails(null)} title={liveDetails ? (isEnglish ? `Budget details — ${translateText(liveDetails.label, 'en')}` : `Détail du budget — ${translateText(liveDetails.label, language)}`) : ''} className="max-w-xl">
+        {liveDetails && (
           <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-slate-500">{translateText(liveDetails.label, language)} · {month}</p>
+              <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-600">
+                {liveDetails.budgetFrequency === 'daily' ? 'Allocation quotidienne' : liveDetails.budgetFrequency === 'weekly' ? 'Allocation hebdomadaire' : 'Allocation mensuelle'}
+              </span>
+            </div>
             <div className="grid grid-cols-3 gap-2">
-              <div className="rounded-lg bg-slate-50 p-3"><p className="text-[11px] text-slate-500">Alloué</p><p className="mt-1 text-sm font-bold text-slate-900">{formatCurrency(details.allocated)}</p></div>
-              <div className="rounded-lg bg-slate-50 p-3"><p className="text-[11px] text-slate-500">Dépensé</p><p className="mt-1 text-sm font-bold text-red-600">{formatCurrency(details.spent)}</p></div>
-              <div className="rounded-lg bg-slate-50 p-3"><p className="text-[11px] text-slate-500">Restant</p><p className={`mt-1 text-sm font-bold ${details.remaining < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{formatCurrency(details.remaining)}</p></div>
+              <div className="rounded-lg bg-slate-50 p-3"><p className="text-[11px] text-slate-500">Alloué</p><p className="mt-1 text-sm font-bold text-slate-900">{formatCurrency(liveDetails.allocated)}</p></div>
+              <div className="rounded-lg bg-slate-50 p-3"><p className="text-[11px] text-slate-500">Dépensé</p><p className="mt-1 text-sm font-bold text-red-600">{formatCurrency(liveDetails.spent)}</p></div>
+              <div className="rounded-lg bg-slate-50 p-3"><p className="text-[11px] text-slate-500">Restant</p><p className={`mt-1 text-sm font-bold ${liveDetails.remaining < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{formatCurrency(liveDetails.remaining)}</p></div>
             </div>
             <div className="rounded-lg border border-slate-200 p-3">
-              <div className="flex justify-between text-xs text-slate-500"><span>Consommation</span><strong>{details.usage.toFixed(0)} %</strong></div>
-              <ProgressBar value={Math.min(100, details.usage)} color={details.usage > 100 ? '#ef4444' : details.usage > 80 ? '#f59e0b' : details.color} />
-              <p className="mt-2 text-xs leading-5 text-slate-500">{details.remaining < 0 ? `Tu as dépassé cette enveloppe de ${formatCurrency(Math.abs(details.remaining))}.` : `Il te reste ${formatCurrency(details.remaining)} pour cette catégorie.`}</p>
+              <div className="flex justify-between text-xs text-slate-500"><span>Consommation</span><strong>{liveDetails.usage.toFixed(0)} %</strong></div>
+              <ProgressBar value={Math.min(100, liveDetails.usage)} color={liveDetails.usage > 100 ? '#ef4444' : liveDetails.usage > 80 ? '#f59e0b' : liveDetails.color} />
+              <p className="mt-2 text-xs leading-5 text-slate-500">{liveDetails.remaining < 0 ? `Tu as dépassé cette enveloppe de ${formatCurrency(Math.abs(liveDetails.remaining))}.` : `Il te reste ${formatCurrency(liveDetails.remaining)} pour cette catégorie.`}</p>
             </div>
+
+            <section className="rounded-xl border border-brand-100 bg-brand-50/50 p-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900">Prévision au rythme de tes dépenses</h3>
+                  <p className="mt-1 text-[11px] leading-5 text-slate-600">Pata compte aussi les jours où tu n’as rien dépensé. La moyenne reflète donc ton rythme sur le calendrier, pas seulement les jours d’achat.</p>
+                </div>
+                {detailsRunway?.confidence && detailsRunway.confidence !== 'none' && (
+                  <span className="rounded-lg bg-white px-2 py-1 text-[10px] font-semibold text-slate-600">
+                    Fiabilité {detailsRunway.confidence === 'high' ? 'bonne' : detailsRunway.confidence === 'medium' ? 'moyenne' : 'limitée'}
+                  </span>
+                )}
+              </div>
+              {!isCurrentBudgetMonth ? (
+                <p className="mt-3 rounded-lg bg-white/80 p-3 text-xs leading-5 text-slate-600">Les projections à 3, 7 et 30 jours sont réservées au mois en cours. Les dépenses historiques et leurs dates restent consultables ci-dessous.</p>
+              ) : !detailsRunway?.hasUsablePace ? (
+                <p className="mt-3 rounded-lg bg-white/80 p-3 text-xs leading-5 text-slate-600">
+                  {liveDetails.remaining <= 0
+                    ? 'Cette enveloppe est déjà épuisée.'
+                    : 'Pas encore assez de dépenses datées dans cette enveloppe pour estimer une vitesse fiable. La prévision apparaîtra dès que Pata aura observé tes premières dépenses.'}
+                </p>
+              ) : (
+                <>
+                  <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    <div className="rounded-lg bg-white p-2.5"><p className="text-[10px] text-slate-500">Moyenne par jour</p><p className="mt-1 text-sm font-bold text-slate-900">{formatCurrency(detailsRunway.averageDailySpend)}</p></div>
+                    <div className="rounded-lg bg-white p-2.5"><p className="text-[10px] text-slate-500">Jours avec dépense</p><p className="mt-1 text-sm font-bold text-slate-900">{detailsRunway.spendingDays} / {detailsRunway.observedDays}</p></div>
+                    <div className="rounded-lg bg-white p-2.5"><p className="text-[10px] text-slate-500">Moyenne par jour actif</p><p className="mt-1 text-sm font-bold text-slate-900">{formatCurrency(detailsRunway.averageSpendPerActiveDay)}</p></div>
+                    <div className="rounded-lg bg-white p-2.5"><p className="text-[10px] text-slate-500">Fréquence observée</p><p className="mt-1 text-sm font-bold text-slate-900">{detailsRunway.spendingDaysPerWeek.toLocaleString(isEnglish ? 'en-GB' : 'fr-FR', { maximumFractionDigits: 1 })} j/sem.</p></div>
+                  </div>
+                  <div className="mt-3 rounded-lg bg-white p-3">
+                    <p className="text-[11px] font-medium text-slate-500">Épuisement estimé</p>
+                    <p className="mt-1 text-sm font-bold text-slate-900">
+                      {detailsRunway.daysUntilEmpty === 0
+                        ? 'Enveloppe déjà épuisée'
+                        : detailsRunway.daysUntilEmpty == null
+                          ? 'Estimation indisponible'
+                          : `Dans environ ${detailsRunway.daysUntilEmpty} jour(s), vers le ${formatBudgetDate(detailsRunway.estimatedExhaustionDate, language)}`}
+                    </p>
+                    <p className="mt-1 text-[10px] leading-4 text-slate-500">Estimation calculée à partir de ${detailsRunway.expenseCount} opération(s), sur ${detailsRunway.observedDays} jour(s) calendaires depuis la première dépense.</p>
+                  </div>
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    {detailsRunway.projections.map((projection) => (
+                      <div key={projection.days} className="rounded-lg border border-brand-100 bg-white p-2.5">
+                        <p className="text-[10px] text-slate-500">Dans ${projection.days} jours</p>
+                        <p className={`mt-1 text-sm font-bold ${projection.projectedRemaining < 0 ? 'text-red-600' : 'text-emerald-700'}`}>
+                          {projection.projectedRemaining < 0
+                            ? `Déficit ${formatCurrency(Math.abs(projection.projectedRemaining))}`
+                            : formatCurrency(projection.projectedRemaining)}
+                        </p>
+                        <p className="mt-1 text-[10px] text-slate-400">Sorties estimées : {formatCurrency(projection.projectedSpend)}</p>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </section>
+
             <div>
-              <div className="mb-2 flex items-center justify-between"><h3 className="text-sm font-semibold text-slate-800">Dépenses enregistrées</h3><span className="text-xs text-slate-500">{details.expenses.length} opération(s)</span></div>
-              {details.expenses.length === 0 ? <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-500">Aucune dépense dans cette catégorie pour ce mois.</p> : (
-                <ul className="max-h-56 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-100">
-                  {details.expenses.slice().sort((a,b) => String(b.date || '').localeCompare(String(a.date || ''))).map((expense) => (
-                    <li key={expense.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
-                      <div className="min-w-0"><p className="truncate text-sm font-medium text-slate-800">{expense.note || details.label}</p><p className="text-xs text-slate-500">{expense.date || 'Date inconnue'}{expense.incomeSourceName ? ` · ${expense.incomeSourceName}` : ''}</p></div>
-                      <strong className="shrink-0 text-sm text-slate-900">{formatCurrency(expense.amount)}</strong>
-                    </li>
-                  ))}
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <h3 className="text-sm font-semibold text-slate-800">Dépenses détaillées</h3>
+                <span className="text-xs text-slate-500">{liveDetails.expenses.length} ligne(s) · {detailsRunway?.expenseCount ?? 0} opération(s) observée(s)</span>
+              </div>
+              {liveDetails.expenses.length === 0 ? (
+                <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-500">Aucune dépense dans cette catégorie pour ce mois.</p>
+              ) : (
+                <ul className="max-h-80 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-100">
+                  {liveDetails.expenses.slice().sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))).map((expense) => {
+                    const expenseCategory = expenseCategories.find((category) => category.id === normalizeExpenseCategoryId(expense.categoryId));
+                    const title = expense.title || expense.name || expense.description || expense.note || expense.details || liveDetails.label;
+                    const metadata = [
+                      formatBudgetDate(expense.date, language),
+                      expenseCategory?.name ? translateText(expenseCategory.name, language) : translateText(liveDetails.label, language),
+                      expense.paymentMethod ? 'Mode : ' + translateText(expense.paymentMethod, language) : '',
+                      expense.incomeSourceName || (selectedBudgetIncome?.source && selectedIncome !== 'all' ? selectedBudgetIncome.source : ''),
+                    ].filter(Boolean);
+                    return (
+                      <li key={expense.id} className="flex items-start justify-between gap-3 px-3 py-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="break-words text-sm font-semibold text-slate-800">{title}</p>
+                          <p className="mt-1 text-[10px] leading-4 text-slate-500">{metadata.join(' · ')}</p>
+                          {(expense.details && expense.details !== title) && <p className="mt-1 whitespace-pre-wrap break-words text-[11px] leading-4 text-slate-600">{expense.details}</p>}
+                          {(expense.locationLabel) && <p className="mt-1 text-[10px] text-slate-400">{expense.locationLabel}</p>}
+                        </div>
+                        <strong className="shrink-0 text-sm font-bold text-slate-900">{formatCurrency(expense.amount)}</strong>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </div>
-            <Button type="button" className="w-full" onClick={() => { const prompt = isEnglish ? `Help me improve my ${details.label} budget for ${month}. Planned amount: ${details.allocated} XAF. Recorded expenses: ${details.spent} XAF. Remaining: ${details.remaining} XAF. Analyze the transactions and suggest realistic changes without modifying my data.` : `Aide-moi à améliorer mon budget ${details.label} pour ${month}. Montant prévu : ${details.allocated} FCFA. Dépenses enregistrées : ${details.spent} FCFA. Reste : ${details.remaining} FCFA. Analyse les opérations et propose des changements réalistes sans modifier mes données.`; window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt } })); setDetails(null); }}>
+            <Button type="button" className="w-full" onClick={() => { const prompt = isEnglish ? `Help me improve my ${liveDetails.label} budget for ${month}. Planned amount: ${liveDetails.allocated} XAF. Recorded expenses: ${liveDetails.spent} XAF. Remaining: ${liveDetails.remaining} XAF. Average daily spend: ${detailsRunway?.averageDailySpend || 0} XAF. Estimated days remaining: ${detailsRunway?.daysUntilEmpty ?? 'unavailable'}. Analyze the transactions and suggest realistic changes without modifying my data.` : `Aide-moi à améliorer mon budget ${liveDetails.label} pour ${month}. Montant prévu : ${liveDetails.allocated} FCFA. Dépenses enregistrées : ${liveDetails.spent} FCFA. Reste : ${liveDetails.remaining} FCFA. Dépense quotidienne moyenne observée : ${detailsRunway?.averageDailySpend || 0} FCFA. Épuisement estimé dans : ${detailsRunway?.daysUntilEmpty ?? 'indisponible'} jour(s). Analyse les opérations et propose des changements réalistes sans modifier mes données.`; window.dispatchEvent(new CustomEvent('pata:assistant-open', { detail: { prompt } })); setDetails(null); }}>
               <MessageCircle size={15} /> Demander conseil à Mč
             </Button>
           </div>
