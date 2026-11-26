@@ -10,17 +10,24 @@ test('le tableau de bord limite la période par défaut au premier jour du mois 
   assert.match(dashboard, /const endDate = showCustomPeriod \? customEnd : todayIso\(\);/);
 });
 
-test('les trois montants du haut réutilisent les mêmes totaux de période que les cartes du bas', () => {
-  assert.match(dashboard, /const periodIncomeTotal = periodIncomes\.filter\(\(income\) => !income\.neutralFlow\)/);
-  assert.match(dashboard, /const periodExpenseTotal = periodExpenses\.filter\(\(expense\) => !expense\.neutralFlow\)/);
+test('les entrées du tableau de bord suivent les sources encaissées de la page Revenus', () => {
+  assert.match(dashboard, /const periodIncomeSources = useMemo\(\(\) => periodIncomes\.filter\(/);
+  assert.match(dashboard, /income\.flowType !== 'repayment_received'/);
+  assert.match(dashboard, /income\.categoryId !== 'debt_repayment_received'/);
+  assert.match(dashboard, /const periodIncomeTotal = periodIncomeSources\.reduce\(/);
   assert.match(dashboard, /const totalIncome = periodIncomeTotal;/);
   assert.match(dashboard, /const totalExpense = periodExpenseTotal;/);
-  assert.match(dashboard, /const globalBalance = totalIncome - totalExpense;/);
   assert.match(dashboard, /\{formatCurrency\(periodIncomeTotal\)\}/);
   assert.match(dashboard, /\{formatCurrency\(periodExpenseTotal\)\}/);
-  assert.match(dashboard, /\{formatCurrency\(periodIncomeTotal - periodExpenseTotal\)\}/);
-  assert.doesNotMatch(dashboard, /globalFinanceSummary/);
-  assert.doesNotMatch(dashboard, /\/api\/finance\/global-summary/);
+  assert.doesNotMatch(dashboard, /const globalBalance = totalIncome - totalExpense/);
+});
+
+test('le disponible du tableau de bord réutilise les soldes de la page Revenus', () => {
+  assert.match(dashboard, /sumAvailableIncomeBalances\(periodIncomeSources, balancesReady\)/);
+  assert.match(dashboard, /Disponible \(dettes incluses\)/);
+  assert.match(dashboard, /globalBalance == null \? '—' : formatCurrency\(globalBalance\)/);
+  assert.match(dashboard, /calculée comme dans la page Revenus/);
+  assert.doesNotMatch(dashboard, /formatCurrency\(periodIncomeTotal - periodExpenseTotal\)/);
 });
 
 test('les agrégations serveur filtrent revenus et dépenses avec les deux dates inclusives', () => {
