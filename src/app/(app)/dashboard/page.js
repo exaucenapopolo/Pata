@@ -344,7 +344,7 @@ export default function DashboardPage() {
   // mais le disponible n'est plus recalculé par une soustraction globale.
   const periodIncomeSources = useMemo(() => periodIncomes.filter((income) =>
     isIncomeCountedAsSource(income)
-    && income.cashPocket !== true
+    && !income.cashPocket
     && income.flowType !== 'repayment_received'
     && income.categoryId !== 'debt_repayment_received'
   ), [periodIncomes]);
