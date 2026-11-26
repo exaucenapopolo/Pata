@@ -25,6 +25,7 @@ import { buildBudgetSuggestions } from '@/lib/financialPlanning';
 import { isIncomeCountedAsSource } from '@/lib/finance/incomeBalances.mjs';
 import { usePersistentPageState } from '@/hooks/usePersistentPageState';
 import { NextBestAction } from '@/components/NextBestAction';
+import { useAppDialog } from '@/hooks/useAppDialog';
 
 const todayMonth = () => getLocalMonth();
 const getMonthEndDate = (monthKey) => {
@@ -38,6 +39,7 @@ export default function BudgetsPage() {
   const { language } = useLanguage();
   const isEnglish = language === 'en';
   const { profile } = useProfile();
+  const { appConfirm, dialog } = useAppDialog();
   const [month, setMonth] = usePersistentPageState('budgets', 'month', todayMonth(), user?.uid);
   const [selectedIncome, setSelectedIncome] = usePersistentPageState('budgets', 'selectedIncome', 'all', user?.uid);
   const [targetCategoryId, setTargetCategoryId] = usePersistentPageState('budgets', 'targetCategoryId', '', user?.uid);
@@ -392,7 +394,7 @@ export default function BudgetsPage() {
     if (!Array.isArray(template.items) || !template.items.length) return;
     const existingCount = template.items.filter((item) => budgets.some((budget) => normalizeExpenseCategoryId(budget.categoryId) === normalizeExpenseCategoryId(item.categoryId))).length;
     const confirmed = existingCount > 0
-      ? window.confirm(isEnglish ? `Apply “${template.name}” to ${month}? Positive amounts will be created or updated. Categories set to zero will have their budget limit removed for this month. Other budgets will remain unchanged.` : 'Appliquer « ' + template.name + ' » à ' + month + ' ? Les montants positifs seront créés ou mis à jour. Les catégories à zéro supprimeront leur enveloppe de ce mois. Les autres budgets resteront inchangés.')
+      ? await appConfirm(isEnglish ? `Apply “${template.name}” to ${month}? Positive amounts will be created or updated. Categories set to zero will have their budget limit removed for this month. Other budgets will remain unchanged.` : 'Appliquer « ' + template.name + ' » à ' + month + ' ? Les montants positifs seront créés ou mis à jour. Les catégories à zéro supprimeront leur enveloppe de ce mois. Les autres budgets resteront inchangés.', { title: isEnglish ? 'Apply budget template' : 'Appliquer le modèle de budget', confirmLabel: isEnglish ? 'Apply template' : 'Appliquer le modèle' })
       : true;
     if (!confirmed) return;
     setApplyingTemplate(template.id);
@@ -408,7 +410,7 @@ export default function BudgetsPage() {
   };
 
   const deleteTemplate = async (template) => {
-    if (!window.confirm(isEnglish ? `Delete the template “${template.name}”? Budgets already applied will not be deleted.` : 'Supprimer le modèle « ' + template.name + ' » ? Cela ne supprimera aucun budget déjà appliqué.')) return;
+    if (!(await appConfirm(isEnglish ? `Delete the template “${template.name}”? Budgets already applied will not be deleted.` : 'Supprimer le modèle « ' + template.name + ' » ? Cela ne supprimera aucun budget déjà appliqué.', { title: isEnglish ? 'Delete budget template?' : 'Supprimer ce modèle ?', kind: 'danger', confirmLabel: isEnglish ? 'Delete template' : 'Supprimer le modèle' }))) return;
     try {
       await removeBudgetTemplate(template.id);
       setTemplates((current) => current.filter((item) => item.id !== template.id));
@@ -916,6 +918,7 @@ export default function BudgetsPage() {
           </form>
         )}
       </Modal>
+      {dialog}
     </div>
   );
                                   }
