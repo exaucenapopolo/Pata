@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Home, Wallet, TrendingUp, Plus, Menu, X, Banknote, Target, BarChart3, Settings, Crown, LogOut, PiggyBank, Users, HandCoins, Receipt, Info, Lock, Pencil, GripVertical } from 'lucide-react';
+import { Home, Wallet, TrendingUp, Plus, Menu, X, Banknote, Target, BarChart3, Settings, Crown, LogOut, PiggyBank, Users, HandCoins, Receipt, Info, Lock, Pencil, GripVertical, Calculator } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { bodyScrollLockManager } from '@/lib/ui/bodyScrollLock.mjs';
@@ -17,6 +17,7 @@ const MORE_NAV = [
   { href: '/bills', label: 'Factures', icon: Receipt, description: 'Électricité, eau, loyer et abonnements', position: 'middle-right' },
   { href: '/debts', label: 'Dettes & prêts', icon: HandCoins, description: 'Créances, échéances et remboursements', position: 'bottom-left' },
   { href: '/reports', label: 'Rapports', icon: BarChart3, description: 'Bilans et analyses', position: 'bottom-center' },
+  { href: '/calculator', label: 'Calculatrice', icon: Calculator, description: 'Faire un calcul et copier le résultat', position: 'top-center' },
   { href: '/premium', label: 'Premium', icon: Crown, description: 'Options et abonnement', position: 'center' },
   { href: '/settings', label: 'Paramètres', icon: Settings, description: 'Compte et préférences', position: 'bottom-right' },
 ];
@@ -30,6 +31,7 @@ const QUICK_NAV_PAGES = [
   { href: '/cotisations', label: 'Cotisations', description: 'Gérer tes groupes', icon: Users, tone: 'teal' },
   { href: '/wallet', label: 'Portefeuille', description: 'Consulter ton solde', icon: Banknote, tone: 'lime' },
   { href: '/reports', label: 'Rapports', description: 'Voir tes analyses', icon: BarChart3, tone: 'purple' },
+  { href: '/calculator', label: 'Calculatrice', description: 'Faire un calcul', icon: Calculator, tone: 'slate' },
   { href: '/premium', label: 'Premium', description: 'Explorer les automatisations', icon: Crown, tone: 'green' },
   { href: '/settings', label: 'Paramètres', description: 'Gérer tes préférences', icon: Settings, tone: 'slate' },
 ];
