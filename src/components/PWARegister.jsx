@@ -2,7 +2,6 @@
 
 import { useEffect } from 'react';
 import { Capacitor } from '@capacitor/core';
-import { App } from '@capacitor/app';
 
 const APP_BUILD_ID = process.env.NEXT_PUBLIC_APP_BUILD_ID || 'local';
 const NATIVE_WORKER_RELOAD_KEY = 'pata-native-worker-cleanup-reload-v1';
@@ -80,6 +79,11 @@ export function PWARegister() {
             if (reloaded || !active) return;
           }
           if (await checkRemoteWebBuild() || !active) return;
+          // Charger le plugin natif seulement dans la WebView Android/iOS.
+          // L'import statique dans ce composant global ajoutait le module natif
+          // au bundle initial de toutes les pages web.
+          const { App } = await import('@capacitor/app');
+          if (!active) return;
           appStateListenerPromise = App.addListener('appStateChange', ({ isActive }) => {
             if (isActive) void checkRemoteWebBuild();
           });
