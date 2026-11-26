@@ -57,17 +57,19 @@ test('la sélection multiple combine appui prolongé, touches simples et sélect
   assert.doesNotMatch(page, /Tout sélectionner|Sélectionner toutes les dépenses/i);
 });
 
-test('les actions groupées suppriment les opérations entières et les rattachent à une source atomiquement', () => {
+test('les actions groupées suppriment les opérations entières et utilisent des transactions atomiques', () => {
   const page = read('src/app/(app)/expenses/page.js');
   const client = read('src/lib/firestore/expenses.js');
   const route = read('src/app/api/[...path]/route.js');
   const finance = read('src/lib/ai/financialTools.js');
-  assert.match(page, /deleteExpenseOperations\(\s*user\.uid,\s*selectedExpenseOperations\.map/);
+
+  assert.match(page, /deleteExpenseOperations\(/);
+  assert.match(page, /selectedExpenseOperations\.map\(\(operation\) => operation\.root\.id\)/);
   assert.match(page, /reassignExpensesToIncome\(user\.uid, expenseIds, selectedSource\.id\)/);
   assert.match(client, /postExpenseAction\('delete-many'/);
   assert.match(client, /postExpenseAction\('reassign-source'/);
-  assert.match(route, /deleteExpenseOperationsForUser\(/);
-  assert.match(route, /reassignExpenseOperationsToSourceForUser\(/);
+  assert.match(route, /'expenses\/delete-many': \{ POST: handleDeleteExpensesBulk \}/);
+  assert.match(route, /'expenses\/reassign-source': \{ POST: handleReassignExpenseSource \}/);
   assert.match(finance, /export async function deleteExpenseOperationsForUser/);
   assert.match(finance, /export async function reassignExpenseOperationsToSourceForUser/);
   assert.match(page, /isBulkSelectableExpense/);
