@@ -27,7 +27,9 @@ test('les pages Dépenses et Revenus exposent un raccourci Ajouter qui disparaî
   assert.ok(income.includes('visible={!open && !selectedIncome'));
   assert.ok(component.includes("window.addEventListener('scroll'"));
   assert.ok(component.includes("pageScroller?.addEventListener('scroll'"));
-  assert.ok(component.includes('fixed left-4'));
+  assert.ok(component.includes('position: \'fixed\''));
+  assert.ok(component.includes("createPortal("));
+  assert.ok(component.includes('document.body'));
   assert.ok(component.includes('shouldShowScrollAction'));
 });
 
@@ -65,4 +67,13 @@ test('l’APK utilise le site distant et le runtime natif vérifie les nouvelles
   assert.ok(route.includes("'Cache-Control': 'no-store"));
   assert.ok(route.includes('VERCEL_GIT_COMMIT_SHA'));
   assert.ok(nextConfig.includes('NEXT_PUBLIC_APP_BUILD_ID'));
+});
+
+test('le bouton Ajouter est rendu hors de la zone scrollable et reste attaché au viewport', () => {
+  const component = read('../src/components/layout/ScrollAwareAddButton.jsx');
+  assert.match(component, /createPortal\([\s\S]*document\.body/);
+  assert.match(component, /position:\s*'fixed'/);
+  assert.match(component, /bottom:\s*'calc\(5\.5rem \+ env\(safe-area-inset-bottom\)\)'/);
+  assert.match(component, /zIndex:\s*55/);
+  assert.match(component, /document\.scrollingElement\?\.scrollTop/);
 });
