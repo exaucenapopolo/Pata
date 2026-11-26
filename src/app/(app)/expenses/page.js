@@ -162,6 +162,8 @@ export default function ExpensesPage() {
   const [recurringSaving, setRecurringSaving] = useState(false);
   const [recurringError, setRecurringError] = useState('');
   const [nextAction, setNextAction] = useState(null);
+  const [budgetFeedbackEnabled, setBudgetFeedbackEnabled] = usePersistentPageState('expenses', 'budgetFeedbackEnabled', true, user?.uid);
+  const [budgetFeedback, setBudgetFeedback] = useState([]);
 
   useEffect(() => {
     const openFromShortcut = () => { setForm(emptyForm()); setError(''); setOpen(true); };
@@ -526,6 +528,7 @@ export default function ExpensesPage() {
         paymentMethod: form.paymentMethod,
         details: form.details,
       };
+      const budgetImpactToShow = [];
 
       if (!form.id && form.scheduleEnabled) {
         const kind = form.flowType === 'loan_given' ? 'loan_given' : form.flowType === 'repayment' ? 'debt_repayment' : 'expense';
@@ -548,6 +551,8 @@ export default function ExpensesPage() {
           if (!accepted) return;
           result = await updateExpense(user.uid, form.id, { ...payload, confirmBudgetOverrun: true });
         }
+        if (!result?.success) throw new Error(result?.error || 'Modification refusée.');
+        budgetImpactToShow.push(...(result.budgetImpact || []));
       } else {
         let result = await createExpense(user.uid, payload);
         if (result.confirmationRequired) {
@@ -561,9 +566,11 @@ export default function ExpensesPage() {
         if (result.linkedDebt?.status === 'quota_reached') {
           await requestActionDialog({ mode: 'alert', kind: 'warning', title: 'Dette enregistrée', message: t('Ta dette est bien enregistrée. Le quota gratuit de 2 liaisons de comptes par mois est atteint ; elle reste suivie normalement dans ton compte.'), confirmLabel: 'Compris' });
         }
+        budgetImpactToShow.push(...(result.budgetImpact || []));
       }
       setOpen(false);
       setNextAction({ sequence: Date.now() });
+      if (budgetFeedbackEnabled && budgetImpactToShow.length) setBudgetFeedback(budgetImpactToShow);
     } catch (err) {
       setError(err.message || 'Erreur lors de l\u2019enregistrement.');
     } finally {
