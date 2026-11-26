@@ -14,7 +14,6 @@ import { parseMobileMoneySms } from '@/lib/sms/parseMobileMoneySms.mjs';
 import { PataQuickCapture } from '@/lib/quickCapture/nativePlugin';
 import { uploadBillImage } from '@/lib/bills/uploadBillImage.mjs';
 import { enqueueOfflineCapture, listOfflineCaptures, removeOfflineCapture } from '@/lib/quickCapture/offlineQueue.mjs';
-import { useIncomes } from '@/hooks/useIncomes';
 import { getAvailableIncomeSources, getAvailableIncomeTotal } from '@/lib/finance/availableIncomeSources.mjs';
 
 function restoreOfflineCaptureDraft(item, confirmationMessage = '') {
@@ -73,9 +72,6 @@ export function QuickCaptureCoordinator() {
   const router = useRouter();
   const { user } = useAuth();
   const { profile, loading: profileLoading } = useProfile();
-  const { incomes: trackedIncomes, balancesReady: incomeBalancesReady } = useIncomes();
-  const availableCaptureIncomes = useMemo(() => getAvailableIncomeSources(trackedIncomes), [trackedIncomes]);
-  const availableCaptureIncomeTotal = useMemo(() => getAvailableIncomeTotal(availableCaptureIncomes), [availableCaptureIncomes]);
   const premium = premiumActive(profile);
   const [draft, setDraft] = useState(null);
   const [working, setWorking] = useState(false);
@@ -84,6 +80,7 @@ export function QuickCaptureCoordinator() {
   const [error, setError] = useState('');
   const [captureOptions, setCaptureOptions] = useState({ incomes: [], debts: [], receivables: [], categories: [] });
   const [optionsLoading, setOptionsLoading] = useState(false);
+  const [captureOptionsReady, setCaptureOptionsReady] = useState(false);
   const [optionsError, setOptionsError] = useState('');
   const [voiceOptionsOpen, setVoiceOptionsOpen] = useState(false);
   const [voiceChatOpen, setVoiceChatOpen] = useState(false);
@@ -390,12 +387,14 @@ export function QuickCaptureCoordinator() {
     const needsNormalIncomeCategories = draft?.type === 'income' && draft?.incomeFlowType === 'normal';
     if (!user || !draft || !premium || (!['expense', 'debt_repayment'].includes(draft.type) && !needsIncomeOptions && !needsNormalIncomeCategories)) {
       setCaptureOptions({ incomes: [], debts: [], receivables: [], categories: [] });
+      setCaptureOptionsReady(false);
       setOptionsError('');
       setOptionsLoading(false);
       return undefined;
     }
     let active = true;
     setOptionsLoading(true);
+    setCaptureOptionsReady(false);
     setOptionsError('');
     (async () => {
       try {
@@ -412,6 +411,7 @@ export function QuickCaptureCoordinator() {
         const receivables = Array.isArray(result.receivables) ? result.receivables : [];
         const categories = Array.isArray(result.categories) ? result.categories : [];
         setCaptureOptions({ incomes, debts, receivables, categories });
+        setCaptureOptionsReady(true);
         setDraft((current) => {
           if (!current || current.id !== draft.id) return current;
           const reparsed = current.rawText && !current.manualTypeOverride
@@ -420,7 +420,7 @@ export function QuickCaptureCoordinator() {
           const normalize = (value) => String(value || '').normalize('NFD')
             .replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
           const sourceMatches = current.incomeSourceName
-            ? availableCaptureIncomes.filter((income) => normalize(income.source) === normalize(current.incomeSourceName))
+            ? incomes.filter((income) => normalize(income.source) === normalize(current.incomeSourceName))
             : [];
           const counterpartyName = current.type === 'income' ? current.incomePerson : current.person;
           const debtChoices = current.type === 'income' && current.incomeFlowType === 'repayment_received'
@@ -449,7 +449,7 @@ export function QuickCaptureCoordinator() {
       }
     })();
     return () => { active = false; };
-  }, [user, premium, draft?.id, draft?.type, draft?.incomeFlowType, draft?.incomeSourceName, draft?.person, draft?.incomePerson, availableCaptureIncomes]);
+  }, [user, premium, draft?.id, draft?.type, draft?.incomeFlowType, draft?.incomeSourceName, draft?.person, draft?.incomePerson]);
 
   const closeDraft = async () => {
     if (draft?.nativeCaptureId) await PataQuickCapture.clearPendingCapture({ id: draft.nativeCaptureId }).catch(() => {});
@@ -793,13 +793,13 @@ export function QuickCaptureCoordinator() {
             </select>
           </label>}
           {(draft.type === 'expense' || draft.type === 'debt_repayment') && <label className="block text-xs font-semibold text-slate-700">Source du montant (facultatif)
-            <select value={draft.incomeSourceId || 'all'} disabled={!incomeBalancesReady} onChange={(event) => setDraft((current) => ({ ...current, incomeSourceId: event.target.value, incomeSourceName: '' }))} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal disabled:bg-slate-50 disabled:text-slate-400">
-              <option value="all">{incomeBalancesReady ? 'Répartir sur les revenus disponibles · ' + availableCaptureIncomeTotal.toLocaleString('fr-FR') + ' FCFA' : 'Vérification des soldes en cours…'}</option>
+            <select value={draft.incomeSourceId || 'all'} disabled={!captureOptionsReady || optionsLoading} onChange={(event) => setDraft((current) => ({ ...current, incomeSourceId: event.target.value, incomeSourceName: '' }))} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal disabled:bg-slate-50 disabled:text-slate-400">
+              <option value="all">{captureOptionsReady ? 'Répartir sur les revenus disponibles · ' + getAvailableIncomeTotal(captureOptions.incomes).toLocaleString('fr-FR') + ' FCFA' : 'Vérification des soldes en cours…'}</option>
               <option value="external">Solde externe / revenu non suivi</option>
-              {availableCaptureIncomes.map((income) => <option key={income.id} value={income.id}>{income.availableAsFunding ? 'Emprunt reçu · ' : ''}{income.source || 'Revenu sans nom'} · {income.date || 'Date inconnue'} · {Number(income.remaining || 0).toLocaleString('fr-FR')} FCFA restant</option>)}
+              {getAvailableIncomeSources(captureOptions.incomes).map((income) => <option key={income.id} value={income.id}>{income.availableAsFunding ? 'Emprunt reçu · ' : ''}{income.source || 'Revenu sans nom'} · {income.date || 'Date inconnue'} · {Number(income.remaining || 0).toLocaleString('fr-FR')} FCFA restant</option>)}
             </select>
-            {incomeBalancesReady && availableCaptureIncomes.length === 0 && <span className="mt-1 block text-[10px] font-normal text-amber-700">Aucune source suivie ne dispose encore d’un solde disponible. Tu peux utiliser un solde externe.</span>}
-            {!incomeBalancesReady && <span className="mt-1 block text-[10px] font-normal text-slate-500">Pata vérifie les montants déjà dépensés avant de proposer les sources.</span>}
+            {captureOptionsReady && getAvailableIncomeSources(captureOptions.incomes).length === 0 && <span className="mt-1 block text-[10px] font-normal text-amber-700">Aucune source suivie ne dispose encore d’un solde disponible. Tu peux utiliser un solde externe.</span>}
+            {!captureOptionsReady && <span className="mt-1 block text-[10px] font-normal text-slate-500">Pata vérifie les montants déjà dépensés avant de proposer les sources.</span>}
             {draft.incomeSourceName && <span className="mt-1 block text-[10px] font-normal text-emerald-700">Source reconnue dans ta phrase : {draft.incomeSourceName}. Vérifie le revenu sélectionné.</span>}
             <span className="mt-1 block text-[10px] font-normal text-slate-500">Seules les sources avec un solde restant positif sont proposées.</span>
           </label>}
