@@ -33,18 +33,27 @@ test('une dépense répartie entre plusieurs sources reste une seule opération 
   assert.deepEqual(keys, ['meal-root', 'meal-root']);
 
   const page = read('src/app/(app)/expenses/page.js');
-  assert.match(page, /expenseRowsByOperation/);
-  assert.match(page, /rows,\s*amount/);
-  assert.match(page, /rows\.reduce\(\(sum, row\)/);
+  assert.match(page, /getSelectedExpenseOperations\(expenses, selectedExpenseKeys\)/);
+  assert.match(page, /selectedExpenseOperations = useMemo/);
+  assert.match(page, /getExpenseOperationKeys\(expenses\)/);
 });
 
-test('la sélection multiple démarre par appui prolongé et permet de sélectionner chaque journée séparément', () => {
+test('la sélection multiple combine appui prolongé, touches simples et sélection indépendante par journée', () => {
   const page = read('src/app/(app)/expenses/page.js');
+  const helper = read('src/lib/finance/expenseSelection.mjs');
   assert.match(page, /setTimeout\(\(\) => \{/);
   assert.match(page, /\}, 420\)/);
   assert.match(page, /onPointerDown=\{\(event\) => startExpenseLongPress/);
+  assert.match(page, /onPointerMove=\{moveExpenseLongPress\}/);
+  assert.doesNotMatch(page, /onPointerLeave=\{endExpenseLongPress\}/);
+  assert.match(page, /if \(selectionMode\)\s*\{\s*toggleExpenseSelection\(expense\)/);
   assert.match(page, /toggleExpenseDaySelection\(items\)/);
-  assert.match(page, /Journée/);
+  assert.match(page, /Sélectionner la journée/);
+  assert.match(page, /{selectionMode && \(/);
+  assert.match(page, /Changer source/);
+  assert.match(page, /<Trash2 size=\{15\}\/>/);
+  assert.match(helper, /toggleExpenseSelectionKey/);
+  assert.match(helper, /toggleDayExpenseSelectionKeys/);
   assert.doesNotMatch(page, /Tout sélectionner|Sélectionner toutes les dépenses/i);
 });
 
