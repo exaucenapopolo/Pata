@@ -145,13 +145,11 @@ export default function BudgetsPage() {
     && !income.cashPocket
     && income.flowType !== 'repayment_received'
     && income.categoryId !== 'debt_repayment_received'
-    && income.balanceAvailable === true
-    && Number(income.remaining) > 0
   ), [monthIncomes]);
 
   const templateBaseAmount = selectedIncome === 'all'
-    ? budgetIncomeSources.reduce((sum, income) => sum + Math.max(0, Number(income.remaining) || 0), 0)
-    : Math.max(0, Number(budgetIncomeSources.find((income) => income.id === selectedIncome)?.remaining) || 0);
+    ? budgetIncomeSources.reduce((sum, income) => sum + Math.max(0, Number(income.amount) || 0), 0)
+    : Math.max(0, Number(budgetIncomeSources.find((income) => income.id === selectedIncome)?.amount) || 0);
 
   const monthExpenses = useMemo(() => {
     let filtered = expenses.filter((e) => !e.neutralFlow && e.date?.startsWith(month));
@@ -221,7 +219,7 @@ export default function BudgetsPage() {
       .reduce((sum, budget) => sum + Math.max(0, Number(budget.amount) || 0), 0);
   const createBudgetOtherAllocated = Math.max(0, createBudgetExistingTotal - createBudgetReplacementTotal);
   const createBudgetAvailableToAllocate = Math.max(0, Number(createBudgetIncome?.remaining || 0) - createBudgetOtherAllocated);
-  const createBudgetPlan = calculateBudgetPlan(createBudgetItems, Number(createBudgetIncome?.remaining) || 0);
+  const createBudgetPlan = calculateBudgetPlan(createBudgetItems, Number(createBudgetIncome?.amount) || 0);
   const createBudgetItemsTotal = createBudgetPlan.total;
   const templatePlan = calculateBudgetPlan(templateItems, templateBaseAmount);
   const spendingInsights = useMemo(
@@ -307,8 +305,8 @@ export default function BudgetsPage() {
     }));
     const activeItems = prepared.filter((item) => item.amount > 0);
     const categoryIds = prepared.map((item) => item.categoryId);
-    if (!source || source.balanceAvailable !== true || Number(source.remaining) <= 0) {
-      setSaveError(isEnglish ? 'This income is no longer available. Choose another source with a positive remaining balance.' : 'Ce revenu n’est plus disponible. Choisis une autre source dont le solde restant est positif.');
+    if (!source) {
+      setSaveError(isEnglish ? 'This income source is no longer available. Choose another recorded income.' : 'Cette source de revenu n’est plus disponible. Choisis un autre revenu enregistré.');
       return;
     }
     if (budgetsLoading || selectedIncome !== createBudgetIncomeSourceId) {
@@ -331,7 +329,7 @@ export default function BudgetsPage() {
       );
       if (!confirmed) return;
     }
-    if (createBudgetItemsTotal > createBudgetAvailableToAllocate) {
+    if (createBudgetIncome.balanceAvailable === true && createBudgetItemsTotal > createBudgetAvailableToAllocate) {
       const over = createBudgetItemsTotal - createBudgetAvailableToAllocate;
       const confirmed = await appConfirm(
         isEnglish
@@ -875,7 +873,7 @@ export default function BudgetsPage() {
             <div className="rounded-xl border border-brand-100 bg-brand-50/70 p-3">
               <div className="flex items-center justify-between gap-3">
                 <span className="text-xs font-medium text-slate-600">Solde réellement disponible</span>
-                <strong className="text-sm font-extrabold tabular-nums text-slate-900">{formatCurrency(createBudgetIncome.remaining)}</strong>
+                <strong className="text-sm font-extrabold tabular-nums text-slate-900">{createBudgetIncome.balanceAvailable === true ? formatCurrency(createBudgetIncome.remaining) : 'À vérifier'}</strong>
               </div>
               {budgetsLoading || selectedIncome !== createBudgetIncomeSourceId ? (
                 <p className="mt-2 text-[11px] text-slate-500">Pata vérifie les enveloppes déjà prévues pour ce revenu…</p>
