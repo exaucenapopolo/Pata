@@ -40,7 +40,7 @@ export function AppDialog({
   const buttonClass = kind === 'danger' ? 'bg-rose-700 hover:bg-rose-800' : '';
 
   return (
-    <Modal open={open} onClose={onClose} title={title} className="max-w-md">
+    <Modal open={open} onClose={onClose} title={title} className="max-w-md" priority>
       <div className="space-y-5">
         <div className="flex items-start gap-3">
           <span className={'grid h-10 w-10 shrink-0 place-items-center rounded-2xl ' + iconClass}>
