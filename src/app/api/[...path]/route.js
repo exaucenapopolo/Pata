@@ -5200,7 +5200,8 @@ async function handleAddExpense(request) {
     const decoded = await authenticate(request);
     const body = await request.json();
     const smsImportId = /^sms_[a-f0-9]{64}$/.test(String(body.smsImportId || '')) ? String(body.smsImportId) : null;
-    const result = await createExpenseForUser(decoded.uid, body, { idempotencyKey: smsImportId });
+    const batchIdempotencyKey = /^batch_[A-Za-z0-9_-]{8,120}$/.test(String(body.batchIdempotencyKey || '')) ? String(body.batchIdempotencyKey) : null;
+    const result = await createExpenseForUser(decoded.uid, body, { idempotencyKey: smsImportId || batchIdempotencyKey });
     if (result.pendingConfirmation && result.requestId && result.counterpartyUid) {
       try {
         const amountLabel = Number(result.amount || body.amount || 0).toLocaleString('fr-FR');
