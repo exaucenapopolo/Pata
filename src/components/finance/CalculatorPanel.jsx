@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Calculator, Copy, Delete, RotateCcw, Check, X } from 'lucide-react';
+import { Calculator, Copy, RotateCcw, Check, X } from 'lucide-react';
 import { applyMoneyKey, evaluateMoneyExpression } from '@/lib/finance/decimalExpression.mjs';
 
 const KEYS = [
@@ -21,7 +21,7 @@ function formatResult(value) {
     : '—';
 }
 
-export function CalculatorPanel({ onUse, onClose, standalone = false }) {
+export function CalculatorPanel({ onUse }) {
   const [expression, setExpression] = useState('');
   const [feedback, setFeedback] = useState('');
   const result = useMemo(() => {
@@ -35,7 +35,7 @@ export function CalculatorPanel({ onUse, onClose, standalone = false }) {
   };
 
   const copyResult = async () => {
-    if (!result?.roundedValue) return;
+    if (!result) return;
     try {
       await navigator.clipboard.writeText(String(result.roundedValue));
       setFeedback('Copié');
@@ -77,7 +77,7 @@ export function CalculatorPanel({ onUse, onClose, standalone = false }) {
   );
 }
 
-export function CalculatorLauncher({ value, onApply, disabled = false, className = '' }) {
+export function CalculatorLauncher({ onApply, disabled = false, className = '' }) {
   const [open, setOpen] = useState(false);
 
   const apply = (result) => {
