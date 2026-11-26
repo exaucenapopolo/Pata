@@ -1086,7 +1086,7 @@ export default function IncomePage() {
             )}
 
             <div className="grid gap-2 sm:grid-cols-2">
-              <Button onClick={applyVitalToBudget} className="w-full" disabled={savingApplied || isSavedOverBudget}>
+              <Button onClick={applyVitalToBudget} className="w-full" disabled={vitalApplyBusy || isSavedOverBudget}>
                 <ArrowRight size={14} /> Appliquer aux budgets
               </Button>
               <Button variant="outline" onClick={() => analyzeWithAssistant(
