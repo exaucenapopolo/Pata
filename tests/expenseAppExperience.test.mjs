@@ -75,3 +75,37 @@ test('les alertes de la page Dépenses utilisent le composant de dialogue Pata',
   assert.match(billsPage, /<AppDialog/);
   assert.doesNotMatch(billsPage, /window\.(alert|confirm|prompt)\s*\(/);
 });
+
+test('les écrans financiers et les composants principaux utilisent les dialogues Pata, pas les popups du navigateur', () => {
+  const files = [
+    'src/app/(app)/bills/page.js',
+    'src/app/(app)/budgets/page.js',
+    'src/app/(app)/expenses/page.js',
+    'src/app/(app)/goals/page.jsx',
+    'src/app/(app)/income/page.js',
+    'src/app/(app)/reports/page.js',
+    'src/app/(app)/settings/page.js',
+    'src/app/admin/page.jsx',
+    'src/components/ai/AssistantChat.jsx',
+    'src/components/legal/LegalSummaryButton.jsx',
+    'src/components/ui/CategoryManager.jsx',
+  ];
+  const nativePopup = /(?:window\\.)?(?:alert|confirm|prompt)\\s*\\(/;
+  for (const file of files) {
+    const content = read(file);
+    assert.doesNotMatch(content, nativePopup, file + ' must not use browser alert/confirm/prompt');
+    assert.match(content, /useAppDialog|AppDialog/, file + ' must use the branded Pata dialog');
+  }
+});
+
+test('le dialogue Pata gère aussi la saisie de texte sans prompt natif', () => {
+  const dialog = read('src/components/ui/AppDialog.jsx');
+  const hook = read('src/hooks/useAppDialog.jsx');
+  assert.match(hook, /const appPrompt = useCallback/);
+  assert.match(hook, /mode: 'prompt'/);
+  assert.match(hook, /settle\(options\?\.mode === 'prompt' \? promptValue : true\)/);
+  assert.match(dialog, /promptMultiline/);
+  assert.match(dialog, /onPromptChange/);
+  assert.match(dialog, /<textarea/);
+  assert.match(dialog, /<input/);
+});
