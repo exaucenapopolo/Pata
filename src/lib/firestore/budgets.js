@@ -37,7 +37,7 @@ export async function upsertBudget(uid, { categoryId, amount, month, incomeSourc
 export async function upsertBudgets(uid, { items, month, incomeSourceId, replaceExisting = false }) {
   const user = auth.currentUser;
   if (!user || user.uid !== uid) throw new Error('Session expirée. Reconnecte-toi puis réessaie.');
-  if (!Array.isArray(items) || !items.length) throw new Error('Ajoute au moins une catégorie au budget.');
+  if (!Array.isArray(items) || (!items.length && replaceExisting !== true)) throw new Error('Ajoute au moins une catégorie au budget.');
   const token = await user.getIdToken();
   const response = await fetch('/api/budgets/upsert-many', {
     method: 'POST',
