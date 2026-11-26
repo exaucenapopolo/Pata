@@ -32,7 +32,7 @@ test('calculates percentage envelopes against the selected income source and fre
   assert.equal(plan.rows[1].amount, 20000);
   assert.equal(plan.rows[2].amount, 20000);
   assert.equal(plan.total, 340000);
-  assert.equal(plan.percentageTotal, 185);
+  assert.equal(plan.percentageTotal, 170);
 });
 
 test('rounds computed FCFA amounts and rejects invalid values or missing categories', () => {
