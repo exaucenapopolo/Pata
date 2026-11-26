@@ -11056,6 +11056,10 @@ async function handleBillsPay(request) {
     const paymentSource = String(body.paymentSource || 'cash');
     const allowedSources = new Set(['tracked', 'cash', 'mtn_momo', 'orange_money', 'bank_transfer', 'other']);
     if (!allowedSources.has(paymentSource)) return errorResponse('Choisis un moyen de paiement valide.', 400);
+    const trackedIncomeSourceId = String(body.incomeSourceId || 'all').trim();
+    if (paymentSource === 'tracked' && (!trackedIncomeSourceId || trackedIncomeSourceId.includes('/') || trackedIncomeSourceId === 'external')) {
+      return errorResponse('Choisis une source de revenu suivie et valide.', 400);
+    }
     const externalFunding = paymentSource !== 'tracked';
     const sourceLabels = {
       cash: 'Espèces',
@@ -11074,7 +11078,7 @@ async function handleBillsPay(request) {
       date: paidDate,
       expenseType: 'consumption',
       paymentMethod,
-      incomeSourceId: paymentSource === 'tracked' ? String(body.incomeSourceId || 'all').trim() : 'all',
+      incomeSourceId: paymentSource === 'tracked' ? trackedIncomeSourceId : 'all',
       incomeSourceName: paymentSource === 'tracked' ? String(body.incomeSourceName || 'Tous les revenus').trim().slice(0, 100) : 'Tous les revenus',
       externalFundingLabel,
     }, {
