@@ -23,6 +23,7 @@ import { convertCurrencyAmount, formatCurrency, formatDate, getPreferredCurrency
 import { buildCategorySpendingAnalysis } from '@/lib/finance/categorySpendingAnalysis.mjs';
 import { isIncomeCountedAsSource } from '@/lib/finance/incomeBalances.mjs';
 import { usePersistentPageState } from '@/hooks/usePersistentPageState';
+import { useAppDialog } from '@/hooks/useAppDialog';
 
 const iso = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 const monthFirst = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-01`;
@@ -41,6 +42,7 @@ const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => 
 export default function ReportsPage() {
   const { language } = useLanguage();
   const isEnglish = language === 'en';
+  const { appAlert, dialog } = useAppDialog();
 
   const { incomes } = useIncomes();
   const { budgets } = useAllBudgets();
@@ -366,7 +368,7 @@ export default function ReportsPage() {
     const rows = getRows();
     const table = rows.map((row,index) => `<tr>${row.map((cell) => `<${index===0?'th':'td'}>${escapeHtml(cell)}</${index===0?'th':'td'}>`).join('')}</tr>`).join('');
     const popup = window.open('', '_blank', 'width=1100,height=850');
-    if (!popup) { alert(isEnglish ? 'Allow pop-ups to create the PDF.' : 'Autorise les fenêtres contextuelles pour créer le PDF.'); return; }
+    if (!popup) { void appAlert(isEnglish ? 'Allow pop-ups to create the PDF.' : 'Autorise les fenêtres contextuelles pour créer le PDF.', { kind: 'warning', title: isEnglish ? 'Pop-up blocked' : 'Fenêtre bloquée' }); return; }
     popup.document.write(`<!doctype html><html lang="${language}"><head><meta charset="utf-8"><title>${isEnglish ? 'Pata report' : 'Rapport Pata'}</title><style>body{font:12px Arial,sans-serif;color:#172033;padding:28px}h1{font-size:24px;margin-bottom:4px}h2{font-size:15px;margin-top:24px}.muted{color:#64748b}.kpis{display:flex;gap:12px;margin:20px 0}.kpi{flex:1;padding:12px;background:#f1f5f9;border-radius:8px}table{width:100%;border-collapse:collapse;margin-top:16px}th,td{border:1px solid #dbe2ea;padding:7px;text-align:left}th{background:#edf2f7}tr:nth-child(even){background:#f8fafc}@media print{body{padding:10mm}}</style></head><body><h1>${isEnglish ? 'Pata financial report' : 'Rapport financier Pata'}</h1><p class="muted">${escapeHtml(profile?.displayName || (isEnglish ? 'User' : 'Utilisateur'))} · ${escapeHtml(range.label)} · ${(isEnglish ? 'Generated on ' : 'Généré le ')}${new Date().toLocaleDateString(getPreferredLocale())}</p><div class="kpis"><div class="kpi">${isEnglish ? 'Income' : 'Revenus'}<br><b>${escapeHtml(formatCurrency(totalIncome))}</b></div><div class="kpi">${isEnglish ? 'Expenses' : 'Dépenses'}<br><b>${escapeHtml(formatCurrency(totalExpense))}</b></div><div class="kpi">${isEnglish ? 'Difference' : 'Différence'}<br><b>${escapeHtml(formatCurrency(net))}</b></div></div><h2>${isEnglish ? 'Detailed transactions' : 'Opérations détaillées'}</h2><table>${table}</table><script>window.onload=()=>window.print()</script></body></html>`);
     popup.document.close();
   };
@@ -657,6 +659,7 @@ export default function ReportsPage() {
       <Card className="border border-slate-200 bg-white">
         <div className="flex flex-wrap items-center justify-between gap-3"><div><CardTitle>Analyse personnalisée avec Mč</CardTitle><p className="mt-1 text-xs text-slate-500">L’assistante recevra les chiffres et les catégories de ce rapport pour aller plus loin.</p></div><Button onClick={askAssistant}><MessageCircle size={15}/> Analyser ce rapport</Button></div>
       </Card>
+      {dialog}
     </div>
   );
 }
