@@ -13,7 +13,7 @@ test('Quick Capture n’affiche que les revenus dont le solde restant a été ca
   assert.match(api, /remaining: Math\.max\(0, amount - spent\)/);
   assert.match(api, /\.filter\(\(income\) => income\.remaining > 0\)/);
   assert.match(component, /getAvailableIncomeSources\(captureOptions\.incomes\)/);
-  assert.match(component, /Number\(income\.remaining \|\| 0\)\.toLocaleString\('fr-FR'\) \+ ' FCFA restant'/);
+  assert.match(component, /Number\(income\.remaining \|\| 0\)\.toLocaleString\('fr-FR'\)\} FCFA restant/);
   assert.match(component, /getAvailableIncomeTotal\(captureOptions\.incomes\)/);
 });
 
