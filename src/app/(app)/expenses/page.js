@@ -1363,7 +1363,7 @@ export default function ExpensesPage() {
             <div key={date} className="rounded-2xl border border-slate-200 bg-white">
               <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2.5 bg-slate-50/50 rounded-t-2xl sm:px-4">
                 <div className="flex min-w-0 items-center gap-2">
-                  {(() => {
+                  {selectionMode && (() => {
                     const dayKeys = getSelectableExpenseDayKeys(items, expenseOperationKeyById, isBulkSelectableExpense);
                     const selectedCount = dayKeys.filter((key) => selectedExpenseKeys.includes(key)).length;
                     const allSelected = dayKeys.length > 0 && selectedCount === dayKeys.length;
