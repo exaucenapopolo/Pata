@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Calculator, Copy, Delete, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Calculator, Copy, RotateCcw } from 'lucide-react';
 import { applyMoneyKey, evaluateMoneyExpression } from '@/lib/finance/decimalExpression.mjs';
 
 const KEYS = [
