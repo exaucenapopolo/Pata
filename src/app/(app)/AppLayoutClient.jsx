@@ -123,7 +123,6 @@ export default function AppLayout({ children }) {
     <div className="pata-app-shell relative isolate min-h-[100dvh] bg-[#f0f6f1] lg:flex lg:h-[100dvh] lg:overflow-hidden">
       <AppNavigationProgress />
       <NativeHaptics />
-      <MoneyKeypad />
       <NativeDatePicker />
       <PageUsageTracker uid={user.uid} />
       {!isPremiumPage && <Sidebar />}
