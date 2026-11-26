@@ -417,6 +417,7 @@ export default function IncomePage() {
   const activeMonthSources = monthEarningSources.filter((income) =>
     income.balanceAvailable && !income.isExhausted && Number(income.remaining) > 0
   );
+  const budgetTargetMonthSources = monthEarningSources;
   const availableThisMonth = balancesReady && monthEarningSources.every((income) => income.balanceAvailable)
     ? activeMonthSources.reduce((sum, income) => sum + (Number(income.remaining) || 0), 0)
     : null;
@@ -613,7 +614,7 @@ export default function IncomePage() {
 
   const applyVitalToBudget = () => {
     if (!savedTotalVital) return;
-    const defaultSource = activeMonthSources[0] || null;
+    const defaultSource = budgetTargetMonthSources[0] || null;
     setVitalApplySourceId(defaultSource?.id || '');
     setVitalCreateIncome(false);
     setVitalApplyError('');
@@ -625,7 +626,7 @@ export default function IncomePage() {
     setVitalApplyError('');
     setVitalApplyBusy(true);
     try {
-      const selectedSource = activeMonthSources.find((income) => income.id === vitalApplySourceId);
+      const selectedSource = budgetTargetMonthSources.find((income) => income.id === vitalApplySourceId);
       if (!vitalCreateIncome && !selectedSource) {
         setVitalApplyError(isEnglish
           ? 'Choose an available income source, or explicitly select the option to create a new income.'
@@ -689,7 +690,7 @@ export default function IncomePage() {
       if (!incomeSourceId) throw new Error(isEnglish ? 'The income source could not be identified.' : 'La source de revenu n’a pas pu être identifiée.');
 
       const totalToAllocate = plannedItems.reduce((sum, item) => sum + item.amount, 0);
-      if (totalToAllocate > Number(source.remaining || 0)) {
+      if (source.balanceAvailable === true && totalToAllocate > Number(source.remaining || 0)) {
         const confirmed = await appConfirm(
           isEnglish
             ? 'These envelopes total ' + formatCurrency(totalToAllocate) + ', while ' + formatCurrency(Number(source.remaining) || 0) + ' remains available on this income. Keep this budget plan anyway?'
@@ -1763,13 +1764,14 @@ export default function IncomePage() {
               className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal disabled:bg-slate-50"
             >
               <option value="">Choisir un revenu disponible</option>
-              {activeMonthSources.map((income) => (
+              {budgetTargetMonthSources.map((income) => (
                 <option key={income.id} value={income.id}>
-                  {income.source || 'Revenu'} · {formatCurrency(income.amount)} initial · {formatCurrency(income.remaining)} restant
+                  {(income.source || 'Revenu') + ' · ' + formatCurrency(income.amount) + ' initial · '
+                    + (income.balanceAvailable === true ? formatCurrency(income.remaining) + ' restant' : 'solde à vérifier')}
                 </option>
               ))}
             </select>
-            {!activeMonthSources.length && !vitalCreateIncome && <span className="mt-1 block text-[11px] font-normal leading-4 text-amber-700">Aucun revenu de cette période ne dispose actuellement d’un solde positif vérifié.</span>}
+            {!budgetTargetMonthSources.length && !vitalCreateIncome && <span className="mt-1 block text-[11px] font-normal leading-4 text-amber-700">Aucun revenu enregistré pour cette période. Tu peux créer un revenu uniquement en cochant l’option facultative ci-dessous.</span>}
           </label>
 
           <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-slate-200 p-3 text-sm text-slate-700">
