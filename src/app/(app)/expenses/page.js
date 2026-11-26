@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Plus, Trash2, Wallet, Pencil, Landmark, Calendar, Repeat, Clock3, MapPin, FolderPlus, Info, Briefcase } from 'lucide-react';
+import { Plus, Trash2, Wallet, Pencil, Landmark, Calendar, Repeat, Clock3, MapPin, FolderPlus, Info, Briefcase, Check, Square, CheckSquare, Link2, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
@@ -46,6 +46,15 @@ const currentTime = () => {
   const d = new Date();
   return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 };
+
+function isBulkSelectableExpense(expense) {
+  return Boolean(expense)
+    && expense.neutralFlow !== true
+    && expense.cashWithdrawal !== true
+    && !expense.debtId
+    && !expense.repaymentDebtId
+    && expense.flowType !== 'loan_given';
+}
 
 const emptyForm = () => ({
   id: null,
@@ -125,6 +134,13 @@ export default function ExpensesPage() {
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [actionDialog, setActionDialog] = useState(null);
   const actionDialogResolverRef = useRef(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedExpenseKeys, setSelectedExpenseKeys] = useState([]);
+  const longPressTimerRef = useRef(null);
+  const longPressTriggeredRef = useRef(false);
+  const [bulkSourceOpen, setBulkSourceOpen] = useState(false);
+  const [bulkSourceId, setBulkSourceId] = useState('');
+  const [bulkActionBusy, setBulkActionBusy] = useState(false);
   const [selectedExpense, setSelectedExpense] = usePersistentPageState('expenses', 'selectedExpense', null, user?.uid);
   const [recurringExpense, setRecurringExpense] = useState(null);
   const [recurringFrequency, setRecurringFrequency] = useState('daily');
@@ -276,6 +292,51 @@ export default function ExpensesPage() {
     return Object.entries(map).sort(([a], [b]) => (a < b ? 1 : -1));
   }, [filtered]);
 
+  const expenseOperationKeyById = useMemo(() => {
+    const keys = getExpenseOperationKeys(expenses);
+    return new Map(expenses.map((expense, index) => [expense.id, keys[index]]));
+  }, [expenses]);
+
+  const expenseRowsByOperation = useMemo(() => {
+    const groupedRows = new Map();
+    expenses.forEach((expense) => {
+      const key = expenseOperationKeyById.get(expense.id) || expense.id;
+      const rows = groupedRows.get(key) || [];
+      rows.push(expense);
+      groupedRows.set(key, rows);
+    });
+    return groupedRows;
+  }, [expenses, expenseOperationKeyById]);
+
+  const selectedExpenseOperations = useMemo(() => selectedExpenseKeys
+    .map((key) => {
+      const rows = expenseRowsByOperation.get(key) || [];
+      const root = rows.find((row) => row.id === key) || rows[0] || null;
+      if (!root || !rows.every(isBulkSelectableExpense)) return null;
+      return {
+        key,
+        root,
+        rows,
+        amount: rows.reduce((sum, row) => sum + Math.max(0, Number(row.amount) || 0), 0),
+      };
+    })
+    .filter(Boolean), [selectedExpenseKeys, expenseRowsByOperation]);
+
+  const selectedExpenseTotal = selectedExpenseOperations.reduce((sum, operation) => sum + operation.amount, 0);
+
+  useEffect(() => {
+    const validKeys = new Set(expenseRowsByOperation.keys());
+    setSelectedExpenseKeys((current) => current.filter((key) => validKeys.has(key)));
+  }, [expenseRowsByOperation]);
+
+  useEffect(() => {
+    if (selectedExpenseKeys.length === 0) setSelectionMode(false);
+  }, [selectedExpenseKeys.length]);
+
+  useEffect(() => () => {
+    if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
+  }, []);
+
   const periodExpenseRows = expenses.filter((expense) =>
     !expense.neutralFlow && expense.date >= startDate && expense.date <= endDate
   );
@@ -307,6 +368,26 @@ export default function ExpensesPage() {
   const eligibleIncomesForExpense = getAvailableIncomeSources(sortedIncomesForSelect, {
     projectId: form.expenseType === 'project' ? form.projectId : '',
   });
+
+  const bulkSourceOptions = useMemo(() => {
+    const usedBySelection = new Map();
+    selectedExpenseOperations.forEach((operation) => {
+      operation.rows.forEach((row) => {
+        const sourceId = String(row.incomeSourceId || '');
+        if (!sourceId || sourceId === 'all' || sourceId === 'external') return;
+        usedBySelection.set(sourceId, (usedBySelection.get(sourceId) || 0) + Math.max(0, Number(row.amount) || 0));
+      });
+    });
+    return sortedIncomesForSelect
+      .filter((income) => income.balanceAvailable
+        && (!income.neutralFlow || (income.flowType === 'debt_borrowed' && income.availableAsFunding === true)))
+      .map((income) => ({
+        ...income,
+        adjustedRemaining: Math.max(0, Number(income.remaining) || 0) + (usedBySelection.get(income.id) || 0),
+      }))
+      .filter((income) => income.adjustedRemaining > 0)
+      .sort((a, b) => b.adjustedRemaining - a.adjustedRemaining);
+  }, [sortedIncomesForSelect, selectedExpenseOperations]);
 
   const openNew = () => {
     setForm(emptyForm());
@@ -524,6 +605,187 @@ export default function ExpensesPage() {
     }
   };
 
+  const clearExpenseSelection = () => {
+    setSelectedExpenseKeys([]);
+    setSelectionMode(false);
+    if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = null;
+    longPressTriggeredRef.current = false;
+  };
+
+  const toggleExpenseSelection = (expense) => {
+    if (!isBulkSelectableExpense(expense)) return;
+    const key = expenseOperationKeyById.get(expense.id) || expense.id;
+    setSelectionMode(true);
+    setSelectedExpenseKeys((current) => current.includes(key)
+      ? current.filter((item) => item !== key)
+      : [...current, key]);
+  };
+
+  const startExpenseLongPress = (event, expense) => {
+    if (!isBulkSelectableExpense(expense) || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
+    longPressTriggeredRef.current = false;
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressTimerRef.current = null;
+      longPressTriggeredRef.current = true;
+      toggleExpenseSelection(expense);
+    }, 480);
+  };
+
+  const endExpenseLongPress = () => {
+    if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = null;
+  };
+
+  const handleExpenseRowClick = (expense) => {
+    if (longPressTriggeredRef.current) {
+      longPressTriggeredRef.current = false;
+      return;
+    }
+    if (selectionMode) {
+      toggleExpenseSelection(expense);
+      return;
+    }
+    setSelectedExpense(expense);
+  };
+
+  const toggleExpenseDaySelection = (items) => {
+    const dayKeys = [...new Set(items
+      .filter(isBulkSelectableExpense)
+      .map((expense) => expenseOperationKeyById.get(expense.id) || expense.id))];
+    if (!dayKeys.length) return;
+    setSelectionMode(true);
+    setSelectedExpenseKeys((current) => {
+      const allSelected = dayKeys.every((key) => current.includes(key));
+      return allSelected
+        ? current.filter((key) => !dayKeys.includes(key))
+        : [...new Set([...current, ...dayKeys])];
+    });
+  };
+
+  const handleBulkDelete = async () => {
+    if (!selectedExpenseOperations.length) return;
+    const accepted = await requestActionDialog({
+      mode: 'confirm',
+      kind: 'danger',
+      title: 'Supprimer les dépenses sélectionnées ?',
+      message: selectedExpenseOperations.length + ' opération(s), pour un total de ' + formatCurrency(selectedExpenseTotal) + ', seront supprimées. Une dépense partagée sera supprimée dans toute sa répartition et les soldes seront recalculés.',
+      confirmLabel: 'Supprimer les opérations',
+    });
+    if (!accepted) return;
+    setBulkActionBusy(true);
+    const failedKeys = [];
+    let deleted = 0;
+    let firstError = '';
+    try {
+      for (const operation of selectedExpenseOperations) {
+        try {
+          await deleteExpense(user.uid, operation.root.id);
+          deleted += 1;
+        } catch (error) {
+          failedKeys.push(operation.key);
+          firstError = firstError || error.message || 'Suppression impossible.';
+        }
+      }
+      if (failedKeys.length) {
+        setSelectedExpenseKeys(failedKeys);
+        await requestActionDialog({
+          mode: 'alert',
+          kind: 'warning',
+          title: 'Suppression partielle',
+          message: deleted + ' opération(s) supprimée(s). ' + failedKeys.length + ' opération(s) restent sélectionnées et n’ont pas été modifiées. ' + firstError,
+          confirmLabel: 'Compris',
+        });
+      } else {
+        clearExpenseSelection();
+        await requestActionDialog({
+          mode: 'alert',
+          kind: 'success',
+          title: 'Dépenses supprimées',
+          message: deleted + ' opération(s) supprimée(s). Les sources de financement et les soldes ont été mis à jour.',
+          confirmLabel: 'Terminer',
+        });
+      }
+    } finally {
+      setBulkActionBusy(false);
+    }
+  };
+
+  const openBulkSourceModal = () => {
+    if (!selectedExpenseOperations.length) return;
+    setBulkSourceId('');
+    setBulkSourceOpen(true);
+  };
+
+  const handleBulkAssignSource = async () => {
+    const selectedSource = bulkSourceOptions.find((income) => income.id === bulkSourceId);
+    if (!selectedSource) return;
+    if (selectedExpenseTotal > selectedSource.adjustedRemaining) {
+      setError('Cette source ne dispose pas d’un solde suffisant pour toutes les dépenses sélectionnées.');
+      return;
+    }
+    setBulkActionBusy(true);
+    const failedKeys = [];
+    let updated = 0;
+    let firstError = '';
+    try {
+      for (const operation of selectedExpenseOperations) {
+        try {
+          const payload = {
+            amount: operation.amount,
+            incomeSourceId: selectedSource.id,
+            incomeSourceName: selectedSource.source || 'Revenu sans nom',
+          };
+          let result = await updateExpense(user.uid, operation.root.id, payload);
+          if (result.confirmationRequired) {
+            const accepted = await requestActionDialog({
+              mode: 'confirm',
+              kind: 'warning',
+              title: 'Confirmer le rattachement',
+              message: result.message || 'Le rattachement de cette dépense dépasse un budget. Souhaites-tu continuer ?',
+              confirmLabel: 'Continuer',
+            });
+            if (!accepted) throw new Error('Action interrompue à ta demande.');
+            result = await updateExpense(user.uid, operation.root.id, { ...payload, confirmBudgetOverrun: true });
+          }
+          if (!result?.success) throw new Error(result?.error || 'Impossible de modifier la source de cette dépense.');
+          updated += 1;
+        } catch (error) {
+          failedKeys.push(operation.key);
+          firstError = firstError || error.message || 'Rattachement impossible.';
+          break;
+        }
+      }
+      setBulkSourceOpen(false);
+      if (failedKeys.length) {
+        const completedKeys = new Set(selectedExpenseOperations.slice(0, updated).map((operation) => operation.key));
+        const remainingKeys = selectedExpenseOperations
+          .filter((operation) => !completedKeys.has(operation.key))
+          .map((operation) => operation.key);
+        setSelectedExpenseKeys(remainingKeys);
+        await requestActionDialog({
+          mode: 'alert',
+          kind: 'warning',
+          title: 'Rattachement partiel',
+          message: updated + ' opération(s) rattachée(s) à « ' + (selectedSource.source || 'ce revenu') + ' ». ' + remainingKeys.length + ' opération(s) restent sélectionnées sans être modifiées. ' + firstError,
+          confirmLabel: 'Compris',
+        });
+      } else {
+        clearExpenseSelection();
+        await requestActionDialog({
+          mode: 'alert',
+          kind: 'success',
+          title: 'Sources regroupées',
+          message: updated + ' opération(s) sont maintenant rattachées à « ' + (selectedSource.source || 'ce revenu') + ' ». Pata a recalculé les répartitions, les soldes et les budgets pour chaque dépense.',
+          confirmLabel: 'Terminer',
+        });
+      }
+    } finally {
+      setBulkActionBusy(false);
+    }
+  };
+
   const makeExpenseRecurring = async (event) => {
     event.preventDefault();
     if (!recurringExpense || !user) return;
@@ -693,11 +955,21 @@ export default function ExpensesPage() {
         <div className="space-y-4">
           {grouped.map(([date, items]) => (
             <div key={date} className="rounded-2xl border border-slate-200 bg-white">
-              <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2.5 bg-slate-50/50 rounded-t-2xl">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  {formatDate(date, { weekday: 'long', day: '2-digit', month: 'long' })}
-                </p>
-                <p className="text-xs font-semibold text-slate-700">
+              <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-2.5 bg-slate-50/50 rounded-t-2xl">
+                <div className="flex min-w-0 items-center gap-2">
+                  {selectionMode && (() => {
+                    const dayKeys = [...new Set(items.filter(isBulkSelectableExpense).map((expense) => expenseOperationKeyById.get(expense.id) || expense.id))];
+                    const allSelected = dayKeys.length > 0 && dayKeys.every((key) => selectedExpenseKeys.includes(key));
+                    return <button type="button" onClick={() => toggleExpenseDaySelection(items)} disabled={!dayKeys.length} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] font-semibold text-emerald-800 hover:bg-emerald-50 disabled:opacity-40" aria-label={'Sélectionner les dépenses du ' + date}>
+                      {allSelected ? <CheckSquare size={16}/> : <Square size={16}/>}
+                      Journée
+                    </button>;
+                  })()}
+                  <p className="truncate text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    {formatDate(date, { weekday: 'long', day: '2-digit', month: 'long' })}
+                  </p>
+                </div>
+                <p className="shrink-0 text-xs font-semibold text-slate-700">
                   {formatCurrency(items.filter((expense) => !expense.neutralFlow).reduce((s, e) => s + e.amount, 0))}
                 </p>
               </div>
@@ -705,9 +977,21 @@ export default function ExpensesPage() {
                 {items.map((e) => {
                   const cat = resolveCategory(e.categoryId, 'expense', customCategories);
                   return (
-                    <li key={e.id} className="flex items-center gap-2 px-3 py-2.5 sm:px-4">
-                      <button type="button" onClick={() => setSelectedExpense(e)} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-1 py-1 text-left transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-200">
-                        <CategoryImage categoryId={e.categoryId} image={cat?.image} size="md" />
+                    <li
+                      key={e.id}
+                      onPointerDown={(event) => startExpenseLongPress(event, e)}
+                      onPointerUp={endExpenseLongPress}
+                      onPointerLeave={endExpenseLongPress}
+                      onPointerCancel={endExpenseLongPress}
+                      onContextMenu={(event) => { if (isBulkSelectableExpense(e)) event.preventDefault(); }}
+                      className={'flex items-center gap-2 px-3 py-2.5 sm:px-4 ' + (selectionMode && isBulkSelectableExpense(e) ? 'bg-emerald-50/40' : '')}
+                    >
+                      <button type="button" aria-pressed={selectionMode && selectedExpenseKeys.includes(expenseOperationKeyById.get(e.id) || e.id)} onClick={() => handleExpenseRowClick(e)} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-1 py-1 text-left transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-200">
+                        {selectionMode && isBulkSelectableExpense(e)
+                          ? <span className={'grid h-10 w-10 shrink-0 place-items-center rounded-xl border ' + (selectedExpenseKeys.includes(expenseOperationKeyById.get(e.id) || e.id) ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white text-slate-400')}>
+                              {selectedExpenseKeys.includes(expenseOperationKeyById.get(e.id) || e.id) ? <Check size={18}/> : <Square size={18}/>}
+                            </span>
+                          : <CategoryImage categoryId={e.categoryId} image={cat?.image} size="md" />}
                         <span className="min-w-0 flex-1">
                           <strong className="block truncate text-sm text-slate-800">{e.cashWithdrawal ? 'Retrait Mobile Money vers espèces' : cat?.label || 'Autre'}</strong>
                           <span className="mt-0.5 block text-[10px] font-semibold text-brand-700">{e.cashWithdrawal ? 'Mouvement neutre · Transfert vers espèces' : e.neutralFlow ? 'Mouvement neutre · Prêt accordé' : e.repaymentDebtId ? 'Remboursement de dette' : ({ consumption: 'Dépense courante', project: 'Sortie de projet', savings: 'Versement d’épargne', investment: 'Investissement' })[e.expenseType || 'consumption']}{e.projectName ? ` · ${e.projectName}` : ''}</span>
@@ -721,7 +1005,11 @@ export default function ExpensesPage() {
                         <span className="shrink-0 text-right"><strong className="block text-sm font-bold text-slate-900">{formatCurrency(e.amount)}</strong><span className="text-[10px] font-medium text-brand-700">Voir le détail</span></span>
                       </button>
                       <div className="flex shrink-0 items-center gap-0.5">
-                        {e.neutralFlow || e.debtId || e.repaymentDebtId ? <span className="px-2 text-[10px] text-slate-400">Suivi protégé</span> : <button type="button" onClick={() => openEdit(e)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Modifier la dépense" title="Modifier"><Pencil size={15}/></button>}
+                        {selectionMode
+                          ? (!isBulkSelectableExpense(e) ? <span className="px-2 text-[10px] text-slate-400">Suivi protégé</span> : null)
+                          : (e.neutralFlow || e.debtId || e.repaymentDebtId
+                            ? <span className="px-2 text-[10px] text-slate-400">Suivi protégé</span>
+                            : <button type="button" onClick={() => openEdit(e)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700" aria-label="Modifier la dépense" title="Modifier"><Pencil size={15}/></button>)}
                       </div>
                     </li>
                   );
