@@ -1,7 +1,7 @@
 /* eslint-disable react/no-unescaped-entities */
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Plus, Trash2, Wallet, Pencil, Landmark, Calendar, Repeat, Clock3, MapPin, FolderPlus, Info, Briefcase } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -10,7 +10,7 @@ import { Modal } from '@/components/ui/Modal';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { CategoryManager } from '@/components/ui/CategoryManager';
 import { CategoryImage } from '@/components/ui/CategoryImage';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { AppDialog } from '@/components/ui/AppDialog';
 import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/context/LanguageContext';
 import { useProfile } from '@/hooks/useProfile';
@@ -122,6 +122,9 @@ export default function ExpensesPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [deleteId, setDeleteId] = useState(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [actionDialog, setActionDialog] = useState(null);
+  const actionDialogResolverRef = useRef(null);
   const [selectedExpense, setSelectedExpense] = usePersistentPageState('expenses', 'selectedExpense', null, user?.uid);
   const [recurringExpense, setRecurringExpense] = useState(null);
   const [recurringFrequency, setRecurringFrequency] = useState('daily');
@@ -377,10 +380,10 @@ export default function ExpensesPage() {
             const reminder = isEnglish
               ? 'A reminder from Pata:\n\n' + warningDetails + '\n\nYou can keep your commitment and cancel, or continue anyway. Would you like to continue?'
               : 'Petit rappel de Pata :\n\n' + warningDetails + '\n\nTu peux respecter ton engagement et annuler, ou continuer quand même. Souhaites-tu poursuivre ?';
-            if (!window.confirm(reminder)) return;
+            if (!(await requestActionDialog({ mode: 'confirm', kind: 'warning', title: 'Petit rappel de Pata', message: reminder, confirmLabel: 'Continuer' }))) return;
           }
         } catch {
-          if (!window.confirm(isEnglish ? 'Pata could not check your commitments right now. You can try again or continue without this check. Would you like to continue?' : 'Pata n’a pas pu vérifier tes engagements pour le moment. Tu peux réessayer ou continuer sans cette vérification. Souhaites-tu poursuivre ?')) return;
+          if (!(await requestActionDialog({ mode: 'confirm', kind: 'warning', title: 'Vérification indisponible', message: isEnglish ? 'Pata could not check your commitments right now. You can try again or continue without this check. Would you like to continue?' : 'Pata n’a pas pu vérifier tes engagements pour le moment. Tu peux réessayer ou continuer sans cette vérification. Souhaites-tu poursuivre ?', confirmLabel: 'Continuer sans vérification' }))) return;
         }
       }
       const payload = {
@@ -421,22 +424,22 @@ export default function ExpensesPage() {
       if (form.id) {
         let result = await updateExpense(user.uid, form.id, payload);
         if (result.confirmationRequired) {
-          const accepted = window.confirm(t(`${result.message}\n\nSouhaites-tu continuer ?`));
+          const accepted = await requestActionDialog({ mode: 'confirm', kind: 'warning', title: 'Confirmer la modification', message: t(result.message), confirmLabel: 'Continuer' });
           if (!accepted) return;
           result = await updateExpense(user.uid, form.id, { ...payload, confirmBudgetOverrun: true });
         }
       } else {
         let result = await createExpense(user.uid, payload);
         if (result.confirmationRequired) {
-          const accepted = window.confirm(`${result.message}\n\nSouhaites-tu continuer ?`);
+          const accepted = await requestActionDialog({ mode: 'confirm', kind: 'warning', title: 'Confirmer la dépense', message: result.message, confirmLabel: 'Continuer' });
           if (!accepted) return;
           result = await createExpense(user.uid, { ...payload, confirmBudgetOverrun: true });
         }
         if (result.pendingConfirmation) {
-          window.alert(t('Remboursement enregistré en attente. Le créancier doit confirmer la réception avant la mise à jour des deux comptes.'));
+          await requestActionDialog({ mode: 'alert', kind: 'info', title: 'Remboursement en attente', message: t('Remboursement enregistré en attente. Le créancier doit confirmer la réception avant la mise à jour des deux comptes.'), confirmLabel: 'Compris' });
         }
         if (result.linkedDebt?.status === 'quota_reached') {
-          window.alert(t('Ta dette est bien enregistrée. Le quota gratuit de 2 liaisons de comptes par mois est atteint ; elle reste suivie normalement dans ton compte.'));
+          await requestActionDialog({ mode: 'alert', kind: 'warning', title: 'Dette enregistrée', message: t('Ta dette est bien enregistrée. Le quota gratuit de 2 liaisons de comptes par mois est atteint ; elle reste suivie normalement dans ton compte.'), confirmLabel: 'Compris' });
         }
       }
       setOpen(false);
@@ -489,13 +492,35 @@ export default function ExpensesPage() {
     }
   };
 
+  const resolveActionDialog = useCallback((confirmed = false) => {
+    const resolve = actionDialogResolverRef.current;
+    actionDialogResolverRef.current = null;
+    setActionDialog(null);
+    resolve?.(confirmed);
+  }, []);
+
+  const requestActionDialog = useCallback((options) => new Promise((resolve) => {
+    if (actionDialogResolverRef.current) actionDialogResolverRef.current(false);
+    actionDialogResolverRef.current = resolve;
+    setActionDialog(options);
+  }), []);
+
   const handleDelete = async () => {
     if (!deleteId) return;
+    setDeleteBusy(true);
     try {
       await deleteExpense(user.uid, deleteId);
       setDeleteId(null);
     } catch (err) {
-      window.alert(t(err.message || 'Impossible de supprimer cette dépense.'));
+      await requestActionDialog({
+        mode: 'alert',
+        kind: 'danger',
+        title: 'Suppression impossible',
+        message: t(err.message || 'Impossible de supprimer cette dépense.'),
+        confirmLabel: 'Fermer',
+      });
+    } finally {
+      setDeleteBusy(false);
     }
   };
 
@@ -923,15 +948,26 @@ export default function ExpensesPage() {
         )}
       </Modal>
 
-      <ConfirmDialog 
-        open={!!deleteId} 
-        onClose={() => setDeleteId(null)} 
-        onConfirm={handleDelete} 
-        title="Supprimer cette dépense ?" 
-        message="Cette action est irréversible." 
-        confirmWord="SUPPRIMER" 
-        confirmLabel="Supprimer" 
-        variant="danger" 
+      <AppDialog
+        open={!!deleteId}
+        kind="danger"
+        title="Supprimer cette dépense ?"
+        message="Cette suppression est définitive. Pata mettra aussi à jour le solde de la source de financement."
+        confirmLabel="Supprimer"
+        onClose={() => { if (!deleteBusy) setDeleteId(null); }}
+        onConfirm={handleDelete}
+        busy={deleteBusy}
+      />
+      <AppDialog
+        open={!!actionDialog}
+        kind={actionDialog?.kind || 'info'}
+        title={actionDialog?.title || 'Pata'}
+        message={actionDialog?.message || ''}
+        confirmLabel={actionDialog?.confirmLabel || 'Compris'}
+        cancelLabel={actionDialog?.cancelLabel || 'Annuler'}
+        showCancel={actionDialog?.mode === 'confirm'}
+        onClose={() => resolveActionDialog(false)}
+        onConfirm={() => resolveActionDialog(true)}
       />
     </div>
   );
