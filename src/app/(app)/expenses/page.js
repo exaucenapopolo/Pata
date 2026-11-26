@@ -1891,7 +1891,7 @@ export default function ExpensesPage() {
         <form onSubmit={handleCreateProject} className="space-y-3">
           <Input label="Nom du projet" required maxLength={100} value={projectForm.name} onChange={(e) => setProjectForm({ ...projectForm, name: e.target.value })} placeholder="Ex. Construction de ma maison"/>
           <div><label className="mb-1 block text-sm font-medium text-slate-700">Description (facultatif)</label><textarea value={projectForm.description} onChange={(e) => setProjectForm({ ...projectForm, description: e.target.value })} maxLength={500} rows={3} className="w-full rounded-lg border border-slate-300 p-3 text-sm" placeholder="Décris ce que tu souhaites réaliser."/></div>
-          <Input label="Budget indicatif (FCFA, facultatif)" type="number" min="0" step="1" value={projectForm.targetAmount} onChange={(e) => setProjectForm({ ...projectForm, targetAmount: e.target.value })} placeholder="Ex. 2500000"/>
+          <div><Input label="Budget indicatif (FCFA, facultatif)" type="number" min="0" step="1" value={projectForm.targetAmount} onChange={(e) => setProjectForm({ ...projectForm, targetAmount: e.target.value })} placeholder="Ex. 2500000"/><CalculatorLauncher onApply={(result) => setProjectForm((current) => ({ ...current, targetAmount: result }))}/></div>
           {projectError && <p className="rounded-lg bg-red-50 p-2 text-sm text-red-700">{projectError}</p>}
           <Button type="submit" className="w-full" disabled={projectSaving}>{projectSaving ? 'Création…' : 'Créer le projet'}</Button>
         </form>
