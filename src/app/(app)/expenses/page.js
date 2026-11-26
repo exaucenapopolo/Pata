@@ -141,6 +141,7 @@ export default function ExpensesPage() {
   const [selectedExpenseKeys, setSelectedExpenseKeys] = useState([]);
   const longPressTimerRef = useRef(null);
   const longPressTriggeredRef = useRef(false);
+  const [bulkOptionsOpen, setBulkOptionsOpen] = useState(false);
   const [bulkSourceOpen, setBulkSourceOpen] = useState(false);
   const [bulkSourceId, setBulkSourceId] = useState('');
   const [bulkActionBusy, setBulkActionBusy] = useState(false);
@@ -397,8 +398,7 @@ export default function ExpensesPage() {
   }, [sortedIncomesForSelect, selectedExpenseOperations]);
 
 
-  const selectedFundingSources = useMemo(() => {
-    const groupedSources = new Map();
+  const selectedFundingSources = useMemo(() => {    const groupedSources = new Map();
     selectedExpenseOperations.forEach((operation) => {
       operation.rows.forEach((row) => {
         const sourceId = String(row.incomeSourceId || 'all');
@@ -797,8 +797,7 @@ export default function ExpensesPage() {
     }
     const adjustedTotal = [...sourceBalances.values()].reduce((sum, amount) => sum + amount, 0);
     if (getExpenseBatchTotal(batchRows) > adjustedTotal
-      || automaticTotal > Math.max(0, adjustedTotal - explicitlyReserved)) {
-      setBatchError('Le total modifié dépasse les revenus disponibles après prise en compte des dépenses sélectionnées.');
+      || automaticTotal > Math.max(0, adjustedTotal - explicitlyReserved)) {      setBatchError('Le total modifié dépasse les revenus disponibles après prise en compte des dépenses sélectionnées.');
       return;
     }
 
@@ -984,6 +983,7 @@ export default function ExpensesPage() {
   const clearExpenseSelection = () => {
     setSelectedExpenseKeys([]);
     setSelectionMode(false);
+    setBulkOptionsOpen(false);
     if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
     longPressTimerRef.current = null;
     longPressTriggeredRef.current = false;
@@ -1197,7 +1197,6 @@ export default function ExpensesPage() {
       setBulkActionBusy(false);
     }
   };
-
   const makeExpenseRecurring = async (event) => {
     event.preventDefault();
     if (!recurringExpense || !user) return;
@@ -1500,20 +1499,32 @@ export default function ExpensesPage() {
                 <X size={16}/> Terminer
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-              <button type="button" disabled={bulkActionBusy || !selectedExpenseOperations.length} onClick={openBulkEditModal} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2 text-[11px] font-bold text-slate-800 disabled:opacity-40">
-                <Pencil size={14}/> Modifier ensemble
-              </button>
-              <button type="button" disabled={bulkActionBusy || bulkDateBusy || !selectedExpenseOperations.length} onClick={openBulkDateModal} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2 text-[11px] font-bold text-slate-800 disabled:opacity-40">
-                <Calendar size={14}/> Changer la date
-              </button>
-              <button type="button" disabled={bulkActionBusy || !selectedExpenseOperations.length || bulkDestinationSourceOptions.length === 0} onClick={openBulkSourceModal} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-bold text-emerald-900 disabled:opacity-40">
-                <Link2 size={14}/> Regrouper les revenus
-              </button>
-              <button type="button" disabled={bulkActionBusy || !selectedExpenseOperations.length} onClick={handleBulkDelete} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-2 text-[11px] font-bold text-rose-700 disabled:opacity-40">
-                <Trash2 size={14}/> Supprimer
-              </button>
-            </div>
+            <button
+              type="button"
+              disabled={selectedExpenseOperations.length === 0 || bulkActionBusy || bulkDateBusy}
+              onClick={() => setBulkOptionsOpen((current) => !current)}
+              aria-expanded={bulkOptionsOpen}
+              className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-3 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              {bulkOptionsOpen ? 'Masquer les options' : 'Afficher les options'}
+              <span aria-hidden="true" className="text-base leading-none">{bulkOptionsOpen ? '−' : '+'}</span>
+            </button>
+            {bulkOptionsOpen && (
+              <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                <button type="button" disabled={bulkActionBusy || !selectedExpenseOperations.length} onClick={openBulkEditModal} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2 text-[11px] font-bold text-slate-800 disabled:opacity-40">
+                  <Pencil size={14}/> Modifier ensemble
+                </button>
+                <button type="button" disabled={bulkActionBusy || bulkDateBusy || !selectedExpenseOperations.length} onClick={openBulkDateModal} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2 text-[11px] font-bold text-slate-800 disabled:opacity-40">
+                  <Calendar size={14}/> Changer la date
+                </button>
+                <button type="button" disabled={bulkActionBusy || !selectedExpenseOperations.length || bulkDestinationSourceOptions.length === 0} onClick={openBulkSourceModal} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-2 text-[11px] font-bold text-emerald-900 disabled:opacity-40">
+                  <Link2 size={14}/> Regrouper les revenus
+                </button>
+                <button type="button" disabled={bulkActionBusy || !selectedExpenseOperations.length} onClick={handleBulkDelete} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-2 text-[11px] font-bold text-rose-700 disabled:opacity-40">
+                  <Trash2 size={14}/> Supprimer
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1597,8 +1608,7 @@ export default function ExpensesPage() {
                 </div>
                 {batchMode === 'edit' && <div className="mt-3"><OptionalTransactionFields value={row} onChange={(next) => updateBatchRow(row.id, next)} kind="expense"/></div>}
               </section>
-            ))}
-          </div>
+            ))}          </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3">
             {batchMode === 'create' && (
