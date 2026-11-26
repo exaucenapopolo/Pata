@@ -863,7 +863,8 @@ export async function POST(request) {
         }
         if (item.direction === 'income' && operationType !== 'income') throw new Error('Cette transaction est une réception : elle doit être enregistrée comme revenu.');
         if (item.direction !== 'income' && operationType !== 'expense') throw new Error('Cette transaction est une sortie : elle doit être enregistrée comme dépense.');
-        if (recordBill && (item.direction !== 'expense' || item.eventType === 'withdrawal' || repaymentDebtId)) {
+        if ((recordBill || (item.billPayment === true && item.billId && item.billDueDate))
+          && (item.direction !== 'expense' || item.eventType === 'withdrawal' || repaymentDebtId)) {
           throw new Error('Seul un paiement sortant ordinaire peut être enregistré comme facture. Les retraits et remboursements de dette restent séparés.');
         }
         // Once an import is associated with an invoice, keep that exact invoice cycle
@@ -871,11 +872,13 @@ export async function POST(request) {
         // confirmation response was interrupted.
         const persistedBillId = item.billPayment === true ? String(item.billId || '').trim() : '';
         const persistedBillDueDate = item.billPayment === true ? String(item.billDueDate || '').trim() : '';
-        const selectedBillId = persistedBillId && persistedBillDueDate ? persistedBillId : requestedBillId;
-        const selectedBillDueDate = persistedBillId && persistedBillDueDate ? persistedBillDueDate : requestedBillDueDate;
-        const useExistingBill = recordBill && Boolean(selectedBillId) && selectedBillId !== 'new';
-        const createNewBill = recordBill && selectedBillId === 'new';
-        if (recordBill && !useExistingBill && (!createNewBill || !billName)) {
+        const persistedBillAssociation = Boolean(persistedBillId && persistedBillDueDate);
+        const shouldRecordBill = recordBill || persistedBillAssociation;
+        const selectedBillId = persistedBillAssociation ? persistedBillId : requestedBillId;
+        const selectedBillDueDate = persistedBillAssociation ? persistedBillDueDate : requestedBillDueDate;
+        const useExistingBill = shouldRecordBill && Boolean(selectedBillId) && selectedBillId !== 'new';
+        const createNewBill = shouldRecordBill && selectedBillId === 'new';
+        if (shouldRecordBill && !useExistingBill && (!createNewBill || !billName)) {
           throw new Error('Choisis une facture impayée ou indique le nom de la nouvelle facture.');
         }
         let selectedBill = null;
