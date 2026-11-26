@@ -10,11 +10,13 @@ import { AppDialog } from '@/components/ui/AppDialog';
 export function useAppDialog() {
   const [options, setOptions] = useState(null);
   const resolverRef = useRef(null);
+  const [promptValue, setPromptValue] = useState('');
 
   const settle = useCallback((value) => {
     const resolve = resolverRef.current;
     resolverRef.current = null;
     setOptions(null);
+    setPromptValue('');
     resolve?.(value);
   }, []);
 
@@ -41,6 +43,20 @@ export function useAppDialog() {
     confirmLabel: config.confirmLabel || 'Compris',
   }), [request]);
 
+  const appPrompt = useCallback((message, defaultValue = '', config = {}) => {
+    setPromptValue(String(defaultValue ?? ''));
+    return request({
+      mode: 'prompt',
+      kind: config.kind || 'info',
+      title: config.title || 'Saisir une information',
+      message,
+      confirmLabel: config.confirmLabel || 'Valider',
+      cancelLabel: config.cancelLabel || 'Annuler',
+      promptPlaceholder: config.placeholder || '',
+      promptMultiline: config.multiline === true,
+    });
+  }, [request]);
+
   const dialog = (
     <AppDialog
       open={!!options}
@@ -49,11 +65,16 @@ export function useAppDialog() {
       message={options?.message || ''}
       confirmLabel={options?.confirmLabel || 'Compris'}
       cancelLabel={options?.cancelLabel || 'Annuler'}
-      showCancel={options?.mode === 'confirm'}
-      onClose={() => settle(false)}
-      onConfirm={() => settle(true)}
+      showCancel={options?.mode !== 'alert'}
+      prompt={options?.mode === 'prompt'}
+      promptValue={promptValue}
+      onPromptChange={setPromptValue}
+      promptPlaceholder={options?.promptPlaceholder || ''}
+      promptMultiline={options?.promptMultiline === true}
+      onClose={() => settle(options?.mode === 'prompt' ? null : false)}
+      onConfirm={() => settle(options?.mode === 'prompt' ? promptValue : true)}
     />
   );
 
-  return { appConfirm, appAlert, dialog };
+  return { appConfirm, appAlert, appPrompt, dialog };
 }
