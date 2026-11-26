@@ -59,17 +59,28 @@ export function validateExpenseBatchRows(rows = [], options = {}) {
 }
 
 /**
- * A stable retry key for one row. Repeated requests with identical row data
- * reuse the same Firestore idempotency record; editing an unsaved row changes
- * its fingerprint so it cannot replay the result of its previous contents.
- */
-/**
- * A retry key belongs to the draft row, not its editable contents. If the
- * server committed a row but the response was lost, changing the amount while
- * retrying must not create a second expense under a new key.
+ * The row identity stays stable across retries. The server separately checks
+ * a content fingerprint to refuse a changed row that already committed.
  */
 export function getExpenseBatchIdempotencyKey(row = {}) {
   const stableRowId = String(row.id || '').trim().replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 100);
   if (!stableRowId) throw new Error('Identifiant de ligne manquant pour la saisie multiple.');
   return 'batch_' + stableRowId;
+}
+
+export function getExpenseBatchFingerprint(row = {}) {
+  const content = [
+    row.amount,
+    row.categoryId,
+    row.date,
+    row.note,
+    row.incomeSourceId || 'all',
+    row.paymentMethod || '',
+  ].map((value) => String(value ?? '').trim()).join('\u001f');
+  let hash = 2166136261;
+  for (let index = 0; index < content.length; index += 1) {
+    hash ^= content.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return 'fp_' + (hash >>> 0).toString(36).padStart(7, '0');
 }
