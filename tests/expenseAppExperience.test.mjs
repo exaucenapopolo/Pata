@@ -138,7 +138,6 @@ import {
 } from '../src/lib/finance/expenseSelection.mjs';
 import {
   createExpenseBatchDraftRow,
-  getExpenseBatchIdempotencyKey,
   getExpenseBatchSourceTotals,
   getExpenseBatchTotal,
   validateExpenseBatchRows,
