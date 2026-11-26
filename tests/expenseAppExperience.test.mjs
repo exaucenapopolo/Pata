@@ -41,7 +41,7 @@ test('une dépense répartie entre plusieurs sources reste une seule opération 
 test('la sélection multiple démarre par appui prolongé et permet de sélectionner chaque journée séparément', () => {
   const page = read('src/app/(app)/expenses/page.js');
   assert.match(page, /setTimeout\(\(\) => \{/);
-  assert.match(page, /\}, 480\)/);
+  assert.match(page, /\}, 420\)/);
   assert.match(page, /onPointerDown=\{\(event\) => startExpenseLongPress/);
   assert.match(page, /toggleExpenseDaySelection\(items\)/);
   assert.match(page, /Journée/);
@@ -108,4 +108,118 @@ test('le dialogue Pata gère aussi la saisie de texte sans prompt natif', () => 
   assert.match(dialog, /onPromptChange/);
   assert.match(dialog, /<textarea/);
   assert.match(dialog, /<input/);
+});
+
+import {
+  getDayExpenseSelectionKeys,
+  getSelectedExpenseOperations,
+  toggleDayExpenseSelectionKeys,
+  toggleExpenseSelectionKey,
+} from '../src/lib/finance/expenseSelection.mjs';
+import {
+  createExpenseBatchDraftRow,
+  getExpenseBatchSourceTotals,
+  getExpenseBatchTotal,
+  validateExpenseBatchRows,
+} from '../src/lib/finance/expenseBatch.mjs';
+
+test('la sélection simple permet de cocher plusieurs opérations indépendantes et de les décocher', () => {
+  let selected = [];
+  selected = toggleExpenseSelectionKey(selected, 'food-1');
+  selected = toggleExpenseSelectionKey(selected, 'transport-2');
+  assert.deepEqual(selected, ['food-1', 'transport-2']);
+  selected = toggleExpenseSelectionKey(selected, 'food-1');
+  assert.deepEqual(selected, ['transport-2']);
+});
+
+test('la sélection d’une journée coche uniquement ses opérations et conserve les autres journées', () => {
+  const keyById = new Map([['shared-root', 'shared-root'], ['shared-part', 'shared-root']]);
+  const items = [
+    { id: 'shared-root' },
+    { id: 'shared-part' },
+    { id: 'normal-day' },
+    { id: 'protected-debt', repaymentDebtId: 'debt-1' },
+  ];
+  const dayKeys = getDayExpenseSelectionKeys(items, keyById);
+  assert.deepEqual(dayKeys, ['shared-root', 'normal-day']);
+  const selected = toggleDayExpenseSelectionKeys(['other-day'], dayKeys);
+  assert.deepEqual(selected, ['other-day', 'shared-root', 'normal-day']);
+  assert.deepEqual(toggleDayExpenseSelectionKeys(selected, dayKeys), ['other-day']);
+});
+
+test('une sélection partagée expose une seule opération avec son montant total et son ID principal', () => {
+  const expenses = [
+    { id: 'root', sharedExpenseId: 'root', amount: 1200, incomeSourceId: 'income-a' },
+    { id: 'part', sharedExpenseId: 'root', splitFromExpenseId: 'root', amount: 800, incomeSourceId: 'income-b' },
+    { id: 'separate', amount: 300, incomeSourceId: 'income-a' },
+  ];
+  const operations = getSelectedExpenseOperations(expenses, ['root', 'separate']);
+  assert.equal(operations.length, 2);
+  assert.equal(operations[0].root.id, 'root');
+  assert.equal(operations[0].amount, 2000);
+  assert.equal(operations[0].rows.length, 2);
+  assert.equal(operations[1].amount, 300);
+});
+
+test('la saisie multiple crée des lignes indépendantes et calcule les sources distinctes', () => {
+  const first = { ...createExpenseBatchDraftRow('a', '2026-11-26'), amount: '1500', categoryId: 'food', incomeSourceId: 'salary' };
+  const second = { ...createExpenseBatchDraftRow('b', '2026-11-26'), amount: '600', categoryId: 'transport', incomeSourceId: 'bonus' };
+  const automatic = { ...createExpenseBatchDraftRow('c', '2026-11-26'), amount: '300', categoryId: 'internet', incomeSourceId: 'all' };
+  assert.equal(getExpenseBatchTotal([first, second, automatic]), 2400);
+  assert.deepEqual(getExpenseBatchSourceTotals([first, second, automatic]), { salary: 1500, bonus: 600 });
+  assert.equal(first.categoryId, 'food');
+  assert.equal(second.categoryId, 'transport');
+  assert.notEqual(first.incomeSourceId, second.incomeSourceId);
+});
+
+test('la saisie multiple refuse les montants cumulés qui dépassent une source', () => {
+  const rows = [
+    { ...createExpenseBatchDraftRow('a', '2026-11-26'), amount: '6000', incomeSourceId: 'salary' },
+    { ...createExpenseBatchDraftRow('b', '2026-11-26'), amount: '5000', incomeSourceId: 'salary' },
+  ];
+  const result = validateExpenseBatchRows(rows, {
+    balancesReady: true,
+    sourceBalances: [{ id: 'salary', source: 'Salaire', remaining: 10000 }],
+    freeRemaining: 60,
+  });
+  assert.equal(result.valid, false);
+  assert.match(result.error, /il ne reste que 10/);
+});
+
+test('la saisie multiple refuse une quantité au-delà du quota avant d’enregistrer la première ligne', () => {
+  const rows = [
+    { ...createExpenseBatchDraftRow('a', '2026-11-26'), amount: '500', categoryId: 'food' },
+    { ...createExpenseBatchDraftRow('b', '2026-11-26'), amount: '300', categoryId: 'transport' },
+  ];
+  const result = validateExpenseBatchRows(rows, {
+    balancesReady: true,
+    sourceBalances: [{ id: 'salary', remaining: 10000 }],
+    freeRemaining: 1,
+  });
+  assert.equal(result.valid, false);
+  assert.match(result.error, /Il te reste 1/);
+});
+
+test('la page propose une sélection explicite, une sélection par journée et les actions de suppression et de source', () => {
+  const page = read('src/app/(app)/expenses/page.js');
+  assert.match(page, /Terminer la sélection/);
+  assert.match(page, /Sélectionner la journée/);
+  assert.match(page, /Changer source/);
+  assert.match(page, /z-\[90\]/);
+  assert.doesNotMatch(page, /onPointerLeave=\{endExpenseLongPress\}/);
+  assert.match(page, /onPointerMove=\{moveExpenseLongPress\}/);
+});
+
+test('la saisie multiple enregistre chaque ligne par createExpense avec sa propre catégorie, date et source', () => {
+  const page = read('src/app/(app)/expenses/page.js');
+  assert.match(page, /<Modal open=\{batchModalOpen\}/);
+  assert.match(page, /batchExpenseCategories\.map/);
+  assert.match(page, /availableBatchIncomeSources\.map/);
+  assert.match(page, /date=|type="date"/);
+  assert.match(page, /createExpense\(user\.uid, payload\)/);
+  assert.match(page, /row\.categoryId/);
+  assert.match(page, /row\.date/);
+  assert.match(page, /row\.incomeSourceId/);
+  assert.match(page, /const orderedRows = \[/);
+  assert.match(page, /const remainingRows = orderedRows\.slice\(index\)/);
 });
