@@ -74,6 +74,14 @@ export async function updateExpense(uid, id, patch) {
   return postExpenseAction('update', { ...patch, expenseId: id });
 }
 
+export async function reassignExpensesToIncome(uid, expenseIds, incomeSourceId, options = {}) {
+  return postExpenseAction('reassign-source', {
+    expenseIds,
+    incomeSourceId,
+    confirmBudgetOverrun: options.confirmBudgetOverrun === true,
+  });
+}
+
 export async function deleteExpense(uid, id) {
   return postExpenseAction('delete', { expenseId: id });
 }
