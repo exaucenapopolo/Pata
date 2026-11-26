@@ -678,7 +678,14 @@ export async function GET(request) {
       .orderBy('createdAt', 'desc').limit(100).get();
     const pending = snapshot.docs
       .map((doc) => ({ id: doc.id, ...doc.data() }))
-      .filter((item) => item.status === 'PENDING')
+      .filter((item) => {
+        if (item.status === 'PENDING') return true;
+        if (item.status !== 'PROCESSING') return false;
+        const processingAt = item.processingAt?.toDate
+          ? item.processingAt.toDate().getTime()
+          : new Date(item.processingAt || 0).getTime();
+        return Number.isFinite(processingAt) && Date.now() - processingAt >= 120000;
+      })
       .sort((a, b) => {
         const left = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
         const right = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
