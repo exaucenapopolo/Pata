@@ -5201,7 +5201,12 @@ async function handleAddExpense(request) {
     const body = await request.json();
     const smsImportId = /^sms_[a-f0-9]{64}$/.test(String(body.smsImportId || '')) ? String(body.smsImportId) : null;
     const batchIdempotencyKey = /^batch_[A-Za-z0-9_-]{8,120}$/.test(String(body.batchIdempotencyKey || '')) ? String(body.batchIdempotencyKey) : null;
-    const result = await createExpenseForUser(decoded.uid, body, { idempotencyKey: smsImportId || batchIdempotencyKey });
+    const batchIdempotencyFingerprint = /^fp_[A-Za-z0-9_-]{7,64}$/.test(String(body.batchIdempotencyFingerprint || '')) ? String(body.batchIdempotencyFingerprint) : null;
+    if (batchIdempotencyKey && !batchIdempotencyFingerprint) throw new Error('Empreinte de saisie multiple manquante ou invalide.');
+    const result = await createExpenseForUser(decoded.uid, body, {
+      idempotencyKey: smsImportId || batchIdempotencyKey,
+      idempotencyFingerprint: batchIdempotencyKey ? batchIdempotencyFingerprint : null,
+    });
     if (result.pendingConfirmation && result.requestId && result.counterpartyUid) {
       try {
         const amountLabel = Number(result.amount || body.amount || 0).toLocaleString('fr-FR');
@@ -5226,6 +5231,7 @@ async function handleAddExpense(request) {
   } catch (error) {
     const message = error.message || 'Erreur lors de l’enregistrement de la dépense.';
     const status = /limite gratuite/i.test(message) ? 403
+      : /empreinte|déjà enregistrée avec d’autres informations/i.test(message) ? 409
       : /introuvable|invalide|insuffisants|nom exact|plusieurs revenus|n’existe plus|n'existe plus|ne trouve pas|obligatoire|disponible|catégorie/i.test(message) ? 400 : 500;
     return errorResponse(message, status);
   }
