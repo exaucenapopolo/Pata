@@ -27,3 +27,15 @@ test('uses a safe non-negative spacing between the input and keypad', () => {
     20,
   );
 });
+
+test('the calculator repositions the actual scroll container instead of closing its form', async () => {
+  const fs = await import('node:fs');
+  const component = fs.readFileSync('src/components/layout/MoneyKeypad.jsx', 'utf8');
+
+  assert.match(component, /keepActiveInputAboveKeypad/);
+  assert.match(component, /host\.scrollBy\(\{ top: scrollOffset, behavior: 'smooth' \}\)/);
+  assert.match(component, /overflowY/);
+  assert.match(component, /new ResizeObserver/);
+  assert.match(component, /restoreKeypadScrollSpace/);
+  assert.doesNotMatch(component, /setActiveField\(null\).*scroll/i);
+});
