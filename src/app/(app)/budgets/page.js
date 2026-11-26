@@ -223,6 +223,7 @@ export default function BudgetsPage() {
   const createBudgetAvailableToAllocate = Math.max(0, Number(createBudgetIncome?.remaining || 0) - createBudgetOtherAllocated);
   const createBudgetPlan = calculateBudgetPlan(createBudgetItems, Number(createBudgetIncome?.remaining) || 0);
   const createBudgetItemsTotal = createBudgetPlan.total;
+  const templatePlan = calculateBudgetPlan(templateItems, templateBaseAmount);
   const spendingInsights = useMemo(
     () => enriched
       .filter((category) => Number(category.spent) > 0)
@@ -744,41 +745,72 @@ export default function BudgetsPage() {
 
       <Modal open={templateModalOpen} onClose={() => { setTemplateModalOpen(false); setEditingTemplateId(null); }} title={editingTemplateId ? "Modifier le modèle de budget" : "Enregistrer un modèle de budget"} className="max-w-xl">
         <form onSubmit={onSaveTemplate} className="space-y-3">
-          <div className="rounded-xl bg-brand-50 p-3 text-xs leading-5 text-brand-900">Toutes les catégories sont conservées, même celles dont le budget est à zéro. À l’application, un montant nul retire l’enveloppe correspondante du mois choisi. Modifier ce modèle ne change pas les budgets déjà appliqués.</div>
+          <div className="rounded-xl bg-brand-50 p-3 text-xs leading-5 text-brand-900">Le modèle conserve, pour chaque catégorie, le montant ou le pourcentage et la fréquence choisis. À l’application, Pata recalcule les montants selon le revenu sélectionné. Modifier ce modèle ne change pas les budgets déjà appliqués.</div>
           <Input label="Nom du modèle" placeholder="Ex. Budget personnel mensuel" maxLength="70" required value={templateName} onChange={(event) => setTemplateName(event.target.value)}/>
           <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-3 py-2.5">
             <p className="text-xs text-slate-500">{templateItems.length} catégories conservées</p>
-            <strong className="text-xs text-slate-800">Total : {formatCurrency(templateItems.reduce((sum, item) => sum + (Number(item.amount) || 0), 0))}</strong>
+            <strong className="text-xs text-slate-800">Total calculé : {formatCurrency(templatePlan.total)}</strong>
           </div>
-          <div className="max-h-[42dvh] space-y-1 overflow-y-auto rounded-xl border border-slate-200 p-2">
-            {templateItems.map((item, index) => (
-              <label key={item.categoryId} className="flex items-center justify-between gap-3 rounded-lg px-2 py-2 hover:bg-slate-50">
-                <span className="min-w-0 flex-1">
+          <div className="max-h-[48dvh] space-y-2 overflow-y-auto rounded-xl border border-slate-200 p-2">
+            {templateItems.map((item, index) => {
+              const value = item.value ?? item.amount ?? '';
+              const calculated = templatePlan.rows[index];
+              return (
+                <section key={item.categoryId} className="space-y-2 rounded-lg border border-slate-100 p-2">
                   <strong className="block truncate text-xs font-semibold text-slate-800">{item.label || item.categoryId}</strong>
-                  <span className="text-[10px] text-slate-400">{item.amount === '0' || Number(item.amount) === 0 ? 'Aucune enveloppe' : 'Montant prévu'}</span>
-                </span>
-                <span className="w-32 shrink-0">
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    inputMode="numeric"
-                    value={item.amount}
-                    onChange={(event) => setTemplateItems((current) => current.map((value, itemIndex) => itemIndex === index ? { ...value, amount: event.target.value } : value))}
-                    className="h-10 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-right text-sm font-semibold text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
-                    aria-label={'Budget ' + item.label}
-                  />
-                </span>
-              </label>
-            ))}
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="block text-[11px] font-semibold text-slate-600">
+                      Calcul
+                      <select
+                        value={item.calculationType || 'amount'}
+                        onChange={(event) => setTemplateItems((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, calculationType: event.target.value } : row))}
+                        className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs"
+                      >
+                        <option value="amount">Montant en FCFA</option>
+                        <option value="percentage">Pourcentage du revenu</option>
+                      </select>
+                    </label>
+                    <label className="block text-[11px] font-semibold text-slate-600">
+                      Fréquence
+                      <select
+                        value={item.frequency || 'monthly'}
+                        onChange={(event) => setTemplateItems((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, frequency: event.target.value } : row))}
+                        className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs"
+                      >
+                        <option value="daily">Par jour</option>
+                        <option value="weekly">Par semaine</option>
+                        <option value="monthly">Par mois</option>
+                      </select>
+                    </label>
+                    <label className="col-span-2 block text-[11px] font-semibold text-slate-600">
+                      {item.calculationType === 'percentage' ? 'Pourcentage par période (%)' : 'Montant par période (FCFA)'}
+                      <input
+                        type="number"
+                        min="0"
+                        max={item.calculationType === 'percentage' ? '100' : '1000000000'}
+                        step={item.calculationType === 'percentage' ? '0.1' : '1'}
+                        inputMode="decimal"
+                        value={value}
+                        onChange={(event) => setTemplateItems((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, value: event.target.value } : row))}
+                        className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-right text-sm font-semibold text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                        aria-label={'Budget ' + item.label}
+                      />
+                    </label>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-2.5 py-2 text-[11px]">
+                    <span className="text-slate-500">Équivalent mensuel</span>
+                    <strong className="tabular-nums text-slate-800">{formatCurrency(calculated?.amount || 0)}</strong>
+                  </div>
+                </section>
+              );
+            })}
           </div>
           {templateMessage && <p role="alert" className="text-xs text-red-600">{templateMessage}</p>}
-          <Button type="submit" className="w-full" disabled={savingTemplate || !templateName.trim() || !templateItems.length}>
+          <Button type="submit" className="w-full" disabled={savingTemplate || !templateName.trim() || !templateItems.length || templatePlan.rows.some((item) => !item.valid)}>
             {savingTemplate ? 'Enregistrement…' : editingTemplateId ? 'Enregistrer les modifications' : applySuggestedAfterSave ? 'Valider et appliquer ce budget' : 'Enregistrer le modèle'}
           </Button>
         </form>
       </Modal>
-
       <Modal open={!!details} onClose={() => setDetails(null)} title={details ? (isEnglish ? `Budget details — ${translateText(details.label, 'en')}` : `Détail du budget — ${details.label}`) : ''}>
         {details && (
           <div className="space-y-4">
