@@ -40,6 +40,7 @@ import { DateRangePicker } from '@/components/layout/NativeDatePicker';
 import { ScrollAwareAddButton } from '@/components/layout/ScrollAwareAddButton';
 import { ExpenseSelectionActionDock } from '@/components/layout/ExpenseSelectionActionDock';
 import { usePersistentPageState } from '@/hooks/usePersistentPageState';
+import { CalculatorLauncher } from '@/components/finance/CalculatorPanel';
 
 const todayIso = () => {
   const d = new Date();
@@ -1531,9 +1532,9 @@ export default function ExpensesPage() {
                   )}
                 </div>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <label className="block text-xs font-semibold text-slate-700">Montant (FCFA)
+                  <div><label className="block text-xs font-semibold text-slate-700">Montant (FCFA)
                     <input type="text" inputMode="numeric" data-pata-money="true" pattern="[0-9]*" value={row.amount} onChange={(event) => updateBatchRow(row.id, { amount: event.target.value })} disabled={batchSaving} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"/>
-                  </label>
+                  </label><CalculatorLauncher value={row.amount} disabled={batchSaving} onApply={(result) => updateBatchRow(row.id, { amount: result })}/></div>
                   {batchMode === 'edit' && (
                     <label className="block text-xs font-semibold text-slate-700">Nature de la dépense
                       <select value={row.expenseType || 'consumption'} onChange={(event) => updateBatchRow(row.id, { expenseType: event.target.value, projectId: event.target.value === 'project' ? row.projectId : '' })} disabled={batchSaving} className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal">
@@ -1760,15 +1761,18 @@ export default function ExpensesPage() {
           <div><label className="mb-1 block text-sm font-medium text-slate-700">Type d’opération</label><select value={form.flowType || 'normal'} disabled={!!form.id} onChange={(event) => { const flowType = event.target.value; setForm({ ...form, flowType, categoryId: flowType === 'loan_given' ? 'loan_given' : flowType === 'repayment' ? 'debt_repayment' : 'food', repaymentDebtId: flowType === 'repayment' ? form.repaymentDebtId : '', expenseType: 'consumption', projectId: '' }); }} className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="normal">Dépense normale</option><option value="loan_given">Prêt accordé (on me doit)</option><option value="repayment">Remboursement d’une dette</option></select></div>
           {form.flowType === 'loan_given' && <div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><div className="sm:col-span-2"><DebtCounterpartyField label="Personne à qui tu prêtes" value={form.person} selectedUid={form.counterpartyUid} onNameChange={(person) => setForm({ ...form, person, counterpartyUid: '' })} onSelect={(account) => setForm({ ...form, person: account.displayName, counterpartyUid: account.uid })} onContactSelect={(contact) => setForm({ ...form, person: contact.displayName, phone: contact.phone, counterpartyUid: '' })}/></div><Input label="Téléphone (facultatif)" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })}/><Input label="Date d’échéance" type="date" required value={form.dueDate} onChange={(event) => setForm({ ...form, dueDate: event.target.value })}/></div>}
           {form.flowType === 'repayment' && <div><label className="mb-1 block text-sm font-medium text-slate-700">Dette à rembourser</label><select required value={form.repaymentDebtId} onChange={(event) => setForm({ ...form, repaymentDebtId: event.target.value })} className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="">Choisir une dette</option>{activePayableDebts.map((debt) => <option key={debt.id} value={debt.id}>{debt.person} · {formatCurrency(Number(debt.remaining) || 0)} restant</option>)}</select>{!activePayableDebts.length && <p className="mt-1 text-xs text-slate-500">Aucune dette active à rembourser.</p>}</div>}
-          <Input
-            label="Montant (FCFA)"
-            type="number"
-            min="0"
-            step="1"
-            required
-            value={form.amount}
-            onChange={(e) => setForm({ ...form, amount: e.target.value })}
-          />
+          <div>
+            <Input
+              label="Montant (FCFA)"
+              type="number"
+              min="0"
+              step="1"
+              required
+              value={form.amount}
+              onChange={(e) => setForm({ ...form, amount: e.target.value })}
+            />
+            <CalculatorLauncher value={form.amount} onApply={(result) => setForm((current) => ({ ...current, amount: result }))}/>
+          </div>
           
           {form.flowType === 'normal' ? <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">Nature de cette sortie d’argent</label>
