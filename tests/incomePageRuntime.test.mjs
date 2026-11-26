@@ -302,3 +302,19 @@ test('la confirmation d’une prévision vitale conserve la fréquence et le typ
   assert.match(handler, /frequency: item\.frequency/);
   assert.match(handler, /totalBudget \* item\.value \/ 100/);
 });
+
+
+test('les modèles de budget peuvent ajouter, changer et retirer leurs catégories dans le même éditeur', () => {
+  assert.match(budgetsPage, /Ajouter une catégorie/);
+  assert.match(budgetsPage, /Retirer cette catégorie du modèle/);
+  assert.match(budgetsPage, /expenseCategories\.map\(\(category\) => \(/);
+  assert.match(budgetsPage, /disabled=\{templateItems\.some\(\(row, rowIndex\) => rowIndex !== index && row\.categoryId === category\.id\)\}/);
+  assert.match(budgetsPage, /setTemplateItems\(\(current\) => current\.filter\(\(_, rowIndex\) => rowIndex !== index\)\)/);
+});
+
+test('les pourcentages des enveloppes utilisent le revenu initial tandis que le solde vérifié sert aux alertes', () => {
+  assert.match(budgetsPage, /calculateBudgetPlan\(createBudgetItems, Number\(createBudgetIncome\?\.amount\)/);
+  assert.match(budgetsPage, /createBudgetIncome\.balanceAvailable === true && createBudgetItemsTotal > createBudgetAvailableToAllocate/);
+  assert.match(budgetsPage, /createBudgetIncome\.balanceAvailable === true \? formatCurrency\(createBudgetIncome\.remaining\) : 'À vérifier'/);
+  assert.match(budgetsPage, /budgetIncomeSources\.reduce\(\(sum, income\) => sum \+ Math\.max\(0, Number\(income\.amount\)/);
+});
