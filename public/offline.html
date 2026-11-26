@@ -3,36 +3,61 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#075b43">
+  <meta name="theme-color" content="#f0f6f1">
   <meta name="robots" content="noindex,nofollow">
-  <title>Pata — Hors connexion</title>
+  <title>Pata</title>
   <style>
-    :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f5f8f6; color: #16231e; }
+    :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f0f6f1; color: #17362a; }
     * { box-sizing: border-box; }
     body { min-height: 100vh; min-height: 100dvh; margin: 0; display: grid; place-items: center; padding: 24px; }
-    main { width: min(100%, 440px); padding: 32px 26px; border: 1px solid #e1e9e4; border-radius: 24px; background: #fff; box-shadow: 0 18px 60px rgba(15, 55, 38, .07); }
-    .mark { display: grid; width: 52px; height: 52px; place-items: center; border-radius: 16px; background: #e7f3ec; color: #075b43; font-size: 25px; font-weight: 800; }
-    h1 { margin: 22px 0 10px; font-size: 25px; letter-spacing: -.6px; }
-    p { margin: 0; color: #637168; font-size: 14px; line-height: 1.75; }
-    .hint { margin-top: 18px; padding: 14px 15px; border-radius: 14px; background: #f4f8f5; color: #52635a; font-size: 13px; line-height: 1.65; }
-    .actions { display: grid; gap: 10px; margin-top: 22px; }
-    a, button { display: flex; min-height: 48px; align-items: center; justify-content: center; border: 0; border-radius: 13px; font: inherit; font-size: 14px; font-weight: 700; text-decoration: none; cursor: pointer; }
-    a { background: #075b43; color: #fff; }
-    button { background: #eef3ef; color: #294438; }
-    .foot { margin-top: 22px; color: #91a097; font-size: 11px; text-align: center; }
+    main { width: min(100%, 390px); display: grid; gap: 18px; }
+    .brand { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 800; letter-spacing: -.2px; }
+    .brand svg { width: 25px; height: 25px; color: #087451; }
+    .surface { padding: 18px; border: 1px solid #e1ebe4; border-radius: 22px; background: rgba(255,255,255,.88); box-shadow: 0 14px 40px rgba(15,55,38,.06); }
+    .status { display: flex; align-items: center; gap: 9px; color: #50665a; font-size: 12px; font-weight: 650; }
+    .status svg { width: 16px; height: 16px; color: #b97723; flex: 0 0 auto; }
+    .skeleton { margin-top: 18px; display: grid; gap: 11px; }
+    .line { height: 10px; border-radius: 99px; background: linear-gradient(90deg, #e9f0eb 25%, #f4f7f4 45%, #e9f0eb 65%); background-size: 240% 100%; animation: shimmer 1.8s ease-in-out infinite; }
+    .line.short { width: 43%; }
+    .line.medium { width: 69%; }
+    .cards { display: grid; grid-template-columns: repeat(2,1fr); gap: 10px; margin-top: 17px; }
+    .card { min-height: 66px; padding: 12px; border: 1px solid #edf2ee; border-radius: 14px; background: #fafcfb; }
+    .card .line + .line { margin-top: 10px; }
+    .foot { color: #87968d; font-size: 10px; text-align: center; }
+    @keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -140% 0; } }
+    @media (prefers-reduced-motion: reduce) { .line { animation: none; } }
   </style>
 </head>
 <body>
-  <main>
-    <div class="mark" aria-label="Pata">P</div>
-    <h1>Tu es hors connexion</h1>
-    <p>Cette page n’est pas encore disponible sur cet appareil. Certaines pages et les données Firestore déjà consultées peuvent rester accessibles hors connexion.</p>
-    <div class="hint">Tes opérations enregistrées localement seront synchronisées lorsque la connexion reviendra. Les paiements, l’assistante IA et les fonctions qui utilisent le serveur nécessitent toujours Internet.</div>
-    <div class="actions">
-      <a href="/dashboard">Réessayer d’ouvrir Pata</a>
-      <button type="button" onclick="window.location.reload()">Réessayer cette page</button>
+  <main aria-busy="true" role="status">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <path d="M6 8.5 16 3l10 5.5v15L16 29 6 23.5v-15Z" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"/>
+        <path d="M11 16h10M16 11v10" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+      </svg>
+      Pata
     </div>
-    <div class="foot">Pata · Gestion financière personnelle</div>
+    <section class="surface" aria-label="Chargement temporairement indisponible">
+      <div class="status">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M3 9a14 14 0 0 1 17.4-1.1M6.5 12.5a9 9 0 0 1 10.1-.8M10 16a4 4 0 0 1 4.1-.2M3 3l18 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+        Connexion indisponible
+      </div>
+      <div class="skeleton" aria-hidden="true">
+        <div class="line medium"></div>
+        <div class="line short"></div>
+      </div>
+      <div class="cards" aria-hidden="true">
+        <div class="card"><div class="line short"></div><div class="line medium"></div></div>
+        <div class="card"><div class="line short"></div><div class="line medium"></div></div>
+      </div>
+      <div class="skeleton" aria-hidden="true">
+        <div class="line"></div>
+        <div class="line medium"></div>
+      </div>
+    </section>
+    <div class="foot">Les données déjà chargées restent conservées sur cet appareil.</div>
   </main>
 </body>
 </html>
