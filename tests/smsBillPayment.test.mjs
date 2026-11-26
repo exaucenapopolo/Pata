@@ -218,7 +218,7 @@ test('le paiement SMS d’une facture existante réutilise le paiement sécuris�
 test('le serveur vérifie que la facture appartient au compte et que son échéance est toujours la même', () => {
   const route = fs.readFileSync('src/app/api/sms-import/route.js', 'utf8');
   assert.match(route, /userRef\.collection\('bills'\)\.doc\(selectedBillId\)/);
-  assert.match(route, /selectedBillSnap\?\.exists/);
+  assert.match(route, /if \(!selectedBillSnap\.exists\)/);
   assert.match(route, /selectedBill\.active === false/);
   assert.match(route, /String\(selectedBill\.nextDueDate \|\| ''\) !== selectedBillDueDate/);
   assert.match(route, /!\/\^\\d\{4\}-\\d\{2\}-\\d\{2\}\$\//);
