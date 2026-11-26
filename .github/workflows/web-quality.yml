@@ -34,6 +34,8 @@ jobs:
         run: npm run test:quick-capture
       - name: Tester les sources de revenus disponibles dans Quick Capture
         run: npm run test:available-income-sources
+      - name: Tester les soldes disponibles et le tableau de bord
+        run: node --test tests/incomeBalances.test.mjs tests/dashboard-period.test.mjs
       - name: Tester la sélection multiple et la comptabilité des dépenses
         run: npm run test:expense-app-experience
       - name: Tester le clavier de montant Android et la restauration des champs
