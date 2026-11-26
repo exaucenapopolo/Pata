@@ -26,6 +26,7 @@ import { isIncomeCountedAsSource } from '@/lib/finance/incomeBalances.mjs';
 import { usePersistentPageState } from '@/hooks/usePersistentPageState';
 import { NextBestAction } from '@/components/NextBestAction';
 import { useAppDialog } from '@/hooks/useAppDialog';
+import { CalculatorLauncher } from '@/components/finance/CalculatorPanel';
 import { calculateBudgetPlan, restoreBudgetPlannerLine } from '@/lib/finance/budgetPlanner.mjs';
 
 const todayMonth = () => getLocalMonth();
@@ -570,7 +571,7 @@ export default function BudgetsPage() {
           <select value={targetPeriod} onChange={(event) => setTargetPeriod(event.target.value)} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm">
             <option value="daily">Par jour</option><option value="weekly">Par semaine</option><option value="monthly">Par mois</option>
           </select>
-          <Input type="number" data-pata-money="true" min="1" step="1" value={targetAmount} onChange={(event) => setTargetAmount(event.target.value)} placeholder="Montant en FCFA" />
+          <div><Input type="number" data-pata-money="true" min="1" step="1" value={targetAmount} onChange={(event) => setTargetAmount(event.target.value)} placeholder="Montant en FCFA" /><CalculatorLauncher value={targetAmount} onApply={setTargetAmount}/></div>
           <Button type="submit" disabled={savingTarget || !expenseCategories.length}>{savingTarget ? 'Enregistrement…' : 'Définir l’objectif'}</Button>
         </form>
         {targetMessage && <p role="status" className="mt-2 text-xs text-slate-600">{targetMessage}</p>}
@@ -848,6 +849,7 @@ export default function BudgetsPage() {
                         aria-label={'Budget ' + item.label}
                       />
                     </label>
+                    {item.calculationType === 'amount' && <CalculatorLauncher value={value} onApply={(result) => setTemplateItems((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, value: result } : row))}/>}
                   </div>
                   <div className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-2.5 py-2 text-[11px]">
                     <span className="text-slate-500">Équivalent mensuel</span>
@@ -1041,6 +1043,8 @@ export default function BudgetsPage() {
                           className="pata-field mt-1 h-10 w-full rounded-lg border px-3 text-right text-sm font-bold text-slate-800 outline-none"
                         />
                       </label>
+                      {item.calculationType === 'amount' && <CalculatorLauncher value={item.value} onApply={(result) => setCreateBudgetItems((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, value: result } : row))}/>}
+
                     </div>
                     <div className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2 text-xs">
                       <span className="text-slate-500">Prévision mensuelle calculée</span>
@@ -1103,7 +1107,7 @@ export default function BudgetsPage() {
                   : (isEnglish ? `Income: ${monthIncomes.find(i => i.id === selectedIncome)?.source}` : `Revenu : ${monthIncomes.find(i => i.id === selectedIncome)?.source}`)}
               </span>
             </div>
-            <Input
+            <div><Input
               label="Montant alloué (FCFA)"
               type="number"
               data-pata-money="true"
@@ -1112,7 +1116,7 @@ export default function BudgetsPage() {
               required
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-            />
+            /><CalculatorLauncher value={amount} onApply={setAmount}/></div>
             <p className="text-xs text-slate-500">
               Mets 0 pour supprimer le budget de cette catégorie.
             </p>
