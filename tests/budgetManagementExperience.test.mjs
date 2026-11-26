@@ -20,7 +20,9 @@ test('les détails et les prévisions réutilisent les dépenses déjà chargée
 
 test('la suppression complète demande de taper SUPPRIMER et conserve les dépenses', () => {
   assert.match(budgetsPage, /<ConfirmDialog/);
-  assert.match(budgetsPage, /confirmWord="SUPPRIMER"/);
+  assert.match(budgetsPage, /confirmWord=\{isEnglish \? 'DELETE' : 'SUPPRIMER'\}/);
+  assert.match(budgetsPage, /SUPPRIMER pour confirmer/);
+  assert.match(budgetsPage, /close this editor and use “Delete entire budget”/);
   assert.match(budgetsPage, /Supprimer tout le budget/);
   assert.match(budgetsPage, /items: \[\]/);
   assert.match(budgetsPage, /replaceExisting: true/);
