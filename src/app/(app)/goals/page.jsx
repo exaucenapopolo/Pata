@@ -30,6 +30,7 @@ import { formatCurrency, formatDate, resolveCategory } from '@/lib/utils';
 import { translateText } from '@/lib/i18n/translations';
 import { playSuccess } from '@/lib/sound';
 import { usePersistentPageState } from '@/hooks/usePersistentPageState';
+import { useAppDialog } from '@/hooks/useAppDialog';
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
@@ -165,7 +166,7 @@ function ConfirmWithdrawModal({ goal, actionType, onClose, onConfirm, busy }) {
   );
 }
 
-function GoalDetail({ goal, onClose, onAskWithdraw }) {
+function GoalDetail({ goal, onClose, onAskWithdraw, onNotify }) {
   const { user } = useAuth();
   const { profile } = useProfile();
   const { language } = useLanguage();
@@ -202,7 +203,7 @@ function GoalDetail({ goal, onClose, onAskWithdraw }) {
       if (!data.success) throw new Error(data.error || 'Erreur.');
       setAmount(''); setRepayAmount('');
       onClose();
-      if (successMsg) alert(successMsg);
+      if (successMsg) await onNotify(successMsg, { kind: 'success', title: 'Opération effectuée' });
     } catch (err) { setError(err.message); } finally { setBusy(false); }
   };
 
@@ -649,6 +650,7 @@ function GoalCard({ goal, onOpen, onEdit, onAskWithdraw, onTogglePin, onDelete }
 }
 
 export default function GoalsPage() {
+  const { appAlert, dialog } = useAppDialog();
   const { user } = useAuth();
   const { language } = useLanguage();
   const isEnglish = language === 'en';
@@ -692,16 +694,16 @@ export default function GoalsPage() {
       const res = await fetch(`/api/goals/${confirmType}`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ goalId: confirmGoal.id, ...payoutDetails }) });
       const data = await res.json();
       if (data.success) {
-        alert(isEnglish ? `Request submitted for ${formatCurrency(data.amount)}. Payment will be made after review.` : `Demande envoyée pour ${formatCurrency(data.amount)}. Le paiement sera effectué après vérification.`);
+        await appAlert(isEnglish ? `Request submitted for ${formatCurrency(data.amount)}. Payment will be made after review.` : `Demande envoyée pour ${formatCurrency(data.amount)}. Le paiement sera effectué après vérification.`, { kind: 'success', title: isEnglish ? 'Request submitted' : 'Demande envoyée' });
         setConfirmGoal(null); setConfirmType(null); setSelected(null);
-      } else { alert(translateText(data.error || 'Erreur.', language)); }
-    } catch (error) { alert(translateText(error.message || 'Erreur.', language)); } finally { setConfirmBusy(false); }
+      } else { await appAlert(translateText(data.error || 'Erreur.', language), { kind: 'danger', title: isEnglish ? 'Request failed' : 'Demande impossible' }); }
+    } catch (error) { await appAlert(translateText(error.message || 'Erreur.', language), { kind: 'danger', title: isEnglish ? 'Request failed' : 'Demande impossible' }); } finally { setConfirmBusy(false); }
   };
 
   const handleDeleteGoal = async () => {
     if (!deleteGoalId) return;
     try { await deleteGoal(user.uid, deleteGoalId); setDeleteGoalId(null); }
-    catch (error) { window.alert(translateText(error.message || 'Impossible de supprimer cette épargne.', language)); }
+    catch (error) { await appAlert(translateText(error.message || 'Impossible de supprimer cette épargne.', language), { kind: 'danger', title: isEnglish ? 'Could not delete savings' : 'Suppression impossible' }); }
   };
 
   return (
@@ -729,10 +731,11 @@ export default function GoalsPage() {
       )}
 
       {open && <GoalFormModal key={editingGoal?.id || 'new'} open={open} onClose={closeForm} goal={editingGoal} onSaved={() => setNextAction({ sequence: Date.now() })} />}
-      {selected && (<GoalDetail goal={selected} onClose={() => setSelected(null)} onAskWithdraw={(g, type) => { setSelected(null); askWithdraw(g, type); }} />)}
+      {selected && (<GoalDetail goal={selected} onClose={() => setSelected(null)} onAskWithdraw={(g, type) => { setSelected(null); askWithdraw(g, type); }} onNotify={appAlert} />)}
       {confirmGoal && confirmType && (<ConfirmWithdrawModal goal={confirmGoal} actionType={confirmType} onClose={() => { setConfirmGoal(null); setConfirmType(null); }} onConfirm={handleConfirmAction} busy={confirmBusy} />)}
 
       <ConfirmDialog open={!!deleteGoalId} onClose={() => setDeleteGoalId(null)} onConfirm={handleDeleteGoal} title="Supprimer cet objectif ?" message="Une épargne qui contient encore de l’argent ne peut pas être supprimée directement. Retire d’abord les fonds depuis sa fiche. La suppression ne rend pas une création gratuite." confirmWord="SUPPRIMER" confirmLabel="Supprimer définitivement" variant="danger" />
+      {dialog}
     </div>
   );
 }
