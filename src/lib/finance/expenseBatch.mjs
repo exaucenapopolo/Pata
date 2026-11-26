@@ -57,3 +57,23 @@ export function validateExpenseBatchRows(rows = [], options = {}) {
   }
   return { valid: true, error: '', total, sourceTotals };
 }
+
+/**
+ * A stable retry key for one row. Repeated requests with identical row data
+ * reuse the same Firestore idempotency record; editing an unsaved row changes
+ * its fingerprint so it cannot replay the result of its previous contents.
+ */
+export function getExpenseBatchIdempotencyKey(row = {}) {
+  const source = [
+    row.id, row.amount, row.categoryId, row.date,
+    row.note, row.incomeSourceId || 'all', row.paymentMethod || '',
+  ].map((value) => String(value ?? '').trim()).join('\u001f');
+  let hash = 2166136261;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  const fingerprint = (hash >>> 0).toString(36).padStart(7, '0');
+  const stableRowId = String(row.id || 'row').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80);
+  return 'batch_' + fingerprint + '_' + stableRowId;
+}
