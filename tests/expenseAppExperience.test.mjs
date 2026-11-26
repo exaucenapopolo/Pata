@@ -252,7 +252,7 @@ test('les dialogues Pata et la fenêtre de changement de source passent au-dessu
   const page = read('src/app/(app)/expenses/page.js');
   assert.match(dialog, /<Modal open=\{open\}[^>]*priority/);
   assert.match(page, /<Modal open=\{bulkSourceOpen\} priority/);
-  assert.match(modal, /priority \? 'z-\[110\]' : 'z-50'/);
+  assert.match(modal, /priority \? 'z-\[130\]' : 'z-50'/);
   assert.match(page, /z-\[90\]/);
 });
 
@@ -262,4 +262,46 @@ test('la sélection dispose des commandes, même avant la première dépense coc
   assert.match(page, /onClick=\{clearExpenseSelection\}/);
   assert.match(page, /onClick=\{handleBulkDelete\}/);
   assert.match(page, /onClick=\{openBulkSourceModal\}/);
+});
+
+test('le changement groupé de source est atomique et met à jour revenus et budgets dans la même transaction', () => {
+  const finance = read('src/lib/ai/financialTools.js');
+  const route = read('src/app/api/[...path]/route.js');
+  const client = read('src/lib/firestore/expenses.js');
+  const page = read('src/app/(app)/expenses/page.js');
+  const start = finance.indexOf('export async function reassignExpenseOperationsToSourceForUser');
+  const end = finance.indexOf('export async function deleteExpenseForUser', start);
+  assert.ok(start >= 0 && end > start);
+  const handler = finance.slice(start, end);
+  assert.match(handler, /adminDb\.runTransaction/);
+  assert.match(handler, /getExpenseOperationKeys/);
+  assert.match(handler, /buildIncomeBalancesFromTotals/);
+  assert.match(handler, /incomeSpentTotalsVersion: 1/);
+  assert.match(handler, /applyBudgetSpendDelta/);
+  assert.match(handler, /transaction\.delete\(expensesRef\.doc\(part\.id\)\)/);
+  assert.match(handler, /transaction\.update\(operation\.ref/);
+  assert.match(handler, /confirmationRequired/);
+  assert.match(route, /'expenses\/reassign-source': \{ POST: handleReassignExpenseSource \}/);
+  assert.match(route, /reassignExpenseOperationsToSourceForUser\(/);
+  assert.match(client, /postExpenseAction\('reassign-source'/);
+  const actionStart = page.indexOf('const handleBulkAssignSource =');
+  const actionEnd = page.indexOf('const makeExpenseRecurring =', actionStart);
+  const action = page.slice(actionStart, actionEnd);
+  assert.match(action, /reassignExpensesToIncome\(user\.uid, expenseIds, selectedSource\.id\)/);
+  assert.doesNotMatch(action, /for \(const operation of/);
+  assert.match(action, /confirmBudgetOverrun: true/);
+});
+
+test('la saisie multiple traite chaque ligne comme une dépense indépendante et conserve les lignes restantes', () => {
+  const page = read('src/app/(app)/expenses/page.js');
+  const start = page.indexOf('const submitExpenseBatch =');
+  const end = page.indexOf('const clearExpenseSelection =', start);
+  const handler = page.slice(start, end);
+  assert.match(page, /<Modal open=\{batchModalOpen\}/);
+  assert.match(page, /batchExpenseCategories\.map/);
+  assert.match(page, /availableBatchIncomeSources\.map/);
+  assert.match(handler, /createExpense\(user\.uid, payload\)/);
+  assert.match(handler, /const remainingRows = orderedRows\.slice\(index\)/);
+  assert.match(handler, /setBatchRows\(remainingRows\)/);
+  assert.match(handler, /validateExpenseBatchRows/);
 });
