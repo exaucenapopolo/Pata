@@ -745,9 +745,28 @@ export default function BudgetsPage() {
         <form onSubmit={onSaveTemplate} className="space-y-3">
           <div className="rounded-xl bg-brand-50 p-3 text-xs leading-5 text-brand-900">Le modèle conserve, pour chaque catégorie, le montant ou le pourcentage et la fréquence choisis. À l’application, Pata recalcule les montants selon le revenu sélectionné. Modifier ce modèle ne change pas les budgets déjà appliqués.</div>
           <Input label="Nom du modèle" placeholder="Ex. Budget personnel mensuel" maxLength="70" required value={templateName} onChange={(event) => setTemplateName(event.target.value)}/>
-          <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-3 py-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 px-3 py-2.5">
             <p className="text-xs text-slate-500">{templateItems.length} catégories conservées</p>
             <strong className="text-xs text-slate-800">Total calculé : {formatCurrency(templatePlan.total)}</strong>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setTemplateItems((current) => {
+                const category = expenseCategories.find((candidate) => !current.some((item) => item.categoryId === candidate.id));
+                if (!category || current.length >= 30) return current;
+                return [...current, {
+                  categoryId: category.id,
+                  label: category.label || category.name || category.id,
+                  value: '',
+                  calculationType: 'amount',
+                  frequency: 'monthly',
+                }];
+              })}
+              disabled={templateItems.length >= 30 || !expenseCategories.some((category) => !templateItems.some((item) => item.categoryId === category.id))}
+            >
+              <Plus size={14}/> Ajouter une catégorie
+            </Button>
           </div>
           <div className="max-h-[48dvh] space-y-2 overflow-y-auto rounded-xl border border-slate-200 p-2">
             {templateItems.map((item, index) => {
@@ -755,7 +774,41 @@ export default function BudgetsPage() {
               const calculated = templatePlan.rows[index];
               return (
                 <section key={item.categoryId} className="space-y-2 rounded-lg border border-slate-100 p-2">
-                  <strong className="block truncate text-xs font-semibold text-slate-800">{item.label || item.categoryId}</strong>
+                  <div className="flex items-center gap-2">
+                    <label className="min-w-0 flex-1 text-[11px] font-semibold text-slate-600">
+                      Catégorie
+                      <select
+                        required
+                        value={item.categoryId}
+                        onChange={(event) => {
+                          const selected = expenseCategories.find((category) => category.id === event.target.value);
+                          setTemplateItems((current) => current.map((row, rowIndex) => rowIndex === index
+                            ? { ...row, categoryId: event.target.value, label: selected?.label || selected?.name || event.target.value }
+                            : row));
+                        }}
+                        className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs font-medium text-slate-800"
+                      >
+                        {expenseCategories.map((category) => (
+                          <option
+                            key={category.id}
+                            value={category.id}
+                            disabled={templateItems.some((row, rowIndex) => rowIndex !== index && row.categoryId === category.id)}
+                          >
+                            {translateText(category.label || category.name || category.id, language)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setTemplateItems((current) => current.filter((_, rowIndex) => rowIndex !== index))}
+                      aria-label="Retirer cette catégorie du modèle"
+                      title="Retirer cette catégorie"
+                      className="mt-4 grid h-9 w-9 shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600"
+                    >
+                      <Trash2 size={14}/>
+                    </button>
+                  </div>
                   <div className="grid grid-cols-2 gap-2">
                     <label className="block text-[11px] font-semibold text-slate-600">
                       Calcul
@@ -802,6 +855,7 @@ export default function BudgetsPage() {
                 </section>
               );
             })}
+            {!templateItems.length && <p className="rounded-lg border border-dashed border-slate-200 p-3 text-center text-xs text-slate-500">Aucune catégorie. Ajoute une enveloppe pour commencer ce modèle.</p>}
           </div>
           {templateMessage && <p role="alert" className="text-xs text-red-600">{templateMessage}</p>}
           <Button type="submit" className="w-full" disabled={savingTemplate || !templateName.trim() || !templateItems.length || templatePlan.rows.some((item) => !item.valid)}>
