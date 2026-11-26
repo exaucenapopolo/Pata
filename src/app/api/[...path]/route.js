@@ -11074,8 +11074,8 @@ async function handleBillsPay(request) {
       date: paidDate,
       expenseType: 'consumption',
       paymentMethod,
-      incomeSourceId: 'all',
-      incomeSourceName: 'Tous les revenus',
+      incomeSourceId: paymentSource === 'tracked' ? String(body.incomeSourceId || 'all').trim() : 'all',
+      incomeSourceName: paymentSource === 'tracked' ? String(body.incomeSourceName || 'Tous les revenus').trim().slice(0, 100) : 'Tous les revenus',
       externalFundingLabel,
     }, {
       externalFunding,
