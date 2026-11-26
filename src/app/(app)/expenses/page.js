@@ -662,6 +662,7 @@ export default function ExpensesPage() {
           incomeSourceId: row.incomeSourceId || 'all',
           incomeSourceName: row.incomeSourceId === 'all' ? 'Tous les revenus' : (source?.source || 'Revenu sans nom'),
           paymentMethod: row.paymentMethod || '',
+          batchIdempotencyKey: 'batch_' + String(row.id || '').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 110),
         };
 
         try {
