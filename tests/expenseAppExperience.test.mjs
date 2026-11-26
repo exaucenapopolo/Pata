@@ -69,4 +69,9 @@ test('les alertes de la page Dépenses utilisent le composant de dialogue Pata',
   assert.doesNotMatch(page, /window\.(alert|confirm|prompt)\s*\(/);
   assert.match(dialog, /<Modal open=\{open\}/);
   assert.match(dialog, /bg-rose-50|bg-amber-50|bg-emerald-50/);
+
+  const billsPage = read('src/app/(app)/bills/page.js');
+  assert.match(billsPage, /import \{ AppDialog \}/);
+  assert.match(billsPage, /<AppDialog/);
+  assert.doesNotMatch(billsPage, /window\.(alert|confirm|prompt)\s*\(/);
 });
