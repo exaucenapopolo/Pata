@@ -317,16 +317,17 @@ test('la saisie multiple traite chaque ligne comme une dépense indépendante et
   assert.match(handler, /validateExpenseBatchRows/);
 });
 
-test('une tentative réseau répétée conserve la même clé, mais une ligne modifiée obtient une nouvelle clé', () => {
+test('une tentative réseau répétée conserve la même clé même si la ligne est corrigée', () => {
   const first = {
     id: 'batch-unique-1', amount: '1500', categoryId: 'food',
     date: '2026-11-26', note: 'Marché', incomeSourceId: 'salary',
   };
   const retry = { ...first };
-  const edited = { ...first, amount: '1700' };
+  const edited = { ...first, amount: '1700', categoryId: 'transport', incomeSourceId: 'bonus' };
   assert.equal(getExpenseBatchIdempotencyKey(first), getExpenseBatchIdempotencyKey(retry));
-  assert.notEqual(getExpenseBatchIdempotencyKey(first), getExpenseBatchIdempotencyKey(edited));
+  assert.equal(getExpenseBatchIdempotencyKey(first), getExpenseBatchIdempotencyKey(edited));
   assert.match(getExpenseBatchIdempotencyKey(first), /^batch_[A-Za-z0-9_-]{8,120}$/);
+  assert.throws(() => getExpenseBatchIdempotencyKey({}), /Identifiant de ligne manquant/);
 });
 
 test('la suppression groupée est atomique et recalcule les soldes, budgets et historique', () => {
