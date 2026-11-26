@@ -45,13 +45,15 @@ test('Mč reçoit explicitement la période sélectionnée depuis le tableau de 
   assert.match(dashboard, /Count no income or expense dated before/);
 });
 
-test('les montants de la bannière affichent directement les totaux de la période', () => {
+test('la bannière affiche les entrées et sorties de période ainsi que le disponible vérifié', () => {
   assert.match(dashboard, /Entrées de la période/);
   assert.match(dashboard, /Sorties de la période/);
-  assert.match(dashboard, /Solde de la période/);
+  assert.match(dashboard, /Disponible \(dettes incluses\)/);
+  assert.match(dashboard, /globalBalance == null \? '—' : formatCurrency\(globalBalance\)/);
   assert.match(dashboard, /Période comptée : \{formatDate\(startDate\)\}/);
   assert.match(dashboard, /\{formatCurrency\(periodIncomeTotal\)\}/);
   assert.match(dashboard, /\{formatCurrency\(periodExpenseTotal\)\}/);
+  assert.doesNotMatch(dashboard, /Solde de la période/);
   assert.doesNotMatch(dashboard, /globalFinanceSummary/);
 });
 
