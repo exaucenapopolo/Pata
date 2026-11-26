@@ -238,6 +238,8 @@ export default function IncomePage() {
   const [vitalApplySourceId, setVitalApplySourceId] = useState('');
   const [vitalCreateIncome, setVitalCreateIncome] = useState(false);
   const [vitalApplyError, setVitalApplyError] = useState('');
+  const [vitalApplyBusy, setVitalApplyBusy] = useState(false);
+  const [vitalError, setVitalError] = useState('');
   const [durationName, setDurationName] = useState('');
   const [durationCapital, setDurationCapital] = useState('');
   const [durationExpense, setDurationExpense] = useState('');
@@ -480,10 +482,11 @@ export default function IncomePage() {
       frequency: need.frequency || 'monthly',
     };
   }), [allCategories, vitalNeeds]);
-  const savedTotalVital = useMemo(
-    () => calculateBudgetPlan(savedVitalRows, Number(profile?.vitalTotalBudget) || 0).total,
+  const savedVitalPlan = useMemo(
+    () => calculateBudgetPlan(savedVitalRows, Number(profile?.vitalTotalBudget) || 0),
     [savedVitalRows, profile?.vitalTotalBudget]
   );
+  const savedTotalVital = savedVitalPlan.total;
 
   const draftVitalRows = useMemo(() => allCategories.map((category) => {
     const need = vitalForm[category.id] || {};
@@ -494,15 +497,17 @@ export default function IncomePage() {
       frequency: need.frequency || 'monthly',
     };
   }), [allCategories, vitalForm]);
-  const draftTotalVital = useMemo(
-    () => calculateBudgetPlan(draftVitalRows, Number(totalBudget) || 0).total,
+  const draftVitalPlan = useMemo(
+    () => calculateBudgetPlan(draftVitalRows, Number(totalBudget) || 0),
     [draftVitalRows, totalBudget]
   );
+  const draftTotalVital = draftVitalPlan.total;
   const hasDraftPercentage = draftVitalRows.some((item) => item.calculationType === 'percentage' && Number(item.value) > 0);
   const vitalDraftValid = Number(totalBudget) > 0 && Number.isFinite(Number(totalBudget))
     && Number(totalBudget) <= 10_000_000_000
-    && calculateBudgetPlan(draftVitalRows.filter((item) => Number(item.value) > 0), Number(totalBudget)).valid;
-  const isSavedOverBudget = Number(totalBudget) > 0 && savedTotalVital > Number(totalBudget);
+    && draftVitalRows.some((item) => Number(item.value) > 0)
+    && draftVitalPlan.valid;
+  const isSavedOverBudget = Number(profile?.vitalTotalBudget) > 0 && savedTotalVital > Number(profile?.vitalTotalBudget);
   const isDraftOverBudget = Number(totalBudget) > 0 && draftTotalVital > Number(totalBudget);
 
   // 🟢 Calcul du total des prévisions ENREGISTRÉES
@@ -550,12 +555,24 @@ export default function IncomePage() {
     setShowVerification(false);
     setVitalOpen(true);
   };
+  
+  useEffect(() => {
+    if (!vitalOpen) setTotalBudget(String(profile?.vitalTotalBudget || ''));
+  }, [profile?.vitalTotalBudget, vitalOpen]);
+
 
   const onSaveVital = async (e) => {
     e.preventDefault();
-    
-    // 🟢 Si on clique sur "Enregistrer" et que c'est over budget, on bloque
-    if (isDraftOverBudget) {
+    setVitalError('');
+
+    if (!vitalDraftValid || (hasDraftPercentage && !(Number(totalBudget) > 0))) {
+      setVitalError(isEnglish
+        ? 'Enter a valid total income and check every amount, percentage and frequency.'
+        : 'Indique un budget total valide et vérifie chaque montant, pourcentage et fréquence.');
+      setShowVerification(true);
+      return;
+    }
+    if (isDraftOverBudget && !showVerification) {
       setShowVerification(true);
       return;
     }
@@ -575,22 +592,20 @@ export default function IncomePage() {
           };
         }
       });
-      if (Object.values(cleaned).some((item) => item.calculationType === 'percentage') && !(Number(totalBudget) > 0)) {
-        setShowVerification(true);
-        throw new Error(isEnglish ? 'Enter the total income to calculate percentage-based envelopes.' : 'Indique le budget total pour calculer les enveloppes en pourcentage.');
-      }
-      
       const result = await saveVitalForecast({
         name: budgetName || 'Prévision vitale',
-        totalBudget: Number(totalBudget) || 0,
+        totalBudget: Number(totalBudget),
         needs: cleaned,
       });
       if (!result?.success) throw new Error('La prévision n’a pas été enregistrée.');
-      
       setVitalOpen(false);
-    } finally { setSavingVital(false); }
+      setVitalError('');
+    } catch (saveError) {
+      setVitalError(saveError.message || (isEnglish ? 'Could not save the forecast.' : 'Impossible d’enregistrer cette prévision.'));
+    } finally {
+      setSavingVital(false);
+    }
   };
-
   const deleteVital = async () => {
     if (!(await appConfirm(isEnglish ? 'Do you really want to delete all your essential spending forecasts?' : 'Voulez-vous vraiment supprimer toutes vos prévisions vitales ?', { title: isEnglish ? 'Delete all forecasts?' : 'Supprimer toutes les prévisions ?', kind: 'danger', confirmLabel: isEnglish ? 'Delete all' : 'Tout supprimer' }))) return;
     await deleteVitalForecast();
@@ -1017,7 +1032,7 @@ export default function IncomePage() {
 
         {savedTotalVital === 0 ? (
           <p className="text-sm text-slate-500">
-            Calcule ton budget de survie (nourriture, transport, loyer, etc.) et transforme-le en revenus et budgets en un clic.
+            Calcule tes besoins par catégorie, puis applique-les directement à une source de revenu. La création d’un nouveau revenu reste facultative.
           </p>
         ) : (
           <>
@@ -1029,9 +1044,13 @@ export default function IncomePage() {
               <ul className="space-y-1">
                 {allCategories.map(k => {
                   const need = vitalNeeds[k.id];
-                  if (!need || !need.amount) return null;
-                  const freq = FREQUENCIES.find(f => f.id === need.frequency);
-                  const monthly = (need.amount || 0) * (freq ? freq.multiplier : 1);
+                  if (!need || !Number(need.value ?? need.amount)) return null;
+                  const monthly = calculateBudgetLine({
+                    categoryId: k.id,
+                    value: need.value ?? need.amount,
+                    calculationType: need.calculationType === 'percentage' ? 'percentage' : 'amount',
+                    frequency: need.frequency || 'monthly',
+                  }, Number(profile?.vitalTotalBudget) || 0).amount;
                   return (
                     <li key={k.id} className="flex justify-between text-xs text-slate-600">
                       <span className="flex items-center gap-2">
@@ -1062,7 +1081,7 @@ export default function IncomePage() {
 
             <div className="grid gap-2 sm:grid-cols-2">
               <Button onClick={applyVitalToBudget} className="w-full" disabled={savingApplied || isSavedOverBudget}>
-                <ArrowRight size={14} /> {savingApplied ? 'Enregistrement...' : 'Transformer en Revenu & Budgets'}
+                <ArrowRight size={14} /> Appliquer aux budgets
               </Button>
               <Button variant="outline" onClick={() => analyzeWithAssistant(
                 `Analyse en profondeur mes Prévisions vitales. Nom : ${profile?.vitalBudgetName || 'Budget'}. Budget total : ${Number(totalBudget) || 0} FCFA. Détail mensuel par catégorie : ${allCategories.map((category) => { const need = vitalNeeds[category.id]; if (!need?.amount) return null; const frequency = FREQUENCIES.find((item) => item.id === need.frequency); return `${category.label}: ${Number(need.amount) * (frequency?.multiplier || 1)} FCFA/mois`; }).filter(Boolean).join('; ')}. Explique les points de vigilance et propose des améliorations concrètes sans modifier mes données.`,
@@ -1607,108 +1626,164 @@ export default function IncomePage() {
       <Modal open={vitalOpen} onClose={() => setVitalOpen(false)} title="Calculer mes prévisions">
         <form onSubmit={onSaveVital} className="space-y-4">
           <div className="grid grid-cols-2 gap-2">
-            <Input 
-              label="Nom du budget" 
-              placeholder="Ex: Salaire Novembre" 
-              value={budgetName} 
-              onChange={(e) => setBudgetName(e.target.value)} 
+            <Input
+              label="Nom du budget"
+              placeholder="Ex: Salaire Novembre"
+              value={budgetName}
+              onChange={(event) => setBudgetName(event.target.value)}
               required
             />
-            <Input 
-              label="Budget total alloué" 
-              type="number" 
-              placeholder="Ex: 100000" 
-              value={totalBudget} 
-              onChange={(e) => { setTotalBudget(e.target.value); setShowVerification(false); }} 
+            <Input
+              label="Revenu de référence (FCFA)"
+              type="number"
+              min="1"
+              max="10000000000"
+              step="1"
+              placeholder="Ex: 100000"
+              value={totalBudget}
+              onChange={(event) => { setTotalBudget(event.target.value); setShowVerification(false); setVitalError(''); }}
               required
             />
           </div>
 
-          <p className="text-xs text-slate-500">Sélectionne tes dépenses fréquentes. Le total se calcule en direct.</p>
-          
-          <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-2">
-            {allCategories.map(k => {
-              const val = vitalForm[k.id] || { amount: '', frequency: 'monthly' };
+          <p className="text-xs leading-5 text-slate-500">Pour chaque catégorie, choisis un montant fixe ou un pourcentage du revenu, puis sa fréquence. Pata calcule automatiquement l’équivalent mensuel.</p>
+
+          <div className="max-h-[42vh] space-y-3 overflow-y-auto pr-1">
+            {allCategories.map((category, index) => {
+              const value = vitalForm[category.id] || { value: '', calculationType: 'amount', frequency: 'monthly' };
+              const preview = calculateBudgetLine({
+                categoryId: category.id,
+                value: value.value ?? value.amount,
+                calculationType: value.calculationType || 'amount',
+                frequency: value.frequency || 'monthly',
+              }, Number(totalBudget) || 0);
               return (
-                <div key={k.id} className="rounded-xl border border-slate-200 p-3 bg-slate-50/50">
-                  <div className="flex items-center gap-2 mb-2">
-                    <CategoryImage categoryId={k.id} image={k.image} size="sm" />
-                    <p className="text-sm font-semibold text-slate-700">{k.label}</p>
+                <section key={category.id} className="space-y-2 rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+                  <div className="flex items-center gap-2">
+                    <CategoryImage categoryId={category.id} image={category.image} size="sm" />
+                    <p className="text-sm font-semibold text-slate-700">{category.label}</p>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
-                    <Input 
-                      label="Montant (FCFA)" 
-                      type="number" 
-                      min="0" 
-                      value={val.amount} 
-                      onChange={(e) => { setVitalForm({ ...vitalForm, [k.id]: { ...val, amount: e.target.value } }); setShowVerification(false); }}
-                      placeholder="0"
-                    />
-                    <div>
-                      <label className="mb-1 block text-sm font-medium text-slate-700">Fréquence</label>
-                      <select 
-                        value={val.frequency} 
-                        onChange={(e) => setVitalForm({ ...vitalForm, [k.id]: { ...val, frequency: e.target.value } })}
-                        className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"
+                    <label className="block text-xs font-semibold text-slate-700">
+                      Calcul
+                      <select
+                        value={value.calculationType || 'amount'}
+                        onChange={(event) => { setVitalForm((current) => ({ ...current, [category.id]: { ...value, calculationType: event.target.value } })); setShowVerification(false); }}
+                        className="mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"
                       >
-                        {FREQUENCIES.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+                        <option value="amount">Montant en FCFA</option>
+                        <option value="percentage">Pourcentage du revenu</option>
                       </select>
-                    </div>
+                    </label>
+                    <label className="block text-xs font-semibold text-slate-700">
+                      Fréquence
+                      <select
+                        value={value.frequency || 'monthly'}
+                        onChange={(event) => setVitalForm((current) => ({ ...current, [category.id]: { ...value, frequency: event.target.value } }))}
+                        className="mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"
+                      >
+                        {FREQUENCIES.map((frequency) => <option key={frequency.id} value={frequency.id}>{frequency.label}</option>)}
+                      </select>
+                    </label>
+                    <label className="col-span-2 block text-xs font-semibold text-slate-700">
+                      {value.calculationType === 'percentage' ? 'Pourcentage par période (%)' : 'Montant par période (FCFA)'}
+                      <input
+                        type="number"
+                        min="0"
+                        max={value.calculationType === 'percentage' ? '100' : '1000000000'}
+                        step={value.calculationType === 'percentage' ? '0.1' : '1'}
+                        inputMode="decimal"
+                        value={value.value ?? value.amount ?? ''}
+                        onChange={(event) => { setVitalForm((current) => ({ ...current, [category.id]: { ...value, value: event.target.value } })); setShowVerification(false); setVitalError(''); }}
+                        placeholder="0"
+                        className="mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-right text-sm font-semibold"
+                      />
+                    </label>
                   </div>
-                </div>
+                  <div className="flex items-center justify-between gap-3 rounded-lg bg-white px-3 py-2 text-xs">
+                    <span className="text-slate-500">Équivalent mensuel</span>
+                    <strong className="tabular-nums text-slate-800">{formatCurrency(preview.amount)}</strong>
+                  </div>
+                </section>
               );
             })}
           </div>
 
-          {/* 🟢 TOTAL EN TEMPS RÉEL */}
-          <div className={`rounded-xl p-3 text-sm border ${isDraftOverBudget ? 'bg-red-50 border-red-200' : 'bg-brand-50 border-brand-100'}`}>
-            <div className="flex justify-between items-center mb-1">
-              <span className="font-medium">Total prévisions (mensuel) :</span>
+          <div className={'rounded-xl p-3 text-sm border ' + (isDraftOverBudget ? 'bg-red-50 border-red-200' : 'bg-brand-50 border-brand-100')}>
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-medium">Total prévisions mensuelles</span>
               <strong className={isDraftOverBudget ? 'text-red-700' : 'text-brand-800'}>{formatCurrency(draftTotalVital)}</strong>
             </div>
-            {totalBudget && (
-              <p className={`text-xs ${isDraftOverBudget ? 'text-red-600' : 'text-brand-600'}`}>
-                {isDraftOverBudget 
-                  ? `Attention, tu dépasses ton budget de ${formatCurrency(draftTotalVital - Number(totalBudget))}` 
-                  : `Il te reste ${formatCurrency(Number(totalBudget) - draftTotalVital)}`}
-              </p>
-            )}
+            <p className={'mt-1 text-xs ' + (isDraftOverBudget ? 'text-red-600' : 'text-brand-600')}>
+              {Number(totalBudget) > 0
+                ? (isDraftOverBudget
+                  ? 'Dépassement de ' + formatCurrency(draftTotalVital - Number(totalBudget))
+                  : 'Reste après prévisions : ' + formatCurrency(Number(totalBudget) - draftTotalVital))
+                : 'Indique le revenu de référence pour calculer les pourcentages.'}
+            </p>
+            {draftVitalPlan.percentageTotal > 100 && <p className="mt-1 text-xs text-amber-700">Les pourcentages cumulés selon leur fréquence dépassent 100 %. Vérifie cette répartition.</p>}
           </div>
 
-          {/* 🟢 ALERTE SI ON DÉPASSE (après vérification) */}
+          {vitalError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-xs leading-5 text-red-700">{vitalError}</p>}
           {showVerification && isDraftOverBudget && (
             <div className="rounded-xl border border-red-300 bg-red-100 p-3">
-              <p className="text-sm font-bold text-red-800 flex items-center gap-2">
-                <AlertTriangle size={16} /> Budget dépassé !
-              </p>
-              <p className="text-xs text-red-700 mt-1">
-                Tes prévisions dépassent ton budget total de <strong>{formatCurrency(draftTotalVital - Number(totalBudget))}</strong>.
-              </p>
-              <p className="text-xs text-red-700 mt-1">
-                <strong>Suggestion :</strong> Essaie de réduire les loisirs, les sorties, ou les "autres dépenses" pour rentrer dans ton budget.
-              </p>
+              <p className="flex items-center gap-2 text-sm font-bold text-red-800"><AlertTriangle size={16}/> Budget dépassé</p>
+              <p className="mt-1 text-xs text-red-700">Tes prévisions dépassent ton revenu de référence de {formatCurrency(draftTotalVital - Number(totalBudget))}.</p>
             </div>
           )}
-
           <div className="flex gap-2">
-            <Button 
-              type="button" 
-              variant="outline"
-              onClick={() => setShowVerification(true)}
-              className="flex-1"
-            >
-              Vérifier le budget
-            </Button>
-            <Button 
-              type="submit" 
-              className="flex-1" 
-              disabled={savingVital || (showVerification && isDraftOverBudget)}
-            >
-              {savingVital ? 'Enregistrement...' : (showVerification && isDraftOverBudget ? 'Corrige d\'abord' : 'Enregistrer')}
+            <Button type="button" variant="outline" onClick={() => setShowVerification(true)} className="flex-1">Vérifier</Button>
+            <Button type="submit" className="flex-1" disabled={savingVital || !vitalDraftValid || (showVerification && isDraftOverBudget)}>
+              {savingVital ? 'Enregistrement…' : 'Enregistrer les prévisions'}
             </Button>
           </div>
         </form>
       </Modal>
+
+      <Modal open={vitalApplyOpen} onClose={() => { if (!vitalApplyBusy) setVitalApplyOpen(false); }} title="Appliquer cette prévision aux budgets">
+        <div className="space-y-4">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs font-semibold text-slate-700">{profile?.vitalBudgetName || 'Prévision vitale'}</p>
+            <p className="mt-1 text-lg font-extrabold text-slate-900">{formatCurrency(savedTotalVital)} / mois</p>
+            <p className="mt-1 text-xs leading-5 text-slate-500">Par défaut, Pata rattache les enveloppes à un revenu déjà enregistré. Aucun nouveau revenu ne sera créé sans ton choix explicite.</p>
+          </div>
+
+          <label className="block text-xs font-semibold text-slate-700">
+            Revenu auquel rattacher les enveloppes
+            <select
+              value={vitalApplySourceId}
+              onChange={(event) => { setVitalApplySourceId(event.target.value); setVitalApplyError(''); }}
+              disabled={vitalCreateIncome || vitalApplyBusy}
+              className="mt-1.5 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-normal disabled:bg-slate-50"
+            >
+              <option value="">Choisir un revenu disponible</option>
+              {activeMonthSources.map((income) => (
+                <option key={income.id} value={income.id}>
+                  {income.source || 'Revenu'} · {formatCurrency(income.amount)} initial · {formatCurrency(income.remaining)} restant
+                </option>
+              ))}
+            </select>
+            {!activeMonthSources.length && !vitalCreateIncome && <span className="mt-1 block text-[11px] font-normal leading-4 text-amber-700">Aucun revenu de cette période ne dispose actuellement d’un solde positif vérifié.</span>}
+          </label>
+
+          <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-slate-200 p-3 text-sm text-slate-700">
+            <input type="checkbox" checked={vitalCreateIncome} disabled={vitalApplyBusy} onChange={(event) => { setVitalCreateIncome(event.target.checked); setVitalApplyError(''); }} className="mt-0.5 h-4 w-4 rounded border-slate-300"/>
+            <span>
+              <strong>Je veux aussi créer un nouveau revenu</strong>
+              <span className="mt-0.5 block text-xs leading-5 text-slate-500">Option facultative. Pata enregistrera réellement un revenu nommé « {budgetName || 'Budget prévisionnel'} » de {formatCurrency(Number(totalBudget) || savedTotalVital)}, puis lui rattachera les budgets.</span>
+            </span>
+          </label>
+
+          {vitalApplyError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-xs leading-5 text-red-700">{vitalApplyError}</p>}
+          <div className="flex gap-2 border-t border-slate-100 pt-3">
+            <Button type="button" variant="outline" className="flex-1" disabled={vitalApplyBusy} onClick={() => setVitalApplyOpen(false)}>Annuler</Button>
+            <Button type="button" className="flex-1" disabled={vitalApplyBusy || (!vitalCreateIncome && !vitalApplySourceId)} onClick={confirmApplyVitalToBudget}>
+              {vitalApplyBusy ? 'Application…' : vitalCreateIncome ? 'Créer le revenu et les budgets' : 'Appliquer aux budgets'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
 
       <ConfirmDialog open={!!deleteId} onClose={() => setDeleteId(null)} onConfirm={handleDelete} title="Supprimer ce revenu ?" message="Cette action est irréversible." confirmWord="SUPPRIMER" confirmLabel="Supprimer" variant="danger" />
       {dialog}
