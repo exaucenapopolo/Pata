@@ -290,3 +290,20 @@ test('reconnaît exactement le SMS MTN de retrait fourni pour la détection auto
   assert.equal(result?.date, '2026-11-12');
   assert.equal(result?.time, '12:43');
 });
+
+
+test('reconnaît le SMS MTN MoMo « Transfert de ... FCFA effectué avec succès à ... »', () => {
+  const result = parseMobileMoneySms(
+    "Transfert de 5064 FCFA effectue avec succes a AZERSON VIDAL SIEMA DAZER (237653420975) le 2026-11-27 15:13:57. FRAIS 14 FCFA. transaction Id: 19950546410. Reference: . Nouveau solde est: 54590 FCFA. C'est la Rentree...MoMo Te Gere ! Pour toute transactions d'au moins 5 237 F, tente de gagner chaque jour: Un Laptop + 50 000 F + une Home Box. Tape *126*6# ou telecharge la New MoMo App : link.mtn.cm/NewMoMoAppRef. Infos : 8787 | WhatsApp 650 528 787.",
+    { sender: 'MTN', receivedAt: new Date('2026-11-27T15:13:57+01:00') }
+  );
+  assert.equal(result?.provider, 'mtn_momo');
+  assert.equal(result?.eventType, 'send');
+  assert.equal(result?.direction, 'expense');
+  assert.equal(result?.amount, 5064);
+  assert.equal(result?.counterparty, 'AZERSON VIDAL SIEMA DAZER');
+  assert.equal(result?.transactionId, '19950546410');
+  assert.equal(result?.date, '2026-11-27');
+  assert.equal(result?.time, '15:13');
+  assert.equal(result?.balance, 54590);
+});
