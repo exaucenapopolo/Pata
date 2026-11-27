@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { adminAuth } from '@/lib/firebase/admin';
 import { BusinessError, deleteBusiness } from '@/lib/business/server';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 async function authenticate(request) {
   const header = request.headers.get('authorization') || '';
   if (!header.startsWith('Bearer ')) throw new BusinessError('Session expirée. Reconnecte-toi puis réessaie.', 401, 'AUTH_REQUIRED');

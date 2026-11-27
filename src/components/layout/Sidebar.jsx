@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Wallet, Banknote, TrendingUp, Target, BarChart3, Settings, PiggyBank, Crown, Users, HandCoins, Receipt, Calculator } from 'lucide-react';
+import { LayoutDashboard, Wallet, Banknote, TrendingUp, Target, BarChart3, Settings, PiggyBank, Crown, Users, HandCoins, Receipt, Calculator, Building2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const NAV = [
@@ -10,6 +10,7 @@ const NAV = [
   { href: '/wallet', label: 'Portefeuille', section: 'PRINCIPAL', icon: Banknote },
   { href: '/expenses', label: 'Dépenses', section: 'GESTION', icon: Wallet },
   { href: '/income', label: 'Revenus', section: 'GESTION', icon: TrendingUp },
+  { href: '/businesses', label: 'Entreprise', section: 'GESTION', icon: Building2 },
   { href: '/debts', label: 'Dettes & prêts', section: 'GESTION', icon: HandCoins },
   { href: '/budgets', label: 'Budgets', section: 'GESTION', icon: PiggyBank },
   { href: '/goals', label: 'Objectifs', section: 'GESTION', icon: Target },
@@ -53,7 +54,7 @@ export function Sidebar() {
           <p className="text-xs font-semibold text-slate-800">Tes finances, en clair.</p>
           <p className="mt-1 text-[10px] leading-4 text-slate-500">Revenus, dépenses et épargne réunis dans un seul espace.</p>
         </div>
-        <p className="mt-3 text-center text-[9px] font-medium tracking-wide text-slate-400">PATA · ESPACE PERSONNEL</p>
+        <p className="mt-3 text-center text-[9px] font-medium tracking-wide text-slate-400">PATA · PERSONNEL & ENTREPRISE</p>
       </div>
     </aside>
   );

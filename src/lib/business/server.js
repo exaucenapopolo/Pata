@@ -110,7 +110,7 @@ export async function listUserBusinesses(uid) {
       role: cleanText(membership.data()?.role || 'viewer', 20),
       createdAt: serializeValue(business.createdAt || null),
       status: business.status || 'active',
-      readOnly: !isPremium(profile) || !['owner', 'admin', 'finance'].includes(membership.data()?.role || 'viewer'),
+      readOnly: !isPremium(profile) || business.status === 'archived' || !['owner', 'admin', 'finance'].includes(membership.data()?.role || 'viewer'),
       premiumActive: isPremium(profile),
     };
   }));
@@ -154,15 +154,17 @@ export async function createBusiness(uid, input = {}) {
 export async function getBusinessOverview(uid, businessId) {
   const context = await getBusinessContext(uid, businessId);
   const month = monthDouala();
-  const [accountsSnap, monthSnap, recentSnap] = await Promise.all([
+  const [accountsSnap, monthSnap, recentSnap, historySnap] = await Promise.all([
     context.businessRef.collection('accounts').where('active', '==', true).limit(30).get(),
     context.businessRef.collection('monthlySummaries').doc(month).get(),
     context.businessRef.collection('transactions').orderBy('createdAt', 'desc').limit(6).get(),
+    context.businessRef.collection('monthlySummaries').orderBy('month', 'desc').limit(12).get(),
   ]);
   const accounts = accountsSnap.docs.map(serializeDocument);
   const accountBalance = accounts.reduce((sum, account) => sum + (Number(account.balance) || 0), 0);
   const monthly = monthSnap.exists ? monthSnap.data() || {} : {};
   const recentTransactions = recentSnap.docs.map(serializeDocument);
+  const monthlyHistory = historySnap.docs.map((document) => serializeDocument(document)).reverse();
   const result = {
     business: {
       id: context.business.id, name: context.business.name, activity: context.business.activity,
@@ -170,7 +172,7 @@ export async function getBusinessOverview(uid, businessId) {
       status: context.business.status || 'active',
     },
     premiumActive: context.premiumActive,
-    readOnly: !context.premiumActive || !['owner', 'admin', 'finance'].includes(context.role),
+    readOnly: !context.premiumActive || context.business.status === 'archived' || !['owner', 'admin', 'finance'].includes(context.role),
     role: context.role,
     month,
     accounts: accounts.map((account) => ({
@@ -187,6 +189,7 @@ export async function getBusinessOverview(uid, businessId) {
       result: (Number(monthly.income) || 0) - (Number(monthly.expense) || 0),
     },
     recentTransactions,
+    monthlyHistory,
     lockedModules: [...SENSITIVE_RESOURCES],
   };
   return result;
@@ -199,17 +202,18 @@ export async function listBusinessTransactions(uid, businessId, { limit: request
   const snapshot = await query.get();
   let rows = snapshot.docs.map(serializeDocument);
   if (type) rows = rows.filter((item) => item.type === type);
-  return { transactions: rows, readOnly: !context.premiumActive || !['owner', 'admin', 'finance'].includes(context.role), hasMore: snapshot.size === safeLimit };
+  return { transactions: rows, readOnly: !context.premiumActive || context.business.status === 'archived' || !['owner', 'admin', 'finance'].includes(context.role), hasMore: snapshot.size === safeLimit };
 }
 
 export async function listBusinessAccounts(uid, businessId) {
   const context = await getBusinessContext(uid, businessId);
   const snapshot = await context.businessRef.collection('accounts').where('active', '==', true).limit(30).get();
-  return { accounts: snapshot.docs.map((item) => serializeDocument(item)), readOnly: !context.premiumActive || !['owner', 'admin', 'finance'].includes(context.role) };
+  return { accounts: snapshot.docs.map((item) => serializeDocument(item)), readOnly: !context.premiumActive || context.business.status === 'archived' || !['owner', 'admin', 'finance'].includes(context.role) };
 }
 
 function normalizeTransaction(input = {}) {
-  const type = input.type === 'expense' ? 'expense' : 'income';
+  if (!['income', 'expense'].includes(input.type)) throw new BusinessError('Choisis une entrée ou une sortie professionnelle valide.');
+  const type = input.type;
   const amount = parseAmount(input.amount, type === 'income' ? 'Revenu' : 'Dépense');
   const date = parseDate(input.date);
   const title = cleanText(input.title || input.source || input.categoryId || (type === 'income' ? 'Revenu professionnel' : 'Dépense professionnelle'), 120);
@@ -230,18 +234,26 @@ export async function createBusinessTransaction(uid, businessId, input = {}) {
   if (flowType === 'owner_contribution' || flowType === 'owner_withdrawal') {
     throw new BusinessError('Les apports et retraits du propriétaire doivent utiliser le parcours de transfert dédié.');
   }
+  const requestId = cleanText(input.requestId, 100).replace(/[^a-zA-Z0-9_-]/g, '_');
+  if (requestId.length < 8) throw new BusinessError('Identifiant d’opération invalide. Réessaie depuis le formulaire Pata.');
   const businessRef = context.businessRef;
   const accountRef = businessRef.collection('accounts').doc(accountId);
-  const transactionRef = businessRef.collection('transactions').doc();
+  const transactionRef = businessRef.collection('transactions').doc('txn_' + requestId);
   const monthRef = businessRef.collection('monthlySummaries').doc(normalized.month);
+  const budgetsQuery = normalized.type === 'expense'
+    ? businessRef.collection('budgets').where('month', '==', normalized.month).limit(30)
+    : null;
+  let duplicate = false;
   await adminDb.runTransaction(async (transaction) => {
-    const [profileSnap, memberSnap, accountSnap, businessSnap] = await Promise.all([
+    const [profileSnap, memberSnap, accountSnap, businessSnap, existingTransactionSnap, budgetsSnap] = await Promise.all([
       transaction.get(context.userRef), transaction.get(context.memberRef),
-      transaction.get(accountRef), transaction.get(businessRef),
+      transaction.get(accountRef), transaction.get(businessRef), transaction.get(transactionRef),
+      budgetsQuery ? transaction.get(budgetsQuery) : Promise.resolve(null),
     ]);
     if (!profileSnap.exists || !isPremium(profileSnap.data() || {})) premiumRequired();
     if (!memberSnap.exists || !['owner', 'admin', 'finance'].includes(memberSnap.data()?.role || '')) throw new BusinessError('Tu ne disposes pas des droits nécessaires pour modifier cette entreprise.', 403, 'READ_ONLY');
     if (!businessSnap.exists || businessSnap.data()?.status === 'archived') throw new BusinessError('Entreprise indisponible.', 404);
+    if (existingTransactionSnap.exists) { duplicate = true; return; }
     if (!accountSnap.exists || accountSnap.data()?.active === false) throw new BusinessError('Compte financier introuvable ou désactivé.');
     const signedAmount = normalized.type === 'income' ? normalized.amount : -normalized.amount;
     transaction.create(transactionRef, {
@@ -260,8 +272,22 @@ export async function createBusinessTransaction(uid, businessId, input = {}) {
       transactionCount: FieldValue.increment(1),
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
+    if (normalized.type === 'expense' && budgetsSnap?.docs?.length) {
+      for (const budgetDoc of budgetsSnap.docs) {
+        const budget = budgetDoc.data() || {};
+        if (String(budget.categoryId || '') !== normalized.categoryId) continue;
+        const spent = Math.max(0, Number(budget.spent) || 0) + normalized.amount;
+        const allocated = Math.max(0, Number(budget.amount) || 0);
+        transaction.update(budgetDoc.ref, {
+          spent,
+          remaining: Math.max(0, allocated - spent),
+          overBudget: spent > allocated,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
+    }
   });
-  return { id: transactionRef.id, success: true, transaction: { ...normalized, accountId, flowType: 'normal', direction: normalized.type } };
+  return { id: transactionRef.id, success: true, duplicate, transaction: { ...normalized, accountId, flowType: 'normal', direction: normalized.type } };
 }
 
 export async function transferPersonalIncomeToBusiness(uid, businessId, input = {}) {
@@ -284,10 +310,9 @@ export async function transferPersonalIncomeToBusiness(uid, businessId, input = 
   let resultId = businessTransactionRef.id;
 
   await adminDb.runTransaction(async (transaction) => {
-    const [profileSnap, incomeSnap, expensesSnap, accountSnap, businessSnap, memberSnap, duplicateSnap] = await Promise.all([
+    const [profileSnap, incomeSnap, accountSnap, businessSnap, memberSnap, duplicateSnap] = await Promise.all([
       transaction.get(userRef),
       transaction.get(incomeRef),
-      transaction.get(userRef.collection('expenses').where('incomeSourceId', '==', incomeId)),
       transaction.get(businessAccountRef),
       transaction.get(businessRef),
       transaction.get(context.memberRef),
@@ -304,13 +329,17 @@ export async function transferPersonalIncomeToBusiness(uid, businessId, input = 
       || income.categoryId === 'debt_repayment_received' || income.flowType === 'debt_borrowed' && income.availableAsFunding !== true) {
       throw new BusinessError('Cette source de revenu ne peut pas financer un transfert vers l’entreprise.');
     }
-    const spent = expensesSnap.docs.reduce((sum, item) => sum + (Number(item.data()?.amount) || 0), 0);
+    const profile = profileSnap.data() || {};
+    let spent = 0;
+    if (profile.incomeSpentTotalsVersion === 1) {
+      spent = Math.max(0, Number(profile.incomeSpentTotals?.[incomeId]) || 0);
+    } else {
+      const expensesSnap = await transaction.get(userRef.collection('expenses').where('incomeSourceId', '==', incomeId));
+      spent = expensesSnap.docs.reduce((sum, item) => sum + (Number(item.data()?.amount) || 0), 0);
+    }
     const remaining = Math.max(0, (Number(income.amount) || 0) - spent);
     if (amount > remaining) throw new BusinessError('Le montant dépasse le solde encore disponible de cette source : ' + remaining.toLocaleString('fr-FR') + ' FCFA.');
-    const profile = profileSnap.data() || {};
     const month = date.slice(0, 7);
-    const personalBudgetSummaryRef = userRef.collection('budgetSpendSummaries').doc(month);
-    const personalBudgetSummarySnap = await transaction.get(personalBudgetSummaryRef);
     const transferExpense = {
       amount, categoryId: 'business_transfer', date, month,
       note: 'Transfert vers l’entreprise ' + cleanText(businessSnap.data()?.name, 100),
@@ -350,12 +379,7 @@ export async function transferPersonalIncomeToBusiness(uid, businessId, input = 
       totals[incomeId] = Math.max(0, (Number(totals[incomeId]) || 0) + amount);
       transaction.set(userRef, { incomeSpentTotals: totals, incomeSpentTotalsUpdatedAt: FieldValue.serverTimestamp() }, { merge: true });
     }
-    if (personalBudgetSummarySnap.exists) {
-      const summary = personalBudgetSummarySnap.data() || {};
-      if (summary.version === 1 && summary.byCategory && typeof summary.byCategory === 'object') {
-        // Les transferts vers une entreprise sont des mouvements neutres et ne consomment pas les enveloppes personnelles.
-      }
-    }
+    // Le transfert est un mouvement neutre : il réduit la source personnelle sans consommer les enveloppes personnelles.
     resultId = businessTransactionRef.id;
   });
   return { success: true, id: resultId, message: 'Transfert enregistré sans le compter comme un revenu professionnel.' };
@@ -382,6 +406,14 @@ export async function createBusinessAccount(uid, businessId, input = {}) {
       createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
     });
     if (openingBalance > 0) {
+      const openingTransactionRef = context.businessRef.collection('transactions').doc();
+      transaction.create(openingTransactionRef, {
+        type: 'inflow', direction: 'inflow', flowType: 'opening_balance',
+        title: 'Solde initial · ' + name, categoryId: 'opening_balance',
+        amount: openingBalance, date: todayDouala(), month: monthDouala(),
+        accountId: ref.id, status: 'posted', createdBy: uid,
+        createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+      });
       transaction.update(context.businessRef, { cashBalance: FieldValue.increment(openingBalance), updatedAt: FieldValue.serverTimestamp() });
     }
   });
@@ -416,6 +448,8 @@ function normalizeResource(resource, input = {}) {
     if (!title) throw new BusinessError('Indique l’obligation à suivre.');
     return {
       title, amount: input.amount ? parseAmount(input.amount, 'Montant de l’obligation') : 0,
+      amountPaid: 0,
+      remaining: input.amount ? parseAmount(input.amount, 'Montant de l’obligation') : 0,
       dueDate: input.dueDate ? parseDate(input.dueDate) : '',
       category: cleanText(input.category, 80),
       status: ['pending', 'in_progress', 'completed', 'cancelled'].includes(input.status) ? input.status : 'pending',
@@ -439,8 +473,8 @@ function normalizeResource(resource, input = {}) {
     const title = cleanText(input.title, 120);
     const amount = parseAmount(input.amount, 'Montant du budget');
     const month = cleanText(input.month || monthDouala(), 7);
-    if (!/^\d{4}-\d{2}$/.test(month)) throw new BusinessError('Mois de budget invalide.');
-    return { title: title || 'Budget professionnel', categoryId: cleanText(input.categoryId, 80) || 'other', amount, month, ...common };
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new BusinessError('Mois de budget invalide.');
+    return { title: title || 'Budget professionnel', categoryId: cleanText(input.categoryId, 80) || 'other', amount, month, spent: 0, remaining: amount, overBudget: false, ...common };
   }
   throw new BusinessError('Rubrique professionnelle non reconnue.', 404);
 }
@@ -449,7 +483,7 @@ export async function listBusinessResource(uid, businessId, resource) {
   if (!RESOURCE_NAMES.has(resource)) throw new BusinessError('Rubrique professionnelle non reconnue.', 404);
   const context = await getBusinessContext(uid, businessId, { allowSensitiveRead: !SENSITIVE_RESOURCES.has(resource) });
   const snapshot = await context.businessRef.collection(resource).orderBy('updatedAt', 'desc').limit(100).get();
-  return { items: snapshot.docs.map(serializeDocument), readOnly: !context.premiumActive || !['owner', 'admin', 'finance'].includes(context.role) };
+  return { items: snapshot.docs.map(serializeDocument), readOnly: !context.premiumActive || context.business.status === 'archived' || !['owner', 'admin', 'finance'].includes(context.role) };
 }
 
 export async function saveBusinessResource(uid, businessId, resource, input = {}, itemId = '') {
@@ -463,17 +497,29 @@ export async function saveBusinessResource(uid, businessId, resource, input = {}
     const ref = collection.doc(id);
     const previous = await ref.get();
     if (!previous.exists) throw new BusinessError('Élément introuvable.', 404);
-    if (resource === 'invoices') throw new BusinessError('Les factures émises ne peuvent pas être modifiées après leur création. Crée un avoir ou corrige la facture avant émission.', 409);
+    if (['invoices', 'obligations'].includes(resource)) throw new BusinessError('Cette pièce financière ne peut pas être modifiée après sa création. Supprime-la si aucun paiement n’a été enregistré, puis recrée-la avec les bonnes informations.', 409);
     await ref.set({ ...data, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     return { success: true, id };
   }
   const ref = collection.doc();
-  await ref.create({ ...data, createdAt: FieldValue.serverTimestamp(), createdBy: uid });
-  if (resource === 'invoices') {
-    await context.businessRef.set({ totalReceivables: FieldValue.increment(Number(data.totalAmount) || 0), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-  }
-  if (resource === 'obligations') {
-    await context.businessRef.set({ totalPayables: FieldValue.increment(Number(data.amount) || 0), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  const stored = { ...data, createdAt: FieldValue.serverTimestamp(), createdBy: uid };
+  if (['invoices', 'obligations'].includes(resource)) {
+    await adminDb.runTransaction(async (transaction) => {
+      const [profileSnap, memberSnap, businessSnap] = await Promise.all([
+        transaction.get(context.userRef), transaction.get(context.memberRef), transaction.get(context.businessRef),
+      ]);
+      if (!profileSnap.exists || !isPremium(profileSnap.data() || {})) premiumRequired();
+      if (!memberSnap.exists || !['owner', 'admin', 'finance'].includes(memberSnap.data()?.role || '')) throw new BusinessError('Accès en lecture seule.', 403);
+      if (!businessSnap.exists || businessSnap.data()?.status === 'archived') throw new BusinessError('Entreprise indisponible.', 404);
+      transaction.create(ref, stored);
+      if (resource === 'invoices') {
+        transaction.update(context.businessRef, { totalReceivables: FieldValue.increment(Number(data.totalAmount) || 0), updatedAt: FieldValue.serverTimestamp() });
+      } else {
+        transaction.update(context.businessRef, { totalPayables: FieldValue.increment(Number(data.remaining ?? data.amount) || 0), updatedAt: FieldValue.serverTimestamp() });
+      }
+    });
+  } else {
+    await ref.create(stored);
   }
   return { success: true, id: ref.id };
 }
@@ -483,13 +529,27 @@ export async function deleteBusinessResource(uid, businessId, resource, itemId) 
   const context = await getBusinessContext(uid, businessId, { allowSensitiveRead: false });
   requireWritable(context);
   const ref = context.businessRef.collection(resource).doc(validId(itemId));
-  const snapshot = await ref.get();
-  if (!snapshot.exists) throw new BusinessError('Élément introuvable.', 404);
-  const data = snapshot.data() || {};
-  if (resource === 'invoices' && Number(data.amountPaid) > 0) throw new BusinessError('Cette facture a déjà reçu un paiement. Elle ne peut pas être supprimée.', 409);
-  await ref.delete();
-  if (resource === 'invoices') await context.businessRef.set({ totalReceivables: FieldValue.increment(-Math.max(0, Number(data.remaining) || 0)), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-  if (resource === 'obligations') await context.businessRef.set({ totalPayables: FieldValue.increment(-Math.max(0, Number(data.amount) || 0)), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  await adminDb.runTransaction(async (transaction) => {
+    const [profileSnap, memberSnap, businessSnap, snapshot] = await Promise.all([
+      transaction.get(context.userRef), transaction.get(context.memberRef),
+      transaction.get(context.businessRef), transaction.get(ref),
+    ]);
+    if (!profileSnap.exists || !isPremium(profileSnap.data() || {})) premiumRequired();
+    if (!memberSnap.exists || !['owner', 'admin', 'finance'].includes(memberSnap.data()?.role || '')) throw new BusinessError('Accès en lecture seule.', 403);
+    if (!businessSnap.exists || businessSnap.data()?.status === 'archived') throw new BusinessError('Entreprise indisponible.', 404);
+    if (!snapshot.exists) throw new BusinessError('Élément introuvable.', 404);
+    const data = snapshot.data() || {};
+    if (['invoices', 'obligations'].includes(resource) && Number(data.amountPaid) > 0) {
+      throw new BusinessError('Cette pièce a déjà reçu ou effectué un paiement. Elle ne peut pas être supprimée.', 409);
+    }
+    transaction.delete(ref);
+    if (resource === 'invoices') {
+      transaction.update(context.businessRef, { totalReceivables: FieldValue.increment(-Math.max(0, Number(data.remaining) || 0)), updatedAt: FieldValue.serverTimestamp() });
+    }
+    if (resource === 'obligations') {
+      transaction.update(context.businessRef, { totalPayables: FieldValue.increment(-Math.max(0, Number(data.remaining ?? data.amount) || 0)), updatedAt: FieldValue.serverTimestamp() });
+    }
+  });
   return { success: true };
 }
 
@@ -503,20 +563,24 @@ export async function recordBusinessDocumentPayment(uid, businessId, resource, i
   const accountRef = context.businessRef.collection('accounts').doc(accountId);
   const amount = parseAmount(input.amount, 'Montant du paiement');
   const date = parseDate(input.date);
-  const transactionRef = context.businessRef.collection('transactions').doc();
+  const requestId = cleanText(input.requestId, 100).replace(/[^a-zA-Z0-9_-]/g, '_');
+  if (requestId.length < 8) throw new BusinessError('Identifiant de paiement invalide. Réessaie depuis le formulaire Pata.');
+  const transactionRef = context.businessRef.collection('transactions').doc('payment_' + requestId);
   const monthRef = context.businessRef.collection('monthlySummaries').doc(date.slice(0, 7));
+  let duplicate = false;
   await adminDb.runTransaction(async (transaction) => {
-    const [profileSnap, memberSnap, itemSnap, accountSnap, businessSnap] = await Promise.all([
+    const [profileSnap, memberSnap, itemSnap, accountSnap, businessSnap, existingTransactionSnap] = await Promise.all([
       transaction.get(context.userRef), transaction.get(context.memberRef), transaction.get(ref),
-      transaction.get(accountRef), transaction.get(context.businessRef),
+      transaction.get(accountRef), transaction.get(context.businessRef), transaction.get(transactionRef),
     ]);
     if (!isPremium(profileSnap.data() || {})) premiumRequired();
     if (!memberSnap.exists || !['owner', 'admin', 'finance'].includes(memberSnap.data()?.role || '')) throw new BusinessError('Accès en lecture seule.', 403);
     if (!itemSnap.exists || !accountSnap.exists || !businessSnap.exists) throw new BusinessError('Élément ou compte financier introuvable.', 404);
+    if (existingTransactionSnap.exists) { duplicate = true; return; }
     const item = itemSnap.data() || {};
     const remaining = resource === 'invoices'
       ? Math.max(0, Number(item.totalAmount) - Number(item.amountPaid || 0))
-      : Math.max(0, Number(item.amount) || 0);
+      : Math.max(0, Number(item.remaining ?? (Number(item.amount) - Number(item.amountPaid || 0))) || 0);
     if (amount > remaining) throw new BusinessError('Le paiement dépasse le montant restant.');
     const income = resource === 'invoices';
     transaction.create(transactionRef, {
@@ -545,28 +609,27 @@ export async function recordBusinessDocumentPayment(uid, businessId, resource, i
       const paid = (Number(item.amountPaid) || 0) + amount;
       transaction.update(ref, { amountPaid: paid, remaining: Math.max(0, Number(item.totalAmount) - paid), status: paid >= Number(item.totalAmount) ? 'paid' : 'partial', updatedAt: FieldValue.serverTimestamp() });
     } else {
-      transaction.update(ref, { status: amount >= remaining ? 'completed' : 'in_progress', updatedAt: FieldValue.serverTimestamp() });
+      const paid = (Number(item.amountPaid) || 0) + amount;
+      const nextRemaining = Math.max(0, Number(item.amount) - paid);
+      transaction.update(ref, { amountPaid: paid, remaining: nextRemaining, status: nextRemaining === 0 ? 'completed' : 'in_progress', updatedAt: FieldValue.serverTimestamp() });
     }
   });
-  return { success: true, transactionId: transactionRef.id };
+  return { success: true, duplicate, transactionId: transactionRef.id };
 }
 
 export async function deleteBusiness(uid, businessId) {
   const context = await getBusinessContext(uid, businessId, { allowSensitiveRead: false });
   requireWritable(context);
   if (context.role !== 'owner') throw new BusinessError('Seul le propriétaire peut supprimer une entreprise.', 403);
-  const [transactions, accounts, resources] = await Promise.all([
-    context.businessRef.collection('transactions').limit(1).get(),
-    context.businessRef.collection('accounts').limit(1).get(),
-    context.businessRef.collection('invoices').limit(1).get(),
-  ]);
-  if (!transactions.empty || !accounts.empty || !resources.empty) {
-    throw new BusinessError('Cette entreprise contient déjà des données financières. Archive-la depuis ses paramètres au lieu de la supprimer.', 409);
-  }
   await adminDb.runTransaction(async (transaction) => {
+    const [businessSnap, memberSnap] = await Promise.all([
+      transaction.get(context.businessRef), transaction.get(context.memberRef),
+    ]);
+    if (!businessSnap.exists || !memberSnap.exists) throw new BusinessError('Entreprise introuvable.', 404);
+    // Keep the membership active so the owner can still consult the historical records.
     transaction.update(context.businessRef, { status: 'archived', archivedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
-    transaction.update(context.memberRef, { status: 'archived', active: false });
-    transaction.set(userBusinessRefs(uid).doc(businessId), { active: false, status: 'archived' }, { merge: true });
+    transaction.set(context.memberRef, { status: 'active', active: true }, { merge: true });
+    transaction.set(userBusinessRefs(uid).doc(businessId), { active: true, status: 'archived' }, { merge: true });
   });
   return { success: true };
 }

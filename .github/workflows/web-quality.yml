@@ -26,6 +26,8 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+      - name: Tester les règles de gestion financière des entreprises
+        run: node --test tests/businessFinance.test.mjs
       - name: Tester les soldes disponibles et le tableau de bord
         run: node --test tests/incomeBalances.test.mjs tests/dashboard-income-balance.test.mjs
       - name: Tester les budgets, les enveloppes et leurs prévisions

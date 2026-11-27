@@ -13,6 +13,7 @@ const PAGE_TITLES = [
   { path: '/dashboard', fr: "Vue d’ensemble", en: 'Overview' },
   { path: '/expenses', fr: 'Dépenses', en: 'Expenses' },
   { path: '/income', fr: 'Revenus', en: 'Income' },
+  { path: '/businesses', fr: 'Entreprise', en: 'Business' },
   { path: '/budgets', fr: 'Budgets', en: 'Budgets' },
   { path: '/debts', fr: 'Dettes et prêts', en: 'Debts & loans' },
   { path: '/bills', fr: 'Factures', en: 'Bills' },

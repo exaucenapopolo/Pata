@@ -32,6 +32,7 @@ async function dispatch(request, context) {
     const action = parts[0] || '';
     const second = parts[1] || '';
     const third = parts[2] || '';
+    const fourth = parts[3] || '';
     const method = request.method;
 
     if (method === 'GET' && action === 'overview' && parts.length === 1) {

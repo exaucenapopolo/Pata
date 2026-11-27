@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Home, Wallet, TrendingUp, Plus, Menu, X, Banknote, Target, BarChart3, Settings, Crown, LogOut, PiggyBank, Users, HandCoins, Receipt, Info, Lock, Pencil, GripVertical, Calculator } from 'lucide-react';
+import { Home, Wallet, TrendingUp, Plus, Menu, X, Banknote, Target, BarChart3, Settings, Crown, LogOut, PiggyBank, Users, HandCoins, Receipt, Info, Lock, Pencil, GripVertical, Calculator, Building2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { bodyScrollLockManager } from '@/lib/ui/bodyScrollLock.mjs';
@@ -22,6 +22,7 @@ const MORE_NAV = [
 ];
 const QUICK_NAV_PAGES = [
   { href: '/expenses', label: 'Dépenses', description: 'Suivre tes sorties', icon: Wallet, tone: 'rose' },
+  { href: '/businesses', label: 'Entreprise', description: 'Gérer une activité professionnelle', icon: Building2, tone: 'blue' },
   { href: '/income', label: 'Revenus', description: 'Suivre tes entrées', icon: TrendingUp, tone: 'emerald' },
   { href: '/budgets', label: 'Budgets', description: 'Organiser tes dépenses', icon: PiggyBank, tone: 'blue' },
   { href: '/goals', label: 'Épargne', description: 'Suivre tes objectifs', icon: Target, tone: 'violet' },
@@ -345,6 +346,11 @@ export function MobileNav() {
               </div>
               <button ref={moreMenuCloseRef} type="button" onClick={() => setShowMore(false)} className="pata-orbit-close" aria-label="Fermer le menu"><X size={19}/></button>
             </header>
+            <Link href="/businesses" onClick={() => setShowMore(false)} className="mx-auto mt-4 flex min-h-11 w-full max-w-[280px] items-center gap-3 rounded-xl border border-brand-200 bg-brand-50 px-3 text-left text-sm font-semibold text-brand-900">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-brand-700"><Building2 size={17}/></span>
+              <span className="flex-1">Espace entreprise</span>
+              <span className="text-[10px] font-semibold text-brand-700">Premium</span>
+            </Link>
             <div className="pata-orbit-wheel" aria-label="Raccourcis de navigation">
               <div className="pata-orbit-track pata-orbit-track-outer" aria-hidden="true"/>
               <div className="pata-orbit-track pata-orbit-track-inner" aria-hidden="true"/>

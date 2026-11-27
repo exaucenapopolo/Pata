@@ -19,6 +19,12 @@ async function businessRequest(path, method = 'GET', payload = null) {
   return result;
 }
 const root = '/api/businesses';
+function createRequestId(prefix) {
+  const random = typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID()
+    : Date.now() + '_' + Math.random().toString(36).slice(2);
+  return prefix + '_' + random;
+}
 const businessPath = (id, resource = '') => root + '/' + encodeURIComponent(id) + (resource ? '/' + resource : '');
 
 export async function getBusinesses() {
@@ -39,7 +45,10 @@ export async function getBusinessTransactions(id, options = {}) {
   return businessRequest(businessPath(id, 'transactions') + (params.size ? '?' + params.toString() : ''));
 }
 export async function createBusinessTransaction(id, input) {
-  return businessRequest(businessPath(id, 'transactions'), 'POST', input);
+  return businessRequest(businessPath(id, 'transactions'), 'POST', {
+    ...input,
+    requestId: input.requestId || createRequestId('txn'),
+  });
 }
 export async function getBusinessAccounts(id) {
   const result = await businessRequest(businessPath(id, 'accounts'));
@@ -65,5 +74,8 @@ export async function deleteBusinessResource(id, resource, itemId) {
   return businessRequest(businessPath(id, 'resources/' + encodeURIComponent(resource) + '/' + encodeURIComponent(itemId)), 'DELETE');
 }
 export async function payBusinessDocument(id, resource, itemId, input) {
-  return businessRequest(businessPath(id, 'resources/' + encodeURIComponent(resource) + '/' + encodeURIComponent(itemId) + '/pay'), 'POST', input);
+  return businessRequest(businessPath(id, 'resources/' + encodeURIComponent(resource) + '/' + encodeURIComponent(itemId) + '/pay'), 'POST', {
+    ...input,
+    requestId: input.requestId || createRequestId('payment'),
+  });
 }

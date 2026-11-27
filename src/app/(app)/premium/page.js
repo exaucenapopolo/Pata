@@ -51,6 +51,14 @@ const BENEFITS = [
     ['Rapprochement des retraits avec un revenu déjà suivi', false, true],
     ['Suivi séparé de l’argent disponible en espèces', false, true],
   ]},
+  { group: 'Gestion d’entreprise', items: [
+    ['Créer et gérer plusieurs espaces professionnels', false, true],
+    ['Trésorerie séparée, caisses et comptes Mobile Money', false, true],
+    ['Revenus, dépenses, apports et transferts professionnels', false, true],
+    ['Factures clients, créances et obligations à payer', false, true],
+    ['Clients, fournisseurs, partenaires et contrats', false, true],
+    ['Budgets et rapports financiers professionnels', false, true],
+  ]},
   { group: 'Organisation et suivi', items: [
     ['Dépenses récurrentes programmées', true, true],
     ['Bilans hebdomadaires automatiques', true, true],

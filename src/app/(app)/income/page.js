@@ -27,9 +27,11 @@ import { useDebts } from '@/hooks/useDebts';
 import { useExpenses } from '@/hooks/useExpenses';
 import { useProfile } from '@/hooks/useProfile';
 import { useProjects } from '@/hooks/useProjects';
+import { useBusinesses } from '@/hooks/useBusinesses';
 import { useBudgetRules } from '@/hooks/useBudgetRules';
 import { useCustomCategories } from '@/hooks/useCustomCategories';
 import { createIncome, updateIncome, deleteIncome, setIncomePinned } from '@/lib/firestore/incomes';
+import { createBusinessTransaction } from '@/lib/business/client';
 import { upsertBudget, upsertBudgets } from '@/lib/firestore/budgets';
 import { calculateBudgetPlan, calculateBudgetLine } from '@/lib/finance/budgetPlanner.mjs';
 import { computeBudgetBreakdown } from '@/lib/budgetRules';
@@ -63,7 +65,7 @@ const currentTime = () => {
   const d = new Date();
   return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 };
-const emptyIncomeForm = () => ({ id: null, amount: '', amountLocked: false, source: 'Salaire', categoryId: 'salary', image: '', note: '', date: todayIso(), projectId: '', time: currentTime(), locationLabel: '', latitude: null, longitude: null, locationAccuracy: null, paymentMethod: '', details: '', flowType: 'normal', person: '', phone: '', dueDate: '', availableAsFunding: null, repaymentDebtId: '', counterpartyUid: '', counterpartyType: 'person', bankName: '', bankChoice: '', bankCustomName: '', scheduleEnabled: false, recurrenceEnabled: true, scheduleFrequency: 'monthly' });
+const emptyIncomeForm = () => ({ id: null, amount: '', amountLocked: false, source: 'Salaire', categoryId: 'salary', image: '', note: '', date: todayIso(), projectId: '', destinationBusinessId: '', time: currentTime(), locationLabel: '', latitude: null, longitude: null, locationAccuracy: null, paymentMethod: '', details: '', flowType: 'normal', person: '', phone: '', dueDate: '', availableAsFunding: null, repaymentDebtId: '', counterpartyUid: '', counterpartyType: 'person', bankName: '', bankChoice: '', bankCustomName: '', scheduleEnabled: false, recurrenceEnabled: true, scheduleFrequency: 'monthly' });
 
 const FREQUENCIES = [
   { id: 'daily', label: 'Par jour', multiplier: 30 },
@@ -105,6 +107,7 @@ export default function IncomePage() {
   const activeReceivableDebts = debts.filter((debt) => debt.type === 'owed_to_me' && ['active', 'partial', 'late'].includes(debt.status) && Number(debt.remaining) > 0);
   const { expenses } = useExpenses({ days: 30, limit: 500 });
   const { profile, save } = useProfile();
+  const { businesses } = useBusinesses();
   const { projects } = useProjects();
   const premiumExpiry = profile?.premiumUntil?.toDate ? profile.premiumUntil.toDate() : new Date(profile?.premiumUntil || 0);
   const isPremium = Number.isFinite(premiumExpiry.getTime()) && premiumExpiry > new Date();
@@ -710,6 +713,7 @@ export default function IncomePage() {
       note: income.note || '',
       date: income.date || todayIso(),
       projectId: income.projectId || '',
+      destinationBusinessId: '',
       time: income.time || '',
       locationLabel: income.locationLabel || '',
       latitude: income.latitude ?? null,
@@ -764,6 +768,24 @@ export default function IncomePage() {
         locationAccuracy: form.locationAccuracy, paymentMethod: form.paymentMethod, details: form.details,
         image: form.image || '',
       };
+      if (!form.id && form.flowType === 'normal' && form.destinationBusinessId) {
+        const destination = businesses.find((business) => business.id === form.destinationBusinessId);
+        if (!isPremium || !destination || destination.readOnly) {
+          throw new Error('La gestion de cette entreprise nécessite un abonnement Pata Premium actif. Tu peux consulter ton espace, mais pas y enregistrer de nouvelle opération.');
+        }
+        await createBusinessTransaction(destination.id, {
+          type: 'income', amount, title: form.source,
+          categoryId: form.categoryId, date: form.date, note: form.note,
+          paymentMethod: form.paymentMethod,
+        });
+        await appAlert('Le revenu a été enregistré dans ' + destination.name + '. Tes finances personnelles n’ont pas été modifiées.', {
+          kind: 'success', title: 'Revenu professionnel enregistré',
+        });
+        setOpen(false);
+        setForm(emptyIncomeForm());
+        setNextAction({ sequence: Date.now() });
+        return;
+      }
       if (!form.id && form.scheduleEnabled) {
         const kind = form.flowType === 'debt_borrowed' ? 'debt_borrowed' : form.flowType === 'repayment_received' ? 'repayment_received' : 'income';
         await createScheduledTransaction(user.uid, {
@@ -1522,12 +1544,33 @@ export default function IncomePage() {
 
       <Modal open={open} onClose={() => setOpen(false)} title={form.id ? 'Modifier l’opération' : 'Nouveau revenu'}>
         <form onSubmit={onSubmit} className="space-y-3">
+          {!form.id && form.flowType === 'normal' && <div className="rounded-xl border border-slate-200 p-3">
+            <label className="mb-1 block text-sm font-semibold text-slate-700">Destination de cet argent</label>
+            <select value={form.destinationBusinessId || ''} onChange={(event) => {
+              const value = event.target.value;
+              if (value === '__manage_businesses__') { router.push('/businesses'); return; }
+              setForm((current) => ({ ...current, destinationBusinessId: value, scheduleEnabled: value ? false : current.scheduleEnabled, projectId: value ? '' : current.projectId }));
+            }} className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm">
+              <option value="">Espace personnel (par défaut)</option>
+              {businesses.map((business) => <option key={business.id} value={business.id}>{business.name}{business.readOnly ? ' · consultation' : ''}</option>)}
+              <option value="__manage_businesses__">{businesses.length ? 'Consulter ou gérer mes entreprises' : 'Découvrir / créer une entreprise'}</option>
+            </select>
+            {form.destinationBusinessId ? (() => {
+              const selectedBusiness = businesses.find((business) => business.id === form.destinationBusinessId);
+              const locked = !isPremium || !selectedBusiness || selectedBusiness.readOnly;
+              return <div className={'mt-2 rounded-lg p-2.5 text-xs leading-5 ' + (locked ? 'bg-amber-50 text-amber-900' : 'bg-blue-50 text-blue-900')}>
+                {locked
+                  ? <>Cet espace est consultable, mais l’enregistrement d’une opération nécessite Pata Premium actif. <Link href="/premium" className="font-semibold underline">Activer Premium</Link></>
+                  : <>Ce revenu sera enregistré dans les comptes de <strong>{selectedBusiness.name}</strong>. Il ne modifiera pas tes revenus personnels.</>}
+              </div>;
+            })() : <p className="mt-2 text-[11px] leading-5 text-slate-500">Tu peux enregistrer ce revenu pour toi ou le diriger vers l’une de tes entreprises. Le choix personnel reste celui par défaut.</p>}
+          </div>}
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">Nature de l’opération</label>
             <select value={form.flowType || 'normal'} disabled={!!form.id && form.flowType === 'repayment_received'} onChange={(event) => {
               const flowType = event.target.value;
               const categoryId = flowType === 'debt_borrowed' ? 'debt_borrowed' : flowType === 'repayment_received' ? 'debt_repayment_received' : 'salary';
-              setForm({ ...form, flowType, categoryId, source: flowType === 'debt_borrowed' ? form.source : (form.person || form.source), person: flowType === 'debt_borrowed' ? (form.flowType === 'debt_borrowed' ? form.person : '') : form.person, availableAsFunding: form.availableAsFunding, repaymentDebtId: flowType === 'repayment_received' ? form.repaymentDebtId : '', projectId: '' });
+              setForm({ ...form, flowType, categoryId, source: flowType === 'debt_borrowed' ? form.source : (form.person || form.source), person: flowType === 'debt_borrowed' ? (form.flowType === 'debt_borrowed' ? form.person : '') : form.person, availableAsFunding: form.availableAsFunding, repaymentDebtId: flowType === 'repayment_received' ? form.repaymentDebtId : '', projectId: '', destinationBusinessId: flowType === 'normal' ? (form.destinationBusinessId || '') : '' });
             }} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm">
               <option value="normal">Revenu normal</option><option value="debt_borrowed">Dette contractée (argent emprunté)</option>
               {!form.id && <option value="repayment_received">Remboursement reçu</option>}
@@ -1547,14 +1590,14 @@ export default function IncomePage() {
           {form.flowType === 'repayment_received' && <div><label className="mb-1 block text-sm font-medium text-slate-700">Créance remboursée</label><select required value={form.repaymentDebtId} onChange={(event) => setForm({ ...form, repaymentDebtId: event.target.value })} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="">Choisir une créance</option>{activeReceivableDebts.map((debt) => <option key={debt.id} value={debt.id}>{debt.person} · {formatCurrency(Number(debt.remaining) || 0)} restant</option>)}</select>{!activeReceivableDebts.length && <p className="mt-1 text-xs text-slate-500">Aucune créance active à encaisser.</p>}</div>}
           <div><Input label="Montant (FCFA)" type="number" data-pata-money="true" min="0" step="1" required value={form.amount} disabled={form.amountLocked === true && !!form.id} onChange={(event) => setForm({ ...form, amount: event.target.value })}/><CalculatorLauncher value={form.amount} disabled={form.amountLocked === true && !!form.id} onApply={(result) => setForm((current) => ({ ...current, amount: result }))}/></div>
           {form.amountLocked === true && !!form.id && <p className="rounded-lg bg-amber-50 p-2.5 text-[11px] leading-5 text-amber-800">Ce montant a déjà été utilisé pour financer une dépense. Il reste verrouillé pour préserver l’historique. Tu peux encore modifier la nature et les autres informations autorisées.</p>}
-          {form.flowType === 'normal' ? <><div><p className="mb-2 text-sm font-medium text-slate-700">Catégorie de revenu</p><CategoryManager type="income" value={form.categoryId} onChange={(id) => setForm((current) => ({ ...current, categoryId: id, recurrenceEnabled: id === 'salary' ? true : current.categoryId === 'salary' ? false : current.recurrenceEnabled, scheduleFrequency: id === 'salary' ? 'monthly' : current.scheduleFrequency }))}/></div><Input label="Nom / Source" required value={form.source} onChange={(event) => setForm({ ...form, source: event.target.value })}/><CloudinaryImageField value={form.image || ''} onChange={(image) => setForm((current) => ({ ...current, image }))} folder="pata/incomes" language={language} label="Photo du revenu (facultatif)"/></> : form.flowType === 'debt_borrowed' ? <p className="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">Cette opération reste suivie dans Dettes & prêts. Seule une dette correspondant à de l’argent réellement reçu peut aussi financer des dépenses.</p> : null}
+          {form.flowType === 'normal' ? <><div><p className="mb-2 text-sm font-medium text-slate-700">Catégorie de revenu</p>{form.destinationBusinessId ? <select value={form.categoryId} onChange={(event) => setForm((current) => ({ ...current, categoryId: event.target.value }))} className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm">{INCOME_CATEGORIES.filter((category) => !['debt_borrowed', 'debt_repayment_received'].includes(category.id)).map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}</select> : <CategoryManager type="income" value={form.categoryId} onChange={(id) => setForm((current) => ({ ...current, categoryId: id, recurrenceEnabled: id === 'salary' ? true : current.categoryId === 'salary' ? false : current.recurrenceEnabled, scheduleFrequency: id === 'salary' ? 'monthly' : current.scheduleFrequency }))}/></div><Input label="Nom / Source" required value={form.source} onChange={(event) => setForm({ ...form, source: event.target.value })}/>{!form.destinationBusinessId && <CloudinaryImageField value={form.image || ''} onChange={(image) => setForm((current) => ({ ...current, image }))} folder="pata/incomes" language={language} label="Photo du revenu (facultatif)"/>}</> : form.flowType === 'debt_borrowed' ? <p className="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">Cette opération reste suivie dans Dettes & prêts. Seule une dette correspondant à de l’argent réellement reçu peut aussi financer des dépenses.</p> : null}
           <Input label="Date" type="date" required value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })}/>
-          {isPremium && ['normal', 'debt_borrowed'].includes(form.flowType) && <div><label className="mb-1 block text-sm font-medium text-slate-700">Affecter à un projet (facultatif)</label><select value={form.projectId || ''} onChange={(event) => setForm({ ...form, projectId: event.target.value })} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="">Aucun projet — fonds non affectés</option>{projects.filter((item) => item.status === 'active').map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></div>}
-          {!form.id && <div className="rounded-xl border border-slate-200 p-3"><label className="flex cursor-pointer items-start gap-2 text-sm font-semibold text-slate-800"><input type="checkbox" checked={form.scheduleEnabled === true} disabled={!isPremium} onChange={(event) => setForm({ ...form, scheduleEnabled: event.target.checked })} className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600"/><span>Programmer cette opération</span></label>{!isPremium && <p className="mt-2 text-xs leading-5 text-slate-500">La programmation nécessite Pata Premium. <Link href="/premium" className="font-semibold text-brand-700 underline">Découvrir Premium</Link></p>}{form.scheduleEnabled && <div className="mt-3 space-y-3 border-t border-slate-100 pt-3"><p className="text-xs leading-5 text-slate-500">L’opération sera enregistrée à la date choisie.</p>{form.flowType === 'normal' && <><label className="flex items-center gap-2 text-xs font-medium text-slate-700"><input type="checkbox" checked={form.recurrenceEnabled === true} onChange={(event) => setForm({ ...form, recurrenceEnabled: event.target.checked })} className="h-4 w-4 rounded border-slate-300 text-brand-600"/>Rendre ce revenu récurrent</label>{form.recurrenceEnabled && <select value={form.scheduleFrequency || 'monthly'} onChange={(event) => setForm({ ...form, scheduleFrequency: event.target.value })} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="daily">Tous les jours</option><option value="weekly">Chaque semaine</option><option value="monthly">Chaque mois</option></select>}</>}{form.flowType !== 'normal' && <p className="text-xs text-slate-500">Cette opération sera enregistrée une seule fois à la date prévue.</p>}</div>}</div>}
+          {isPremium && !form.destinationBusinessId && ['normal', 'debt_borrowed'].includes(form.flowType) && <div><label className="mb-1 block text-sm font-medium text-slate-700">Affecter à un projet (facultatif)</label><select value={form.projectId || ''} onChange={(event) => setForm({ ...form, projectId: event.target.value })} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="">Aucun projet — fonds non affectés</option>{projects.filter((item) => item.status === 'active').map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></div>}
+          {!form.id && !form.destinationBusinessId && <div className="rounded-xl border border-slate-200 p-3"><label className="flex cursor-pointer items-start gap-2 text-sm font-semibold text-slate-800"><input type="checkbox" checked={form.scheduleEnabled === true} disabled={!isPremium} onChange={(event) => setForm({ ...form, scheduleEnabled: event.target.checked })} className="mt-0.5 h-4 w-4 rounded border-slate-300 text-brand-600"/><span>Programmer cette opération</span></label>{!isPremium && <p className="mt-2 text-xs leading-5 text-slate-500">La programmation nécessite Pata Premium. <Link href="/premium" className="font-semibold text-brand-700 underline">Découvrir Premium</Link></p>}{form.scheduleEnabled && <div className="mt-3 space-y-3 border-t border-slate-100 pt-3"><p className="text-xs leading-5 text-slate-500">L’opération sera enregistrée à la date choisie.</p>{form.flowType === 'normal' && <><label className="flex items-center gap-2 text-xs font-medium text-slate-700"><input type="checkbox" checked={form.recurrenceEnabled === true} onChange={(event) => setForm({ ...form, recurrenceEnabled: event.target.checked })} className="h-4 w-4 rounded border-slate-300 text-brand-600"/>Rendre ce revenu récurrent</label>{form.recurrenceEnabled && <select value={form.scheduleFrequency || 'monthly'} onChange={(event) => setForm({ ...form, scheduleFrequency: event.target.value })} className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="daily">Tous les jours</option><option value="weekly">Chaque semaine</option><option value="monthly">Chaque mois</option></select>}</>}{form.flowType !== 'normal' && <p className="text-xs text-slate-500">Cette opération sera enregistrée une seule fois à la date prévue.</p>}</div>}</div>}
           <Input label="Note (facultatif)" value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })}/>
-          <OptionalTransactionFields value={form} onChange={(next) => setForm(next)} kind="income"/>
+          {!form.destinationBusinessId && <OptionalTransactionFields value={form} onChange={(next) => setForm(next)} kind="income"/>}
           {error && <p className="text-sm text-red-600">{error}</p>}
-          <Button type="submit" className="w-full" disabled={saving}>{saving ? 'Enregistrement…' : form.id ? 'Enregistrer les modifications' : 'Ajouter le revenu'}</Button>
+          <Button type="submit" className="w-full" disabled={saving || Boolean(form.destinationBusinessId && (!isPremium || businesses.find((business) => business.id === form.destinationBusinessId)?.readOnly))}>{saving ? 'Enregistrement…' : form.id ? 'Enregistrer les modifications' : 'Ajouter le revenu'}</Button>
         </form>
       </Modal>
 
