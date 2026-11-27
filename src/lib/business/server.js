@@ -144,7 +144,7 @@ export async function createBusiness(uid, input = {}) {
     if (!profileSnap.exists) throw new BusinessError('Profil utilisateur introuvable.', 401, 'PROFILE_NOT_FOUND');
     if (!isPremium(profileSnap.data() || {})) premiumRequired();
     transaction.create(businessRef, {
-      name, nameSearch: name.toLocaleLowerCase('fr'), activity, slogan, legalForm, city, phone, logoUrl, currency,
+      name, nameSearch: normalizeBusinessSearch(name), activity, slogan, legalForm, city, phone, logoUrl, currency, publicProfileEnabled: false, publicOffersEnabled: true,
       country: 'CM', ownerId: uid, status: 'active',
       totalIncome: 0, totalExpense: 0, ownerContributions: 0, ownerWithdrawals: 0,
       cashBalance: 0, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
@@ -184,6 +184,8 @@ export async function getBusinessOverview(uid, businessId) {
       phone: context.business.phone || '', legalForm: context.business.legalForm || '',
       logoUrl: isValidCloudinaryAvatarUrl(context.business.logoUrl) ? context.business.logoUrl : '',
       status: context.business.status || 'active',
+      publicProfileEnabled: context.business.publicProfileEnabled === true,
+      publicOffersEnabled: context.business.publicOffersEnabled !== false,
     },
     premiumActive: context.premiumActive,
     readOnly: !context.premiumActive || context.business.status === 'archived' || !['owner', 'admin', 'finance', 'manager'].includes(context.role),
@@ -684,7 +686,9 @@ export async function updateBusinessProfile(uid, businessId, input = {}) {
       throw new BusinessError('Entreprise indisponible.', 404);
     }
     transaction.update(context.businessRef, {
-      name, nameSearch: name.toLocaleLowerCase('fr'), activity, slogan, legalForm, city, phone,
+      name, nameSearch: normalizeBusinessSearch(name), activity, slogan, legalForm, city, phone,
+      publicProfileEnabled: input.publicProfileEnabled === true,
+      publicOffersEnabled: input.publicOffersEnabled !== false,
       logoUrl: logoUrl || FieldValue.delete(),
       updatedAt: FieldValue.serverTimestamp(),
     });
@@ -735,9 +739,28 @@ async function fetchFapshiPaymentStatus(transId) {
 export async function listBusinessPaymentLinks(uid,businessId){
  const c=await getBusinessContext(uid,businessId);
  const snap=await businessPaymentLinksRef().where('businessId','==',c.businessId).limit(100).get();
- const links=snap.docs.map(serializeDocument).filter(x=>!x.parentLinkId).sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+ const links=snap.docs.map(serializeDocument).filter(x=>!x.parentLinkId&&x.status!=='DELETED').sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
  return {paymentLinks:links,readOnly:!c.premiumActive||c.business.status==='archived'};
 }
+export async function getPublicBusinessProfile(businessId) {
+ const id=validId(businessId),businessSnap=await businessesRef().doc(id).get();
+ if(!businessSnap.exists)throw new BusinessError('Cette entreprise est introuvable.',404,'BUSINESS_NOT_FOUND');
+ const b=businessSnap.data()||{};
+ if(b.status==='archived'||b.publicProfileEnabled!==true)throw new BusinessError('Le profil public de cette entreprise n’est pas disponible.',404,'PUBLIC_PROFILE_DISABLED');
+ const offers=[];
+ if(b.publicOffersEnabled!==false){
+  const snap=await businessPaymentLinksRef().where('businessId','==',id).limit(100).get();
+  for(const doc of snap.docs){
+   const p=doc.data()||{};
+   if(p.status!=='ACTIVE'||p.publicOnStorefront===false||p.parentLinkId)continue;
+   const max=Math.max(0,Number(p.maxPayments)||0);
+   if(max>0&&Number(p.successfulPayments||0)+Number(p.activePaymentCount||0)>=max)continue;
+   offers.push({id:doc.id,title:cleanText(p.title,100),description:cleanText(p.description,1200),imageUrl:isValidCloudinaryAvatarUrl(p.imageUrl)?p.imageUrl:'',amount:Number(p.amount)||0,originalAmount:Number(p.originalAmount)||Number(p.amount)||0,publicUrl:cleanText(p.publicUrl,2048)});
+  }
+ }
+ return {business:{id,name:cleanText(b.name,100),slogan:cleanText(b.slogan,180),activity:cleanText(b.activity,120),city:cleanText(b.city,80),phone:cleanText(b.phone,30),logoUrl:isValidCloudinaryAvatarUrl(b.logoUrl)?b.logoUrl:''},offers};
+}
+
 export async function getPublicBusinessPaymentLink(paymentLinkId,visitorId=''){
  const id=validId(paymentLinkId),ref=businessPaymentLinksRef().doc(id),snap=await ref.get();
  if(!snap.exists)throw new BusinessError('Cette offre de paiement est introuvable.',404,'PAYMENT_LINK_NOT_FOUND');
@@ -759,7 +782,7 @@ export async function getPublicBusinessPaymentLink(paymentLinkId,visitorId=''){
  }
  const bs=await businessesRef().doc(validId(link.businessId)).get(),b=bs.exists?bs.data()||{}:{};
  const max=Math.max(0,Number(link.maxPayments)||0),sold=link.status==='SOLD_OUT'||(max>0&&Number(link.successfulPayments||0)+Number(link.activePaymentCount||0)>=max);
- return {payment:{id,status:sold?'SOLD_OUT':link.status||'UNAVAILABLE',title:cleanText(link.title,100),description:cleanText(link.description,1200),imageUrl:isValidCloudinaryAvatarUrl(link.imageUrl)?link.imageUrl:'',amount:Number(link.amount)||0,originalAmount:Number(link.originalAmount)||Number(link.amount)||0,discountAmount:Math.max(0,Number(link.discountAmount)||0),businessName:cleanText(b.name||link.businessName,100),businessSlogan:cleanText(b.slogan,180),businessLogoUrl:isValidCloudinaryAvatarUrl(b.logoUrl)?b.logoUrl:''}};
+ return {payment:{id,status:sold?'SOLD_OUT':link.status||'UNAVAILABLE',title:cleanText(link.title,100),description:cleanText(link.description,1200),imageUrl:isValidCloudinaryAvatarUrl(link.imageUrl)?link.imageUrl:'',amount:Number(link.amount)||0,originalAmount:Number(link.originalAmount)||Number(link.amount)||0,discountAmount:Math.max(0,Number(link.discountAmount)||0),businessName:cleanText(b.name||link.businessName,100),businessSlogan:cleanText(b.slogan,180),businessLogoUrl:isValidCloudinaryAvatarUrl(b.logoUrl)?b.logoUrl:'',businessId:validId(link.businessId),businessProfilePublic:b.publicProfileEnabled===true}};
 }
 export async function createPublicBusinessPaymentCheckout(paymentLinkId,visitorId=''){
  const id=validId(paymentLinkId),ref=businessPaymentLinksRef().doc(id),attempt=ref.collection('payments').doc(),visitor=cleanText(visitorId,100).replace(/[^a-zA-Z0-9_-]/g,''),clicker=visitor.length>=12?ref.collection('clickers').doc(visitor):null;
@@ -805,7 +828,7 @@ export async function createBusinessPaymentLink(uid,businessId,input={}){
   if(!profile.exists||!isPremium(profile.data()||{}))premiumRequired();if(!member.exists||!['owner','admin','finance','manager'].includes(member.data()?.role||''))throw new BusinessError('Droits insuffisants pour créer ce lien.',403,'READ_ONLY');
   if(!business.exists||business.data()?.status==='archived')throw new BusinessError('Entreprise indisponible.',404);if(!acc.exists||acc.data()?.active===false)throw new BusinessError('Compte de destination introuvable.');
   if(existing.exists){duplicate=serializeDocument(existing);return;}
-  tx.create(ref,{businessId:c.businessId,businessName:cleanText(c.business.name,100),userId:uid,createdBy:uid,accountId,title,description,imageUrl,customerName,customerEmail,amount,originalAmount,discountAmount:Math.max(0,originalAmount-amount),maxPayments,currency:'XAF',status:'ACTIVE',pageViews:0,uniqueViews:0,clickCount:0,uniqueClickers:0,successfulPayments:0,grossRevenue:0,netRevenue:0,feeRevenue:0,activePaymentCount:0,createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
+  tx.create(ref,{businessId:c.businessId,businessName:cleanText(c.business.name,100),userId:uid,createdBy:uid,accountId,title,description,imageUrl,customerName,customerEmail,amount,originalAmount,discountAmount:Math.max(0,originalAmount-amount),maxPayments,publicOnStorefront:input.publicOnStorefront!==false,currency:'XAF',status:'ACTIVE',pageViews:0,uniqueViews:0,clickCount:0,uniqueClickers:0,successfulPayments:0,grossRevenue:0,netRevenue:0,feeRevenue:0,activePaymentCount:0,createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
  });
  if(duplicate)return {paymentLink:duplicate,duplicate:true};
  let origin='https://pata-yam.site';try{origin=new URL(process.env.NEXT_PUBLIC_APP_URL||process.env.NEXT_PUBLIC_SITE_URL||origin).origin;}catch{}
@@ -822,7 +845,7 @@ export async function updateBusinessPaymentLink(uid,businessId,paymentLinkId,inp
  const title=cleanText(input.title,100);if(title.length<2)throw new BusinessError('Donne un nom au produit ou service.');
  const description=cleanText(input.description,1200);if(description.length<5)throw new BusinessError('Ajoute une courte description du produit ou service.');
  const imageUrl=cleanText(input.imageUrl,2048);if(imageUrl&&!isValidCloudinaryAvatarUrl(imageUrl))throw new BusinessError('La photo du produit doit provenir de la bibliothèque photo Pata.');
- await ref.update({title,description,imageUrl,amount,originalAmount,discountAmount:Math.max(0,originalAmount-amount),updatedAt:FieldValue.serverTimestamp()});
+ await ref.update({title,description,imageUrl,amount,originalAmount,discountAmount:Math.max(0,originalAmount-amount),publicOnStorefront:input.publicOnStorefront!==false,updatedAt:FieldValue.serverTimestamp()});
  return {paymentLink:serializeDocument(await ref.get())};
 }
 
