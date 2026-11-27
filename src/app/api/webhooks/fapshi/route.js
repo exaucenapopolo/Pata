@@ -5,7 +5,8 @@ export const dynamic='force-dynamic';
 export async function POST(request){
  try{
   const expected=String(process.env.FAPSHI_WEBHOOK_SECRET||'');
-  if(expected&&request.headers.get('x-wh-secret')!==expected)return NextResponse.json({success:false,error:'Webhook non autorisé.'},{status:401});
+  if(!expected)return NextResponse.json({success:false,error:'Le secret du webhook Fapshi doit être configuré sur le serveur.'},{status:503});
+  if(request.headers.get('x-wh-secret')!==expected)return NextResponse.json({success:false,error:'Webhook non autorisé.'},{status:401});
   const body=await request.json().catch(()=>({}));
   const transId=String(body?.transId||body?.trans_id||body?.data?.transId||body?.data?.trans_id||'').trim();
   if(!transId||transId.includes('/'))return NextResponse.json({success:false,error:'Identifiant de transaction absent.'},{status:400});

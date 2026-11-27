@@ -844,7 +844,7 @@ export async function createPublicBusinessPaymentCheckout(paymentLinkId,visitorI
  const id=validId(paymentLinkId),ref=businessPaymentLinksRef().doc(id),attempt=ref.collection('payments').doc();
  const visitor=cleanText(visitorId,100).replace(/[^a-zA-Z0-9_-]/g,''),clicker=visitor.length>=12?ref.collection('clickers').doc(visitor):null;
  const buyerName=cleanText(buyerInput.customerName,100),buyerEmail=cleanText(buyerInput.customerEmail,160).toLowerCase();
- if(!validEmail(buyerEmail))throw new BusinessError('Adresse e-mail du client invalide.');
+ if(!buyerEmail||!validEmail(buyerEmail))throw new BusinessError('Indique une adresse e-mail valide pour recevoir le reçu de paiement.');
  const reviewToken=randomBytes(32).toString('hex');let link;
  await adminDb.runTransaction(async tx=>{
   const reads=[tx.get(ref)];if(clicker)reads.push(tx.get(clicker));const rows=await Promise.all(reads),snap=rows[0],seen=clicker?rows[1]:null;
