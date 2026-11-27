@@ -703,6 +703,8 @@ const validEmail = (value) => {
   const email = cleanText(value, 160);
   return !email || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 };
+function nameFromEmail(value){const local=cleanText(value,160).toLowerCase().split('@')[0]||'';return cleanText(local.replace(/[._+-]+/g,' ').replace(/\s+/g,' '),100);}
+
 
 
 function cleanPublicMediaList(value,maxItems,validator,label){
@@ -727,7 +729,6 @@ function normalizeBusinessPaymentMedia(input={}){
   proofImageUrls:cleanPublicMediaList(input.proofImageUrls,6,isValidCloudinaryAvatarUrl,'Les preuves visuelles'),
   videoUrls:cleanPublicMediaList(input.videoUrls,4,isValidBusinessVideoUrl,'Les vidéos'),
   sellingPoints:[...new Set((Array.isArray(input.sellingPoints)?input.sellingPoints:[]).map(v=>cleanText(v,180)).filter(Boolean))].slice(0,8),
-  testimonials:[...new Set((Array.isArray(input.testimonials)?input.testimonials:[]).map(v=>cleanText(v,320)).filter(Boolean))].slice(0,6)
  };
 }
 function businessEmailHtml({business,headline,intro,details=[],ctaUrl,ctaLabel}){
@@ -834,9 +835,9 @@ export async function getPublicBusinessPaymentLink(paymentLinkId,visitorId=''){
  const bs=await businessesRef().doc(validId(link.businessId)).get(),b=bs.exists?bs.data()||{}:{};
  const max=Math.max(0,Number(link.maxPayments)||0),sold=link.status==='SOLD_OUT'||(max>0&&Number(link.successfulPayments||0)+Number(link.activePaymentCount||0)>=max);
  const reviewSnap=Number(link.ratingCount)>0?await ref.collection('reviews').orderBy('createdAt','desc').limit(8).get().catch(()=>({docs:[]})):{docs:[]};
- const reviews=reviewSnap.docs.map(doc=>{const r=doc.data()||{};return {id:doc.id,name:cleanText(r.customerName||'Client',80),businessRating:Number(r.businessRating)||0,productRating:Number(r.productRating)||0,comment:cleanText(r.comment,1000),date:r.createdAt?.toDate?r.createdAt.toDate().toISOString():''};});
+ const reviews=reviewSnap.docs.map(doc=>{const r=doc.data()||{};return {id:doc.id,name:cleanText(r.customerName||'Client',80),businessRating:Number(r.businessRating)||0,productRating:Number(r.productRating)||0,comment:cleanText(r.comment,1000),verifiedPurchase:r.verifiedPurchase===true,date:r.createdAt?.toDate?r.createdAt.toDate().toISOString():''};});
  const gallery=cleanPublicMediaList(link.galleryImageUrls,6,isValidCloudinaryAvatarUrl,'Galerie'),proofs=cleanPublicMediaList(link.proofImageUrls,6,isValidCloudinaryAvatarUrl,'Preuves'),videos=cleanPublicMediaList(link.videoUrls,4,isValidBusinessVideoUrl,'Vidéos');
- return {payment:{id,status:sold?'SOLD_OUT':link.status||'UNAVAILABLE',title:cleanText(link.title,100),description:cleanText(link.description,1200),imageUrl:isValidCloudinaryAvatarUrl(link.imageUrl)?link.imageUrl:(gallery[0]||''),galleryImageUrls:gallery,proofImageUrls:proofs,videoUrls:videos,sellingPoints:Array.isArray(link.sellingPoints)?link.sellingPoints.map(x=>cleanText(x,180)).filter(Boolean).slice(0,8):[],testimonials:Array.isArray(link.testimonials)?link.testimonials.map(x=>cleanText(x,320)).filter(Boolean).slice(0,6):[],amount:Number(link.amount)||0,originalAmount:Number(link.originalAmount)||Number(link.amount)||0,discountAmount:Math.max(0,Number(link.discountAmount)||0),businessName:cleanText(b.name||link.businessName,100),businessSlogan:cleanText(b.slogan,180),businessLogoUrl:isValidCloudinaryAvatarUrl(b.logoUrl)?b.logoUrl:'',businessId:validId(link.businessId),businessProfilePublic:b.publicProfileEnabled===true,ratingCount:Math.max(0,Number(link.ratingCount)||0),averageProductRating:Number(link.ratingCount)>0?Math.round((Number(link.productRatingTotal)||0)/Number(link.ratingCount)*10)/10:0,averageBusinessRating:Number(link.ratingCount)>0?Math.round((Number(link.businessRatingTotal)||0)/Number(link.ratingCount)*10)/10:0,reviews}};
+ return {payment:{id,status:sold?'SOLD_OUT':link.status||'UNAVAILABLE',title:cleanText(link.title,100),description:cleanText(link.description,1200),imageUrl:isValidCloudinaryAvatarUrl(link.imageUrl)?link.imageUrl:(gallery[0]||''),galleryImageUrls:gallery,proofImageUrls:proofs,videoUrls:videos,sellingPoints:Array.isArray(link.sellingPoints)?link.sellingPoints.map(x=>cleanText(x,180)).filter(Boolean).slice(0,8):[],amount:Number(link.amount)||0,originalAmount:Number(link.originalAmount)||Number(link.amount)||0,discountAmount:Math.max(0,Number(link.discountAmount)||0),businessName:cleanText(b.name||link.businessName,100),businessSlogan:cleanText(b.slogan,180),businessLogoUrl:isValidCloudinaryAvatarUrl(b.logoUrl)?b.logoUrl:'',businessId:validId(link.businessId),businessProfilePublic:b.publicProfileEnabled===true,ratingCount:Math.max(0,Number(link.ratingCount)||0),averageProductRating:Number(link.ratingCount)>0?Math.round((Number(link.productRatingTotal)||0)/Number(link.ratingCount)*10)/10:0,averageBusinessRating:Number(link.ratingCount)>0?Math.round((Number(link.businessRatingTotal)||0)/Number(link.ratingCount)*10)/10:0,reviews}};
 }
 
 
@@ -844,7 +845,7 @@ export async function createPublicBusinessPaymentCheckout(paymentLinkId,visitorI
  const id=validId(paymentLinkId),ref=businessPaymentLinksRef().doc(id),attempt=ref.collection('payments').doc();
  const visitor=cleanText(visitorId,100).replace(/[^a-zA-Z0-9_-]/g,''),clicker=visitor.length>=12?ref.collection('clickers').doc(visitor):null;
  const buyerName=cleanText(buyerInput.customerName,100),buyerEmail=cleanText(buyerInput.customerEmail,160).toLowerCase();
- if(!buyerEmail||!validEmail(buyerEmail))throw new BusinessError('Indique une adresse e-mail valide pour recevoir le reçu de paiement.');
+ if(buyerEmail&&!validEmail(buyerEmail))throw new BusinessError('L’adresse e-mail fournie n’est pas valide.');
  const reviewToken=randomBytes(32).toString('hex');let link;
  await adminDb.runTransaction(async tx=>{
   const reads=[tx.get(ref)];if(clicker)reads.push(tx.get(clicker));const rows=await Promise.all(reads),snap=rows[0],seen=clicker?rows[1]:null;
@@ -857,19 +858,19 @@ export async function createPublicBusinessPaymentCheckout(paymentLinkId,visitorI
  });
  try{
   const apiUser=process.env.FAPSHI_API_USER,secret=process.env.FAPSHI_SECRET_KEY;
-  if(!apiUser||!secret)throw new BusinessError('La configuration Fapshi est incomplète sur le serveur. Contacte l’entreprise.',503,'PAYMENT_PROVIDER_CONFIG');
+  if(!apiUser||!secret)throw new BusinessError('Le paiement est momentanément indisponible. Réessaie dans un instant.',503,'PAYMENT_PROVIDER_CONFIG');
   let origin='https://www.pata-yam.site';try{origin=new URL(process.env.NEXT_PUBLIC_APP_URL||process.env.NEXT_PUBLIC_SITE_URL||origin).origin;}catch{}
   const rawUid=cleanText(link.userId||link.createdBy,100),providerUserId=rawUid.replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,100);
-  const payload={amount:Number(link.amount),...(buyerEmail||link.customerEmail?{email:buyerEmail||cleanText(link.customerEmail,160)}:{}),redirectUrl:origin+'/business-payment/return?paymentLinkId='+encodeURIComponent(id),...(providerUserId?{userId:providerUserId}:{}),externalId:attempt.id,message:cleanText(link.title,80)};
+  const payload={amount:Number(link.amount),...(buyerEmail||link.customerEmail?{email:buyerEmail||cleanText(link.customerEmail,160)}:{}),redirectUrl:origin+'/avis-paiement/'+encodeURIComponent(id)+'?token='+encodeURIComponent(reviewToken),...(providerUserId?{userId:providerUserId}:{}),externalId:attempt.id,message:cleanText(link.title,80)};
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),30000);let response;
   try{response=await fetch('https://live.fapshi.com/initiate-pay',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json',apiuser,apikey:secret},body:JSON.stringify(payload),signal:controller.signal,cache:'no-store'});}
-  catch(error){console.error('[PATA BUSINESS FAPSHI INITIATE NETWORK]',JSON.stringify({paymentLinkId:id,amount:Number(link.amount),errorName:String(error?.name||'Error').slice(0,80),errorMessage:String(error?.message||error).slice(0,240),aborted:Boolean(controller.signal.aborted)}));throw new BusinessError('Fapshi ne répond pas pour le moment. Le paiement n’a pas pu être préparé ; réessaie dans un instant.',502,'PAYMENT_PROVIDER_UNAVAILABLE');}
+  catch(error){console.error('[PATA BUSINESS FAPSHI INITIATE NETWORK]',JSON.stringify({paymentLinkId:id,amount:Number(link.amount),errorName:String(error?.name||'Error').slice(0,80),errorMessage:String(error?.message||error).slice(0,240),aborted:Boolean(controller.signal.aborted)}));throw new BusinessError('Le service de paiement ne répond pas pour le moment. Réessaie dans un instant.',502,'PAYMENT_PROVIDER_UNAVAILABLE');}
   finally{clearTimeout(timeout);}
   const rawBody=await response.text();let data={};try{data=rawBody?JSON.parse(rawBody):{};}catch{}
-  if(!response.ok){console.error('[PATA BUSINESS FAPSHI INITIATE RESPONSE]',JSON.stringify({paymentLinkId:id,httpStatus:response.status,providerMessage:String(data?.message||data?.error||rawBody||'Réponse vide').slice(0,300)}));throw new BusinessError(String(data?.message||data?.error||'Fapshi a refusé la préparation du paiement (HTTP '+response.status+').').slice(0,300),502,'PAYMENT_LINK_REJECTED');}
+  if(!response.ok){console.error('[PATA BUSINESS FAPSHI INITIATE RESPONSE]',JSON.stringify({paymentLinkId:id,httpStatus:response.status,providerMessage:String(data?.message||data?.error||rawBody||'Réponse vide').slice(0,300)}));throw new BusinessError('Impossible de préparer le paiement pour le moment. Réessaie dans un instant.',502,'PAYMENT_LINK_REJECTED');}
   const checkoutUrl=paymentLinkPublicUrl(data.link||data.url||data.paymentLink||data.paymentUrl||data.payment_url||data.data?.link||data.data?.url),transId=cleanText(data.transId||data.trans_id||data.data?.transId||data.data?.trans_id,160);
-  if(!checkoutUrl||!transId){console.error('[PATA BUSINESS FAPSHI INVALID RESPONSE]',JSON.stringify({paymentLinkId:id,keys:Object.keys(data||{}).slice(0,20)}));throw new BusinessError('Fapshi a répondu sans fournir le lien de paiement attendu. Réessaie.',502,'PAYMENT_LINK_INVALID');}
-  await attempt.set({checkoutUrl,transId,providerUserId,status:'PENDING',updatedAt:FieldValue.serverTimestamp()},{merge:true});return {checkoutUrl};
+  if(!checkoutUrl||!transId){console.error('[PATA BUSINESS FAPSHI INVALID RESPONSE]',JSON.stringify({paymentLinkId:id,keys:Object.keys(data||{}).slice(0,20)}));throw new BusinessError('Le lien de paiement n’a pas pu être préparé. Réessaie dans un instant.',502,'PAYMENT_LINK_INVALID');}
+  await attempt.set({checkoutUrl,transId,providerUserId,status:'PENDING',updatedAt:FieldValue.serverTimestamp()},{merge:true});return {checkoutUrl,reviewToken};
  }catch(error){
   await adminDb.runTransaction(async tx=>{const [l,a]=await Promise.all([tx.get(ref),tx.get(attempt)]);if(a.exists&&!['FAILED','CONFIRMED','EXPIRED'].includes(a.data()?.status)){tx.update(attempt,{status:'FAILED',failureReason:cleanText(error?.message||'Échec',200),updatedAt:FieldValue.serverTimestamp()});if(l.exists)tx.update(ref,{activePaymentCount:FieldValue.increment(-1),updatedAt:FieldValue.serverTimestamp()});}}).catch(()=>{});
   throw error;
@@ -1100,14 +1101,15 @@ async function settleBusinessPaymentAttempt(attemptRef, providerData) {
  const businessRef=businessesRef().doc(validId(attempt.businessId)),accountRef=businessRef.collection('accounts').doc(validId(attempt.accountId||'main'));
  const date=parseDate(String(providerData.dateConfirmed||providerData.dateInitiated||todayDouala()).slice(0,10)),month=date.slice(0,7),fee=gross-net;
  const incomeRef=businessRef.collection('transactions').doc('pay_'+attemptRef.id+'_income'),feeRef=businessRef.collection('transactions').doc('pay_'+attemptRef.id+'_fee'),monthRef=businessRef.collection('monthlySummaries').doc(month);
+ const productReviewRef=linkRef.collection('reviews').doc(attemptRef.id),businessReviewRef=businessRef.collection('reviews').doc(attemptRef.id);
  const budgetsQuery=fee>0?businessRef.collection('budgets').where('month','==',month).limit(30):null;
  await adminDb.runTransaction(async tx=>{
-  const reads=[tx.get(attemptRef),tx.get(linkRef),tx.get(businessRef),tx.get(accountRef),tx.get(incomeRef),tx.get(feeRef)];if(budgetsQuery)reads.push(tx.get(budgetsQuery));const rows=await Promise.all(reads),[a,l,b,acc,income,feeTxn]=rows,budgets=budgetsQuery?rows[6]:null;
+  const reads=[tx.get(attemptRef),tx.get(linkRef),tx.get(businessRef),tx.get(accountRef),tx.get(incomeRef),tx.get(feeRef),tx.get(productReviewRef),tx.get(businessReviewRef)];if(budgetsQuery)reads.push(tx.get(budgetsQuery));const rows=await Promise.all(reads),[a,l,b,acc,income,feeTxn,productReview,businessReview]=rows,budgets=budgetsQuery?rows[8]:null;
   if(!a.exists)throw new BusinessError('Tentative de paiement introuvable.',404);if(a.data()?.status==='CONFIRMED')return;
   if(!l.exists||!b.exists||!acc.exists||acc.data()?.active===false)throw new BusinessError('Compte professionnel de destination introuvable. Paiement à régulariser.',409,'BUSINESS_ACCOUNT_MISSING');
   if(income.exists||(fee>0&&feeTxn.exists))throw new BusinessError('Écriture de paiement déjà existante. Vérification requise.',409,'PAYMENT_LEDGER_CONFLICT');
   const offer=l.data()||{};
-  tx.create(incomeRef,{type:'income',direction:'income',flowType:'normal',title:cleanText(offer.title,100),categoryId:'sales',amount:gross,grossAmount:gross,receivedAmount:net,providerFeeAmount:fee,date,month,accountId:attempt.accountId,paymentMethod:'fapshi',paymentLinkId:linkRef.id,paymentAttemptId:attemptRef.id,transId,customerName:cleanText(providerData.payerName||attempt.customerName,100),customerEmail:cleanText(providerData.email||attempt.customerEmail,160),note:'Paiement confirmé pour '+cleanText(offer.title,100),status:'posted',createdBy:attempt.userId,createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
+  tx.create(incomeRef,{type:'income',direction:'income',flowType:'normal',title:cleanText(offer.title,100),categoryId:'sales',amount:gross,grossAmount:gross,receivedAmount:net,providerFeeAmount:fee,date,month,accountId:attempt.accountId,paymentMethod:'fapshi',paymentLinkId:linkRef.id,paymentAttemptId:attemptRef.id,transId,customerName:cleanText(providerData.payerName||nameFromEmail(providerData.email)||attempt.customerName,100),customerEmail:cleanText(providerData.email||attempt.customerEmail,160),note:'Paiement confirmé pour '+cleanText(offer.title,100),status:'posted',createdBy:attempt.userId,createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
   if(fee>0)tx.create(feeRef,{type:'expense',direction:'expense',flowType:'provider_fee',title:'Frais de traitement · '+cleanText(offer.title,80),categoryId:'payment_fees',amount:fee,date,month,accountId:attempt.accountId,paymentMethod:'fapshi',paymentLinkId:linkRef.id,paymentAttemptId:attemptRef.id,transId,note:'Frais de traitement liés à cet encaissement',status:'posted',createdBy:attempt.userId,createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
   tx.update(accountRef,{balance:FieldValue.increment(net),updatedAt:FieldValue.serverTimestamp()});
   tx.update(businessRef,{cashBalance:FieldValue.increment(net),totalIncome:FieldValue.increment(gross),...(fee>0?{totalExpense:FieldValue.increment(fee)}:{}),updatedAt:FieldValue.serverTimestamp(),lastActivityAt:FieldValue.serverTimestamp()});
@@ -1115,7 +1117,9 @@ async function settleBusinessPaymentAttempt(attemptRef, providerData) {
   if(fee>0&&budgets?.docs?.length){for(const budgetDoc of budgets.docs){const budget=budgetDoc.data()||{};if(String(budget.categoryId||'')!=='payment_fees')continue;const spent=Math.max(0,Number(budget.spent)||0)+fee,allocated=Math.max(0,Number(budget.amount)||0);tx.update(budgetDoc.ref,{spent,remaining:Math.max(0,allocated-spent),overBudget:spent>allocated,updatedAt:FieldValue.serverTimestamp()});}}
   const link=offer,max=Math.max(0,Number(link.maxPayments)||0),next=Math.max(0,Number(link.successfulPayments)||0)+1;
   tx.update(linkRef,{successfulPayments:FieldValue.increment(1),grossRevenue:FieldValue.increment(gross),netRevenue:FieldValue.increment(net),feeRevenue:FieldValue.increment(fee),activePaymentCount:FieldValue.increment(-1),status:max>0&&next>=max?'SOLD_OUT':'ACTIVE',updatedAt:FieldValue.serverTimestamp(),lastPaymentAt:FieldValue.serverTimestamp()});
-  tx.update(attemptRef,{status:'CONFIRMED',receivedAmount:net,providerFeeAmount:fee,payerName:cleanText(providerData.payerName||attempt.customerName,100),payerEmail:cleanText(providerData.email||attempt.customerEmail,160),confirmedAt:FieldValue.serverTimestamp(),confirmedDate:date,financeIncomeTransactionId:incomeRef.id,financeFeeTransactionId:fee>0?feeRef.id:'',updatedAt:FieldValue.serverTimestamp()});
+  if(productReview.exists)tx.update(productReviewRef,{verifiedPurchase:true,paymentStatusAtReview:'CONFIRMED',updatedAt:FieldValue.serverTimestamp()});
+  if(businessReview.exists)tx.update(businessReviewRef,{verifiedPurchase:true,paymentStatusAtReview:'CONFIRMED',updatedAt:FieldValue.serverTimestamp()});
+  tx.update(attemptRef,{status:'CONFIRMED',receivedAmount:net,providerFeeAmount:fee,payerName:cleanText(providerData.payerName||nameFromEmail(providerData.email)||attempt.customerName,100),payerEmail:cleanText(providerData.email||attempt.customerEmail,160),confirmedAt:FieldValue.serverTimestamp(),confirmedDate:date,financeIncomeTransactionId:incomeRef.id,financeFeeTransactionId:fee>0?feeRef.id:'',updatedAt:FieldValue.serverTimestamp()});
  });
  await sendConfirmedBusinessPaymentEmails(attemptRef);
  return {handled:true,status:'CONFIRMED'};
@@ -1151,24 +1155,26 @@ export async function verifyBusinessPaymentLink(uid,businessId,paymentLinkId){
 
 
 export async function submitPublicBusinessPaymentReview(paymentLinkId,input={}){
- const id=validId(paymentLinkId),token=cleanText(input.token,128);
+ const id=validId(paymentLinkId),token=cleanText(input.token,128),customerName=cleanText(input.customerName,80);
  if(!/^[a-f0-9]{64}$/i.test(token))throw new BusinessError('Le lien d’avis est invalide ou incomplet.',403,'REVIEW_TOKEN_INVALID');
+ if(customerName.length<2)throw new BusinessError('Indique ton nom pour publier ton avis.');
  const linkRef=businessPaymentLinksRef().doc(id),attempts=await linkRef.collection('payments').where('reviewToken','==',token).limit(1).get();
- if(attempts.empty)throw new BusinessError('Aucun paiement confirmé ne correspond à ce lien d’avis.',404,'REVIEW_PAYMENT_NOT_FOUND');
+ if(attempts.empty)throw new BusinessError('Aucune tentative de paiement ne correspond à ce lien d’avis.',404,'REVIEW_PAYMENT_NOT_FOUND');
  const attemptRef=attempts.docs[0].ref,businessId=validId(attempts.docs[0].data()?.businessId),businessRef=businessesRef().doc(businessId);
  const businessRating=Number(input.businessRating),productRating=Number(input.productRating),comment=cleanText(input.comment,1000);
  if(!Number.isInteger(businessRating)||businessRating<1||businessRating>5||!Number.isInteger(productRating)||productRating<1||productRating>5)throw new BusinessError('Choisis une note de 1 à 5 étoiles pour l’entreprise et le produit.');
  const reviewRef=linkRef.collection('reviews').doc(attemptRef.id),businessReviewRef=businessRef.collection('reviews').doc(attemptRef.id);
  await adminDb.runTransaction(async tx=>{
   const [attempt,link,business,existing]=await Promise.all([tx.get(attemptRef),tx.get(linkRef),tx.get(businessRef),tx.get(reviewRef)]);
-  if(!attempt.exists||attempt.data()?.status!=='CONFIRMED')throw new BusinessError('Seuls les paiements confirmés peuvent laisser un avis.',403,'REVIEW_PAYMENT_NOT_CONFIRMED');
-  if(attempt.data()?.reviewSubmittedAt||existing.exists)throw new BusinessError('Un avis a déjà été envoyé pour ce paiement.',409,'REVIEW_ALREADY_SUBMITTED');
+  if(!attempt.exists||!['PENDING','CONFIRMED','FAILED','EXPIRED'].includes(String(attempt.data()?.status||''))||!attempt.data()?.transId)throw new BusinessError('Aucune tentative de paiement utilisable ne correspond à cet avis.',403,'REVIEW_PAYMENT_NOT_AVAILABLE');
+  if(attempt.data()?.reviewSubmittedAt||existing.exists)throw new BusinessError('Un avis a déjà été envoyé pour cette tentative de paiement.',409,'REVIEW_ALREADY_SUBMITTED');
   if(!link.exists||!business.exists)throw new BusinessError('Cette offre ou entreprise n’est plus disponible.',404);
-  const a=attempt.data()||{},review={paymentLinkId:id,businessId,customerName:cleanText(a.payerName||a.customerName||'Client',80),businessRating,productRating,comment,verifiedPurchase:true,createdAt:FieldValue.serverTimestamp()};
+  const a=attempt.data()||{},verifiedPurchase=a.status==='CONFIRMED';
+  const review={paymentLinkId:id,businessId,customerName,businessRating,productRating,comment,verifiedPurchase,paymentStatusAtReview:a.status,createdAt:FieldValue.serverTimestamp()};
   tx.create(reviewRef,review);tx.create(businessReviewRef,review);
   tx.update(linkRef,{ratingCount:FieldValue.increment(1),businessRatingTotal:FieldValue.increment(businessRating),productRatingTotal:FieldValue.increment(productRating),updatedAt:FieldValue.serverTimestamp()});
   tx.update(businessRef,{publicRatingCount:FieldValue.increment(1),publicRatingTotal:FieldValue.increment(businessRating),updatedAt:FieldValue.serverTimestamp()});
-  tx.update(attemptRef,{reviewSubmittedAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
+  tx.update(attemptRef,{reviewSubmittedAt:FieldValue.serverTimestamp(),reviewCustomerName:customerName,updatedAt:FieldValue.serverTimestamp()});
  });
  return {success:true};
 }

@@ -78,7 +78,7 @@ export default function BusinessWorkspacePage() {
   const [paymentForm, setPaymentForm] = useState({ amount: '', accountId: 'main', date: new Date().toISOString().slice(0, 10) });
   const [paymentLinks, setPaymentLinks] = useState([]);
   const [showPaymentLinkForm, setShowPaymentLinkForm] = useState(false);
-  const [paymentLinkForm, setPaymentLinkForm] = useState({ title: '', description: '', imageUrl: '', galleryImageUrls: [], proofImageUrls: [], videoUrlsText: '', sellingPointsText: '', testimonialsText: '', originalAmount: '', amount: '', customerName: '', customerEmail: '', maxPayments: '', accountId: 'main', publicOnStorefront: true });
+  const [paymentLinkForm, setPaymentLinkForm] = useState({ title: '', description: '', imageUrl: '', galleryImageUrls: [], proofImageUrls: [], videoUrlsText: '', sellingPointsText: '', originalAmount: '', amount: '', customerName: '', customerEmail: '', maxPayments: '', accountId: 'main', publicOnStorefront: true });
   const [busyPaymentLinkId, setBusyPaymentLinkId] = useState('');
   const [editingPaymentLinkId, setEditingPaymentLinkId] = useState('');
   const [deletePaymentLinkTarget, setDeletePaymentLinkTarget] = useState(null);
@@ -227,14 +227,14 @@ export default function BusinessWorkspacePage() {
     event.preventDefault();
     setSaving(true); setFormError(''); setActionNotice('');
     try {
-      const paymentInput = { ...paymentLinkForm, videoUrls: String(paymentLinkForm.videoUrlsText || '').split(/\r?\n/).map(value => value.trim()).filter(Boolean), sellingPoints: String(paymentLinkForm.sellingPointsText || '').split(/\r?\n/).map(value => value.trim()).filter(Boolean), testimonials: String(paymentLinkForm.testimonialsText || '').split(/\r?\n/).map(value => value.trim()).filter(Boolean) };
+      const paymentInput = { ...paymentLinkForm, videoUrls: String(paymentLinkForm.videoUrlsText || '').split(/\r?\n/).map(value => value.trim()).filter(Boolean), sellingPoints: String(paymentLinkForm.sellingPointsText || '').split(/\r?\n/).map(value => value.trim()).filter(Boolean) };
       const result = editingPaymentLinkId
         ? await updateBusinessPaymentLink(businessId, editingPaymentLinkId, paymentInput)
         : await createBusinessPaymentLink(businessId, paymentInput);
       const saved = result.paymentLink;
       setShowPaymentLinkForm(false);
       setEditingPaymentLinkId('');
-      setPaymentLinkForm({ title: '', description: '', imageUrl: '', galleryImageUrls: [], proofImageUrls: [], videoUrlsText: '', sellingPointsText: '', testimonialsText: '', originalAmount: '', amount: '', customerName: '', customerEmail: '', maxPayments: '', accountId: accountsForSelect[0]?.id || 'main', publicOnStorefront: true });
+      setPaymentLinkForm({ title: '', description: '', imageUrl: '', galleryImageUrls: [], proofImageUrls: [], videoUrlsText: '', sellingPointsText: '', originalAmount: '', amount: '', customerName: '', customerEmail: '', maxPayments: '', accountId: accountsForSelect[0]?.id || 'main', publicOnStorefront: true });
       setPaymentLinks((current) => editingPaymentLinkId
         ? current.map((item) => item.id === saved?.id ? saved : item)
         : [saved, ...current.filter((item) => item.id !== saved?.id)]);
@@ -245,7 +245,7 @@ export default function BusinessWorkspacePage() {
 
   const beginEditPaymentLink = (link) => {
     setEditingPaymentLinkId(link.id);
-    setPaymentLinkForm({title:link.title||'',description:link.description||'',imageUrl:link.imageUrl||'',galleryImageUrls:Array.isArray(link.galleryImageUrls)?link.galleryImageUrls:[],proofImageUrls:Array.isArray(link.proofImageUrls)?link.proofImageUrls:[],videoUrlsText:Array.isArray(link.videoUrls)?link.videoUrls.join('\n'):'',sellingPointsText:Array.isArray(link.sellingPoints)?link.sellingPoints.join('\n'):'',testimonialsText:Array.isArray(link.testimonials)?link.testimonials.join('\n'):'',originalAmount:String(link.originalAmount||link.amount||''),amount:String(link.amount||''),customerName:link.customerName||'',customerEmail:link.customerEmail||'',maxPayments:String(link.maxPayments||''),accountId:link.accountId||'main',publicOnStorefront:link.publicOnStorefront!==false});
+    setPaymentLinkForm({title:link.title||'',description:link.description||'',imageUrl:link.imageUrl||'',galleryImageUrls:Array.isArray(link.galleryImageUrls)?link.galleryImageUrls:[],proofImageUrls:Array.isArray(link.proofImageUrls)?link.proofImageUrls:[],videoUrlsText:Array.isArray(link.videoUrls)?link.videoUrls.join('\n'):'',sellingPointsText:Array.isArray(link.sellingPoints)?link.sellingPoints.join('\n'):'',originalAmount:String(link.originalAmount||link.amount||''),amount:String(link.amount||''),customerName:link.customerName||'',customerEmail:link.customerEmail||'',maxPayments:String(link.maxPayments||''),accountId:link.accountId||'main',publicOnStorefront:link.publicOnStorefront!==false});
     setFormError('');
     setShowPaymentLinkForm(true);
   };
@@ -487,7 +487,7 @@ export default function BusinessWorkspacePage() {
         <section className="rounded-2xl border border-slate-200 bg-white p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div><h3 className="font-bold text-slate-900">{en ? 'Payment links' : 'Liens de paiement'}</h3><p className="mt-1 max-w-xl text-xs leading-5 text-slate-500">{en ? 'Create a branded product or service page, share it with anyone and receive payments into your selected business account.' : 'Crée une page de vente à l’identité de ton entreprise, partage-la avec tes clients et reçois les paiements dans le compte professionnel choisi.'}</p></div>
-            <button type="button" onClick={() => { setFormError(''); setShowPaymentLinkForm((value) => !value); setEditingPaymentLinkId(''); setPaymentLinkForm({ title: '', description: '', imageUrl: '', galleryImageUrls: [], proofImageUrls: [], videoUrlsText: '', sellingPointsText: '', testimonialsText: '', originalAmount: '', amount: '', customerName: '', customerEmail: '', maxPayments: '', accountId: accountsForSelect[0]?.id || 'main', publicOnStorefront: true }); }} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-[#075b43] px-3.5 text-xs font-semibold text-white"><Plus size={15}/>{en ? 'Create a link' : 'Créer un lien'}</button>
+            <button type="button" onClick={() => { setFormError(''); setShowPaymentLinkForm((value) => !value); setEditingPaymentLinkId(''); setPaymentLinkForm({ title: '', description: '', imageUrl: '', galleryImageUrls: [], proofImageUrls: [], videoUrlsText: '', sellingPointsText: '', originalAmount: '', amount: '', customerName: '', customerEmail: '', maxPayments: '', accountId: accountsForSelect[0]?.id || 'main', publicOnStorefront: true }); }} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-[#075b43] px-3.5 text-xs font-semibold text-white"><Plus size={15}/>{en ? 'Create a link' : 'Créer un lien'}</button>
           </div>
           {showPaymentLinkForm && (
             <form onSubmit={submitPaymentLink} className="mt-4 grid gap-3 rounded-xl bg-slate-50 p-3 sm:grid-cols-2">
@@ -505,8 +505,7 @@ export default function BusinessWorkspacePage() {
               </div>
               <label className="sm:col-span-2 block text-xs font-semibold text-slate-600">{en?'Video links (one per line)':'Liens vidéo (un par ligne)'}<textarea rows={3} value={paymentLinkForm.videoUrlsText||''} onChange={event=>setPaymentLinkForm({...paymentLinkForm,videoUrlsText:event.target.value})} placeholder={'https://youtu.be/...\nhttps://vimeo.com/...'} className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal"/><span className="mt-1 block text-[10px] font-normal text-slate-500">{en?'YouTube, Vimeo and secure MP4/WebM videos play directly on the sales page.':'YouTube, Vimeo et les vidéos MP4/WebM sécurisées se lisent directement sur la page de vente.'}</span></label>
               <label className="sm:col-span-2 block text-xs font-semibold text-slate-600">{en?'Key benefits (one per line)':'Points forts (un par ligne)'}<textarea rows={3} maxLength={1500} value={paymentLinkForm.sellingPointsText||''} onChange={event=>setPaymentLinkForm({...paymentLinkForm,sellingPointsText:event.target.value})} placeholder={'Garantie de 6 mois\nLivraison disponible\nAssistance après-vente'} className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal"/></label>
-              <label className="sm:col-span-2 block text-xs font-semibold text-slate-600">{en?'Customer testimonials (one per line)':'Témoignages clients (un par ligne)'}<textarea rows={3} maxLength={2000} value={paymentLinkForm.testimonialsText||''} onChange={event=>setPaymentLinkForm({...paymentLinkForm,testimonialsText:event.target.value})} placeholder="Très bon produit — Client" className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal"/><span className="mt-1 block text-[10px] font-normal text-slate-500">{en?'These are testimonials supplied by your company, not verified-purchase ratings.':'Ces témoignages sont présentés par l’entreprise et ne sont pas des avis d’achat vérifiés.'}</span></label>
-
+              
               <label className="text-xs font-semibold text-slate-600">{en ? 'Regular price (XAF)' : 'Prix normal (FCFA)'}<input type="number" min="100" step="1" value={paymentLinkForm.originalAmount} onChange={(event) => setPaymentLinkForm({ ...paymentLinkForm, originalAmount: event.target.value })} placeholder={en ? 'Optional, before discount' : 'Facultatif, avant réduction'} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal"/></label>
               <label className="text-xs font-semibold text-slate-600">{en ? 'Amount customer pays (XAF)' : 'Montant à payer (FCFA)'}<input required type="number" min="100" step="1" value={paymentLinkForm.amount} onChange={(event) => setPaymentLinkForm({ ...paymentLinkForm, amount: event.target.value })} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-base font-normal"/></label>
               <label className="text-xs font-semibold text-slate-600">{en?'Maximum successful payments':'Nombre maximal de paiements'}<input type="number" min="1" step="1" value={paymentLinkForm.maxPayments||''} onChange={(event)=>setPaymentLinkForm({...paymentLinkForm,maxPayments:event.target.value})} placeholder={en?'Empty = unlimited':'Vide = illimité'} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal"/><span className="mt-1 block text-[10px] font-normal text-slate-500">{en?'Limit counts successful payments only.':'La limite porte uniquement sur les paiements validés.'}</span></label>
