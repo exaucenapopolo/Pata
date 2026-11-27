@@ -9,6 +9,10 @@ import { useBusinesses } from '@/hooks/useBusinesses';
 import { createBusiness } from '@/lib/business/client';
 import { useLanguage } from '@/context/LanguageContext';
 
+const BUSINESS_ACTIVITIES = [
+  ['commerce','Commerce / vente au détail'],['wholesale','Commerce de gros / distribution'],['restaurant','Restaurant / alimentation'],['agriculture','Agriculture / élevage'],['transport','Transport / logistique'],['technology','Informatique / technologie'],['telecom','Télécommunications'],['construction','Bâtiment / travaux publics'],['real_estate','Immobilier'],['health','Santé / pharmacie'],['education','Éducation / formation'],['finance','Finance / assurance'],['consulting','Conseil / services professionnels'],['marketing','Marketing / communication'],['beauty','Beauté / bien-être'],['industry','Industrie / fabrication'],['craft','Artisanat'],['tourism','Tourisme / hébergement'],['cleaning','Nettoyage / entretien'],['other','Autre activité'],
+];
+
 export default function BusinessesPage() {
   const router = useRouter();
   const { language } = useLanguage();
@@ -17,7 +21,7 @@ export default function BusinessesPage() {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
-  const [form, setForm] = useState({ name: '', activity: '', legalForm: '', city: '', phone: '', logoUrl: '' });
+  const [form, setForm] = useState({ name: '', activity: '', activityCustom: '', legalForm: '', city: '', phone: '', logoUrl: '' });
 
   const submit = async (event) => {
     event.preventDefault();
@@ -28,7 +32,7 @@ export default function BusinessesPage() {
     }
     setSaving(true);
     try {
-      const business = await createBusiness(form);
+      const business = await createBusiness({ ...form, activity: BUSINESS_ACTIVITIES.find(([value]) => value === form.activity)?.[1] || form.activity });
       await refresh();
       router.push('/businesses/' + business.id);
     } catch (saveError) {
@@ -79,8 +83,9 @@ export default function BusinessesPage() {
             <div className="sm:col-span-2">
               <CloudinaryImageField value={form.logoUrl || ''} onChange={(logoUrl) => setForm((current) => ({ ...current, logoUrl }))} folder="pata/businesses" language={language} label={en ? 'Business logo (optional)' : 'Logo de l’entreprise (facultatif)'} />
             </div>
-            <label className="text-xs font-semibold text-slate-700">{en ? 'Business activity' : 'Activité'}<input maxLength={120} value={form.activity} onChange={(e) => setForm({ ...form, activity: e.target.value })} placeholder={en ? 'IT services, retail…' : 'Informatique, commerce…'} className="mt-1.5 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal outline-none focus:border-brand-600"/></label>
-            <label className="text-xs font-semibold text-slate-700">{en ? 'Legal form (optional)' : 'Forme juridique (facultatif)'}<input maxLength={80} value={form.legalForm} onChange={(e) => setForm({ ...form, legalForm: e.target.value })} placeholder={en ? 'Sole proprietorship, SARL…' : 'Entreprise individuelle, SARL…'} className="mt-1.5 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal outline-none focus:border-brand-600"/></label>
+            <label className="text-xs font-semibold text-slate-700">{en ? 'Business activity' : 'Secteur d’activité'}<select value={form.activity} onChange={(e) => setForm({ ...form, activity: e.target.value })} className="mt-1.5 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal outline-none focus:border-brand-600"><option value="">{en ? 'Choose an activity' : 'Choisir une activité'}</option>{BUSINESS_ACTIVITIES.map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+            {form.activity === 'other' && <label className="text-xs font-semibold text-slate-700">{en ? 'Describe your activity' : 'Précise ton activité'}<input required maxLength={120} value={form.activityCustom} onChange={(e) => setForm({ ...form, activityCustom: e.target.value })} className="mt-1.5 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal"/></label>}
+            <label className="text-xs font-semibold text-slate-700">{en ? 'Legal form (optional)' : 'Forme juridique (facultatif)'}<select value={form.legalForm} onChange={(e) => setForm({ ...form, legalForm: e.target.value })} className="mt-1.5 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal outline-none focus:border-brand-600"><option value="">{en ? 'Choose (optional)' : 'Choisir (facultatif)'}</option>{['Entreprise individuelle','SARL','SA','SAS','SNC','Association','Coopérative','Établissement / succursale','Autre'].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
             <label className="text-xs font-semibold text-slate-700">{en ? 'City (optional)' : 'Ville (facultatif)'}<input maxLength={80} value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} className="mt-1.5 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal outline-none focus:border-brand-600"/></label>
             <label className="text-xs font-semibold text-slate-700">{en ? 'Business phone (optional)' : 'Téléphone professionnel (facultatif)'}<input maxLength={30} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="mt-1.5 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal outline-none focus:border-brand-600"/></label>
             {formError && <p className="text-sm text-red-600 sm:col-span-2">{formError}</p>}

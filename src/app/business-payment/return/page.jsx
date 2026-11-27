@@ -12,7 +12,7 @@ export default function BusinessPaymentReturnPage() {
         </span>
         <h1 className="mt-4 text-xl font-bold text-slate-900">Merci pour votre paiement</h1>
         <p className="mt-2 text-sm leading-6 text-slate-600">
-          Votre paiement est en cours de confirmation auprès de Fapshi. L’entreprise pourra vérifier le règlement dans son espace professionnel dès que Fapshi aura confirmé la transaction.
+          Votre paiement est en cours de confirmation. L’entreprise pourra vérifier le règlement dans son espace professionnel dès que la transaction sera confirmée.
         </p>
         <p className="mt-3 inline-flex items-center gap-1.5 text-xs text-slate-500">
           <ShieldCheck size={14}/> Ne partagez jamais votre code secret Mobile Money.

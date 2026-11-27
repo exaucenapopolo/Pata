@@ -122,7 +122,7 @@ export async function listUserBusinesses(uid) {
 export async function createBusiness(uid, input = {}) {
   const name = cleanText(input.name, 100);
   if (name.length < 2) throw new BusinessError('Indique un nom d’entreprise comportant au moins deux caractères.');
-  const activity = cleanText(input.activity, 120);
+  const activity = cleanText(input.activityCustom || input.activity, 120);
   const legalForm = cleanText(input.legalForm, 80);
   const city = cleanText(input.city, 80);
   const phone = cleanText(input.phone, 30);
@@ -432,19 +432,25 @@ function normalizeResource(resource, input = {}) {
     const name = cleanText(input.name, 120);
     if (!name) throw new BusinessError('Indique un nom.');
     return {
-      name, phone: cleanText(input.phone, 40), email: cleanText(input.email, 120),
-      address: cleanText(input.address, 180), role: cleanText(input.role, 100),
-      note: cleanText(input.note, 500), ...common,
+      const imageUrl = cleanText(input.imageUrl, 2048);
+    if (imageUrl && !isValidCloudinaryAvatarUrl(imageUrl)) throw new BusinessError('La photo ou le logo doit provenir de la bibliothèque photo Pata.');
+    return {
+      name, category: cleanText(input.categoryCustom || input.category, 80),
+      phone: cleanText(input.phone, 40), email: cleanText(input.email, 120),
+      address: cleanText(input.address, 180), role: cleanText(input.roleCustom || input.role, 100),
+      imageUrl, note: cleanText(input.note, 500), ...common,
     };
   }
   if (resource === 'contracts') {
     const title = cleanText(input.title, 140);
     if (!title) throw new BusinessError('Indique le titre du contrat.');
+    const contractType = cleanText(input.contractTypeCustom || input.contractType, 80) || 'other';
     return {
-      title, counterparty: cleanText(input.counterparty, 120),
+      title, contractType, counterparty: cleanText(input.counterparty, 120),
       startDate: input.startDate ? parseDate(input.startDate) : '',
       endDate: input.endDate ? parseDate(input.endDate) : '',
       amount: input.amount ? parseAmount(input.amount, 'Montant du contrat') : 0,
+      affectsFinances: input.affectsFinances !== false,
       status: ['draft', 'active', 'completed', 'cancelled'].includes(input.status) ? input.status : 'draft',
       description: cleanText(input.description, 1000), ...common,
     };
@@ -452,10 +458,11 @@ function normalizeResource(resource, input = {}) {
   if (resource === 'obligations') {
     const title = cleanText(input.title, 140);
     if (!title) throw new BusinessError('Indique l’obligation à suivre.');
+    const amount = input.amount ? parseAmount(input.amount, 'Montant de l’obligation') : 0;
     return {
-      title, amount: input.amount ? parseAmount(input.amount, 'Montant de l’obligation') : 0,
-      amountPaid: 0,
-      remaining: input.amount ? parseAmount(input.amount, 'Montant de l’obligation') : 0,
+      title, type: cleanText(input.typeCustom || input.type, 80) || 'other',
+      amount, amountPaid: 0, remaining: amount,
+      affectsFinances: input.affectsFinances !== false,
       dueDate: input.dueDate ? parseDate(input.dueDate) : '',
       category: cleanText(input.category, 80),
       status: ['pending', 'in_progress', 'completed', 'cancelled'].includes(input.status) ? input.status : 'pending',
@@ -649,7 +656,7 @@ export async function updateBusinessProfile(uid, businessId, input = {}) {
   }
   const name = cleanText(input.name, 100);
   if (name.length < 2) throw new BusinessError('Le nom de l’entreprise doit comporter au moins deux caractères.');
-  const activity = cleanText(input.activity, 120);
+  const activity = cleanText(input.activityCustom || input.activity, 120);
   const legalForm = cleanText(input.legalForm, 80);
   const city = cleanText(input.city, 80);
   const phone = cleanText(input.phone, 30);
@@ -697,7 +704,7 @@ function paymentLinkPublicUrl(link) {
 async function fetchFapshiPaymentStatus(transId) {
   const apiUser = process.env.FAPSHI_API_USER;
   const secretKey = process.env.FAPSHI_SECRET_KEY;
-  if (!apiUser || !secretKey) throw new BusinessError('La configuration de paiement Fapshi est incomplète.', 503, 'PAYMENT_PROVIDER_CONFIG');
+  if (!apiUser || !secretKey) throw new BusinessError('La configuration du service de paiement est incomplète.', 503, 'PAYMENT_PROVIDER_CONFIG');
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 12000);
   let response;
@@ -709,12 +716,12 @@ async function fetchFapshiPaymentStatus(transId) {
       cache: 'no-store',
     });
   } catch {
-    throw new BusinessError('Fapshi est momentanément indisponible. Réessaie la vérification.', 502, 'PAYMENT_PROVIDER_UNAVAILABLE');
+    throw new BusinessError('Le service de paiement est momentanément indisponible. Réessaie la vérification.', 502, 'PAYMENT_PROVIDER_UNAVAILABLE');
   } finally {
     clearTimeout(timeout);
   }
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new BusinessError(data.message || 'Impossible de vérifier le paiement auprès de Fapshi.', 502, 'PAYMENT_PROVIDER_STATUS');
+  if (!response.ok) throw new BusinessError(data.message || 'Impossible de vérifier le paiement pour le moment.', 502, 'PAYMENT_PROVIDER_STATUS');
   return data;
 }
 
@@ -726,14 +733,42 @@ export async function listBusinessPaymentLinks(uid, businessId) {
   return { paymentLinks: links, readOnly: !context.premiumActive || context.business.status === 'archived' };
 }
 
+export async function getPublicBusinessPaymentLink(paymentLinkId) {
+  const id = validId(paymentLinkId);
+  const snapshot = await businessPaymentLinksRef().doc(id).get();
+  if (!snapshot.exists) throw new BusinessError('Cette offre de paiement est introuvable.', 404, 'PAYMENT_LINK_NOT_FOUND');
+  const link = snapshot.data() || {};
+  if (link.status !== 'PENDING') return { payment: { id, status: link.status || 'UNAVAILABLE', title: cleanText(link.title, 100), businessName: cleanText(link.businessName, 100) } };
+  const businessSnap = await businessesRef().doc(validId(link.businessId)).get();
+  const business = businessSnap.exists ? businessSnap.data() || {} : {};
+  return { payment: {
+    id, status: 'PENDING', title: cleanText(link.title, 100),
+    description: cleanText(link.description, 1200),
+    imageUrl: isValidCloudinaryAvatarUrl(link.imageUrl) ? link.imageUrl : '',
+    amount: Number(link.amount) || 0,
+    originalAmount: Number(link.originalAmount) || Number(link.amount) || 0,
+    discountAmount: Math.max(0, Number(link.discountAmount) || 0),
+    businessName: cleanText(business.name || link.businessName, 100),
+    businessActivity: cleanText(business.activity, 120),
+    businessLogoUrl: isValidCloudinaryAvatarUrl(business.logoUrl) ? business.logoUrl : '',
+    checkoutUrl: paymentLinkPublicUrl(link.checkoutUrl),
+  } };
+}
+
 export async function createBusinessPaymentLink(uid, businessId, input = {}) {
   const context = await getBusinessContext(uid, businessId);
   requireWritable(context);
   if (typeof input.amount === 'string' && !/^\d+$/.test(input.amount.trim())) throw new BusinessError('Le montant doit être un nombre entier en FCFA.');
-  const amount = parseAmount(input.amount, 'Montant du lien');
-  if (amount < 100) throw new BusinessError('Le montant minimum d’un lien Fapshi est de 100 FCFA.');
+  const amount = parseAmount(input.amount, 'Montant à payer');
+  if (amount < 100) throw new BusinessError('Le montant minimum à demander est de 100 FCFA.');
+  const originalAmount = input.originalAmount ? parseAmount(input.originalAmount, 'Prix normal') : amount;
+  if (originalAmount < amount) throw new BusinessError('Le prix normal ne peut pas être inférieur au montant à payer.');
   const title = cleanText(input.title, 100);
-  if (title.length < 2) throw new BusinessError('Donne un libellé à ce lien de paiement.');
+  if (title.length < 2) throw new BusinessError('Donne un nom au produit ou service.');
+  const description = cleanText(input.description, 1200);
+  if (description.length < 5) throw new BusinessError('Ajoute une courte description du produit ou service.');
+  const imageUrl = cleanText(input.imageUrl, 2048);
+  if (imageUrl && !isValidCloudinaryAvatarUrl(imageUrl)) throw new BusinessError('La photo du produit doit provenir de la bibliothèque photo Pata.');
   const customerName = cleanText(input.customerName, 100);
   const customerEmail = cleanText(input.customerEmail, 160).toLowerCase();
   if (!validEmail(customerEmail)) throw new BusinessError('Adresse e-mail du client invalide.');
@@ -766,10 +801,9 @@ export async function createBusinessPaymentLink(uid, businessId, input = {}) {
       userId: uid,
       createdBy: uid,
       accountId,
-      title,
-      customerName,
-      customerEmail,
-      amount,
+      title, description, imageUrl,
+      customerName, customerEmail, amount, originalAmount,
+      discountAmount: Math.max(0, originalAmount - amount),
       currency: 'XAF',
       status: 'INITIATING',
       provider: 'fapshi',
@@ -783,9 +817,10 @@ export async function createBusinessPaymentLink(uid, businessId, input = {}) {
     throw new BusinessError('Ce lien est déjà en cours de création. Actualise la liste dans un instant.', 409, 'PAYMENT_LINK_IN_PROGRESS');
   }
 
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://www.pata-yam.site';
-  let origin = 'https://www.pata-yam.site';
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://pata-yam.site';
+  let origin = 'https://pata-yam.site';
   try { origin = new URL(baseUrl).origin; } catch { /* conserver le domaine public Pata */ }
+  const publicUrl = origin + '/paiement/' + encodeURIComponent(paymentLinkId);
   const redirectUrl = origin + '/business-payment/return?paymentLinkId=' + encodeURIComponent(paymentLinkId);
   const payload = {
     amount,
@@ -812,17 +847,17 @@ export async function createBusinessPaymentLink(uid, businessId, input = {}) {
         cache: 'no-store',
       });
     } catch {
-      throw new BusinessError('Impossible de joindre Fapshi pour créer le lien. Aucun encaissement n’a été enregistré.', 502, 'PAYMENT_PROVIDER_UNAVAILABLE');
+      throw new BusinessError('Impossible de préparer le paiement. Aucun encaissement n’a été enregistré.', 502, 'PAYMENT_PROVIDER_UNAVAILABLE');
     } finally {
       clearTimeout(timeout);
     }
     const providerData = await response.json().catch(() => ({}));
-    if (!response.ok) throw new BusinessError(providerData.message || 'Fapshi a refusé la création du lien.', 502, 'PAYMENT_LINK_REJECTED');
+    if (!response.ok) throw new BusinessError(providerData.message || 'Le service de paiement a refusé la demande.', 502, 'PAYMENT_LINK_REJECTED');
     const checkoutUrl = paymentLinkPublicUrl(providerData.link || providerData.url || providerData.data?.url);
     const transId = cleanText(providerData.transId || providerData.data?.transId, 160);
-    if (!checkoutUrl || !transId) throw new BusinessError('Fapshi n’a pas retourné un lien de paiement valide.', 502, 'PAYMENT_LINK_INVALID');
+    if (!checkoutUrl || !transId) throw new BusinessError('Le service de paiement n’a pas retourné une adresse de paiement valide.', 502, 'PAYMENT_LINK_INVALID');
     await linkRef.set({
-      checkoutUrl, transId, status: 'PENDING',
+      checkoutUrl, publicUrl, transId, status: 'PENDING',
       providerMessage: cleanText(providerData.message, 200),
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
@@ -840,12 +875,12 @@ export async function createBusinessPaymentLink(uid, businessId, input = {}) {
 
 async function settleBusinessPaymentLink(linkRef, providerData) {
   const transId = cleanText(providerData?.transId || providerData?.trans_id, 160);
-  if (!transId) throw new BusinessError('La réponse Fapshi ne contient pas d’identifiant de transaction.', 502, 'PAYMENT_VERIFICATION_INVALID');
+  if (!transId) throw new BusinessError('La réponse du service de paiement ne contient pas d’identifiant de transaction.', 502, 'PAYMENT_VERIFICATION_INVALID');
   const linkSnap = await linkRef.get();
   if (!linkSnap.exists) return { handled: false, status: 'NOT_FOUND' };
   const link = linkSnap.data() || {};
   if (link.status === 'CONFIRMED') return { handled: true, status: 'CONFIRMED', paymentLink: serializeDocument(linkSnap) };
-  if (String(link.transId || '') !== transId) throw new BusinessError('L’identifiant Fapshi ne correspond pas au lien créé.', 409, 'PAYMENT_ID_MISMATCH');
+  if (String(link.transId || '') !== transId) throw new BusinessError('L’identifiant de transaction ne correspond pas à l’offre créée.', 409, 'PAYMENT_ID_MISMATCH');
   const providerStatus = cleanText(providerData.status, 32).toUpperCase();
   if (providerStatus !== 'SUCCESSFUL') {
     if (['FAILED', 'EXPIRED'].includes(providerStatus)) {
@@ -862,10 +897,10 @@ async function settleBusinessPaymentLink(linkRef, providerData) {
   const grossAmount = Number(providerData.amount);
   const netAmount = Number(providerData.revenue);
   if (!Number.isSafeInteger(grossAmount) || grossAmount !== Number(link.amount)) {
-    throw new BusinessError('Le montant confirmé par Fapshi ne correspond pas au lien demandé. Aucun fonds n’a été crédité.', 409, 'PAYMENT_AMOUNT_MISMATCH');
+    throw new BusinessError('Le montant confirmé ne correspond pas à l’offre demandée. Aucun fonds n’a été crédité.', 409, 'PAYMENT_AMOUNT_MISMATCH');
   }
   if (!Number.isSafeInteger(netAmount) || netAmount <= 0 || netAmount > grossAmount) {
-    throw new BusinessError('Fapshi n’a pas fourni un montant net de règlement valide. Aucun fonds n’a été crédité.', 409, 'PAYMENT_REVENUE_INVALID');
+    throw new BusinessError('Le service de paiement n’a pas fourni un montant net de règlement valide. Aucun fonds n’a été crédité.', 409, 'PAYMENT_REVENUE_INVALID');
   }
   if (String(providerData.externalId || '') !== String(linkRef.id)) {
     throw new BusinessError('La référence externe Fapshi ne correspond pas à ce lien. Aucun fonds n’a été crédité.', 409, 'PAYMENT_REFERENCE_MISMATCH');
