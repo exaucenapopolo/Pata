@@ -98,3 +98,8 @@ export async function createBusinessPaymentLink(id, input) {
 export async function verifyBusinessPaymentLink(id, paymentLinkId) {
   return businessRequest(businessPath(id, 'payment-links/' + encodeURIComponent(paymentLinkId) + '/verify'), 'POST', {});
 }
+
+
+export async function getBusinessPeople(id){const r=await businessRequest(businessPath(id,'people'));return Array.isArray(r.people)?r.people:[];}
+export async function saveBusinessPerson(id,input,personId=''){return businessRequest(businessPath(id,'people'+(personId?'/'+encodeURIComponent(personId):'')),personId?'PATCH':'POST',input);}
+export async function deleteBusinessPerson(id,personId){return businessRequest(businessPath(id,'people/'+encodeURIComponent(personId)),'DELETE');}

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { adminAuth } from '@/lib/firebase/admin';
 import {
   BusinessError, createBusinessAccount, createBusinessTransaction,
-  deleteBusinessResource, getBusinessOverview, listBusinessAccounts,
+  deleteBusinessResource, getBusinessOverview, listBusinessAccounts, listBusinessPeople, saveBusinessPerson, deleteBusinessPerson,
   listBusinessResource, listBusinessTransactions, recordBusinessDocumentPayment,
   saveBusinessResource, transferPersonalIncomeToBusiness,
 } from '@/lib/business/server';
@@ -35,6 +35,10 @@ async function dispatch(request, context) {
     const fourth = parts[3] || '';
     const method = request.method;
 
+    if (method === 'GET' && action === 'people' && parts.length === 1) return NextResponse.json({success:true,...(await listBusinessPeople(uid,businessId))});
+    if (method === 'POST' && action === 'people' && parts.length === 1) return NextResponse.json(await saveBusinessPerson(uid,businessId,await request.json().catch(()=>({}))),{status:201});
+    if (method === 'PATCH' && action === 'people' && second && parts.length === 2) return NextResponse.json(await saveBusinessPerson(uid,businessId,await request.json().catch(()=>({})),second));
+    if (method === 'DELETE' && action === 'people' && second && parts.length === 2) return NextResponse.json(await deleteBusinessPerson(uid,businessId,second));
     if (method === 'GET' && action === 'overview' && parts.length === 1) {
       return NextResponse.json({ success: true, ...(await getBusinessOverview(uid, businessId)) });
     }
