@@ -863,7 +863,7 @@ export async function createPublicBusinessPaymentCheckout(paymentLinkId,visitorI
   const rawUid=cleanText(link.userId||link.createdBy,100),providerUserId=rawUid.replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,100);
   const payload={amount:Number(link.amount),...(buyerEmail||link.customerEmail?{email:buyerEmail||cleanText(link.customerEmail,160)}:{}),redirectUrl:origin+'/avis-paiement/'+encodeURIComponent(id)+'?token='+encodeURIComponent(reviewToken),...(providerUserId?{userId:providerUserId}:{}),externalId:attempt.id,message:cleanText(link.title,80)};
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),30000);let response;
-  try{response=await fetch('https://live.fapshi.com/initiate-pay',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json',apiuser,apikey:secret},body:JSON.stringify(payload),signal:controller.signal,cache:'no-store'});}
+  try{response=await fetch('https://live.fapshi.com/initiate-pay',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json',apiuser:apiUser,apikey:secret},body:JSON.stringify(payload),signal:controller.signal,cache:'no-store'});}
   catch(error){console.error('[PATA BUSINESS FAPSHI INITIATE NETWORK]',JSON.stringify({paymentLinkId:id,amount:Number(link.amount),errorName:String(error?.name||'Error').slice(0,80),errorMessage:String(error?.message||error).slice(0,240),aborted:Boolean(controller.signal.aborted)}));throw new BusinessError('Le service de paiement ne répond pas pour le moment. Réessaie dans un instant.',502,'PAYMENT_PROVIDER_UNAVAILABLE');}
   finally{clearTimeout(timeout);}
   const rawBody=await response.text();let data={};try{data=rawBody?JSON.parse(rawBody):{};}catch{}
