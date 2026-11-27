@@ -365,7 +365,7 @@ export default function BusinessWorkspacePage() {
         </div>
         <div className="flex shrink-0 flex-col items-end gap-2">
           <span className={'rounded-full px-2.5 py-1 text-[10px] font-semibold ' + (writable ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800')}>{writable ? (en ? 'Premium active' : 'Premium actif') : (en ? 'View only' : 'Consultation')}</span>
-          {writable && <Link href={'/businesses/' + businessId + '/team'} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] font-semibold text-slate-600"><Users size={12}/>{en ? 'Team' : 'Équipe'}</Link>}
+          {<Link href={'/businesses/' + businessId + '/team'} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] font-semibold text-slate-600"><Users size={12}/>{en ? 'Team' : 'Équipe'}</Link>}
           {writable && ['owner', 'admin'].includes(overview.role) && <button type="button" onClick={() => { setProfileForm({ name: overview.business.name || '', activity: overview.business.activity || '', legalForm: overview.business.legalForm || '', city: overview.business.city || '', phone: overview.business.phone || '', logoUrl: overview.business.logoUrl || '' }); setProfileFormOpen(true); }} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] font-semibold text-slate-600"><Pencil size={12}/>{en ? 'Edit' : 'Modifier'}</button>}
         </div>
       </header>
