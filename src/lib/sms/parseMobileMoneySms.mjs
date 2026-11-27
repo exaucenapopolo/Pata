@@ -47,7 +47,7 @@ function parseEventType(text) {
   if (/\b(retrait|retirer|withdrawal|withdrawn|withdraw|cash\s*out|cashout)\b/.test(value)) return 'withdrawal';
   if (/(paiement|payment|marchand|merchant|achat\s+(reussi|effectue)|recharge|airtime|top.?up|achat\s+(?:de\s+)?credit|bill\s+paid|facture\s+payee)/.test(value)) return 'payment';
   if (/(vous\s+(avez\s+recu|venez\s+de\s+recevoir)|transfert\s+recu|recu\s+de|reception\s+de|compte.{0,25}credite|credit.{0,20}compte|depot\s+(recu|effectue|confirme)|cash\s*in|cashin|received|credited|incoming\s+transfer)/.test(value)) return 'receive';
-  if (/(vous\s+avez\s+envoye|transfert\s+(?:de.{0,100}vers|effectue|envoye|confirme)|effectue\s+(un\s+)?transfert|envoye\s+(a|au|vers)|compte.{0,25}debite|debite.{0,20}compte|debit|debited|sent\s+to|paid\s+to|you\s+sent|outgoing\s+transfer|transaction\s+de.{0,80}effectuee?\s+par)/.test(value)) return 'send';
+  if (/(vous\s+avez\s+envoye|transfert\s+(?:de.{0,100}vers|de\\s+[0-9][0-9\\s.,]*\\s*(?:fcfa|xaf|cfa|f)\\s+effectue|effectue|envoye|confirme)|effectue\s+(un\s+)?transfert|envoye\s+(a|au|vers)|compte.{0,25}debite|debite.{0,20}compte|debit|debited|sent\s+to|paid\s+to|you\s+sent|outgoing\s+transfer|transaction\s+de.{0,80}effectuee?\s+par)/.test(value)) return 'send';
   return null;
 }
 
@@ -176,6 +176,7 @@ function parseCounterparty(text) {
     /(?:vous\s+(?:avez\s+)?recu|recu|received)\s+[0-9][0-9\s.,]*\s*(?:fcfa|xaf|cfa|f)\s+(?:de|from)\s+([\p{L}][\p{L}'’ .-]{1,50}?)(?=\s*\(|[,.;]|$)/iu,
     /(?:recu|received)\s+(?:de|from)\s+([\p{L}][\p{L}'’ .-]{1,50}?)(?=\s*\(|[,.;]|$)/iu,
     /effectu[eé]e?\s+par\s+([\p{L}][\p{L}'’ _.-]{1,50}?)(?=\s*\(|[,.;]|$)/iu,
+    /transfert\s+de\s+[0-9][0-9\s.,]*\s*(?:fcfa|xaf|cfa|f)\s+effectu[eé]\s+avec\s+succ[eè]s\s+[àa]\s+([\p{L}][\p{L}'’ .-]{1,50}?)(?=\s*\(|[,.;]|$)/iu,
     /(?:envoy[eé]?\s+(?:[àa]|au|vers)|transfert\s+vers|auprès\s+de|chez)\s+([\p{L}][\p{L}'’ .-]{1,50}?)(?=[,.;]|$)/iu,
   ];
   for (const pattern of patterns) {
