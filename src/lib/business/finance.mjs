@@ -39,3 +39,19 @@ export function classifyBusinessMovement(movement = {}) {
   if (movement.type === 'expense' || movement.direction === 'expense') return 'expense';
   return 'income';
 }
+
+
+export function calculateBusinessProfitability(input = {}) {
+  const n = (v) => Math.max(0, Number(v) || 0);
+  const revenue=n(input.income), directCosts=n(input.directCosts), operatingCosts=n(input.operatingCosts), salaries=n(input.salaries), obligations=n(input.obligations);
+  const grossMargin=revenue-directCosts, netProfit=grossMargin-operatingCosts-salaries-obligations;
+  const reservePercent=Math.min(100,n(input.reservePercent)), reserve=netProfit>0?Math.round(netProfit*reservePercent/100):0;
+  const distributableProfit=Math.max(0,netProfit-reserve), people=(Array.isArray(input.people)?input.people:[]).filter(p=>p&&p.active!==false);
+  const totalProfitPercent=people.reduce((s,p)=>s+n(p.profitPercent),0);
+  return {revenue,directCosts,grossMargin,grossMarginRate:revenue?grossMargin/revenue*100:0,operatingCosts,salaries,obligations,netProfit,reservePercent,reserve,distributableProfit,overAllocated:totalProfitPercent>100,unallocatedProfit:distributableProfit*Math.max(0,100-Math.min(100,totalProfitPercent))/100,shares:people.map(p=>({personId:p.id,name:p.name,percentage:n(p.profitPercent),amount:Math.round(distributableProfit*n(p.profitPercent)/100)}))};
+}
+export function validateBusinessPeoplePercentages(people = []) {
+  const rows=Array.isArray(people)?people.filter(p=>p&&p.active!==false):[];
+  const capitalTotal=rows.reduce((s,p)=>s+Math.max(0,Number(p.capitalPercent)||0),0), profitTotal=rows.reduce((s,p)=>s+Math.max(0,Number(p.profitPercent)||0),0);
+  return {capitalTotal,profitTotal,capitalValid:capitalTotal<=100.0001,profitValid:profitTotal<=100.0001};
+}
