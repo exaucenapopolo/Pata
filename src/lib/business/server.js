@@ -1064,8 +1064,17 @@ export async function createBusinessInvitation(uid,businessId,input={}) {
   try{const user=await adminAuth.getUserByEmail(email);targetUid=user.uid;}catch(error){if(error?.code!=='auth/user-not-found')throw error;}
   const ref=businessInvitationsRef().doc();
   const origin=process.env.NEXT_PUBLIC_APP_URL||process.env.NEXT_PUBLIC_SITE_URL||'https://www.pata-yam.site';
+  const invitationUrl=origin+'/businesses/invitation/'+ref.id;
+  const safeBusinessName=cleanText(c.business.name,100).replace(/[&<>\"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[char]));
   await ref.create({businessId:c.businessId,businessName:cleanText(c.business.name,100),businessLogoUrl:isValidCloudinaryAvatarUrl(c.business.logoUrl)?c.business.logoUrl:'',businessSlogan:cleanText(c.business.slogan,180),invitedEmail:email,invitedEmailLower:email,targetUid,role,personType,status:'pending',createdBy:uid,createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
-  return {invitation:{id:ref.id,email,role,personType,existingAccount:Boolean(targetUid),url:origin+'/businesses/invitation/'+ref.id}};
+  let emailSent=false;
+  if(process.env.RESEND_API_KEY){
+    try{
+      const response=await fetch('https://api.resend.com/emails',{method:'POST',headers:{Authorization:'Bearer '+process.env.RESEND_API_KEY,'Content-Type':'application/json'},body:JSON.stringify({from:process.env.RESEND_FROM_EMAIL||'notifications@pata-yam.site',to:[email],subject:'Invitation à rejoindre '+safeBusinessName+' sur Pata',html:'<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#17211c"><h2>Tu es invité(e) à rejoindre '+safeBusinessName+'</h2><p>Le fondateur de cette entreprise t’invite à rejoindre son espace professionnel sur Pata.</p><p>Position proposée : <b>'+personType+'</b><br/>Accès prévu : <b>'+role+'</b></p><p><a href="'+invitationUrl+'" style="display:inline-block;padding:12px 18px;background:#075b43;color:#fff;text-decoration:none;border-radius:8px">Consulter et accepter l’invitation</a></p><p>Si tu n’as pas encore de compte Pata, crée ton compte avec cette adresse e-mail puis ouvre ce lien.</p></div>'})});
+      emailSent=response.ok;
+    }catch(error){console.warn('Business invitation email failed:',error?.message||error);}
+  }
+  return {invitation:{id:ref.id,email,role,personType,existingAccount:Boolean(targetUid),emailSent,url:invitationUrl}};
 }
 
 export async function listMyBusinessInvitations(uid) {
