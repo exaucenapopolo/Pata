@@ -18,6 +18,15 @@ export class BusinessError extends Error {
 }
 
 const cleanText = (value, max = 160) => String(value ?? '').trim().slice(0, max);
+function normalizeBusinessCategory(input = {}) {
+  const rawId = cleanText(input.categoryId || '', 80);
+  const rawLabel = cleanText(input.categoryCustom || input.categoryLabel || input.category || '', 80);
+  const label = rawId === 'custom' ? rawLabel : (rawLabel || rawId);
+  const source = rawId && rawId !== 'custom' ? rawId : label;
+  const categoryId = source.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60) || 'other';
+  return { categoryId, categoryLabel: label || 'Autres dépenses' };
+}
 const validId = (value) => {
   const id = cleanText(value, 150);
   if (!id || id.includes('/') || id.includes('.')) throw new BusinessError('Identifiant professionnel invalide.');
@@ -167,17 +176,21 @@ export async function createBusiness(uid, input = {}) {
 export async function getBusinessOverview(uid, businessId) {
   const context = await getBusinessContext(uid, businessId);
   const month = monthDouala();
-  const [accountsSnap, monthSnap, recentSnap, historySnap] = await Promise.all([
+  const [accountsSnap, monthSnap, recentSnap, historySnap, budgetsSnap] = await Promise.all([
     context.businessRef.collection('accounts').where('active', '==', true).limit(30).get(),
     context.businessRef.collection('monthlySummaries').doc(month).get(),
     context.businessRef.collection('transactions').orderBy('createdAt', 'desc').limit(6).get(),
     context.businessRef.collection('monthlySummaries').orderBy('month', 'desc').limit(12).get(),
+    context.businessRef.collection('budgets').where('month', '==', month).limit(100).get(),
   ]);
   const accounts = accountsSnap.docs.map(serializeDocument);
   const accountBalance = accounts.reduce((sum, account) => sum + (Number(account.balance) || 0), 0);
   const monthly = monthSnap.exists ? monthSnap.data() || {} : {};
   const recentTransactions = recentSnap.docs.map(serializeDocument);
   const monthlyHistory = historySnap.docs.map((document) => serializeDocument(document)).reverse();
+  const monthlyBudgets = budgetsSnap.docs.map(doc=>doc.data()||{});
+  const budgetAllocated = monthlyBudgets.reduce((sum,row)=>sum+Math.max(0,Number(row.amount)||0),0);
+  const budgetSpent = monthlyBudgets.reduce((sum,row)=>sum+Math.max(0,Number(row.spent)||0),0);
   const result = {
     business: {
       id: context.business.id, name: context.business.name, activity: context.business.activity,
@@ -204,6 +217,7 @@ export async function getBusinessOverview(uid, businessId) {
       ownerWithdrawals: Math.max(0, Number(monthly.ownerWithdrawals) || 0),
       receivables: Math.max(0, Number(context.business.totalReceivables) || 0),
       payables: Math.max(0, Number(context.business.totalPayables) || 0),
+      budgetAllocated,budgetSpent,budgetRemaining:Math.max(0,budgetAllocated-budgetSpent),budgetCount:monthlyBudgets.length,
       result: (Number(monthly.income) || 0) - (Number(monthly.expense) || 0),
     },
     recentTransactions,
@@ -234,13 +248,15 @@ function normalizeTransaction(input = {}) {
   const type = input.type;
   const amount = parseAmount(input.amount, type === 'income' ? 'Revenu' : 'Dépense');
   const date = parseDate(input.date);
-  const title = cleanText(input.title || input.source || input.categoryId || (type === 'income' ? 'Revenu professionnel' : 'Dépense professionnelle'), 120);
-  const categoryId = cleanText(input.categoryId || (type === 'income' ? 'other_income' : 'other'), 80);
+  const title = cleanText(input.title || input.source || input.categoryLabel || input.categoryId || (type === 'income' ? 'Revenu professionnel' : 'Dépense professionnelle'), 120);
+  const category = type === 'expense'
+    ? normalizeBusinessCategory(input)
+    : { categoryId: cleanText(input.categoryId || 'other_income', 80), categoryLabel: cleanText(input.categoryLabel || input.categoryId || 'Autres revenus', 80) };
   const paymentMethod = cleanText(input.paymentMethod, 40);
   const note = cleanText(input.note, 500);
   const allowedMethods = ['cash', 'mtn_momo', 'orange_money', 'bank_transfer', 'card', 'other'];
   if (paymentMethod && !allowedMethods.includes(paymentMethod)) throw new BusinessError('Moyen de paiement invalide.');
-  return { type, amount, date, month: date.slice(0, 7), title, categoryId, paymentMethod, note };
+  return { type, amount, date, month: date.slice(0, 7), title, categoryId: category.categoryId, categoryLabel: category.categoryLabel, paymentMethod, note };
 }
 
 export async function createBusinessTransaction(uid, businessId, input = {}) {
@@ -458,6 +474,8 @@ function normalizeResource(resource, input = {}) {
     const contractType = cleanText(input.contractTypeCustom || input.contractType, 80) || 'other';
     return {
       title, contractType, counterparty: cleanText(input.counterparty, 120),
+      counterpartyType: ['clients','suppliers','partners'].includes(input.counterpartyType) ? input.counterpartyType : '',
+      counterpartyId: cleanText(input.counterpartyId, 150),
       startDate: input.startDate ? parseDate(input.startDate) : '',
       endDate: input.endDate ? parseDate(input.endDate) : '',
       amount: input.amount ? parseAmount(input.amount, 'Montant du contrat') : 0,
@@ -474,7 +492,10 @@ function normalizeResource(resource, input = {}) {
       title, type: cleanText(input.typeCustom || input.type, 80) || 'other',
       amount, amountPaid: 0, remaining: amount,
       dueDate: input.dueDate ? parseDate(input.dueDate) : '',
-      category: cleanText(input.category, 80),
+      ...normalizeBusinessCategory(input),
+      category: cleanText(input.categoryCustom || input.categoryLabel || input.category, 80),
+      supplierId: cleanText(input.supplierId, 150),
+      affectsFinances: input.affectsFinances !== false,
       status: ['pending', 'in_progress', 'completed', 'cancelled'].includes(input.status) ? input.status : 'pending',
       note: cleanText(input.note, 500), ...common,
     };
@@ -482,10 +503,11 @@ function normalizeResource(resource, input = {}) {
   if (resource === 'invoices') {
     const title = cleanText(input.title, 140);
     const customerName = cleanText(input.customerName, 120);
-    if (!title || !customerName) throw new BusinessError('Indique le titre et le client de la facture.');
+    const customerId = cleanText(input.customerId, 150);
+    if (!title || (!customerName && !customerId)) throw new BusinessError('Indique le titre et le client de la facture.');
     const total = parseAmount(input.totalAmount, 'Montant de la facture');
     return {
-      title, customerName, customerId: cleanText(input.customerId, 150),
+      title, customerName, customerId,
       invoiceNumber: cleanText(input.invoiceNumber, 50),
       issueDate: parseDate(input.issueDate), dueDate: input.dueDate ? parseDate(input.dueDate) : '',
       totalAmount: total, amountPaid: 0, remaining: total, status: 'unpaid',
@@ -509,135 +531,191 @@ export async function listBusinessResource(uid, businessId, resource) {
   return { items: snapshot.docs.map(serializeDocument), readOnly: !context.premiumActive || context.business.status === 'archived' || !['owner', 'admin', 'finance'].includes(context.role) };
 }
 
+async function saveBusinessBudgetPlan(uid, context, input = {}) {
+  const title = cleanText(input.title, 120);
+  if (title.length < 2) throw new BusinessError('Donne un nom clair à ce budget.');
+  const month = cleanText(input.month || monthDouala(), 7);
+  if (!/^[0-9]{4}-(0[1-9]|1[0-2])$/.test(month)) throw new BusinessError('Mois de budget invalide.');
+  const note = cleanText(input.note, 500), rows = Array.isArray(input.allocations) ? input.allocations : [];
+  if (!rows.length || rows.length > 25) throw new BusinessError('Ajoute au moins une enveloppe (25 maximum).');
+  const allocations = rows.map(row => ({ ...normalizeBusinessCategory(row || {}), amount: parseAmount(row?.amount, 'Montant prévu') }));
+  const ids = new Set();
+  for (const row of allocations) { if (ids.has(row.categoryId)) throw new BusinessError('Une même catégorie ne peut apparaître deux fois dans le même budget.'); ids.add(row.categoryId); }
+  const collection = context.businessRef.collection('budgets'), refs = allocations.map(() => collection.doc());
+  const budgetGroupId = 'budget_' + randomBytes(12).toString('hex'), totalAmount = allocations.reduce((sum,row)=>sum+row.amount,0);
+  await adminDb.runTransaction(async transaction => {
+    const [profile,member,business,existing] = await Promise.all([
+      transaction.get(context.userRef), transaction.get(context.memberRef), transaction.get(context.businessRef),
+      transaction.get(collection.where('month','==',month).limit(100)),
+    ]);
+    if (!profile.exists || !isPremium(profile.data() || {})) premiumRequired();
+    if (!member.exists || !['owner','admin','finance','manager'].includes(member.data()?.role || '')) throw new BusinessError('Droits insuffisants pour gérer les budgets.',403);
+    if (!business.exists || business.data()?.status === 'archived') throw new BusinessError('Entreprise indisponible.',404);
+    const existingCategories = new Set(existing.docs.map(doc=>cleanText(doc.data()?.categoryId,80)).filter(Boolean));
+    const conflicts = allocations.filter(row=>existingCategories.has(row.categoryId)).map(row=>row.categoryLabel);
+    if (conflicts.length) throw new BusinessError('Une enveloppe existe déjà pour '+conflicts.join(', ')+' ce mois-ci. Réorganise le budget existant avant de continuer.');
+    allocations.forEach((row,index)=>transaction.create(refs[index],{
+      budgetGroupId,title,note,month,categoryId:row.categoryId,categoryLabel:row.categoryLabel,
+      amount:row.amount,spent:0,remaining:row.amount,overBudget:false,
+      createdBy:uid,createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp(),
+    }));
+  });
+  return {success:true,id:budgetGroupId,totalAmount,categories:allocations.length};
+}
+
 export async function saveBusinessResource(uid, businessId, resource, input = {}, itemId = '') {
-  if (!RESOURCE_NAMES.has(resource)) throw new BusinessError('Rubrique professionnelle non reconnue.', 404);
-  const context = await getBusinessContext(uid, businessId, { allowSensitiveRead: false });
+  if (!RESOURCE_NAMES.has(resource)) throw new BusinessError('Rubrique professionnelle non reconnue.',404);
+  const context=await getBusinessContext(uid,businessId,{allowSensitiveRead:false});
   requireWritable(context);
-  const data = normalizeResource(resource, input);
-  const collection = context.businessRef.collection(resource);
-  if (itemId) {
-    const id = validId(itemId);
-    const ref = collection.doc(id);
-    const previous = await ref.get();
-    if (!previous.exists) throw new BusinessError('Élément introuvable.', 404);
-    if (['invoices', 'obligations'].includes(resource)) throw new BusinessError('Cette pièce financière ne peut pas être modifiée après sa création. Supprime-la si aucun paiement n’a été enregistré, puis recrée-la avec les bonnes informations.', 409);
-    await ref.set({ ...data, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-    return { success: true, id };
+  if(resource==='budgets'&&!itemId)return saveBusinessBudgetPlan(uid,context,input);
+  const data=normalizeResource(resource,input),collection=context.businessRef.collection(resource);
+  if(itemId){
+    const id=validId(itemId),ref=collection.doc(id),previous=await ref.get();
+    if(!previous.exists)throw new BusinessError('Élément introuvable.',404);
+    if(['invoices','obligations','budgets'].includes(resource))throw new BusinessError('Cette pièce financière ne peut pas être modifiée après sa création. Supprime-la si aucun paiement n’a été enregistré, puis recrée-la.',409);
+    await ref.set({...data,updatedAt:FieldValue.serverTimestamp()},{merge:true});
+    return {success:true,id};
   }
-  const ref = collection.doc();
-  const stored = { ...data, createdAt: FieldValue.serverTimestamp(), createdBy: uid };
-  if (['invoices', 'obligations'].includes(resource)) {
-    await adminDb.runTransaction(async (transaction) => {
-      const [profileSnap, memberSnap, businessSnap] = await Promise.all([
-        transaction.get(context.userRef), transaction.get(context.memberRef), transaction.get(context.businessRef),
+  const ref=collection.doc();let stored={...data,createdAt:FieldValue.serverTimestamp(),createdBy:uid};
+  if(['invoices','obligations','contracts'].includes(resource)){
+    let relatedRef=null;
+    if(resource==='invoices'&&data.customerId)relatedRef=context.businessRef.collection('clients').doc(validId(data.customerId));
+    if(resource==='obligations'&&data.supplierId)relatedRef=context.businessRef.collection('suppliers').doc(validId(data.supplierId));
+    if(resource==='contracts'&&data.counterpartyId){
+      const type=['clients','suppliers','partners'].includes(data.counterpartyType)?data.counterpartyType:'';
+      if(!type)throw new BusinessError('Choisis le type de tiers lié au contrat.');
+      relatedRef=context.businessRef.collection(type).doc(validId(data.counterpartyId));
+    }
+    await adminDb.runTransaction(async transaction=>{
+      const [profile,member,business,related]=await Promise.all([
+        transaction.get(context.userRef),transaction.get(context.memberRef),transaction.get(context.businessRef),
+        relatedRef?transaction.get(relatedRef):Promise.resolve(null),
       ]);
-      if (!profileSnap.exists || !isPremium(profileSnap.data() || {})) premiumRequired();
-      if (!memberSnap.exists || !['owner', 'admin', 'finance'].includes(memberSnap.data()?.role || '')) throw new BusinessError('Accès en lecture seule.', 403);
-      if (!businessSnap.exists || businessSnap.data()?.status === 'archived') throw new BusinessError('Entreprise indisponible.', 404);
-      transaction.create(ref, stored);
-      if (resource === 'invoices') {
-        transaction.update(context.businessRef, { totalReceivables: FieldValue.increment(Number(data.totalAmount) || 0), updatedAt: FieldValue.serverTimestamp() });
-      } else {
-        transaction.update(context.businessRef, { totalPayables: FieldValue.increment(Number(data.remaining ?? data.amount) || 0), updatedAt: FieldValue.serverTimestamp() });
+      if(!profile.exists||!isPremium(profile.data()||{}))premiumRequired();
+      if(!member.exists||!['owner','admin','finance'].includes(member.data()?.role||''))throw new BusinessError('Accès en lecture seule.',403);
+      if(!business.exists||business.data()?.status==='archived')throw new BusinessError('Entreprise indisponible.',404);
+      if(relatedRef&&!related?.exists)throw new BusinessError('La fiche du tiers associé est introuvable.',404);
+      if(resource==='invoices'&&related?.exists)stored.customerName=cleanText(related.data()?.name,120);
+      if(resource==='obligations'&&related?.exists)stored.supplierName=cleanText(related.data()?.name,120);
+      if(resource==='contracts'&&related?.exists)stored.counterparty=cleanText(related.data()?.name,120);
+      transaction.create(ref,stored);
+      if(resource==='invoices'){
+        transaction.update(context.businessRef,{totalReceivables:FieldValue.increment(data.totalAmount),updatedAt:FieldValue.serverTimestamp()});
+        if(related?.exists)transaction.update(relatedRef,{totalInvoiced:FieldValue.increment(data.totalAmount),outstandingAmount:FieldValue.increment(data.totalAmount),updatedAt:FieldValue.serverTimestamp()});
+      }else if(resource==='obligations'){
+        if(data.affectsFinances!==false)transaction.update(context.businessRef,{totalPayables:FieldValue.increment(data.remaining),updatedAt:FieldValue.serverTimestamp()});
+        if(related?.exists)transaction.update(relatedRef,{totalCommitted:FieldValue.increment(data.amount),outstandingAmount:FieldValue.increment(data.remaining),updatedAt:FieldValue.serverTimestamp()});
       }
     });
-  } else {
-    await ref.create(stored);
+  }else await ref.create(stored);
+  return {success:true,id:ref.id};
+}
+
+export async function deleteBusinessResource(uid,businessId,resource,itemId){
+  if(!RESOURCE_NAMES.has(resource))throw new BusinessError('Rubrique professionnelle non reconnue.',404);
+  const context=await getBusinessContext(uid,businessId,{allowSensitiveRead:false});requireWritable(context);
+  const collection=context.businessRef.collection(resource),ref=collection.doc(validId(itemId)),initial=await ref.get();
+  if(!initial.exists)throw new BusinessError('Élément introuvable.',404);
+  let targetRefs=[ref];
+  if(resource==='budgets'&&initial.data()?.budgetGroupId){
+    const group=await collection.where('budgetGroupId','==',initial.data().budgetGroupId).limit(25).get();
+    targetRefs=group.docs.map(doc=>doc.ref);
   }
-  return { success: true, id: ref.id };
+  await adminDb.runTransaction(async transaction=>{
+    const [profile,member,business,snapshots]=await Promise.all([
+      transaction.get(context.userRef),transaction.get(context.memberRef),transaction.get(context.businessRef),
+      Promise.all(targetRefs.map(target=>transaction.get(target))),
+    ]);
+    if(!profile.exists||!isPremium(profile.data()||{}))premiumRequired();
+    if(!member.exists||!['owner','admin','finance'].includes(member.data()?.role||''))throw new BusinessError('Accès en lecture seule.',403);
+    if(!business.exists||business.data()?.status==='archived')throw new BusinessError('Entreprise indisponible.',404);
+    if(snapshots.some(snapshot=>!snapshot.exists))throw new BusinessError('Le contenu a changé. Recharge et réessaie.',409);
+    const records=snapshots.map(snapshot=>snapshot.data()||{});
+    if(['invoices','obligations'].includes(resource)&&records.some(data=>Number(data.amountPaid)>0))throw new BusinessError('Cette pièce a déjà reçu ou effectué un paiement. Elle ne peut pas être supprimée.',409);
+    const related=[];
+    for(const data of records){
+      if(resource==='invoices'&&data.customerId)related.push({ref:context.businessRef.collection('clients').doc(validId(data.customerId)),resource,data});
+      if(resource==='obligations'&&data.supplierId)related.push({ref:context.businessRef.collection('suppliers').doc(validId(data.supplierId)),resource,data});
+    }
+    const relatedSnaps=await Promise.all(related.map(item=>transaction.get(item.ref)));
+    targetRefs.forEach(target=>transaction.delete(target));
+    records.forEach(data=>{
+      if(resource==='invoices')transaction.update(context.businessRef,{totalReceivables:FieldValue.increment(-Math.max(0,Number(data.remaining??data.totalAmount)||0)),updatedAt:FieldValue.serverTimestamp()});
+      if(resource==='obligations'&&data.affectsFinances!==false)transaction.update(context.businessRef,{totalPayables:FieldValue.increment(-Math.max(0,Number(data.remaining??data.amount)||0)),updatedAt:FieldValue.serverTimestamp()});
+    });
+    related.forEach((item,index)=>{
+      const snapshot=relatedSnaps[index];if(!snapshot?.exists)return;const party=snapshot.data()||{};
+      if(item.resource==='invoices')transaction.update(item.ref,{
+        totalInvoiced:Math.max(0,(Number(party.totalInvoiced)||0)-(Number(item.data.totalAmount)||0)),
+        outstandingAmount:Math.max(0,(Number(party.outstandingAmount)||0)-Math.max(0,Number(item.data.remaining??item.data.totalAmount)||0)),
+        updatedAt:FieldValue.serverTimestamp(),
+      });
+      else transaction.update(item.ref,{
+        totalCommitted:Math.max(0,(Number(party.totalCommitted)||0)-(Number(item.data.amount)||0)),
+        outstandingAmount:Math.max(0,(Number(party.outstandingAmount)||0)-Math.max(0,Number(item.data.remaining??item.data.amount)||0)),
+        updatedAt:FieldValue.serverTimestamp(),
+      });
+    });
+  });
+  return {success:true,deletedCount:targetRefs.length};
 }
 
-export async function deleteBusinessResource(uid, businessId, resource, itemId) {
-  if (!RESOURCE_NAMES.has(resource)) throw new BusinessError('Rubrique professionnelle non reconnue.', 404);
-  const context = await getBusinessContext(uid, businessId, { allowSensitiveRead: false });
-  requireWritable(context);
-  const ref = context.businessRef.collection(resource).doc(validId(itemId));
-  await adminDb.runTransaction(async (transaction) => {
-    const [profileSnap, memberSnap, businessSnap, snapshot] = await Promise.all([
-      transaction.get(context.userRef), transaction.get(context.memberRef),
-      transaction.get(context.businessRef), transaction.get(ref),
+export async function recordBusinessDocumentPayment(uid,businessId,resource,itemId,input={}){
+  if(!['invoices','obligations'].includes(resource))throw new BusinessError('Ce type de paiement n’est pas reconnu.');
+  const context=await getBusinessContext(uid,businessId,{allowSensitiveRead:false});requireWritable(context);
+  const id=validId(itemId),ref=context.businessRef.collection(resource).doc(id);
+  const accountId=validId(input.accountId||'main'),accountRef=context.businessRef.collection('accounts').doc(accountId);
+  const amount=parseAmount(input.amount,'Montant du paiement'),date=parseDate(input.date),month=date.slice(0,7);
+  const requestId=cleanText(input.requestId,100).replace(/[^a-zA-Z0-9_-]/g,'_');
+  if(requestId.length<8)throw new BusinessError('Identifiant de paiement invalide. Réessaie depuis le formulaire Pata.');
+  const transactionRef=context.businessRef.collection('transactions').doc('payment_'+requestId),monthRef=context.businessRef.collection('monthlySummaries').doc(month);
+  const isInvoice=resource==='invoices',budgetsQuery=!isInvoice?context.businessRef.collection('budgets').where('month','==',month).limit(100):null;
+  let duplicate=false;
+  await adminDb.runTransaction(async transaction=>{
+    const [profile,member,itemSnap,account,business,existing,budgets]=await Promise.all([
+      transaction.get(context.userRef),transaction.get(context.memberRef),transaction.get(ref),transaction.get(accountRef),transaction.get(context.businessRef),transaction.get(transactionRef),
+      budgetsQuery?transaction.get(budgetsQuery):Promise.resolve(null),
     ]);
-    if (!profileSnap.exists || !isPremium(profileSnap.data() || {})) premiumRequired();
-    if (!memberSnap.exists || !['owner', 'admin', 'finance'].includes(memberSnap.data()?.role || '')) throw new BusinessError('Accès en lecture seule.', 403);
-    if (!businessSnap.exists || businessSnap.data()?.status === 'archived') throw new BusinessError('Entreprise indisponible.', 404);
-    if (!snapshot.exists) throw new BusinessError('Élément introuvable.', 404);
-    const data = snapshot.data() || {};
-    if (['invoices', 'obligations'].includes(resource) && Number(data.amountPaid) > 0) {
-      throw new BusinessError('Cette pièce a déjà reçu ou effectué un paiement. Elle ne peut pas être supprimée.', 409);
-    }
-    transaction.delete(ref);
-    if (resource === 'invoices') {
-      transaction.update(context.businessRef, { totalReceivables: FieldValue.increment(-Math.max(0, Number(data.remaining) || 0)), updatedAt: FieldValue.serverTimestamp() });
-    }
-    if (resource === 'obligations') {
-      transaction.update(context.businessRef, { totalPayables: FieldValue.increment(-Math.max(0, Number(data.remaining ?? data.amount) || 0)), updatedAt: FieldValue.serverTimestamp() });
-    }
-  });
-  return { success: true };
-}
-
-export async function recordBusinessDocumentPayment(uid, businessId, resource, itemId, input = {}) {
-  if (!['invoices', 'obligations'].includes(resource)) throw new BusinessError('Ce type de paiement n’est pas reconnu.');
-  const context = await getBusinessContext(uid, businessId, { allowSensitiveRead: false });
-  requireWritable(context);
-  const id = validId(itemId);
-  const ref = context.businessRef.collection(resource).doc(id);
-  const accountId = validId(input.accountId || 'main');
-  const accountRef = context.businessRef.collection('accounts').doc(accountId);
-  const amount = parseAmount(input.amount, 'Montant du paiement');
-  const date = parseDate(input.date);
-  const requestId = cleanText(input.requestId, 100).replace(/[^a-zA-Z0-9_-]/g, '_');
-  if (requestId.length < 8) throw new BusinessError('Identifiant de paiement invalide. Réessaie depuis le formulaire Pata.');
-  const transactionRef = context.businessRef.collection('transactions').doc('payment_' + requestId);
-  const monthRef = context.businessRef.collection('monthlySummaries').doc(date.slice(0, 7));
-  let duplicate = false;
-  await adminDb.runTransaction(async (transaction) => {
-    const [profileSnap, memberSnap, itemSnap, accountSnap, businessSnap, existingTransactionSnap] = await Promise.all([
-      transaction.get(context.userRef), transaction.get(context.memberRef), transaction.get(ref),
-      transaction.get(accountRef), transaction.get(context.businessRef), transaction.get(transactionRef),
-    ]);
-    if (!isPremium(profileSnap.data() || {})) premiumRequired();
-    if (!memberSnap.exists || !['owner', 'admin', 'finance'].includes(memberSnap.data()?.role || '')) throw new BusinessError('Accès en lecture seule.', 403);
-    if (!itemSnap.exists || !accountSnap.exists || !businessSnap.exists) throw new BusinessError('Élément ou compte financier introuvable.', 404);
-    if (existingTransactionSnap.exists) { duplicate = true; return; }
-    const item = itemSnap.data() || {};
-    const remaining = resource === 'invoices'
-      ? Math.max(0, Number(item.totalAmount) - Number(item.amountPaid || 0))
-      : Math.max(0, Number(item.remaining ?? (Number(item.amount) - Number(item.amountPaid || 0))) || 0);
-    if (amount > remaining) throw new BusinessError('Le paiement dépasse le montant restant.');
-    const income = resource === 'invoices';
-    transaction.create(transactionRef, {
-      type: income ? 'income' : 'expense', direction: income ? 'income' : 'expense',
-      flowType: 'normal', title: (income ? 'Paiement facture ' : 'Paiement obligation ') + cleanText(item.title, 100),
-      categoryId: income ? 'sales' : (cleanText(item.category, 80) || 'other'),
-      amount, date, month: date.slice(0, 7), accountId,
-      invoiceId: income ? id : null, obligationId: income ? null : id,
-      note: cleanText(input.note, 300), status: 'posted', createdBy: uid,
-      createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+    if(!profile.exists||!isPremium(profile.data()||{}))premiumRequired();
+    if(!member.exists||!['owner','admin','finance'].includes(member.data()?.role||''))throw new BusinessError('Accès en lecture seule.',403);
+    if(!itemSnap.exists||!account.exists||!business.exists)throw new BusinessError('Élément ou compte financier introuvable.',404);
+    if(existing.exists){duplicate=true;return;}
+    const item=itemSnap.data()||{},remaining=isInvoice?Math.max(0,Number(item.totalAmount)-Number(item.amountPaid||0)):Math.max(0,Number(item.remaining??(Number(item.amount)-Number(item.amountPaid||0)))||0);
+    if(amount>remaining)throw new BusinessError('Le paiement dépasse le montant restant.');
+    const partyId=cleanText(isInvoice?item.customerId:item.supplierId,150),partyType=isInvoice?'clients':'suppliers';
+    const partyRef=partyId?context.businessRef.collection(partyType).doc(validId(partyId)):null;
+    const partySnap=partyRef?await transaction.get(partyRef):null;
+    if(partyRef&&!partySnap?.exists)throw new BusinessError('La fiche liée n’existe plus. Corrige le rattachement avant de payer.',409);
+    const partyName=cleanText(partySnap?.data()?.name||(isInvoice?item.customerName:item.supplierName),120);
+    const category=isInvoice?{categoryId:'sales',categoryLabel:'Ventes'}:normalizeBusinessCategory({categoryId:item.categoryId,categoryLabel:item.categoryLabel||item.category});
+    transaction.create(transactionRef,{
+      type:isInvoice?'income':'expense',direction:isInvoice?'income':'expense',flowType:'normal',
+      title:(isInvoice?'Paiement facture ':'Paiement obligation ')+cleanText(item.title,100),
+      ...category,amount,date,month,accountId,invoiceId:isInvoice?id:null,obligationId:isInvoice?null:id,
+      customerId:isInvoice?partyId:'',supplierId:isInvoice?'':partyId,counterpartyName:partyName,
+      note:cleanText(input.note,300),status:'posted',createdBy:uid,createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp(),
     });
-    const signedAmount = income ? amount : -amount;
-    transaction.update(accountRef, { balance: FieldValue.increment(signedAmount), updatedAt: FieldValue.serverTimestamp() });
-    transaction.update(context.businessRef, {
-      cashBalance: FieldValue.increment(signedAmount),
-      ...(income ? { totalIncome: FieldValue.increment(amount), totalReceivables: FieldValue.increment(-amount) }
-        : { totalExpense: FieldValue.increment(amount), totalPayables: FieldValue.increment(-amount) }),
-      updatedAt: FieldValue.serverTimestamp(),
+    const signedAmount=isInvoice?amount:-amount;
+    transaction.update(accountRef,{balance:FieldValue.increment(signedAmount),updatedAt:FieldValue.serverTimestamp()});
+    transaction.update(context.businessRef,{
+      cashBalance:FieldValue.increment(signedAmount),
+      ...(isInvoice?{totalIncome:FieldValue.increment(amount),totalReceivables:FieldValue.increment(-amount)}:{totalExpense:FieldValue.increment(amount),...(item.affectsFinances!==false?{totalPayables:FieldValue.increment(-amount)}:{})}),
+      updatedAt:FieldValue.serverTimestamp(),
     });
-    transaction.set(monthRef, {
-      month: date.slice(0, 7),
-      ...(income ? { income: FieldValue.increment(amount) } : { expense: FieldValue.increment(amount) }),
-      transactionCount: FieldValue.increment(1), updatedAt: FieldValue.serverTimestamp(),
-    }, { merge: true });
-    if (income) {
-      const paid = (Number(item.amountPaid) || 0) + amount;
-      transaction.update(ref, { amountPaid: paid, remaining: Math.max(0, Number(item.totalAmount) - paid), status: paid >= Number(item.totalAmount) ? 'paid' : 'partial', updatedAt: FieldValue.serverTimestamp() });
-    } else {
-      const paid = (Number(item.amountPaid) || 0) + amount;
-      const nextRemaining = Math.max(0, Number(item.amount) - paid);
-      transaction.update(ref, { amountPaid: paid, remaining: nextRemaining, status: nextRemaining === 0 ? 'completed' : 'in_progress', updatedAt: FieldValue.serverTimestamp() });
+    transaction.set(monthRef,{month,...(isInvoice?{income:FieldValue.increment(amount)}:{expense:FieldValue.increment(amount)}),transactionCount:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()},{merge:true});
+    if(partyRef&&partySnap?.exists){
+      const party=partySnap.data()||{};
+      transaction.update(partyRef,isInvoice?{totalCollected:FieldValue.increment(amount),outstandingAmount:Math.max(0,(Number(party.outstandingAmount)||0)-amount),updatedAt:FieldValue.serverTimestamp()}:{totalPaid:FieldValue.increment(amount),outstandingAmount:Math.max(0,(Number(party.outstandingAmount)||0)-amount),updatedAt:FieldValue.serverTimestamp()});
     }
+    if(!isInvoice&&budgets?.docs?.length){
+      const budget=budgets.docs.find(doc=>cleanText(doc.data()?.categoryId,80)===category.categoryId);
+      if(budget){const data=budget.data()||{},spent=Math.max(0,Number(data.spent)||0)+amount,allocated=Math.max(0,Number(data.amount)||0);transaction.update(budget.ref,{spent,remaining:Math.max(0,allocated-spent),overBudget:spent>allocated,updatedAt:FieldValue.serverTimestamp()});}
+    }
+    const paid=(Number(item.amountPaid)||0)+amount;
+    if(isInvoice)transaction.update(ref,{amountPaid:paid,remaining:Math.max(0,Number(item.totalAmount)-paid),status:paid>=Number(item.totalAmount)?'paid':'partial',updatedAt:FieldValue.serverTimestamp()});
+    else{const nextRemaining=Math.max(0,Number(item.amount)-paid);transaction.update(ref,{amountPaid:paid,remaining:nextRemaining,status:nextRemaining===0?'completed':'in_progress',updatedAt:FieldValue.serverTimestamp()});}
   });
-  return { success: true, duplicate, transactionId: transactionRef.id };
+  return {success:true,duplicate,transactionId:transactionRef.id};
 }
 
 export async function deleteBusiness(uid, businessId) {
@@ -1139,8 +1217,11 @@ export async function processFapshiBusinessPayment(transId) {
 export async function getBusinessPaymentLinkDetails(uid,businessId,paymentLinkId){
  const c=await getBusinessContext(uid,businessId),id=validId(paymentLinkId),ref=businessPaymentLinksRef().doc(id),snap=await ref.get();
  if(!snap.exists||snap.data()?.businessId!==c.businessId)throw new BusinessError('Lien de paiement introuvable.',404,'PAYMENT_LINK_NOT_FOUND');
- const payments=await ref.collection('payments').orderBy('createdAt','desc').limit(100).get();
- return {paymentLink:serializeDocument(snap),payments:payments.docs.map(serializeDocument)};
+ const [payments,reviews]=await Promise.all([
+  ref.collection('payments').orderBy('createdAt','desc').limit(100).get(),
+  ref.collection('reviews').orderBy('createdAt','desc').limit(100).get(),
+ ]);
+ return {paymentLink:serializeDocument(snap),payments:payments.docs.map(serializeDocument),reviews:reviews.docs.map(serializeDocument)};
 }
 export async function verifyBusinessPaymentLink(uid,businessId,paymentLinkId){
  const c=await getBusinessContext(uid,businessId),id=validId(paymentLinkId),ref=businessPaymentLinksRef().doc(id),snap=await ref.get();
@@ -1176,6 +1257,20 @@ export async function submitPublicBusinessPaymentReview(paymentLinkId,input={}){
   tx.update(businessRef,{publicRatingCount:FieldValue.increment(1),publicRatingTotal:FieldValue.increment(businessRating),updatedAt:FieldValue.serverTimestamp()});
   tx.update(attemptRef,{reviewSubmittedAt:FieldValue.serverTimestamp(),reviewCustomerName:customerName,updatedAt:FieldValue.serverTimestamp()});
  });
+ const [businessSnap,linkSnap,attemptSnap]=await Promise.all([businessRef.get(),linkRef.get(),attemptRef.get()]);
+ if(businessSnap.exists){
+  const business=businessSnap.data()||{},offer=linkSnap.exists?linkSnap.data()||{}:{},ownerEmail=await getBusinessOwnerEmail(business);
+  const appUrl=(process.env.NEXT_PUBLIC_APP_URL||process.env.NEXT_PUBLIC_SITE_URL||'https://www.pata-yam.site').replace(/\/$/,'');
+  const detailsUrl=appUrl+'/businesses/'+encodeURIComponent(businessId)+'?tab=payment-links&paymentLinkId='+encodeURIComponent(id);
+  const verified=attemptSnap.data()?.status==='CONFIRMED';
+  await sendBusinessNotice({
+   business,to:ownerEmail,subject:'Nouvel avis client · '+cleanText(offer.title||'Votre produit',80),
+   headline:'Un client vient de publier un avis',
+   intro:'Un nouvel avis est disponible pour votre entreprise. Consultez les notes et le commentaire depuis les statistiques de votre produit.',
+   details:[['Produit',cleanText(offer.title||'Produit',100)],['Client',customerName],['Note du produit',productRating+' / 5'],['Note de l’entreprise',businessRating+' / 5'],['Achat',verified?'Confirmé':'Tentative de paiement'],['Commentaire',comment||'Aucun commentaire écrit.']],
+   ctaUrl:detailsUrl,ctaLabel:'Consulter les avis du produit',idempotencyKey:'business-review-'+attemptRef.id,
+  });
+ }
  return {success:true};
 }
 
