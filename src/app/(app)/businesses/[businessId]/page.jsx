@@ -12,7 +12,7 @@ import { formatCurrency, formatDate } from '@/lib/utils';
 import { CloudinaryImageField } from '@/components/ui/CloudinaryImageField';
 import {
   createBusinessAccount, createBusinessTransaction, deleteBusinessResource,
-  createBusinessPaymentLink, getBusinessPaymentLinks, verifyBusinessPaymentLink,
+  createBusinessPaymentLink, getBusinessPaymentLinks, verifyBusinessPaymentLink, getBusinessPaymentLinkDetails,
   updateBusinessProfile, getBusinessAccounts, getBusinessOverview, getBusinessResource,
   getBusinessTransactions, payBusinessDocument, saveBusinessResource,
   transferPersonalIncome,

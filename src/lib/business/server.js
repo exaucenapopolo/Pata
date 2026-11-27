@@ -108,6 +108,7 @@ export async function listUserBusinesses(uid) {
       id: businessSnap.id,
       name: cleanText(business.name, 100),
       activity: cleanText(business.activity, 100),
+      slogan: cleanText(business.slogan, 180),
       logoUrl: isValidCloudinaryAvatarUrl(business.logoUrl) ? business.logoUrl : '',
       role: cleanText(membership.data()?.role || 'viewer', 20),
       createdAt: serializeValue(business.createdAt || null),
@@ -736,10 +737,10 @@ export async function getPublicBusinessPaymentLink(paymentLinkId,visitorId=''){
  const id=validId(paymentLinkId),ref=businessPaymentLinksRef().doc(id),snap=await ref.get();
  if(!snap.exists)throw new BusinessError('Cette offre de paiement est introuvable.',404,'PAYMENT_LINK_NOT_FOUND');
  const link=snap.data()||{},visitor=cleanText(visitorId,100).replace(/[^a-zA-Z0-9_-]/g,'');
- if(link.status==='ACTIVE'&&visitor.length>=12){
-  const vr=ref.collection('viewers').doc(visitor);
-  await adminDb.runTransaction(async tx=>{const [fresh,seen]=await Promise.all([tx.get(ref),tx.get(vr)]);if(fresh.exists&&fresh.data()?.status==='ACTIVE'&&!seen.exists){tx.create(vr,{firstSeenAt:FieldValue.serverTimestamp()});tx.update(ref,{uniqueViews:FieldValue.increment(1),pageViews:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()});}});
- }else if(link.status==='ACTIVE')await ref.update({pageViews:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()});
+ if(link.status==='ACTIVE'){
+  const vr=visitor.length>=12?ref.collection('viewers').doc(visitor):null;
+  await adminDb.runTransaction(async tx=>{const reads=[tx.get(ref)];if(vr)reads.push(tx.get(vr));const rows=await Promise.all(reads),fresh=rows[0],seen=vr?rows[1]:null;if(!fresh.exists||fresh.data()?.status!=='ACTIVE')return;tx.update(ref,{pageViews:FieldValue.increment(1),...(vr&&!seen.exists?{uniqueViews:FieldValue.increment(1)}:{}),updatedAt:FieldValue.serverTimestamp()});if(vr&&!seen.exists)tx.create(vr,{firstSeenAt:FieldValue.serverTimestamp()});});
+ }
  const bs=await businessesRef().doc(validId(link.businessId)).get(),b=bs.exists?bs.data()||{}:{};
  const max=Math.max(0,Number(link.maxPayments)||0),sold=link.status==='SOLD_OUT'||(max>0&&Number(link.successfulPayments||0)>=max);
  return {payment:{id,status:sold?'SOLD_OUT':link.status||'UNAVAILABLE',title:cleanText(link.title,100),description:cleanText(link.description,1200),imageUrl:isValidCloudinaryAvatarUrl(link.imageUrl)?link.imageUrl:'',amount:Number(link.amount)||0,originalAmount:Number(link.originalAmount)||Number(link.amount)||0,discountAmount:Math.max(0,Number(link.discountAmount)||0),businessName:cleanText(b.name||link.businessName,100),businessSlogan:cleanText(b.slogan,180)}};
@@ -773,7 +774,7 @@ export async function createPublicBusinessPaymentCheckout(paymentLinkId,visitorI
 }
 export async function createBusinessPaymentLink(uid,businessId,input={}){
  const c=await getBusinessContext(uid,businessId);requireWritable(c);
- if(typeof input.amount==='string'&&!/^\\d+$/.test(input.amount.trim()))throw new BusinessError('Le montant doit être un nombre entier en FCFA.');
+ if(typeof input.amount==='string'&&!/^\d+$/.test(input.amount.trim()))throw new BusinessError('Le montant doit être un nombre entier en FCFA.');
  const amount=parseAmount(input.amount,'Montant à payer');if(amount<100)throw new BusinessError('Le montant minimum à demander est de 100 FCFA.');
  const originalAmount=input.originalAmount?parseAmount(input.originalAmount,'Prix normal'):amount;if(originalAmount<amount)throw new BusinessError('Le prix normal ne peut pas être inférieur au montant à payer.');
  const title=cleanText(input.title,100);if(title.length<2)throw new BusinessError('Donne un nom au produit ou service.');
