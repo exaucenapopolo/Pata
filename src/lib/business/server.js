@@ -431,8 +431,7 @@ function normalizeResource(resource, input = {}) {
   if (resource === 'clients' || resource === 'suppliers' || resource === 'partners') {
     const name = cleanText(input.name, 120);
     if (!name) throw new BusinessError('Indique un nom.');
-    return {
-      const imageUrl = cleanText(input.imageUrl, 2048);
+    const imageUrl = cleanText(input.imageUrl, 2048);
     if (imageUrl && !isValidCloudinaryAvatarUrl(imageUrl)) throw new BusinessError('La photo ou le logo doit provenir de la bibliothèque photo Pata.');
     return {
       name, category: cleanText(input.categoryCustom || input.category, 80),
