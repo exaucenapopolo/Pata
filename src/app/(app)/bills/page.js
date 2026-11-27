@@ -11,6 +11,7 @@ import { formatCurrency, formatDate } from '@/lib/utils';
 import { subscribeBills, createBill, updateBill, deactivateBill, payBill } from '@/lib/firestore/bills';
 import { CloudinaryImageField } from '@/components/ui/CloudinaryImageField';
 import { uploadBillImage } from '@/lib/bills/uploadBillImage.mjs';
+import { getImageFileIssue } from '@/lib/profile/imageUpload.mjs';
 import { NextBestAction } from '@/components/NextBestAction';
 import { AppDialog } from '@/components/ui/AppDialog';
 import { usePersistentPageState } from '@/hooks/usePersistentPageState';
@@ -197,48 +198,32 @@ export default function BillsPage() {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
-    if (!file.type.startsWith('image/')) { setScanFeedback('Choisis une image de facture.'); setScanError(true); return; }
-    if (file.size > 12 * 1024 * 1024) { setScanFeedback('La photo est trop volumineuse. Choisis une image de moins de 12 Mo.'); setScanError(true); return; }
+    const fileIssue = getImageFileIssue(file);
+    if (fileIssue === 'too-large') {
+      setScanFeedback(isEnglish ? 'The photo exceeds the 5 MB limit.' : 'La photo dépasse la limite de 5 Mo.');
+      setScanError(true);
+      return;
+    }
+    if (fileIssue) {
+      setScanFeedback(isEnglish ? 'This file is empty or unreadable. Choose another photo.' : 'Ce fichier est vide ou illisible. Choisis une autre photo.');
+      setScanError(true);
+      return;
+    }
     setScanningInvoice(true); setScanFeedback(''); setScanError(false);
     try {
-      const imageData = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onerror = () => reject(new Error('Impossible de lire cette photo.'));
-        reader.onload = () => {
-          const image = new Image();
-          image.onerror = () => reject(new Error('Le fichier image est illisible.'));
-          image.onload = () => {
-            const maxSide = 1600;
-            const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
-            const canvas = document.createElement('canvas');
-            canvas.width = Math.max(1, Math.round(image.width * scale));
-            canvas.height = Math.max(1, Math.round(image.height * scale));
-            const context = canvas.getContext('2d');
-            if (!context) return reject(new Error('La photo ne peut pas être préparée sur cet appareil.'));
-            context.fillStyle = '#ffffff'; context.fillRect(0, 0, canvas.width, canvas.height);
-            context.drawImage(image, 0, 0, canvas.width, canvas.height);
-            resolve(canvas.toDataURL('image/jpeg', 0.82));
-          };
-          image.src = String(reader.result || '');
-        };
-        reader.readAsDataURL(file);
-      });
+      // Store the original photo. Cloudinary creates a JPEG delivery version
+      // server-side for analysis, so browser codecs are not required.
+      const imageUrl = await uploadBillImage(file);
+      setForm((current) => ({ ...current, imageUrl }));
       const token = await user.getIdToken();
       const response = await fetch('/api/bills/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify({ imageData, language }),
+        body: JSON.stringify({ imageUrl, language }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok || !result.success) throw new Error(result.error || 'La lecture de la facture a échoué.');
       const data = result.extracted || {};
-      let imageUrl = '';
-      let photoWarning = '';
-      try {
-        imageUrl = await uploadBillImage(file);
-      } catch (uploadError) {
-        photoWarning = uploadError?.message || 'La photo n’a pas pu être conservée. Tu peux réessayer dans le champ photo.';
-      }
       const noteParts = [
         data.description,
         data.invoiceDate ? 'Date du document : ' + data.invoiceDate : '',
@@ -256,7 +241,7 @@ export default function BillsPage() {
         expenseCategoryId: data.suggestedCategory || current.expenseCategoryId,
         providerName: data.merchantName || current.providerName,
         accountReference: data.accountReference || data.invoiceNumber || current.accountReference,
-        imageUrl: imageUrl || current.imageUrl || '',
+        imageUrl,
         note: [...new Set([current.note, ...noteParts].filter(Boolean))].join(' · ').slice(0, 250),
       }));
       const missing = [
@@ -266,7 +251,7 @@ export default function BillsPage() {
       const scanMessage = missing.length
         ? (isEnglish ? 'Some fields could not be read (' + missing.join(', ') + '). Check and complete them before saving.' : 'Lecture terminée. Vérifie ou complète : ' + missing.join(', ') + ' avant l’enregistrement.')
         : (isEnglish ? 'Invoice read. Review the extracted information before saving.' : 'Facture lue. Vérifie les informations détectées avant de les enregistrer.');
-      setScanFeedback(scanMessage + (photoWarning ? ' ' + photoWarning : imageUrl ? (isEnglish ? ' The invoice photo has also been saved.' : ' La photo de la facture a également été enregistrée.') : ''));
+      setScanFeedback(scanMessage + (isEnglish ? ' The original photo has also been saved.' : ' La photo originale a également été enregistrée.'));
       setScanError(false);
     } catch (error) {
       setScanFeedback(error.message || (isEnglish ? 'Could not read this invoice.' : 'Impossible de lire cette facture.'));

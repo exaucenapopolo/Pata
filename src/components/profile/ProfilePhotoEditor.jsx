@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Camera, Check, ImagePlus, Loader2, Trash2, UploadCloud } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { useLanguage } from '@/context/LanguageContext';
-import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET, isValidCloudinaryAvatarUrl } from '@/lib/profile/cloudinaryAvatar.mjs';
+import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from '@/lib/profile/cloudinaryAvatar.mjs';
+import { getImageFileIssue, isValidCloudinaryImageUpload } from '@/lib/profile/imageUpload.mjs';
 
 const PROFILE_AVATARS = [
   "https://raw.githubusercontent.com/exaucenapopolo/Social-Boost-Horizon-/refs/heads/main/assets/Photo/49391629-jeune-homme-avatar-personnage-du-avatar-homme-icone-dessin-anime-illustration-gratuit-vectoriel.jpg",
@@ -54,6 +55,7 @@ export function ProfilePhotoEditor({ photoURL = '', displayName = '', onSave }) 
     saving: 'Saving…',
     cancel: 'Cancel',
     invalidSize: 'The file is too large. Maximum size: 5 MB.',
+    invalidFile: 'This file is empty or unreadable. Choose another photo.',
     cloudinaryResponse: 'Cloudinary returned an invalid response.',
     uploadFailed: 'The photo could not be uploaded. Check the upload preset and try again.',
     saveFailed: 'The profile photo could not be saved. Please try again.',
@@ -72,6 +74,7 @@ export function ProfilePhotoEditor({ photoURL = '', displayName = '', onSave }) 
     saving: 'Enregistrement…',
     cancel: 'Annuler',
     invalidSize: 'Le fichier est trop volumineux. Taille maximale : 5 Mo.',
+    invalidFile: 'Ce fichier est vide ou illisible. Choisis une autre photo.',
     cloudinaryResponse: 'Cloudinary a renvoyé une réponse invalide.',
     uploadFailed: 'La photo n’a pas pu être téléchargée. Vérifie le preset d’envoi puis réessaie.',
     saveFailed: 'La photo de profil n’a pas pu être enregistrée. Réessaie.',
@@ -109,8 +112,13 @@ export function ProfilePhotoEditor({ photoURL = '', displayName = '', onSave }) 
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
+    const fileIssue = getImageFileIssue(file);
+    if (fileIssue === 'too-large') {
       setError(text.invalidSize);
+      return;
+    }
+    if (fileIssue) {
+      setError(text.invalidFile);
       return;
     }
     setSelectedFile(file);
@@ -151,7 +159,7 @@ export function ProfilePhotoEditor({ photoURL = '', displayName = '', onSave }) 
           throw new Error(text.cloudinaryResponse);
         }
         setProgress(85);
-        if (!response.ok || result?.resource_type !== 'image' || !isValidCloudinaryAvatarUrl(result?.secure_url)) {
+        if (!response.ok || !isValidCloudinaryImageUpload(result)) {
           throw new Error(result?.error?.message || text.uploadFailed);
         }
         nextPhotoURL = result.secure_url;

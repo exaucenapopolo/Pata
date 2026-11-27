@@ -2,37 +2,8 @@
 
 import { useRef, useState } from 'react';
 import { ImagePlus, Loader2, UploadCloud, X } from 'lucide-react';
-import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET, isValidCloudinaryAvatarUrl } from '@/lib/profile/cloudinaryAvatar.mjs';
-
-function resizeImage(file) {
-  return new Promise((resolve, reject) => {
-    const objectUrl = URL.createObjectURL(file);
-    const image = new Image();
-    image.onload = () => {
-      const scale = Math.min(1, 800 / Math.max(image.width, image.height));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round(image.width * scale));
-      canvas.height = Math.max(1, Math.round(image.height * scale));
-      const context = canvas.getContext('2d');
-      if (!context) {
-        URL.revokeObjectURL(objectUrl);
-        reject(new Error('Impossible de préparer cette image.'));
-        return;
-      }
-      context.drawImage(image, 0, 0, canvas.width, canvas.height);
-      canvas.toBlob((blob) => {
-        URL.revokeObjectURL(objectUrl);
-        if (!blob) reject(new Error('Compression de l’image impossible.'));
-        else resolve(blob);
-      }, 'image/jpeg', 0.88);
-    };
-    image.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      reject(new Error('Fichier image invalide.'));
-    };
-    image.src = objectUrl;
-  });
-}
+import { CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from '@/lib/profile/cloudinaryAvatar.mjs';
+import { getImageFileIssue, isValidCloudinaryImageUpload } from '@/lib/profile/imageUpload.mjs';
 
 export function CloudinaryImageField({ value = '', onChange, folder = 'pata/categories', language = 'fr', clickablePreview = false, hideActions = false, previewClassName = '', label }) {
   const inputRef = useRef(null);
@@ -45,27 +16,31 @@ export function CloudinaryImageField({ value = '', onChange, folder = 'pata/cate
     event.target.value = '';
     if (!file) return;
     setError('');
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-      setError(isEnglish ? 'Use a JPG, PNG or WEBP image.' : 'Utilise une image JPG, PNG ou WEBP.');
+    const fileIssue = getImageFileIssue(file);
+    if (fileIssue === 'too-large') {
+      setError(isEnglish ? 'Maximum image size is 5 MB.' : 'Taille maximale de l’image : 5 Mo.');
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      setError(isEnglish ? 'Maximum image size is 5 MB.' : 'Taille maximale de l’image : 5 Mo.');
+    if (fileIssue) {
+      setError(isEnglish ? 'This file is empty or unreadable. Choose another photo.' : 'Ce fichier est vide ou illisible. Choisis une autre photo.');
       return;
     }
     setUploading(true);
     try {
-      const compressed = await resizeImage(file);
+      // Upload the original like the profile editor. Avoid browser canvas
+      // decoding, which rejects some Android, HEIC and AVIF gallery images.
       const form = new FormData();
-      form.append('file', compressed, 'pata-category.jpg');
+      form.append('file', file, file.name || 'pata-image');
       form.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
       form.append('folder', folder);
       const response = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`, {
         method: 'POST', body: form,
       });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok || !isValidCloudinaryAvatarUrl(result?.secure_url)) {
-        throw new Error(result?.error?.message || (isEnglish ? 'Cloudinary upload failed. Check the upload preset.' : 'Échec du téléversement Cloudinary. Vérifie le preset.'));
+      if (!response.ok || !isValidCloudinaryImageUpload(result)) {
+        throw new Error(result?.error?.message || (isEnglish
+          ? 'This file is not a supported image. Choose another photo and try again.'
+          : 'Ce fichier n’est pas une image prise en charge. Choisis une autre photo puis réessaie.'));
       }
       onChange(result.secure_url);
     } catch (uploadError) {
@@ -95,7 +70,7 @@ export function CloudinaryImageField({ value = '', onChange, folder = 'pata/cate
             {value ? <img src={value} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer"/> : <ImagePlus size={22}/>}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-[11px] text-slate-500">{isEnglish ? 'JPG, PNG or WEBP · 5 MB max' : 'JPG, PNG ou WEBP · 5 Mo maximum'}</p>
+            <p className="text-[11px] text-slate-500">{isEnglish ? 'Any supported image · 5 MB max' : 'Toute image prise en charge · 5 Mo maximum'}</p>
             {!hideActions && (
               <div className="mt-2 flex flex-wrap gap-2">
                 <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50">
@@ -108,8 +83,8 @@ export function CloudinaryImageField({ value = '', onChange, folder = 'pata/cate
           </div>
         </div>
       )}
-      {clickablePreview && <p className="text-center text-xs text-slate-500">{isEnglish ? 'Tap the photo to change it · JPG, PNG or WEBP · 5 MB max' : 'Appuie sur la photo pour la changer · JPG, PNG ou WEBP · 5 Mo maximum'}</p>}
-      <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={onPick} className="sr-only"/>
+      {clickablePreview && <p className="text-center text-xs text-slate-500">{isEnglish ? 'Tap the photo to change it · JPG, PNG or WEBP · 5 MB max' : 'Appuie sur la photo pour la changer · Toute image prise en charge · 5 Mo maximum'}</p>}
+      <input ref={inputRef} type="file" accept="image/*" onChange={onPick} className="sr-only"/>
       {error && <p role="alert" className="text-xs text-red-600">{error}</p>}
     </div>
   );
