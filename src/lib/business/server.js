@@ -53,7 +53,7 @@ function premiumRequired() {
 function requireWritable(context) {
   if (!context.premiumActive) premiumRequired();
   if (context.business.status === 'archived') throw new BusinessError('Cette entreprise est archivée.', 403, 'BUSINESS_ARCHIVED');
-  if (!['owner', 'admin', 'finance'].includes(context.role)) {
+  if (!['owner', 'admin', 'finance', 'manager'].includes(context.role)) {
     throw new BusinessError('Tu disposes uniquement d’un accès en consultation.', 403, 'READ_ONLY');
   }
 }
@@ -113,7 +113,7 @@ export async function listUserBusinesses(uid) {
       role: cleanText(membership.data()?.role || 'viewer', 20),
       createdAt: serializeValue(business.createdAt || null),
       status: business.status || 'active',
-      readOnly: !isPremium(profile) || business.status === 'archived' || !['owner', 'admin', 'finance'].includes(membership.data()?.role || 'viewer'),
+      readOnly: !isPremium(profile) || business.status === 'archived' || !['owner', 'admin', 'finance', 'manager'].includes(membership.data()?.role || 'viewer'),
       premiumActive: isPremium(profile),
     };
   }));
@@ -183,7 +183,7 @@ export async function getBusinessOverview(uid, businessId) {
       status: context.business.status || 'active',
     },
     premiumActive: context.premiumActive,
-    readOnly: !context.premiumActive || context.business.status === 'archived' || !['owner', 'admin', 'finance'].includes(context.role),
+    readOnly: !context.premiumActive || context.business.status === 'archived' || !['owner', 'admin', 'finance', 'manager'].includes(context.role),
     role: context.role,
     month,
     accounts: accounts.map((account) => ({
@@ -262,7 +262,7 @@ export async function createBusinessTransaction(uid, businessId, input = {}) {
       budgetsQuery ? transaction.get(budgetsQuery) : Promise.resolve(null),
     ]);
     if (!profileSnap.exists || !isPremium(profileSnap.data() || {})) premiumRequired();
-    if (!memberSnap.exists || !['owner', 'admin', 'finance'].includes(memberSnap.data()?.role || '')) throw new BusinessError('Tu ne disposes pas des droits nécessaires pour modifier cette entreprise.', 403, 'READ_ONLY');
+    if (!memberSnap.exists || !['owner', 'admin', 'finance', 'manager'].includes(memberSnap.data()?.role || '')) throw new BusinessError('Tu ne disposes pas des droits nécessaires pour modifier cette entreprise.', 403, 'READ_ONLY');
     if (!businessSnap.exists || businessSnap.data()?.status === 'archived') throw new BusinessError('Entreprise indisponible.', 404);
     if (existingTransactionSnap.exists) { duplicate = true; return; }
     if (!accountSnap.exists || accountSnap.data()?.active === false) throw new BusinessError('Compte financier introuvable ou désactivé.');
@@ -738,7 +738,13 @@ export async function listBusinessPaymentLinks(uid,businessId){
 export async function getPublicBusinessPaymentLink(paymentLinkId,visitorId=''){
  const id=validId(paymentLinkId),ref=businessPaymentLinksRef().doc(id),snap=await ref.get();
  if(!snap.exists)throw new BusinessError('Cette offre de paiement est introuvable.',404,'PAYMENT_LINK_NOT_FOUND');
- const link=snap.data()||{},visitor=cleanText(visitorId,100).replace(/[^a-zA-Z0-9_-]/g,'');
+ let link=snap.data()||{};
+ if(link.status==='PENDING'&&link.transId&&link.checkoutUrl){
+  const legacyAttempt=ref.collection('payments').doc(id);
+  await adminDb.runTransaction(async tx=>{const [fresh,attempt]=await Promise.all([tx.get(ref),tx.get(legacyAttempt)]);if(!fresh.exists||fresh.data()?.status!=='PENDING')return;const old=fresh.data()||{};if(!attempt.exists)tx.create(legacyAttempt,{paymentLinkId:id,businessId:old.businessId,userId:old.userId,accountId:old.accountId||'main',amount:Number(old.amount)||0,title:cleanText(old.title,100),customerName:cleanText(old.customerName,100),customerEmail:cleanText(old.customerEmail,160),checkoutUrl:old.checkoutUrl,transId:old.transId,status:'PENDING',createdAt:old.createdAt||FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});tx.update(ref,{status:'ACTIVE',activePaymentCount:FieldValue.increment(attempt.exists?0:1),pageViews:Number(old.pageViews)||0,uniqueViews:Number(old.uniqueViews)||0,clickCount:Number(old.clickCount)||0,uniqueClickers:Number(old.uniqueClickers)||0,successfulPayments:Number(old.successfulPayments)||0,grossRevenue:Number(old.grossRevenue)||0,netRevenue:Number(old.netRevenue)||0,feeRevenue:Number(old.feeRevenue)||0,updatedAt:FieldValue.serverTimestamp()});});
+  link=(await ref.get()).data()||link;
+ }
+ const visitor=cleanText(visitorId,100).replace(/[^a-zA-Z0-9_-]/g,'');
  if(link.status==='ACTIVE'){
   const vr=visitor.length>=12?ref.collection('viewers').doc(visitor):null;
   await adminDb.runTransaction(async tx=>{const reads=[tx.get(ref)];if(vr)reads.push(tx.get(vr));const rows=await Promise.all(reads),fresh=rows[0],seen=vr?rows[1]:null;if(!fresh.exists||fresh.data()?.status!=='ACTIVE')return;tx.update(ref,{pageViews:FieldValue.increment(1),...(vr&&!seen.exists?{uniqueViews:FieldValue.increment(1)}:{}),updatedAt:FieldValue.serverTimestamp()});if(vr&&!seen.exists)tx.create(vr,{firstSeenAt:FieldValue.serverTimestamp()});});
@@ -788,7 +794,7 @@ export async function createBusinessPaymentLink(uid,businessId,input={}){
  const requestId=cleanText(input.requestId,100).replace(/[^a-zA-Z0-9_-]/g,'_');if(requestId.length<8)throw new BusinessError('Identifiant de demande invalide.');
  const id='pl_'+requestId,ref=businessPaymentLinksRef().doc(id),account=c.businessRef.collection('accounts').doc(accountId);let duplicate=null;
  await adminDb.runTransaction(async tx=>{const [profile,member,business,acc,existing]=await Promise.all([tx.get(c.userRef),tx.get(c.memberRef),tx.get(c.businessRef),tx.get(account),tx.get(ref)]);
-  if(!profile.exists||!isPremium(profile.data()||{}))premiumRequired();if(!member.exists||!['owner','admin','finance'].includes(member.data()?.role||''))throw new BusinessError('Droits insuffisants pour créer ce lien.',403,'READ_ONLY');
+  if(!profile.exists||!isPremium(profile.data()||{}))premiumRequired();if(!member.exists||!['owner','admin','finance','manager'].includes(member.data()?.role||''))throw new BusinessError('Droits insuffisants pour créer ce lien.',403,'READ_ONLY');
   if(!business.exists||business.data()?.status==='archived')throw new BusinessError('Entreprise indisponible.',404);if(!acc.exists||acc.data()?.active===false)throw new BusinessError('Compte de destination introuvable.');
   if(existing.exists){duplicate=serializeDocument(existing);return;}
   tx.create(ref,{businessId:c.businessId,businessName:cleanText(c.business.name,100),userId:uid,createdBy:uid,accountId,title,description,imageUrl,customerName,customerEmail,amount,originalAmount,discountAmount:Math.max(0,originalAmount-amount),maxPayments,currency:'XAF',status:'ACTIVE',pageViews:0,uniqueViews:0,clickCount:0,uniqueClickers:0,successfulPayments:0,grossRevenue:0,netRevenue:0,feeRevenue:0,activePaymentCount:0,createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
