@@ -970,6 +970,12 @@ export async function processFapshiBusinessPayment(transId) {
   return settleBusinessPaymentLink(snapshot.docs[0].ref, data);
 }
 
+export async function getBusinessPaymentLinkDetails(uid,businessId,paymentLinkId){
+ const c=await getBusinessContext(uid,businessId),id=validId(paymentLinkId),ref=businessPaymentLinksRef().doc(id),snap=await ref.get();
+ if(!snap.exists||snap.data()?.businessId!==c.businessId)throw new BusinessError('Lien de paiement introuvable.',404,'PAYMENT_LINK_NOT_FOUND');
+ const payments=await ref.collection('payments').orderBy('createdAt','desc').limit(100).get();
+ return {paymentLink:serializeDocument(snap),payments:payments.docs.map(serializeDocument)};
+}
 export async function verifyBusinessPaymentLink(uid,businessId,paymentLinkId){
  const c=await getBusinessContext(uid,businessId),id=validId(paymentLinkId),ref=businessPaymentLinksRef().doc(id),snap=await ref.get();
  if(!snap.exists||snap.data()?.businessId!==c.businessId)throw new BusinessError('Lien de paiement introuvable pour cette entreprise.',404,'PAYMENT_LINK_NOT_FOUND');

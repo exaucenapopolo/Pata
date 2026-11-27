@@ -78,8 +78,11 @@ export default function BusinessWorkspacePage() {
   const [paymentForm, setPaymentForm] = useState({ amount: '', accountId: 'main', date: new Date().toISOString().slice(0, 10) });
   const [paymentLinks, setPaymentLinks] = useState([]);
   const [showPaymentLinkForm, setShowPaymentLinkForm] = useState(false);
-  const [paymentLinkForm, setPaymentLinkForm] = useState({ title: '', description: '', imageUrl: '', originalAmount: '', amount: '', customerName: '', customerEmail: '', accountId: 'main' });
+  const [paymentLinkForm, setPaymentLinkForm] = useState({ title: '', description: '', imageUrl: '', originalAmount: '', amount: '', customerName: '', customerEmail: '', maxPayments: '', accountId: 'main' });
   const [busyPaymentLinkId, setBusyPaymentLinkId] = useState('');
+  const [selectedPaymentLink, setSelectedPaymentLink] = useState(null);
+  const [paymentLinkDetails, setPaymentLinkDetails] = useState(null);
+  const [paymentDetailsLoading, setPaymentDetailsLoading] = useState(false);
   const [profileFormOpen, setProfileFormOpen] = useState(false);
   const [profileForm, setProfileForm] = useState({ name: '', activity: '', slogan: '', legalForm: '', city: '', phone: '', logoUrl: '' });
   const [actionNotice, setActionNotice] = useState('');
@@ -223,7 +226,7 @@ export default function BusinessWorkspacePage() {
     try {
       const result = await createBusinessPaymentLink(businessId, paymentLinkForm);
       setShowPaymentLinkForm(false);
-      setPaymentLinkForm({ title: '', description: '', imageUrl: '', originalAmount: '', amount: '', customerName: '', customerEmail: '', accountId: accountsForSelect[0]?.id || 'main' });
+      setPaymentLinkForm({ title: '', description: '', imageUrl: '', originalAmount: '', amount: '', customerName: '', customerEmail: '', maxPayments: '', accountId: accountsForSelect[0]?.id || 'main' });
       setPaymentLinks((current) => [result.paymentLink, ...current.filter((item) => item.id !== result.paymentLink?.id)]);
       setActionNotice(en ? 'Payment link created. You can now share it.' : 'Lien de paiement créé. Tu peux maintenant le partager.');
     } catch (error) { setFormError(error.message || 'Impossible de créer le lien de paiement.'); }
@@ -252,7 +255,7 @@ export default function BusinessWorkspacePage() {
   };
 
   const copyPaymentLink = async (link) => {
-    const url = String(link.checkoutUrl || '');
+    const url = String(link.publicUrl || '');
     if (!url) return;
     try {
       if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
@@ -463,6 +466,7 @@ export default function BusinessWorkspacePage() {
               <div className="sm:col-span-2"><CloudinaryImageField value={paymentLinkForm.imageUrl || ''} onChange={(imageUrl) => setPaymentLinkForm((current) => ({ ...current, imageUrl }))} folder="pata/business-payment-products" language={language} label={en ? 'Product photo (recommended)' : 'Photo du produit (recommandée)'}/><p className="mt-1 text-[10px] text-slate-500">{en ? 'Optional for services or digital products.' : 'Facultative pour les prestations et produits numériques.'}</p></div>
               <label className="text-xs font-semibold text-slate-600">{en ? 'Regular price (XAF)' : 'Prix normal (FCFA)'}<input type="number" min="100" step="1" value={paymentLinkForm.originalAmount} onChange={(event) => setPaymentLinkForm({ ...paymentLinkForm, originalAmount: event.target.value })} placeholder={en ? 'Optional, before discount' : 'Facultatif, avant réduction'} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal"/></label>
               <label className="text-xs font-semibold text-slate-600">{en ? 'Amount customer pays (XAF)' : 'Montant à payer (FCFA)'}<input required type="number" min="100" step="1" value={paymentLinkForm.amount} onChange={(event) => setPaymentLinkForm({ ...paymentLinkForm, amount: event.target.value })} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-base font-normal"/></label>
+              <label className="text-xs font-semibold text-slate-600">{en?'Maximum successful payments':'Nombre maximal de paiements'}<input type="number" min="1" step="1" value={paymentLinkForm.maxPayments||''} onChange={(event)=>setPaymentLinkForm({...paymentLinkForm,maxPayments:event.target.value})} placeholder={en?'Empty = unlimited':'Vide = illimité'} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal"/><span className="mt-1 block text-[10px] font-normal text-slate-500">{en?'Limit counts successful payments only.':'La limite porte uniquement sur les paiements validés.'}</span></label>
               <label className="text-xs font-semibold text-slate-600 sm:col-span-2">{en ? 'Business account to credit' : 'Compte professionnel à créditer'}<select required value={paymentLinkForm.accountId} onChange={(event) => setPaymentLinkForm({ ...paymentLinkForm, accountId: event.target.value })} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal">{accountsForSelect.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
               <details className="sm:col-span-2"><summary className="cursor-pointer text-xs font-semibold text-slate-600">{en ? 'Customer details (optional)' : 'Informations du client (facultatives)'}</summary><div className="mt-2 grid gap-2 sm:grid-cols-2"><label className="text-xs font-semibold text-slate-600">{en ? 'Customer name' : 'Nom du client'}<input maxLength={100} value={paymentLinkForm.customerName} onChange={(event) => setPaymentLinkForm({ ...paymentLinkForm, customerName: event.target.value })} className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal"/></label><label className="text-xs font-semibold text-slate-600">{en ? 'Customer email' : 'E-mail du client'}<input type="email" value={paymentLinkForm.customerEmail} onChange={(event) => setPaymentLinkForm({ ...paymentLinkForm, customerEmail: event.target.value })} className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal"/></label></div></details>
               <div className="flex gap-2 sm:col-span-2"><button disabled={saving} className="min-h-11 flex-1 rounded-xl bg-[#075b43] px-3 text-xs font-semibold text-white">{saving ? (en ? 'Creating…' : 'Création…') : (en ? 'Create my sales page' : 'Créer ma page de vente')}</button><button type="button" onClick={() => setShowPaymentLinkForm(false)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-600">{en ? 'Cancel' : 'Annuler'}</button></div>
@@ -471,21 +475,17 @@ export default function BusinessWorkspacePage() {
           {listLoading ? <p className="py-8 text-center text-xs text-slate-500">{en ? 'Loading…' : 'Chargement…'}</p> : paymentLinks.length ? (
             <div className="mt-4 space-y-2">
               {paymentLinks.map((link) => {
-                const statusLabel = link.status === 'CONFIRMED' ? (en ? 'Paid and verified' : 'Payé et vérifié') : link.status === 'FAILED' ? (en ? 'Failed' : 'Échec') : link.status === 'EXPIRED' ? (en ? 'Expired' : 'Expiré') : (en ? 'Waiting for payment' : 'En attente de paiement');
-                const statusClass = link.status === 'CONFIRMED' ? 'bg-emerald-50 text-emerald-800' : ['FAILED', 'EXPIRED'].includes(link.status) ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-800';
+                const soldOut=link.status==='SOLD_OUT';
                 return <article key={link.id} className="rounded-xl border border-slate-200 p-3">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0"><h4 className="break-words text-sm font-semibold text-slate-900">{link.title}</h4><p className="mt-1 text-[10px] text-slate-500">{link.customerName || (en ? 'Customer' : 'Client')} · {formatDate(link.createdAt)}</p></div>
-                    <span className={'rounded-full px-2.5 py-1 text-[10px] font-semibold ' + statusClass}>{statusLabel}</span>
+                  <div className="flex items-start gap-3"><span className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-100">{link.imageUrl?<img src={link.imageUrl} alt="" className="h-full w-full object-cover"/>:<Building2 size={22} className="text-slate-400"/>}</span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h4 className="break-words text-sm font-semibold text-slate-900">{link.title}</h4><span className={'rounded-full px-2 py-1 text-[10px] font-semibold '+(soldOut?'bg-slate-100 text-slate-600':'bg-emerald-50 text-emerald-800')}>{soldOut?(en?'Offer completed':'Offre terminée'):(en?'Reusable offer':'Offre réutilisable')}</span></div><p className="mt-1 line-clamp-2 text-[10px] text-slate-500">{link.description}</p><p className="mt-1 text-xs font-bold text-slate-900">{money(link.amount)} · {link.maxPayments?(Number(link.successfulPayments||0)+' / '+link.maxPayments):(en?'Unlimited payments':'Paiements illimités')}</p></div></div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    <div className="rounded-lg bg-slate-50 p-2"><p className="text-[10px] text-slate-500">{en?'Views':'Vues uniques'}</p><b className="text-sm">{Number(link.uniqueViews||0).toLocaleString('fr-FR')}</b></div>
+                    <div className="rounded-lg bg-slate-50 p-2"><p className="text-[10px] text-slate-500">{en?'Checkout clicks':'Clics paiement'}</p><b className="text-sm">{Number(link.clickCount||0).toLocaleString('fr-FR')}</b></div>
+                    <div className="rounded-lg bg-slate-50 p-2"><p className="text-[10px] text-slate-500">{en?'Payments received':'Paiements validés'}</p><b className="text-sm">{Number(link.successfulPayments||0).toLocaleString('fr-FR')}</b></div>
+                    <div className="rounded-lg bg-slate-50 p-2"><p className="text-[10px] text-slate-500">{en?'Net received':'Net encaissé'}</p><b className="text-xs">{money(link.netRevenue||0)}</b></div>
                   </div>
-                  <div className="mt-3 flex flex-wrap items-end justify-between gap-2">
-                    <div><p className="text-sm font-bold tabular-nums text-slate-900">{money(link.amount)}</p>{link.status === 'CONFIRMED' && <p className="mt-1 text-[10px] text-emerald-700">{en ? 'Net amount credited' : 'Montant net crédité'} : {money(link.receivedAmount)}</p>}</div>
-                    <div className="flex gap-2">
-                      {link.publicUrl && link.status === 'PENDING' && <button type="button" onClick={() => sharePaymentLink(link)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] font-semibold text-slate-700"><Share2 size={13}/>{en ? 'Share' : 'Partager'}</button>}
-                      {link.status === 'PENDING' && <button type="button" disabled={busyPaymentLinkId === link.id} onClick={() => verifyPaymentLink(link.id)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-blue-50 px-2.5 text-[10px] font-semibold text-blue-800 disabled:opacity-50">{busyPaymentLinkId === link.id ? <RefreshCw size={13} className="animate-spin"/> : <CheckCircle2 size={13}/>}{en ? 'Verify' : 'Vérifier'}</button>}
-                    </div>
-                  </div>
-                  {link.publicUrl && link.status === 'PENDING' && <button type="button" onClick={() => copyPaymentLink(link)} className="mt-2 inline-flex min-h-8 items-center gap-1.5 text-[10px] font-semibold text-slate-500"><Copy size={12}/>{en ? 'Copy link' : 'Copier le lien'}</button>}
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2"><p className="text-[10px] text-slate-500">{en?'Gross sales':'Ventes brutes'} : <b className="text-slate-800">{money(link.grossRevenue||0)}</b></p><div className="flex gap-2">{link.publicUrl&&!soldOut&&<button type="button" onClick={()=>sharePaymentLink(link)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] font-semibold text-slate-700"><Share2 size={13}/>{en?'Share':'Partager'}</button>}<button type="button" onClick={async()=>{setSelectedPaymentLink(link);setPaymentDetailsLoading(true);setPaymentLinkDetails(null);try{setPaymentLinkDetails(await getBusinessPaymentLinkDetails(businessId,link.id));}catch(e){setFormError(e.message||'Impossible de charger les statistiques.');}finally{setPaymentDetailsLoading(false);}}} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-[#075b43] px-2.5 text-[10px] font-semibold text-white">{en?'Statistics':'Voir les statistiques'}</button></div></div>
+                  {link.publicUrl&&<button type="button" onClick={()=>copyPaymentLink(link)} className="mt-2 inline-flex min-h-8 items-center gap-1.5 text-[10px] font-semibold text-slate-500"><Copy size={12}/>{en?'Copy offer link':'Copier le lien de l’offre'}</button>}
                 </article>;
               })}
             </div>
@@ -562,6 +562,16 @@ export default function BusinessWorkspacePage() {
         </div>
       )}
 
+      {selectedPaymentLink && (
+        <div className="fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/50 p-3 sm:items-center"><section className="max-h-[90dvh] w-full max-w-xl space-y-4 overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl">
+          <div className="flex items-center justify-between gap-3"><div><h3 className="font-bold text-slate-900">{selectedPaymentLink.title}</h3><p className="mt-1 text-xs text-slate-500">{en?'Offer performance':'Performances de cette offre'}</p></div><button type="button" onClick={()=>{setSelectedPaymentLink(null);setPaymentLinkDetails(null);}} className="rounded-lg p-2 text-slate-500"><X size={18}/></button></div>
+          {paymentDetailsLoading?<p className="py-8 text-center text-xs text-slate-500">{en?'Loading…':'Chargement…'}</p>:paymentLinkDetails&&<>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{[[en?'Views':'Vues',paymentLinkDetails.paymentLink?.uniqueViews||0],[en?'Clicks':'Clics',paymentLinkDetails.paymentLink?.clickCount||0],[en?'Successful payments':'Paiements validés',paymentLinkDetails.paymentLink?.successfulPayments||0],[en?'Net received':'Net encaissé',money(paymentLinkDetails.paymentLink?.netRevenue||0)]].map(([label,value])=><div key={label} className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] text-slate-500">{label}</p><b className="mt-1 block text-sm">{value}</b></div>)}</div>
+            <div className="grid grid-cols-2 gap-2"><div className="rounded-xl border p-3"><p className="text-[10px] text-slate-500">{en?'Gross sales':'Ventes brutes'}</p><b>{money(paymentLinkDetails.paymentLink?.grossRevenue||0)}</b></div><div className="rounded-xl border p-3"><p className="text-[10px] text-slate-500">{en?'Processing fees':'Frais de traitement'}</p><b>{money(paymentLinkDetails.paymentLink?.feeRevenue||0)}</b></div></div>
+            <div><h4 className="text-sm font-bold text-slate-800">{en?'Payment history':'Historique des paiements'}</h4>{paymentLinkDetails.payments?.length?<div className="mt-2 space-y-2">{paymentLinkDetails.payments.map(item=><div key={item.id} className="flex items-center justify-between gap-3 rounded-xl border p-3"><div className="min-w-0"><p className="truncate text-xs font-semibold text-slate-800">{item.payerName||item.customerName||(en?'Customer':'Client')}</p><p className="mt-1 text-[10px] text-slate-500">{item.confirmedDate||formatDate(item.createdAt)} · {item.status}</p></div><div className="shrink-0 text-right"><b className="text-xs">{money(item.amount)}</b>{item.status==='CONFIRMED'&&<p className="text-[10px] text-emerald-700">Net : {money(item.receivedAmount||0)}</p>}</div></div>)}</div>:<p className="mt-2 rounded-xl bg-slate-50 p-4 text-center text-xs text-slate-500">{en?'No payment attempt yet.':'Aucun paiement effectué pour le moment.'}</p>}</div>
+          </>}
+        </section></div>
+      )}
       {paymentTarget && writable && (
         <div className="fixed inset-0 z-[100] flex items-end justify-center bg-slate-950/40 p-3 sm:items-center">
           <form onSubmit={submitPayment} className="w-full max-w-md space-y-3 rounded-2xl bg-white p-4 shadow-2xl">
