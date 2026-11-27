@@ -462,7 +462,6 @@ function normalizeResource(resource, input = {}) {
     return {
       title, type: cleanText(input.typeCustom || input.type, 80) || 'other',
       amount, amountPaid: 0, remaining: amount,
-      affectsFinances: input.affectsFinances !== false,
       dueDate: input.dueDate ? parseDate(input.dueDate) : '',
       category: cleanText(input.category, 80),
       status: ['pending', 'in_progress', 'completed', 'cancelled'].includes(input.status) ? input.status : 'pending',
@@ -834,7 +833,7 @@ export async function createBusinessPaymentLink(uid, businessId, input = {}) {
   try {
     const apiUser = process.env.FAPSHI_API_USER;
     const secretKey = process.env.FAPSHI_SECRET_KEY;
-    if (!apiUser || !secretKey) throw new BusinessError('La configuration de paiement Fapshi est incomplète.', 503, 'PAYMENT_PROVIDER_CONFIG');
+    if (!apiUser || !secretKey) throw new BusinessError('La configuration du service de paiement est incomplète.', 503, 'PAYMENT_PROVIDER_CONFIG');
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12000);
     let response;
@@ -903,7 +902,7 @@ async function settleBusinessPaymentLink(linkRef, providerData) {
     throw new BusinessError('Le service de paiement n’a pas fourni un montant net de règlement valide. Aucun fonds n’a été crédité.', 409, 'PAYMENT_REVENUE_INVALID');
   }
   if (String(providerData.externalId || '') !== String(linkRef.id)) {
-    throw new BusinessError('La référence externe Fapshi ne correspond pas à ce lien. Aucun fonds n’a été crédité.', 409, 'PAYMENT_REFERENCE_MISMATCH');
+    throw new BusinessError('La référence de paiement ne correspond pas à cette offre. Aucun fonds n’a été crédité.', 409, 'PAYMENT_REFERENCE_MISMATCH');
   }
   if (String(providerData.userId || '') !== String(link.userId)) {
     throw new BusinessError('Le propriétaire associé au paiement ne correspond pas. Aucun fonds n’a été crédité.', 409, 'PAYMENT_OWNER_MISMATCH');
@@ -945,17 +944,17 @@ async function settleBusinessPaymentLink(linkRef, providerData) {
       paymentLinkId: linkRef.id, transId,
       customerName: cleanText(providerData.payerName || link.customerName, 100),
       customerEmail: cleanText(providerData.email || link.customerEmail, 160),
-      note: 'Encaissement confirmé par Fapshi · frais fournisseur déduits séparément',
+      note: 'Encaissement confirmé · frais de traitement déduits séparément',
       status: 'posted', createdBy: link.userId,
       createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
     });
     if (feeAmount > 0) {
       transaction.create(feeTransactionRef, {
         type: 'expense', direction: 'expense', flowType: 'provider_fee',
-        title: 'Frais Fapshi · ' + cleanText(link.title, 80), categoryId: 'payment_fees',
+        title: 'Frais de traitement · ' + cleanText(link.title, 80), categoryId: 'payment_fees',
         amount: feeAmount, date, month, accountId, paymentMethod: 'fapshi',
         paymentLinkId: linkRef.id, transId,
-        note: 'Frais prélevés par Fapshi sur cet encaissement',
+        note: 'Frais de traitement prélevés sur cet encaissement',
         status: 'posted', createdBy: link.userId,
         createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
       });
