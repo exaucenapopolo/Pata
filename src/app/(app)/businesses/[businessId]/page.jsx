@@ -12,7 +12,7 @@ import { formatCurrency, formatDate } from '@/lib/utils';
 import { CloudinaryImageField } from '@/components/ui/CloudinaryImageField';
 import {
   createBusinessAccount, createBusinessTransaction, deleteBusinessResource,
-  createBusinessPaymentLink, getBusinessPaymentLinks, verifyBusinessPaymentLink, getBusinessPaymentLinkDetails,
+  createBusinessPaymentLink, updateBusinessPaymentLink, deleteBusinessPaymentLink, getBusinessPaymentLinks, verifyBusinessPaymentLink, getBusinessPaymentLinkDetails,
   updateBusinessProfile, getBusinessAccounts, getBusinessOverview, getBusinessResource,
   getBusinessTransactions, payBusinessDocument, saveBusinessResource,
   transferPersonalIncome,
@@ -80,6 +80,9 @@ export default function BusinessWorkspacePage() {
   const [showPaymentLinkForm, setShowPaymentLinkForm] = useState(false);
   const [paymentLinkForm, setPaymentLinkForm] = useState({ title: '', description: '', imageUrl: '', originalAmount: '', amount: '', customerName: '', customerEmail: '', maxPayments: '', accountId: 'main' });
   const [busyPaymentLinkId, setBusyPaymentLinkId] = useState('');
+  const [editingPaymentLinkId, setEditingPaymentLinkId] = useState('');
+  const [deletePaymentLinkTarget, setDeletePaymentLinkTarget] = useState(null);
+  const [deletePaymentLinkConfirmation, setDeletePaymentLinkConfirmation] = useState('');
   const [selectedPaymentLink, setSelectedPaymentLink] = useState(null);
   const [paymentLinkDetails, setPaymentLinkDetails] = useState(null);
   const [paymentDetailsLoading, setPaymentDetailsLoading] = useState(false);
@@ -224,13 +227,39 @@ export default function BusinessWorkspacePage() {
     event.preventDefault();
     setSaving(true); setFormError(''); setActionNotice('');
     try {
-      const result = await createBusinessPaymentLink(businessId, paymentLinkForm);
+      const result = editingPaymentLinkId
+        ? await updateBusinessPaymentLink(businessId, editingPaymentLinkId, paymentLinkForm)
+        : await createBusinessPaymentLink(businessId, paymentLinkForm);
+      const saved = result.paymentLink;
       setShowPaymentLinkForm(false);
+      setEditingPaymentLinkId('');
       setPaymentLinkForm({ title: '', description: '', imageUrl: '', originalAmount: '', amount: '', customerName: '', customerEmail: '', maxPayments: '', accountId: accountsForSelect[0]?.id || 'main' });
-      setPaymentLinks((current) => [result.paymentLink, ...current.filter((item) => item.id !== result.paymentLink?.id)]);
-      setActionNotice(en ? 'Payment link created. You can now share it.' : 'Lien de paiement créé. Tu peux maintenant le partager.');
-    } catch (error) { setFormError(error.message || 'Impossible de créer le lien de paiement.'); }
+      setPaymentLinks((current) => editingPaymentLinkId
+        ? current.map((item) => item.id === saved?.id ? saved : item)
+        : [saved, ...current.filter((item) => item.id !== saved?.id)]);
+      setActionNotice(en ? (editingPaymentLinkId ? 'Offer updated. The public link is unchanged.' : 'Payment link created. You can now share it.') : (editingPaymentLinkId ? 'Offre mise à jour. Le lien public reste identique.' : 'Lien de paiement créé. Tu peux maintenant le partager.'));
+    } catch (error) { setFormError(error.message || (en ? 'Could not save this offer.' : 'Impossible d’enregistrer cette offre.')); }
     finally { setSaving(false); }
+  };
+
+  const beginEditPaymentLink = (link) => {
+    setEditingPaymentLinkId(link.id);
+    setPaymentLinkForm({title:link.title||'',description:link.description||'',imageUrl:link.imageUrl||'',originalAmount:String(link.originalAmount||link.amount||''),amount:String(link.amount||''),customerName:link.customerName||'',customerEmail:link.customerEmail||'',maxPayments:String(link.maxPayments||''),accountId:link.accountId||'main'});
+    setFormError('');
+    setShowPaymentLinkForm(true);
+  };
+
+  const confirmDeletePaymentLink = async () => {
+    if (!deletePaymentLinkTarget || deletePaymentLinkConfirmation !== 'SUPPRIMER') return;
+    const target=deletePaymentLinkTarget;
+    setBusyPaymentLinkId(target.id);setFormError('');
+    try {
+      await deleteBusinessPaymentLink(businessId,target.id,'SUPPRIMER');
+      setPaymentLinks(rows=>rows.filter(row=>row.id!==target.id));
+      setDeletePaymentLinkTarget(null);setDeletePaymentLinkConfirmation('');
+      setActionNotice(en?'Offer deleted from public access. Payment history is preserved.':'Lien supprimé de l’accès public. L’historique des paiements est conservé.');
+    } catch(error){setFormError(error.message||'Impossible de supprimer ce lien.');}
+    finally{setBusyPaymentLinkId('');}
   };
 
   const sharePaymentLink = async (link) => {
@@ -457,7 +486,7 @@ export default function BusinessWorkspacePage() {
         <section className="rounded-2xl border border-slate-200 bg-white p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div><h3 className="font-bold text-slate-900">{en ? 'Payment links' : 'Liens de paiement'}</h3><p className="mt-1 max-w-xl text-xs leading-5 text-slate-500">{en ? 'Create a branded product or service page, share it with anyone and receive payments into your selected business account.' : 'Crée une page de vente à l’identité de ton entreprise, partage-la avec tes clients et reçois les paiements dans le compte professionnel choisi.'}</p></div>
-            <button type="button" onClick={() => { setFormError(''); setShowPaymentLinkForm((value) => !value); setPaymentLinkForm((current) => ({ ...current, accountId: accountsForSelect[0]?.id || 'main' })); }} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-[#075b43] px-3.5 text-xs font-semibold text-white"><Plus size={15}/>{en ? 'Create a link' : 'Créer un lien'}</button>
+            <button type="button" onClick={() => { setFormError(''); setShowPaymentLinkForm((value) => !value); setEditingPaymentLinkId(''); setPaymentLinkForm({ title: '', description: '', imageUrl: '', originalAmount: '', amount: '', customerName: '', customerEmail: '', maxPayments: '', accountId: accountsForSelect[0]?.id || 'main' }); }} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-[#075b43] px-3.5 text-xs font-semibold text-white"><Plus size={15}/>{en ? 'Create a link' : 'Créer un lien'}</button>
           </div>
           {showPaymentLinkForm && (
             <form onSubmit={submitPaymentLink} className="mt-4 grid gap-3 rounded-xl bg-slate-50 p-3 sm:grid-cols-2">
@@ -469,7 +498,7 @@ export default function BusinessWorkspacePage() {
               <label className="text-xs font-semibold text-slate-600">{en?'Maximum successful payments':'Nombre maximal de paiements'}<input type="number" min="1" step="1" value={paymentLinkForm.maxPayments||''} onChange={(event)=>setPaymentLinkForm({...paymentLinkForm,maxPayments:event.target.value})} placeholder={en?'Empty = unlimited':'Vide = illimité'} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal"/><span className="mt-1 block text-[10px] font-normal text-slate-500">{en?'Limit counts successful payments only.':'La limite porte uniquement sur les paiements validés.'}</span></label>
               <label className="text-xs font-semibold text-slate-600 sm:col-span-2">{en ? 'Business account to credit' : 'Compte professionnel à créditer'}<select required value={paymentLinkForm.accountId} onChange={(event) => setPaymentLinkForm({ ...paymentLinkForm, accountId: event.target.value })} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal">{accountsForSelect.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
               <details className="sm:col-span-2"><summary className="cursor-pointer text-xs font-semibold text-slate-600">{en ? 'Customer details (optional)' : 'Informations du client (facultatives)'}</summary><div className="mt-2 grid gap-2 sm:grid-cols-2"><label className="text-xs font-semibold text-slate-600">{en ? 'Customer name' : 'Nom du client'}<input maxLength={100} value={paymentLinkForm.customerName} onChange={(event) => setPaymentLinkForm({ ...paymentLinkForm, customerName: event.target.value })} className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal"/></label><label className="text-xs font-semibold text-slate-600">{en ? 'Customer email' : 'E-mail du client'}<input type="email" value={paymentLinkForm.customerEmail} onChange={(event) => setPaymentLinkForm({ ...paymentLinkForm, customerEmail: event.target.value })} className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal"/></label></div></details>
-              <div className="flex gap-2 sm:col-span-2"><button disabled={saving} className="min-h-11 flex-1 rounded-xl bg-[#075b43] px-3 text-xs font-semibold text-white">{saving ? (en ? 'Creating…' : 'Création…') : (en ? 'Create my sales page' : 'Créer ma page de vente')}</button><button type="button" onClick={() => setShowPaymentLinkForm(false)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-600">{en ? 'Cancel' : 'Annuler'}</button></div>
+              <div className="flex gap-2 sm:col-span-2"><button disabled={saving} className="min-h-11 flex-1 rounded-xl bg-[#075b43] px-3 text-xs font-semibold text-white">{saving ? (en ? 'Creating…' : 'Création…') : (en ? 'Create my sales page' : 'Créer ma page de vente')}</button><button type="button" onClick={() => { setShowPaymentLinkForm(false); setEditingPaymentLinkId(''); }} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-600">{en ? 'Cancel' : 'Annuler'}</button></div>
             </form>
           )}
           {listLoading ? <p className="py-8 text-center text-xs text-slate-500">{en ? 'Loading…' : 'Chargement…'}</p> : paymentLinks.length ? (
@@ -484,7 +513,7 @@ export default function BusinessWorkspacePage() {
                     <div className="rounded-lg bg-slate-50 p-2"><p className="text-[10px] text-slate-500">{en?'Payments received':'Paiements validés'}</p><b className="text-sm">{Number(link.successfulPayments||0).toLocaleString('fr-FR')}</b></div>
                     <div className="rounded-lg bg-slate-50 p-2"><p className="text-[10px] text-slate-500">{en?'Net received':'Net encaissé'}</p><b className="text-xs">{money(link.netRevenue||0)}</b></div>
                   </div>
-                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2"><p className="text-[10px] text-slate-500">{en?'Gross sales':'Ventes brutes'} : <b className="text-slate-800">{money(link.grossRevenue||0)}</b></p><div className="flex gap-2">{link.publicUrl&&!soldOut&&<button type="button" onClick={()=>sharePaymentLink(link)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] font-semibold text-slate-700"><Share2 size={13}/>{en?'Share':'Partager'}</button>}<button type="button" onClick={async()=>{setSelectedPaymentLink(link);setPaymentDetailsLoading(true);setPaymentLinkDetails(null);try{setPaymentLinkDetails(await getBusinessPaymentLinkDetails(businessId,link.id));}catch(e){setFormError(e.message||'Impossible de charger les statistiques.');}finally{setPaymentDetailsLoading(false);}}} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-[#075b43] px-2.5 text-[10px] font-semibold text-white">{en?'Statistics':'Voir les statistiques'}</button></div></div>
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2"><p className="text-[10px] text-slate-500">{en?'Gross sales':'Ventes brutes'} : <b className="text-slate-800">{money(link.grossRevenue||0)}</b></p><div className="flex flex-wrap gap-2">{link.publicUrl&&!soldOut&&<button type="button" onClick={()=>sharePaymentLink(link)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] font-semibold text-slate-700"><Share2 size={13}/>{en?'Share':'Partager'}</button>}<button type="button" onClick={()=>beginEditPaymentLink(link)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] font-semibold text-slate-700"><Pencil size={13}/>{en?'Edit':'Modifier'}</button><button type="button" onClick={()=>{setDeletePaymentLinkTarget(link);setDeletePaymentLinkConfirmation('');}} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-red-200 bg-white px-2.5 text-[10px] font-semibold text-red-700"><Trash2 size={13}/>{en?'Delete':'Supprimer'}</button><button type="button" onClick={async()=>{setSelectedPaymentLink(link);setPaymentDetailsLoading(true);setPaymentLinkDetails(null);try{setPaymentLinkDetails(await getBusinessPaymentLinkDetails(businessId,link.id));}catch(e){setFormError(e.message||'Impossible de charger les statistiques.');}finally{setPaymentDetailsLoading(false);}}} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-[#075b43] px-2.5 text-[10px] font-semibold text-white">{en?'Statistics':'Voir les statistiques'}</button></div></div>
                   {link.publicUrl&&<button type="button" onClick={()=>copyPaymentLink(link)} className="mt-2 inline-flex min-h-8 items-center gap-1.5 text-[10px] font-semibold text-slate-500"><Copy size={12}/>{en?'Copy offer link':'Copier le lien de l’offre'}</button>}
                 </article>;
               })}
@@ -559,6 +588,17 @@ export default function BusinessWorkspacePage() {
             {personalSourcesLoading && <p className="text-xs text-slate-500">Chargement des soldes personnels…</p>}{!personalSourcesLoading && !personalSources.length && <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-800">Aucune source personnelle ne dispose actuellement d’un solde vérifié et disponible.</p>}
             <button disabled={saving || personalSourcesLoading || !personalSources.length} className="min-h-11 w-full rounded-xl bg-[#075b43] text-sm font-semibold text-white">{saving ? 'Transfert…' : 'Confirmer le transfert'}</button>
           </form>
+        </div>
+      )}
+
+      {deletePaymentLinkTarget && (
+        <div className="fixed inset-0 z-[130] flex items-end justify-center bg-slate-950/60 p-3 sm:items-center">
+          <section role="alertdialog" aria-modal="true" className="w-full max-w-md space-y-4 rounded-2xl border border-red-100 bg-white p-5 shadow-2xl">
+            <div className="flex items-start gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-50 text-red-700"><Trash2 size={19}/></span><div><h3 className="font-bold text-slate-900">{en?'Delete this payment link?':'Supprimer ce lien de paiement ?'}</h3><p className="mt-1 text-xs leading-5 text-slate-600">{en?'The public link will stop working. Payment records and accounting entries will be preserved. This action cannot be undone.':'Le lien public sera désactivé. Les paiements déjà reçus et les écritures comptables seront conservés. Cette action ne peut pas être annulée.'}</p></div></div>
+            <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs font-semibold text-slate-800">{deletePaymentLinkTarget.title}</p><p className="mt-1 break-all text-[10px] text-slate-500">{deletePaymentLinkTarget.publicUrl}</p></div>
+            <label className="block text-xs font-semibold text-slate-700">{en?'Type SUPPRIMER to confirm':'Saisis SUPPRIMER pour confirmer'}<input autoComplete="off" value={deletePaymentLinkConfirmation} onChange={e=>setDeletePaymentLinkConfirmation(e.target.value)} placeholder="SUPPRIMER" className="mt-1.5 h-11 w-full rounded-xl border border-slate-300 px-3 text-sm"/></label>
+            <div className="flex gap-2"><button type="button" disabled={busyPaymentLinkId===deletePaymentLinkTarget.id||deletePaymentLinkConfirmation!=='SUPPRIMER'} onClick={confirmDeletePaymentLink} className="min-h-11 flex-1 rounded-xl bg-red-700 px-3 text-xs font-bold text-white disabled:opacity-40">{busyPaymentLinkId===deletePaymentLinkTarget.id?(en?'Deleting…':'Suppression…'):(en?'Confirm deletion':'Confirmer la suppression')}</button><button type="button" onClick={()=>{setDeletePaymentLinkTarget(null);setDeletePaymentLinkConfirmation('');}} className="min-h-11 rounded-xl border border-slate-300 px-3 text-xs font-semibold text-slate-600">{en?'Cancel':'Annuler'}</button></div>
+          </section>
         </div>
       )}
 
