@@ -755,7 +755,7 @@ export async function getPublicBusinessPaymentLink(paymentLinkId,visitorId=''){
   await adminDb.runTransaction(async tx=>{const reads=[tx.get(ref)];if(vr)reads.push(tx.get(vr));const rows=await Promise.all(reads),fresh=rows[0],seen=vr?rows[1]:null;if(!fresh.exists||fresh.data()?.status!=='ACTIVE')return;tx.update(ref,{pageViews:FieldValue.increment(1),...(vr&&!seen.exists?{uniqueViews:FieldValue.increment(1)}:{}),updatedAt:FieldValue.serverTimestamp()});if(vr&&!seen.exists)tx.create(vr,{firstSeenAt:FieldValue.serverTimestamp()});});
  }
  const bs=await businessesRef().doc(validId(link.businessId)).get(),b=bs.exists?bs.data()||{}:{};
- const max=Math.max(0,Number(link.maxPayments)||0),sold=link.status==='SOLD_OUT'||(max>0&&Number(link.successfulPayments||0)>=max);
+ const max=Math.max(0,Number(link.maxPayments)||0),sold=link.status==='SOLD_OUT'||(max>0&&Number(link.successfulPayments||0)+Number(link.activePaymentCount||0)>=max);
  return {payment:{id,status:sold?'SOLD_OUT':link.status||'UNAVAILABLE',title:cleanText(link.title,100),description:cleanText(link.description,1200),imageUrl:isValidCloudinaryAvatarUrl(link.imageUrl)?link.imageUrl:'',amount:Number(link.amount)||0,originalAmount:Number(link.originalAmount)||Number(link.amount)||0,discountAmount:Math.max(0,Number(link.discountAmount)||0),businessName:cleanText(b.name||link.businessName,100),businessSlogan:cleanText(b.slogan,180)}};
 }
 export async function createPublicBusinessPaymentCheckout(paymentLinkId,visitorId=''){
@@ -997,6 +997,8 @@ export async function verifyBusinessPaymentLink(uid,businessId,paymentLinkId){
  if(!snap.exists||snap.data()?.businessId!==c.businessId)throw new BusinessError('Lien de paiement introuvable pour cette entreprise.',404,'PAYMENT_LINK_NOT_FOUND');
  const pending=await ref.collection('payments').where('status','in',['PENDING','INITIATING']).limit(20).get();
  const results=await Promise.all(pending.docs.map(d=>d.data()?.transId?processFapshiBusinessPayment(d.data().transId):null));
+ const current=(await ref.get()).data()||{};
+ if(!pending.size&&current.status==='PENDING'&&current.transId)results.push(await processFapshiBusinessPayment(current.transId));
  return {success:true,status:(await ref.get()).data()?.status||'ACTIVE',checked:results.filter(Boolean).length};
 }
 
