@@ -15,7 +15,7 @@ import {
   createBusinessPaymentLink, updateBusinessPaymentLink, deleteBusinessPaymentLink, getBusinessPaymentLinks, verifyBusinessPaymentLink, getBusinessPaymentLinkDetails,
   updateBusinessProfile, getBusinessAccounts, getBusinessOverview, getBusinessResource,
   getBusinessTransactions, payBusinessDocument, saveBusinessResource,
-  transferPersonalIncome,
+  transferPersonalIncome, transferBusinessFundsToPersonal,
 } from '@/lib/business/client';
 
 const TABS = [
@@ -72,6 +72,7 @@ export default function BusinessWorkspacePage() {
   const [showTransactionForm, setShowTransactionForm] = useState(false);
   const [showAccountForm, setShowAccountForm] = useState(false);
   const [showTransferForm, setShowTransferForm] = useState(false);
+  const [showOwnerWithdrawalForm,setShowOwnerWithdrawalForm]=useState(false);
   const [resourceFormOpen, setResourceFormOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
@@ -82,6 +83,7 @@ export default function BusinessWorkspacePage() {
   const [deepLinkPaymentLinkId, setDeepLinkPaymentLinkId] = useState('');
   const [deepLinkOpenedId, setDeepLinkOpenedId] = useState('');
   const [transferForm, setTransferForm] = useState({ incomeId: '', amount: '', accountId: 'main', date: new Date().toISOString().slice(0, 10) });
+  const [ownerWithdrawalForm,setOwnerWithdrawalForm]=useState({amount:'',accountId:'main',date:new Date().toISOString().slice(0,10),note:''});
   const [paymentTarget, setPaymentTarget] = useState(null);
   const [paymentForm, setPaymentForm] = useState({ amount: '', accountId: 'main', date: new Date().toISOString().slice(0, 10) });
   const [paymentLinks, setPaymentLinks] = useState([]);
@@ -225,6 +227,17 @@ export default function BusinessWorkspacePage() {
       setActionNotice(en ? 'Personal funds transferred to the business.' : 'Fonds personnels transférés vers l’entreprise.');
     } catch (error) { setFormError(error.message || 'Impossible d’effectuer ce transfert.'); }
     finally { setSaving(false); }
+  };
+
+  const submitOwnerWithdrawal=async(event)=>{
+    event.preventDefault();setSaving(true);setFormError('');
+    try{
+      const result=await transferBusinessFundsToPersonal(businessId,ownerWithdrawalForm);
+      setShowOwnerWithdrawalForm(false);setOwnerWithdrawalForm(current=>({...current,amount:'',note:''}));
+      window.dispatchEvent(new Event('pata:income-balances-refresh'));await reloadCurrent();
+      setActionNotice(result.duplicate?(en?'This transfer was already recorded.':'Ce transfert était déjà enregistré.'):(en?'Funds transferred to your personal finances as income.':'Fonds transférés vers tes finances personnelles et ajoutés à tes revenus.'));
+    }catch(error){setFormError(error.message||'Impossible de transférer ces fonds vers tes finances personnelles.');}
+    finally{setSaving(false);}
   };
 
   const submitBusinessProfile = async (event) => {
@@ -461,8 +474,9 @@ export default function BusinessWorkspacePage() {
             <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-[10px] text-slate-500">{en ? 'Period result' : 'Résultat de la période'}</p><p className={'mt-2 text-lg font-bold tabular-nums ' + (overview.totals.result < 0 ? 'text-red-700' : 'text-emerald-700')}>{money(overview.totals.result)}</p></div>
           </section>
           <section className="rounded-2xl border border-slate-200 bg-white p-4"><div className="flex items-center justify-between"><div><h3 className="text-sm font-bold text-slate-900">{en?'Monthly budget control':'Suivi du budget mensuel'}</h3><p className="mt-1 text-[10px] text-slate-500">{overview.month} · {overview.totals.budgetCount||0} {en?'category envelopes':'enveloppes'}</p></div><button type="button" onClick={()=>setActiveTab('budgets')} className="text-xs font-semibold text-[#075b43]">{en?'Manage':'Gérer'}</button></div><div className="mt-3 grid grid-cols-3 gap-2"><div><p className="text-[10px] text-slate-500">{en?'Planned':'Prévu'}</p><b className="text-sm">{money(overview.totals.budgetAllocated||0)}</b></div><div><p className="text-[10px] text-slate-500">{en?'Spent':'Dépensé'}</p><b className="text-sm">{money(overview.totals.budgetSpent||0)}</b></div><div><p className="text-[10px] text-slate-500">{en?'Remaining':'Restant'}</p><b className="text-sm">{money(overview.totals.budgetRemaining||0)}</b></div></div><div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-600" style={{width:Math.min(100,Number(overview.totals.budgetAllocated)>0?Number(overview.totals.budgetSpent||0)/Number(overview.totals.budgetAllocated)*100:0)+'%'}}/></div></section>
-          <section className="grid gap-3 sm:grid-cols-2">
+          <section className="grid gap-3 sm:grid-cols-3">
             <div className="rounded-2xl border border-slate-200 bg-white p-4"><h3 className="text-sm font-bold text-slate-900">{en ? 'Money received from the owner' : 'Apports du propriétaire'}</h3><p className="mt-2 text-xl font-bold text-slate-900">{money(overview.totals.ownerContributions)}</p><p className="mt-1 text-xs text-slate-500">{en ? 'Not counted as business sales.' : 'Ne sont pas comptés comme des ventes.'}</p></div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-4"><h3 className="text-sm font-bold text-slate-900">{en ? 'Owner withdrawals' : 'Retraits du propriétaire'}</h3><p className="mt-2 text-xl font-bold text-slate-900">{money(overview.totals.ownerWithdrawals)}</p><p className="mt-1 text-xs text-slate-500">{en?'Not counted as operating expenses.':'Ne sont pas comptés comme des dépenses de l’entreprise.'}</p></div>
             <div className="rounded-2xl border border-slate-200 bg-white p-4"><h3 className="text-sm font-bold text-slate-900">{en ? 'Outstanding commitments' : 'Engagements financiers'}</h3><div className="mt-2 flex justify-between text-xs"><span className="text-slate-500">{en ? 'Receivables' : 'Créances clients'}</span><strong>{money(overview.totals.receivables)}</strong></div><div className="mt-2 flex justify-between text-xs"><span className="text-slate-500">{en ? 'Payables' : 'Dettes à payer'}</span><strong>{money(overview.totals.payables)}</strong></div></div>
           </section>
           <section className="rounded-2xl border border-slate-200 bg-white p-4">
@@ -508,7 +522,7 @@ export default function BusinessWorkspacePage() {
       {activeTab === 'transactions' && (
         <section className="rounded-2xl border border-slate-200 bg-white p-4">
           <div className="flex items-center justify-between gap-2"><h3 className="font-bold text-slate-900">{en ? 'Transaction history' : 'Historique des opérations'}</h3>{writable && <button type="button" onClick={() => setShowTransactionForm(true)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-[#075b43] px-3 text-xs font-semibold text-white"><Plus size={14}/>{en ? 'New' : 'Ajouter'}</button>}</div>
-          {listLoading ? <p className="py-8 text-center text-xs text-slate-500">{en ? 'Loading…' : 'Chargement…'}</p> : transactions.length ? <div className="mt-3 divide-y divide-slate-100">{transactions.map((item) => <div key={item.id} className="flex items-start justify-between gap-3 py-3"><div className="flex min-w-0 items-start gap-2.5"><span className={'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ' + (item.type === 'expense' ? 'bg-rose-50 text-rose-700' : item.flowType === 'owner_contribution' ? 'bg-blue-50 text-blue-700' : 'bg-emerald-50 text-emerald-700')}>{item.type === 'expense' ? <ArrowUpRight size={15}/> : <ArrowDownLeft size={15}/>}</span><div className="min-w-0"><p className="truncate text-xs font-semibold text-slate-800">{item.title || item.categoryId}</p><p className="mt-1 text-[10px] text-slate-500">{formatDate(item.date || item.createdAt)} · {item.flowType === 'owner_contribution' ? (en ? 'Owner contribution' : 'Apport du propriétaire') : item.categoryId}</p>{item.note && <p className="mt-1 text-[10px] text-slate-500">{item.note}</p>}</div></div><strong className={'shrink-0 text-xs tabular-nums ' + (item.type === 'expense' ? 'text-rose-700' : 'text-emerald-700')}>{item.type === 'expense' ? '−' : '+'}{money(item.amount)}</strong></div>)}</div> : <p className="py-10 text-center text-xs text-slate-500">{en ? 'No transactions yet.' : 'Aucune opération enregistrée.'}</p>}
+          {listLoading ? <p className="py-8 text-center text-xs text-slate-500">{en ? 'Loading…' : 'Chargement…'}</p> : transactions.length ? <div className="mt-3 divide-y divide-slate-100">{transactions.map((item) => <div key={item.id} className="flex items-start justify-between gap-3 py-3"><div className="flex min-w-0 items-start gap-2.5"><span className={'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ' + (item.type === 'expense' || item.flowType === 'owner_withdrawal' ? 'bg-rose-50 text-rose-700' : item.flowType === 'owner_contribution' ? 'bg-blue-50 text-blue-700' : 'bg-emerald-50 text-emerald-700')}>{item.type === 'expense' || item.flowType === 'owner_withdrawal' ? <ArrowUpRight size={15}/> : <ArrowDownLeft size={15}/>}</span><div className="min-w-0"><p className="truncate text-xs font-semibold text-slate-800">{item.title || item.categoryId}</p><p className="mt-1 text-[10px] text-slate-500">{formatDate(item.date || item.createdAt)} · {item.flowType === 'owner_contribution' ? (en ? 'Owner contribution' : 'Apport du propriétaire') : item.flowType === 'owner_withdrawal' ? (en?'Owner withdrawal · personal transfer':'Retrait du propriétaire · transfert personnel') : item.categoryId}</p>{item.note && <p className="mt-1 text-[10px] text-slate-500">{item.note}</p>}</div></div><strong className={'shrink-0 text-xs tabular-nums ' + (item.type === 'expense' || item.flowType === 'owner_withdrawal' ? 'text-rose-700' : 'text-emerald-700')}>{item.type === 'expense' || item.flowType === 'owner_withdrawal' ? '−' : '+'}{money(item.amount)}</strong></div>)}</div> : <p className="py-10 text-center text-xs text-slate-500">{en ? 'No transactions yet.' : 'Aucune opération enregistrée.'}</p>}
         </section>
       )}
 
@@ -570,7 +584,7 @@ export default function BusinessWorkspacePage() {
           <div className="flex items-center justify-between gap-2"><div><h3 className="font-bold text-slate-900">{en ? 'Cash and payment accounts' : 'Caisses et comptes de paiement'}</h3><p className="mt-1 text-xs text-slate-500">{en ? 'Balances change when business transactions are recorded.' : 'Les soldes évoluent avec les opérations de l’entreprise.'}</p></div><button type="button" onClick={() => setShowAccountForm((value) => !value)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-[#075b43] px-3 text-xs font-semibold text-white"><Plus size={14}/>{en ? 'Add account' : 'Ajouter'}</button></div>
           {showAccountForm && <form onSubmit={submitAccount} className="mt-4 grid gap-2 rounded-xl bg-slate-50 p-3 sm:grid-cols-3"><input required value={accountForm.name} onChange={(e) => setAccountForm({ ...accountForm, name: e.target.value })} placeholder={en ? 'Account name' : 'Nom du compte'} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm"/><select value={accountForm.type} onChange={(e) => setAccountForm({ ...accountForm, type: e.target.value })} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="cash">Caisse</option><option value="mtn_momo">MTN MoMo</option><option value="orange_money">Orange Money</option><option value="bank">Banque</option><option value="other">Autre</option></select><input type="number" min="0" step="1" value={accountForm.openingBalance} onChange={(e) => setAccountForm({ ...accountForm, openingBalance: e.target.value })} placeholder={en ? 'Opening balance' : 'Solde initial'} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm"/><button disabled={saving} className="min-h-10 rounded-lg bg-[#075b43] px-3 text-xs font-semibold text-white sm:col-span-3">{saving ? (en ? 'Saving…' : 'Enregistrement…') : (en ? 'Save account' : 'Enregistrer le compte')}</button></form>}
           {listLoading ? <p className="py-8 text-xs text-slate-500">Chargement…</p> : <div className="mt-3 grid gap-2 sm:grid-cols-2">{accounts.map((account) => <div key={account.id} className="flex items-center justify-between rounded-xl border border-slate-200 p-3"><div><p className="text-sm font-semibold text-slate-800">{account.name}</p><p className="mt-1 text-[10px] text-slate-500">{account.type}</p></div><strong className="text-sm tabular-nums">{money(account.balance)}</strong></div>)}</div>}
-          {writable && <button type="button" onClick={() => setShowTransferForm(true)} className="mt-4 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 text-xs font-semibold text-blue-800"><Send size={15}/>{en ? 'Transfer personal funds into this business' : 'Transférer des fonds personnels vers l’entreprise'}</button>}
+          {writable && <div className="mt-4 grid gap-2 sm:grid-cols-2"><button type="button" onClick={() => setShowTransferForm(true)} className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 text-xs font-semibold text-blue-800"><Send size={15}/>{en ? 'Transfer personal funds into this business' : 'Transférer des fonds personnels vers l’entreprise'}</button><button type="button" onClick={()=>{setOwnerWithdrawalForm({amount:'',accountId:accounts[0]?.id||'main',date:new Date().toISOString().slice(0,10),note:''});setShowOwnerWithdrawalForm(true);}} className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-800"><ArrowDownLeft size={15}/>{en?'Transfer funds to personal':'Transférer vers mes finances personnelles'}</button></div>}
         </section>
       )}
 
@@ -609,7 +623,7 @@ export default function BusinessWorkspacePage() {
       )}
 
 {profileFormOpen && writable && (
-        <div className="fixed inset-0 z-[110] flex items-end justify-center bg-slate-950/50 p-3 sm:items-center">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/50 p-3 sm:items-center">
           <form onSubmit={submitBusinessProfile} className="max-h-[92dvh] w-full max-w-lg space-y-3 overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl sm:p-5">
             <div className="flex items-center justify-between"><h3 className="font-bold text-slate-900">{en ? 'Business identity' : 'Identité de l’entreprise'}</h3><button type="button" onClick={() => setProfileFormOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500"><X size={18}/></button></div>
             <CloudinaryImageField value={profileForm.logoUrl || ''} onChange={(logoUrl) => setProfileForm({ ...profileForm, logoUrl })} folder="pata/businesses" language={language} label={en ? 'Business logo' : 'Logo de l’entreprise'} />
@@ -633,7 +647,7 @@ export default function BusinessWorkspacePage() {
       )}
 
       {showTransactionForm && writable && (
-        <div className="fixed inset-0 z-[100] flex items-end justify-center bg-slate-950/40 p-3 sm:items-center">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 p-3 sm:items-center">
           <form onSubmit={submitTransaction} className="max-h-[90dvh] w-full max-w-lg space-y-3 overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl sm:p-5">
             <div className="flex items-center justify-between"><h3 className="font-bold text-slate-900">{en ? 'New business transaction' : 'Nouvelle opération professionnelle'}</h3><button type="button" onClick={() => setShowTransactionForm(false)} className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500"><X size={18}/></button></div>
             <div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => setTransactionForm({ ...transactionForm, type: 'income', categoryId: 'sales' })} className={'min-h-10 rounded-lg text-xs font-semibold ' + (transactionForm.type === 'income' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600')}>{en ? 'Income' : 'Entrée'}</button><button type="button" onClick={() => setTransactionForm({ ...transactionForm, type: 'expense', categoryId: 'other' })} className={'min-h-10 rounded-lg text-xs font-semibold ' + (transactionForm.type === 'expense' ? 'bg-rose-600 text-white' : 'bg-slate-100 text-slate-600')}>{en ? 'Expense' : 'Sortie'}</button></div>
@@ -648,8 +662,8 @@ export default function BusinessWorkspacePage() {
       )}
 
       {showTransferForm && writable && (
-        <div className="fixed inset-0 z-[100] flex items-end justify-center bg-slate-950/40 p-3 sm:items-center">
-          <form onSubmit={submitTransfer} className="w-full max-w-lg space-y-3 rounded-2xl bg-white p-4 shadow-2xl">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 p-3 sm:items-center">
+          <form onSubmit={submitTransfer} className="max-h-[calc(100dvh-1.5rem)] w-full max-w-lg space-y-3 overflow-y-auto overscroll-contain rounded-2xl bg-white p-4 shadow-2xl">
             <div className="flex items-center justify-between"><h3 className="font-bold text-slate-900">{en ? 'Personal contribution' : 'Apport depuis tes finances personnelles'}</h3><button type="button" onClick={() => setShowTransferForm(false)}><X size={18}/></button></div>
             <div className="flex items-center gap-3 rounded-xl bg-slate-50 p-3">
               <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white text-slate-500">{overview.business.logoUrl ? <img src={overview.business.logoUrl} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer"/> : <Building2 size={20}/>}</span>
@@ -666,9 +680,23 @@ export default function BusinessWorkspacePage() {
         </div>
       )}
 
+      {showOwnerWithdrawalForm&&writable&&(
+        <div className="fixed inset-0 z-[105] flex items-center justify-center bg-slate-950/50 p-3">
+          <form onSubmit={submitOwnerWithdrawal} className="max-h-[calc(100dvh-1.5rem)] w-full max-w-lg space-y-3 overflow-y-auto overscroll-contain rounded-2xl bg-white p-4 shadow-2xl">
+            <div className="flex items-center justify-between gap-3"><div><h3 className="font-bold text-slate-900">{en?'Transfer to personal finances':'Transférer vers mes finances personnelles'}</h3><p className="mt-1 text-[10px] text-slate-500">{en?'This is an owner withdrawal, not a business expense.':'Ce mouvement est un retrait du propriétaire, pas une dépense de l’entreprise.'}</p></div><button type="button" onClick={()=>setShowOwnerWithdrawalForm(false)} className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500"><X size={18}/></button></div>
+            <div className="rounded-xl bg-emerald-50 p-3"><p className="text-[10px] text-emerald-800">{en?'Available business cash':'Trésorerie professionnelle disponible'}</p><p className="mt-1 text-lg font-bold text-emerald-950">{money(overview.totals.cashBalance)}</p></div>
+            <label className="block text-xs font-semibold text-slate-600">{en?'Source business account':'Compte professionnel à débiter'}<select required value={ownerWithdrawalForm.accountId} onChange={e=>setOwnerWithdrawalForm(current=>({...current,accountId:e.target.value}))} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm">{accountsForSelect.map(account=><option key={account.id} value={account.id}>{account.name} · {money(account.balance)}</option>)}</select></label>
+            <label className="block text-xs font-semibold text-slate-600">{en?'Amount to transfer (XAF)':'Montant à transférer (FCFA)'}<input type="number" min="1" step="1" required value={ownerWithdrawalForm.amount} onChange={e=>setOwnerWithdrawalForm(current=>({...current,amount:e.target.value}))} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 px-3 text-base"/></label>
+            <label className="block text-xs font-semibold text-slate-600">{en?'Date':'Date'}<input type="date" required value={ownerWithdrawalForm.date} onChange={e=>setOwnerWithdrawalForm(current=>({...current,date:e.target.value}))} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"/></label>
+            <label className="block text-xs font-semibold text-slate-600">{en?'Note (optional)':'Note (facultatif)'}<textarea rows={2} maxLength={250} value={ownerWithdrawalForm.note} onChange={e=>setOwnerWithdrawalForm(current=>({...current,note:e.target.value}))} className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"/></label>
+            <button disabled={saving||!accountsForSelect.length} className="min-h-11 w-full rounded-xl bg-[#075b43] text-sm font-semibold text-white">{saving?(en?'Transferring…':'Transfert…'):(en?'Confirm transfer':'Confirmer le transfert')}</button>
+          </form>
+        </div>
+      )}
+
       {deletePaymentLinkTarget && (
-        <div className="fixed inset-0 z-[130] flex items-end justify-center bg-slate-950/60 p-3 sm:items-center">
-          <section role="alertdialog" aria-modal="true" className="w-full max-w-md space-y-4 rounded-2xl border border-red-100 bg-white p-5 shadow-2xl">
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-950/60 p-3 sm:items-center">
+          <section role="alertdialog" aria-modal="true" className="max-h-[calc(100dvh-1.5rem)] w-full max-w-md space-y-4 overflow-y-auto overscroll-contain rounded-2xl border border-red-100 bg-white p-5 shadow-2xl">
             <div className="flex items-start gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-50 text-red-700"><Trash2 size={19}/></span><div><h3 className="font-bold text-slate-900">{en?'Delete this payment link?':'Supprimer ce lien de paiement ?'}</h3><p className="mt-1 text-xs leading-5 text-slate-600">{en?'The public link will stop working. Payment records and accounting entries will be preserved. This action cannot be undone.':'Le lien public sera désactivé. Les paiements déjà reçus et les écritures comptables seront conservés. Cette action ne peut pas être annulée.'}</p></div></div>
             <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs font-semibold text-slate-800">{deletePaymentLinkTarget.title}</p><p className="mt-1 break-all text-[10px] text-slate-500">{deletePaymentLinkTarget.publicUrl}</p></div>
             <label className="block text-xs font-semibold text-slate-700">{en?'Type SUPPRIMER to confirm':'Saisis SUPPRIMER pour confirmer'}<input autoComplete="off" value={deletePaymentLinkConfirmation} onChange={e=>setDeletePaymentLinkConfirmation(e.target.value)} placeholder="SUPPRIMER" className="mt-1.5 h-11 w-full rounded-xl border border-slate-300 px-3 text-sm"/></label>
@@ -678,7 +706,7 @@ export default function BusinessWorkspacePage() {
       )}
 
       {selectedPaymentLink && (
-        <div className="fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/50 p-3 sm:items-center"><section className="max-h-[90dvh] w-full max-w-xl space-y-4 overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/50 p-3 sm:items-center"><section className="max-h-[90dvh] w-full max-w-xl space-y-4 overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl">
           <div className="flex items-center justify-between gap-3"><div><h3 className="font-bold text-slate-900">{selectedPaymentLink.title}</h3><p className="mt-1 text-xs text-slate-500">{en?'Offer performance':'Performances de cette offre'}</p></div><button type="button" onClick={()=>{setSelectedPaymentLink(null);setPaymentLinkDetails(null);}} className="rounded-lg p-2 text-slate-500"><X size={18}/></button></div>
           {paymentDetailsLoading?<p className="py-8 text-center text-xs text-slate-500">{en?'Loading…':'Chargement…'}</p>:paymentLinkDetails&&<>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{[[en?'Views':'Vues',paymentLinkDetails.paymentLink?.uniqueViews||0],[en?'Clicks':'Clics',paymentLinkDetails.paymentLink?.clickCount||0],[en?'Successful payments':'Paiements validés',paymentLinkDetails.paymentLink?.successfulPayments||0],[en?'Net received':'Net encaissé',money(paymentLinkDetails.paymentLink?.netRevenue||0)]].map(([label,value])=><div key={label} className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] text-slate-500">{label}</p><b className="mt-1 block text-sm">{value}</b></div>)}</div>
@@ -689,8 +717,8 @@ export default function BusinessWorkspacePage() {
         </section></div>
       )}
       {paymentTarget && writable && (
-        <div className="fixed inset-0 z-[100] flex items-end justify-center bg-slate-950/40 p-3 sm:items-center">
-          <form onSubmit={submitPayment} className="w-full max-w-md space-y-3 rounded-2xl bg-white p-4 shadow-2xl">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 p-3 sm:items-center">
+          <form onSubmit={submitPayment} className="max-h-[calc(100dvh-1.5rem)] w-full max-w-md space-y-3 overflow-y-auto overscroll-contain rounded-2xl bg-white p-4 shadow-2xl">
             <div className="flex items-center justify-between"><h3 className="font-bold text-slate-900">{en ? 'Record a payment' : 'Enregistrer un paiement'}</h3><button type="button" onClick={() => setPaymentTarget(null)}><X size={18}/></button></div>
             <p className="text-xs text-slate-500">{paymentTarget.title} · reste {money(paymentTarget.remaining ?? paymentTarget.totalAmount ?? paymentTarget.amount)}</p>
             <label className="block text-xs font-semibold text-slate-600">Montant payé (FCFA)<input type="number" min="1" step="1" required value={paymentForm.amount} onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 px-3 text-base"/></label>

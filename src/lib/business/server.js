@@ -419,6 +419,64 @@ export async function transferPersonalIncomeToBusiness(uid, businessId, input = 
   return { success: true, id: resultId, message: 'Transfert enregistré sans le compter comme un revenu professionnel.' };
 }
 
+
+export async function transferBusinessFundsToPersonal(uid,businessId,input={}){
+  const context=await getBusinessContext(uid,businessId);requireWritable(context);
+  const accountId=validId(input.accountId||'main'),amount=parseAmount(input.amount,'Montant du transfert'),date=parseDate(input.date);
+  const requestId=cleanText(input.requestId,100).replace(/[^a-zA-Z0-9_-]/g,'_');
+  if(requestId.length<8)throw new BusinessError('Identifiant de transfert invalide.');
+  const businessRef=context.businessRef,userRef=context.userRef,accountRef=businessRef.collection('accounts').doc(accountId);
+  const transferRef=businessRef.collection('transfers').doc('to_personal_'+requestId);
+  const businessTransactionRef=businessRef.collection('transactions').doc('withdrawal_'+requestId);
+  const incomeId=('business_'+businessId+'_'+requestId).replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,140);
+  const incomeRef=userRef.collection('incomes').doc(incomeId),month=date.slice(0,7),monthRef=businessRef.collection('monthlySummaries').doc(month);
+  let duplicate=false;
+  await adminDb.runTransaction(async transaction=>{
+    const [profileSnap,accountSnap,businessSnap,memberSnap,transferSnap,incomeSnap]=await Promise.all([
+      transaction.get(userRef),transaction.get(accountRef),transaction.get(businessRef),transaction.get(context.memberRef),transaction.get(transferRef),transaction.get(incomeRef),
+    ]);
+    if(transferSnap.exists){duplicate=true;return;}
+    if(!profileSnap.exists||!isPremium(profileSnap.data()||{}))premiumRequired();
+    if(!accountSnap.exists||accountSnap.data()?.active===false)throw new BusinessError('Compte financier de l’entreprise introuvable ou désactivé.');
+    if(!businessSnap.exists||businessSnap.data()?.status==='archived')throw new BusinessError('Entreprise indisponible.');
+    if(!memberSnap.exists||!['owner','admin','finance'].includes(memberSnap.data()?.role||''))throw new BusinessError('Tu ne disposes pas des droits nécessaires pour transférer des fonds vers tes finances personnelles.',403,'READ_ONLY');
+    if(incomeSnap.exists)throw new BusinessError('Un revenu portant déjà cet identifiant existe. Recharge les données avant de réessayer.',409);
+    const account=accountSnap.data()||{},balance=Math.max(0,Number(account.balance)||0);
+    if(amount>balance)throw new BusinessError('Le montant dépasse le solde disponible de ce compte professionnel : '+balance.toLocaleString('fr-FR')+' FCFA.');
+    const business=businessSnap.data()||{},businessName=cleanText(business.name||'Entreprise',100);
+    const transactionNote=cleanText(input.note,250)||'Fonds transférés vers les finances personnelles';
+    transaction.create(businessTransactionRef,{
+      type:'outflow',direction:'outflow',flowType:'owner_withdrawal',title:'Retrait du propriétaire',
+      categoryId:'owner_withdrawal',amount,date,month,accountId,status:'posted',
+      note:transactionNote+' · '+businessName,personalIncomeId:incomeId,businessTransferId:transferRef.id,
+      createdBy:uid,createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp(),
+    });
+    transaction.create(incomeRef,{
+      amount,source:'Retrait de fonds · '+businessName,categoryId:'business',date,month,
+      note:'Fonds transférés depuis le compte professionnel '+businessName,
+      details:transactionNote,paymentMethod:'internal_transfer',flowType:'business_transfer_received',
+      businessId,businessName,businessTransactionId:businessTransactionRef.id,businessTransferId:transferRef.id,
+      createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp(),
+    });
+    transaction.create(transferRef,{
+      direction:'to_personal',amount,date,accountId,businessTransactionId:businessTransactionRef.id,
+      personalIncomeId:incomeId,createdBy:uid,createdAt:FieldValue.serverTimestamp(),
+    });
+    transaction.update(accountRef,{balance:FieldValue.increment(-amount),updatedAt:FieldValue.serverTimestamp()});
+    transaction.update(businessRef,{
+      cashBalance:FieldValue.increment(-amount),ownerWithdrawals:FieldValue.increment(amount),
+      updatedAt:FieldValue.serverTimestamp(),lastActivityAt:FieldValue.serverTimestamp(),
+    });
+    transaction.set(monthRef,{month,ownerWithdrawals:FieldValue.increment(amount),transactionCount:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()},{merge:true});
+    const profile=profileSnap.data()||{},monthNow=new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Douala',year:'numeric',month:'2-digit'}).format(new Date());
+    const currentStats=profile.monthlyStats||{};
+    const stats=currentStats.lastResetMonth===monthNow?{...currentStats}:{...currentStats,expenses:0,incomes:0,budgets:0,goals:0,lastResetMonth:monthNow};
+    stats.incomes=(Number(stats.incomes)||0)+1;stats.lastResetMonth=monthNow;
+    transaction.set(userRef,{monthlyStats:stats,lifetimeIncomeAmount:FieldValue.increment(amount),lifetimeIncomeCount:FieldValue.increment(1)},{merge:true});
+  });
+  return {success:true,duplicate,message:duplicate?'Ce transfert a déjà été enregistré.':'Fonds transférés vers tes finances personnelles et enregistrés comme revenu disponible.'};
+}
+
 export async function createBusinessAccount(uid, businessId, input = {}) {
   const context = await getBusinessContext(uid, businessId);
   requireWritable(context);

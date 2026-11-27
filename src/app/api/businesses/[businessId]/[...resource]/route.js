@@ -4,7 +4,7 @@ import {
   BusinessError, createBusinessAccount, createBusinessTransaction,
   deleteBusinessResource, getBusinessOverview, listBusinessAccounts, listBusinessPeople, saveBusinessPerson, deleteBusinessPerson,
   listBusinessResource, listBusinessTransactions, recordBusinessDocumentPayment,
-  saveBusinessResource, transferPersonalIncomeToBusiness, listBusinessJoinRequests, reviewBusinessJoinRequest, createBusinessInvitation, requestBusinessJoin,
+  saveBusinessResource, transferPersonalIncomeToBusiness, transferBusinessFundsToPersonal, listBusinessJoinRequests, reviewBusinessJoinRequest, createBusinessInvitation, requestBusinessJoin,
 } from '@/lib/business/server';
 
 export const runtime = 'nodejs';
@@ -62,6 +62,10 @@ async function dispatch(request, context) {
     if (method === 'POST' && action === 'accounts' && parts.length === 1) {
       const body = await request.json().catch(() => ({}));
       return NextResponse.json(await createBusinessAccount(uid, businessId, body), { status: 201 });
+    }
+    if (method === 'POST' && action === 'transfer' && second === 'to-personal' && parts.length === 2) {
+      const body = await request.json().catch(() => ({}));
+      return NextResponse.json(await transferBusinessFundsToPersonal(uid, businessId, body), { status: 201 });
     }
     if (method === 'POST' && action === 'transfer' && second === 'from-personal' && parts.length === 2) {
       const body = await request.json().catch(() => ({}));
