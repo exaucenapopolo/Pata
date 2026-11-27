@@ -105,7 +105,7 @@ export async function listUserBusinesses(uid) {
     if (!businessSnap.exists || membership.data()?.active === false || membership.data()?.status === 'revoked') return null;
     const business = businessSnap.data() || {};
     if (!business.nameSearch && business.name) {
-      await businessSnap.ref.update({ nameSearch: cleanText(business.name, 100).toLocaleLowerCase('fr') }).catch(() => {});
+      await businessSnap.ref.update({ nameSearch: normalizeBusinessSearch(business.name) }).catch(() => {});
     }
     return {
       id: businessSnap.id,
@@ -1059,26 +1059,22 @@ const BUSINESS_JOIN_TYPES = new Set(['founder','cofounder','employee','partner',
 const BUSINESS_ACCESS_ROLES = new Set(['admin','finance','manager','staff','viewer']);
 const businessInvitationsRef = () => adminDb.collection('businessInvitations');
 
-const normalizeBusinessSearch = (value) => cleanText(value, 100).normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLocaleLowerCase('fr').replace(/\\s+/g, ' ').trim();
+const normalizeBusinessSearch = (value) => cleanText(value, 100).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('fr').replace(/\s+/g, ' ').trim();
 
 export async function searchBusinessesForJoin(uid, query) {
   const term = normalizeBusinessSearch(query);
   if (term.length < 3) return { businesses: [] };
   const [snapshot, memberships] = await Promise.all([
-    businessesRef().orderBy('nameSearch').startAt(term).endAt(term + '\\uf8ff').limit(20).get(),
+    businessesRef().orderBy('nameSearch').startAt(term).endAt(term + String.fromCharCode(0xF8FF)).limit(20).get(),
     userBusinessRefs(uid).limit(50).get(),
   ]);
   const joined = new Set(memberships.docs.filter(d => d.data()?.active !== false && d.data()?.status !== 'revoked').map(d => d.id));
   const found = new Map(snapshot.docs.map(d => [d.id, d]));
-  // Always include businesses already linked to this account. The previous filter
-  // hid the user's own company, making a direct name search appear broken.
+  // Include the user's own companies as searchable results instead of hiding them.
   for (const membership of memberships.docs) {
     if (found.has(membership.id)) continue;
     const businessSnap = await businessesRef().doc(membership.id).get();
-    if (businessSnap.exists) {
-      const business = businessSnap.data() || {};
-      if (normalizeBusinessSearch(business.name).startsWith(term)) found.set(businessSnap.id, businessSnap);
-    }
+    if (businessSnap.exists && normalizeBusinessSearch(businessSnap.data()?.name).startsWith(term)) found.set(businessSnap.id, businessSnap);
   }
   return { businesses: [...found.entries()].filter(([, d]) => d.data()?.status !== 'archived' && normalizeBusinessSearch(d.data()?.name).startsWith(term)).slice(0, 20).map(([id, d]) => {
     const b=d.data()||{};return {id,name:cleanText(b.name,100),slogan:cleanText(b.slogan,180),city:cleanText(b.city,80),logoUrl:isValidCloudinaryAvatarUrl(b.logoUrl)?b.logoUrl:'',alreadyMember:joined.has(id)};
