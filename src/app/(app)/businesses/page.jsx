@@ -1,12 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Building2, Plus, ArrowRight, LockKeyhole, Crown, RefreshCw } from 'lucide-react';
+import { Building2, Plus, ArrowRight, LockKeyhole, Crown, RefreshCw, Search, CheckCircle2, UserPlus } from 'lucide-react';
 import { CloudinaryImageField } from '@/components/ui/CloudinaryImageField';
 import { useBusinesses } from '@/hooks/useBusinesses';
-import { createBusiness } from '@/lib/business/client';
+import { createBusiness, searchBusinessesForJoin, requestBusinessJoin, getMyBusinessInvitations, acceptBusinessInvitation } from '@/lib/business/client';
 import { useLanguage } from '@/context/LanguageContext';
 
 const BUSINESS_ACTIVITIES = [
@@ -21,8 +21,17 @@ export default function BusinessesPage() {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
-  const [form, setForm] = useState({ name: '', activity: '', activityCustom: '', slogan: '', legalForm: '', city: '', phone: '', logoUrl: '' });
+  const [form, setForm] = useState({ name: '', activity: '', activityCustom: '', slogan: '', legalForm: '', city: '', phone: '', logoUrl: '', creatorType: 'founder' });
+  const [searchTerm,setSearchTerm]=useState('');
+  const [searchResults,setSearchResults]=useState([]);
+  const [searchLoading,setSearchLoading]=useState(false);
+  const [joinType,setJoinType]=useState('employee');
+  const [joinBusy,setJoinBusy]=useState('');
+  const [joinNotice,setJoinNotice]=useState('');
+  const [invitations,setInvitations]=useState([]);
 
+  useEffect(()=>{let active=true;const term=searchTerm.trim();if(term.length<3){setSearchResults([]);setSearchLoading(false);return undefined;}setSearchLoading(true);const timer=setTimeout(()=>{searchBusinessesForJoin(term).then(rows=>{if(active)setSearchResults(rows);}).catch(()=>{if(active)setSearchResults([]);}).finally(()=>{if(active)setSearchLoading(false);});},350);return()=>{active=false;clearTimeout(timer);};},[searchTerm]);
+  useEffect(()=>{let active=true;getMyBusinessInvitations().then(rows=>{if(active)setInvitations(rows);}).catch(()=>{});return()=>{active=false;};},[]);
   const submit = async (event) => {
     event.preventDefault();
     setFormError('');
@@ -67,6 +76,14 @@ export default function BusinessesPage() {
       )}
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <div className="flex items-center gap-2"><Search size={18} className="text-[#075b43]"/><h3 className="font-bold text-slate-900">{en?'Find a business to join':'Rechercher une entreprise à rejoindre'}</h3></div>
+        <p className="mt-1 text-xs leading-5 text-slate-500">{en?'Enter at least three letters. A join request is sent to the founder for approval.':'Saisis au moins trois lettres. Une demande sera envoyée au fondateur, qui devra l’approuver.'}</p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_220px]"><input value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} minLength={3} placeholder={en?'Business name (3 characters minimum)':'Nom de l’entreprise (3 lettres minimum)'} className="h-11 rounded-xl border border-slate-300 px-3 text-sm"/><select value={joinType} onChange={e=>setJoinType(e.target.value)} className="h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm"><option value="employee">{en?'Employee':'Employé'}</option><option value="cofounder">{en?'Co-founder':'Cofondateur'}</option><option value="partner">{en?'Partner / associate':'Associé / partenaire'}</option><option value="associate">{en?'Collaborator':'Collaborateur'}</option><option value="contractor">{en?'Service provider':'Prestataire'}</option></select></div>
+        {searchTerm.trim().length<3?<p className="mt-3 text-[11px] text-slate-400">{en?'Search starts after three characters to limit database reads.':'La recherche démarre à partir de trois caractères afin de limiter les lectures.'}</p>:searchLoading?<p className="py-4 text-xs text-slate-500">{en?'Searching…':'Recherche…'}</p>:searchResults.length?<div className="mt-3 space-y-2">{searchResults.map(b=><div key={b.id} className="flex items-center gap-3 rounded-xl border border-slate-200 p-3"><span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-100">{b.logoUrl?<img src={b.logoUrl} alt="" className="h-full w-full object-cover"/>:<Building2 size={19}/>}</span><div className="min-w-0 flex-1"><b className="block truncate text-sm">{b.name}</b><p className="truncate text-[10px] text-slate-500">{b.slogan||b.city|| (en?'Business':'Entreprise')}</p></div><button type="button" disabled={joinBusy===b.id} onClick={async()=>{setJoinBusy(b.id);setJoinNotice('');try{await requestBusinessJoin(b.id,{personType:joinType});setJoinNotice(en?'Request sent to the founder.':'Demande envoyée au fondateur.');setSearchResults(rows=>rows.filter(x=>x.id!==b.id));}catch(e){setJoinNotice(e.message||'Impossible d’envoyer la demande.');}finally{setJoinBusy('');}}} className="inline-flex min-h-9 shrink-0 items-center gap-1 rounded-lg bg-[#075b43] px-3 text-[10px] font-semibold text-white"><UserPlus size={13}/>{joinBusy===b.id?'…':(en?'Request':'Rejoindre')}</button></div>)}</div>:<p className="py-4 text-xs text-slate-500">{en?'No matching business found.':'Aucune entreprise correspondante.'}</p>}
+        {joinNotice&&<p className="mt-2 rounded-lg bg-emerald-50 p-2 text-xs text-emerald-800">{joinNotice}</p>}
+      </section>
+      {invitations.length>0&&<section className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4"><h3 className="font-bold text-slate-900">{en?'Business invitations':'Invitations reçues'}</h3><div className="mt-3 space-y-2">{invitations.map(inv=><div key={inv.id} className="flex items-center gap-3 rounded-xl bg-white p-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-100">{inv.businessLogoUrl?<img src={inv.businessLogoUrl} alt="" className="h-full w-full object-cover"/>:<Building2 size={18}/>}</span><div className="min-w-0 flex-1"><b className="block truncate text-sm">{inv.businessName}</b><p className="text-[10px] text-slate-500">{inv.role} · {inv.invitedEmail}</p></div><button type="button" onClick={async()=>{try{const result=await acceptBusinessInvitation(inv.id);await refresh();router.push('/businesses/'+result.businessId);}catch(e){setJoinNotice(e.message||'Impossible d’accepter l’invitation.');}}} className="min-h-9 rounded-lg bg-[#075b43] px-3 text-[10px] font-semibold text-white">{en?'Accept':'Accepter'}</button></div>)}</div></section>}
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="font-bold text-slate-900">{en ? 'Your business spaces' : 'Tes espaces professionnels'}</h3>
@@ -80,6 +97,7 @@ export default function BusinessesPage() {
         {showForm && premiumActive && (
           <form onSubmit={submit} className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2 sm:p-4">
             <label className="text-xs font-semibold text-slate-700 sm:col-span-2">{en ? 'Business name' : 'Nom de l’entreprise'}<input required minLength={2} maxLength={100} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="SOCIAL BOOST HORIZON" className="mt-1.5 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal outline-none focus:border-brand-600"/></label>
+            <label className="text-xs font-semibold text-slate-700">{en?'Your position at creation':'Ta position dans cette entreprise'}<select value={form.creatorType} onChange={e=>setForm({...form,creatorType:e.target.value})} className="mt-1.5 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal"><option value="founder">{en?'Founder':'Fondateur'}</option><option value="cofounder">{en?'Co-founder':'Cofondateur'}</option></select><span className="mt-1 block text-[10px] font-normal text-slate-500">{en?'Only a founder or co-founder can create a business space.':'La création d’un espace est réservée au fondateur ou au cofondateur.'}</span></label>
             <div className="sm:col-span-2">
               <CloudinaryImageField value={form.logoUrl || ''} onChange={(logoUrl) => setForm((current) => ({ ...current, logoUrl }))} folder="pata/businesses" language={language} label={en ? 'Business logo (optional)' : 'Logo de l’entreprise (facultatif)'} />
             </div>

@@ -4,7 +4,7 @@ import {
   BusinessError, createBusinessAccount, createBusinessTransaction,
   deleteBusinessResource, getBusinessOverview, listBusinessAccounts, listBusinessPeople, saveBusinessPerson, deleteBusinessPerson,
   listBusinessResource, listBusinessTransactions, recordBusinessDocumentPayment,
-  saveBusinessResource, transferPersonalIncomeToBusiness,
+  saveBusinessResource, transferPersonalIncomeToBusiness, listBusinessJoinRequests, reviewBusinessJoinRequest, createBusinessInvitation, requestBusinessJoin,
 } from '@/lib/business/server';
 
 export const runtime = 'nodejs';
@@ -35,6 +35,10 @@ async function dispatch(request, context) {
     const fourth = parts[3] || '';
     const method = request.method;
 
+    if (method === 'GET' && action === 'join-requests' && parts.length === 1) return NextResponse.json({success:true,...(await listBusinessJoinRequests(uid,businessId))});
+    if (method === 'POST' && action === 'join-requests' && second && parts.length === 2) return NextResponse.json(await reviewBusinessJoinRequest(uid,businessId,second,await request.json().catch(()=>({}))));
+    if (method === 'POST' && action === 'invitations' && parts.length === 1) return NextResponse.json(await createBusinessInvitation(uid,businessId,await request.json().catch(()=>({}))),{status:201});
+    if (method === 'POST' && action === 'join' && parts.length === 1) return NextResponse.json(await requestBusinessJoin(uid,businessId,await request.json().catch(()=>({}))),{status:201});
     if (method === 'GET' && action === 'people' && parts.length === 1) return NextResponse.json({success:true,...(await listBusinessPeople(uid,businessId))});
     if (method === 'POST' && action === 'people' && parts.length === 1) return NextResponse.json(await saveBusinessPerson(uid,businessId,await request.json().catch(()=>({}))),{status:201});
     if (method === 'PATCH' && action === 'people' && second && parts.length === 2) return NextResponse.json(await saveBusinessPerson(uid,businessId,await request.json().catch(()=>({})),second));

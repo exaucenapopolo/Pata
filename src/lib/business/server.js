@@ -1,5 +1,5 @@
 import { FieldValue } from 'firebase-admin/firestore';
-import { adminDb } from '@/lib/firebase/admin';
+import { adminDb, adminAuth } from '@/lib/firebase/admin';
 import { isValidCloudinaryAvatarUrl } from '@/lib/profile/cloudinaryAvatar.mjs';
 
 const MAX_AMOUNT = 1_000_000_000;
@@ -141,12 +141,14 @@ export async function createBusiness(uid, input = {}) {
     if (!profileSnap.exists) throw new BusinessError('Profil utilisateur introuvable.', 401, 'PROFILE_NOT_FOUND');
     if (!isPremium(profileSnap.data() || {})) premiumRequired();
     transaction.create(businessRef, {
-      name, activity, slogan, legalForm, city, phone, logoUrl, currency,
+      name, nameSearch: name.toLocaleLowerCase('fr'), activity, slogan, legalForm, city, phone, logoUrl, currency,
       country: 'CM', ownerId: uid, status: 'active',
       totalIncome: 0, totalExpense: 0, ownerContributions: 0, ownerWithdrawals: 0,
       cashBalance: 0, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
     });
-    transaction.create(membershipRef, { uid, role: 'owner', active: true, status: 'active', joinedAt: FieldValue.serverTimestamp() });
+    const creatorType = input.creatorType === 'cofounder' ? 'cofounder' : 'founder';
+    transaction.create(membershipRef, { uid, role: 'owner', personType: creatorType, active: true, status: 'active', joinedAt: FieldValue.serverTimestamp() });
+    transaction.create(businessRef.collection('people').doc(uid), { name: cleanText(profileSnap.data()?.displayName || profileSnap.data()?.name || 'Fondateur', 100), imageUrl: cleanText(profileSnap.data()?.photoURL || profileSnap.data()?.avatarUrl || '', 2048), type: creatorType, role: 'owner', active: true, capitalPercent: 0, profitPercent: 0, salary: 0, commissionRate: 0, createdAt: FieldValue.serverTimestamp(), createdBy: uid });
     transaction.set(reverseMembershipRef, { businessId: businessRef.id, role: 'owner', active: true, createdAt: FieldValue.serverTimestamp() });
     transaction.create(accountRef, {
       name: 'Caisse principale', type: 'cash', currency,
@@ -679,7 +681,7 @@ export async function updateBusinessProfile(uid, businessId, input = {}) {
       throw new BusinessError('Entreprise indisponible.', 404);
     }
     transaction.update(context.businessRef, {
-      name, activity, slogan, legalForm, city, phone,
+      name, nameSearch: name.toLocaleLowerCase('fr'), activity, slogan, legalForm, city, phone,
       logoUrl: logoUrl || FieldValue.delete(),
       updatedAt: FieldValue.serverTimestamp(),
     });
@@ -983,6 +985,111 @@ export async function verifyBusinessPaymentLink(uid,businessId,paymentLinkId){
  const pending=await ref.collection('payments').where('status','in',['PENDING','INITIATING']).limit(20).get();
  const results=await Promise.all(pending.docs.map(d=>d.data()?.transId?processFapshiBusinessPayment(d.data().transId):null));
  return {success:true,status:(await ref.get()).data()?.status||'ACTIVE',checked:results.filter(Boolean).length};
+}
+
+
+const BUSINESS_JOIN_TYPES = new Set(['founder','cofounder','employee','partner','associate','contractor']);
+const BUSINESS_ACCESS_ROLES = new Set(['admin','finance','manager','staff','viewer']);
+const businessInvitationsRef = () => adminDb.collection('businessInvitations');
+
+export async function searchBusinessesForJoin(uid, query) {
+  const term = cleanText(query, 80).toLocaleLowerCase('fr');
+  if (term.length < 3) return { businesses: [] };
+  const snapshot = await businessesRef().orderBy('nameSearch').startAt(term).endAt(term + '\uf8ff').limit(10).get();
+  const memberships = await userBusinessRefs(uid).limit(50).get();
+  const joined = new Set(memberships.docs.filter(d => d.data()?.active !== false && d.data()?.status !== 'revoked').map(d => d.id));
+  return { businesses: snapshot.docs.filter(d => d.data()?.status !== 'archived' && !joined.has(d.id)).map(d => {
+    const b=d.data()||{};return {id:d.id,name:cleanText(b.name,100),slogan:cleanText(b.slogan,180),city:cleanText(b.city,80),logoUrl:isValidCloudinaryAvatarUrl(b.logoUrl)?b.logoUrl:''};
+  }) };
+}
+
+export async function requestBusinessJoin(uid, businessId, input = {}) {
+  const id=validId(businessId),type=BUSINESS_JOIN_TYPES.has(input.personType)?input.personType:'employee';
+  const userRef=usersRef().doc(uid),businessRef=businessesRef().doc(id),memberRef=businessRef.collection('members').doc(uid),requestRef=businessRef.collection('joinRequests').doc(uid);
+  const [profileSnap,businessSnap,memberSnap,requestSnap]=await Promise.all([userRef.get(),businessRef.get(),memberRef.get(),requestRef.get()]);
+  if(!profileSnap.exists)throw new BusinessError('Profil utilisateur introuvable.',401);
+  if(!businessSnap.exists||businessSnap.data()?.status==='archived')throw new BusinessError('Entreprise introuvable.',404);
+  if(memberSnap.exists&&memberSnap.data()?.active!==false)throw new BusinessError('Tu fais déjà partie de cette entreprise.',409,'ALREADY_MEMBER');
+  if(requestSnap.exists&&requestSnap.data()?.status==='pending')throw new BusinessError('Une demande est déjà en attente pour cette entreprise.',409,'REQUEST_PENDING');
+  const profile=profileSnap.data()||{};
+  await requestRef.set({uid,personType:type,message:cleanText(input.message,300),name:cleanText(profile.displayName||profile.name||profile.fullName||'Utilisateur Pata',100),imageUrl:isValidCloudinaryAvatarUrl(profile.photoURL||profile.avatarUrl)?(profile.photoURL||profile.avatarUrl):'',email:cleanText(profile.email,160),status:'pending',createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
+  return {success:true};
+}
+
+export async function listBusinessJoinRequests(uid,businessId) {
+  const c=await getBusinessContext(uid,businessId);
+  if(c.business.ownerId!==uid&&c.role!=='admin')throw new BusinessError('Seul le fondateur ou un administrateur peut consulter les demandes.',403,'PERMISSION_DENIED');
+  const snap=await c.businessRef.collection('joinRequests').where('status','==','pending').limit(50).get();
+  return {requests:snap.docs.map(serializeDocument)};
+}
+
+export async function reviewBusinessJoinRequest(uid,businessId,requestUid,input={}) {
+  const c=await getBusinessContext(uid,businessId);
+  if(c.business.ownerId!==uid)throw new BusinessError('Seul le fondateur peut valider les demandes d’adhésion.',403,'PERMISSION_DENIED');
+  const target=validId(requestUid),requestRef=c.businessRef.collection('joinRequests').doc(target),memberRef=c.businessRef.collection('members').doc(target),reverse=userBusinessRefs(target).doc(c.businessId),personRef=c.businessRef.collection('people').doc(target);
+  const approved=input.approved===true,role=BUSINESS_ACCESS_ROLES.has(input.role)?input.role:'staff';
+  await adminDb.runTransaction(async tx=>{
+    const [request,member,business]=await Promise.all([tx.get(requestRef),tx.get(memberRef),tx.get(c.businessRef)]);
+    if(!request.exists||request.data()?.status!=='pending')throw new BusinessError('Cette demande n’est plus en attente.',409,'REQUEST_NOT_PENDING');
+    if(!business.exists||business.data()?.ownerId!==uid)throw new BusinessError('Droits fondateur requis.',403);
+    if(approved){
+      if(member.exists&&member.data()?.active!==false)throw new BusinessError('Cette personne est déjà membre.',409);
+      const req=request.data()||{};
+      tx.set(memberRef,{uid:target,role,personType:BUSINESS_JOIN_TYPES.has(req.personType)?req.personType:'employee',active:true,status:'active',permissions:input.permissions&&typeof input.permissions==='object'?input.permissions:{},invitedBy:uid,joinedAt:FieldValue.serverTimestamp()});
+      tx.set(reverse,{businessId:c.businessId,role,active:true,createdAt:FieldValue.serverTimestamp()});
+      tx.set(personRef,{name:cleanText(req.name,100),imageUrl:cleanText(req.imageUrl,2048),type:BUSINESS_JOIN_TYPES.has(req.personType)?req.personType:'employee',role,phone:'',email:cleanText(req.email,160),active:true,capitalPercent:0,profitPercent:0,salary:0,commissionRate:0,createdAt:FieldValue.serverTimestamp(),createdBy:uid},{merge:true});
+    }
+    tx.update(requestRef,{status:approved?'approved':'rejected',reviewedBy:uid,assignedRole:approved?role:'',reviewedAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
+  });
+  return {success:true,approved};
+}
+
+export async function createBusinessInvitation(uid,businessId,input={}) {
+  const c=await getBusinessContext(uid,businessId);
+  if(!['owner','admin'].includes(c.role))throw new BusinessError('Droits insuffisants pour inviter un membre.',403,'PERMISSION_DENIED');
+  const email=cleanText(input.email,160).toLowerCase();
+  if(!validEmail(email)||!email)throw new BusinessError('Indique une adresse e-mail valide.');
+  const role=BUSINESS_ACCESS_ROLES.has(input.role)?input.role:'staff';
+  if(c.role==='admin'&&role==='admin')throw new BusinessError('Seul le fondateur peut inviter un autre administrateur.',403);
+  const personType=BUSINESS_JOIN_TYPES.has(input.personType)?input.personType:'employee';
+  let targetUid='';
+  try{const user=await adminAuth.getUserByEmail(email);targetUid=user.uid;}catch(error){if(error?.code!=='auth/user-not-found')throw error;}
+  const ref=businessInvitationsRef().doc();
+  const origin=process.env.NEXT_PUBLIC_APP_URL||process.env.NEXT_PUBLIC_SITE_URL||'https://www.pata-yam.site';
+  await ref.create({businessId:c.businessId,businessName:cleanText(c.business.name,100),businessLogoUrl:isValidCloudinaryAvatarUrl(c.business.logoUrl)?c.business.logoUrl:'',businessSlogan:cleanText(c.business.slogan,180),invitedEmail:email,invitedEmailLower:email,targetUid,role,personType,status:'pending',createdBy:uid,createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
+  return {invitation:{id:ref.id,email,role,personType,existingAccount:Boolean(targetUid),url:origin+'/businesses/invitation/'+ref.id}};
+}
+
+export async function listMyBusinessInvitations(uid) {
+  const profile=await usersRef().doc(uid).get(),email=cleanText(profile.data()?.email,160).toLowerCase();
+  const [byUid,byEmail]=await Promise.all([
+    businessInvitationsRef().where('targetUid','==',uid).where('status','==','pending').limit(20).get(),
+    email?businessInvitationsRef().where('invitedEmailLower','==',email).where('status','==','pending').limit(20).get():Promise.resolve({docs:[]}),
+  ]);
+  const map=new Map();for(const d of [...byUid.docs,...byEmail.docs])map.set(d.id,serializeDocument(d));
+  return {invitations:[...map.values()]};
+}
+
+export async function acceptBusinessInvitation(uid,invitationId) {
+  const id=validId(invitationId),ref=businessInvitationsRef().doc(id),userRef=usersRef().doc(uid);
+  await adminDb.runTransaction(async tx=>{
+    const [invite,profile]=await Promise.all([tx.get(ref),tx.get(userRef)]);
+    if(!invite.exists||invite.data()?.status!=='pending')throw new BusinessError('Cette invitation n’est plus disponible.',404,'INVITATION_UNAVAILABLE');
+    if(!profile.exists)throw new BusinessError('Profil utilisateur introuvable.',401);
+    const data=invite.data()||{},email=cleanText(profile.data()?.email,160).toLowerCase();
+    if(data.targetUid&&data.targetUid!==uid)throw new BusinessError('Cette invitation est destinée à un autre compte.',403);
+    if(!email||email!==data.invitedEmailLower)throw new BusinessError('Connecte-toi avec l’adresse e-mail qui a reçu cette invitation.',403);
+    const businessRef=businessesRef().doc(validId(data.businessId)),memberRef=businessRef.collection('members').doc(uid),reverse=userBusinessRefs(uid).doc(data.businessId),personRef=businessRef.collection('people').doc(uid);
+    const [business,member]=await Promise.all([tx.get(businessRef),tx.get(memberRef)]);
+    if(!business.exists||business.data()?.status==='archived')throw new BusinessError('Cette entreprise n’est plus disponible.',404);
+    if(member.exists&&member.data()?.active!==false)throw new BusinessError('Tu fais déjà partie de cette entreprise.',409);
+    const role=BUSINESS_ACCESS_ROLES.has(data.role)?data.role:'staff',type=BUSINESS_JOIN_TYPES.has(data.personType)?data.personType:'employee';
+    tx.set(memberRef,{uid,role,personType:type,active:true,status:'active',invitationId:id,joinedAt:FieldValue.serverTimestamp()});
+    tx.set(reverse,{businessId:data.businessId,role,active:true,createdAt:FieldValue.serverTimestamp()});
+    tx.set(personRef,{name:cleanText(profile.data()?.displayName||profile.data()?.name||'Membre',100),imageUrl:cleanText(profile.data()?.photoURL||profile.data()?.avatarUrl,2048),type,role,email,active:true,capitalPercent:0,profitPercent:0,salary:0,commissionRate:0,createdAt:FieldValue.serverTimestamp(),createdBy:data.createdBy},{merge:true});
+    tx.update(ref,{status:'accepted',acceptedBy:uid,acceptedAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
+  });
+  return {success:true,businessId:(await ref.get()).data()?.businessId||''};
 }
 
 const PERSON_TYPES = new Set(['founder','cofounder','employee','partner','associate','contractor']);

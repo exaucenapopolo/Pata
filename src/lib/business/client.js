@@ -104,3 +104,10 @@ export async function verifyBusinessPaymentLink(id, paymentLinkId) {
 export async function getBusinessPeople(id){const r=await businessRequest(businessPath(id,'people'));return Array.isArray(r.people)?r.people:[];}
 export async function saveBusinessPerson(id,input,personId=''){return businessRequest(businessPath(id,'people'+(personId?'/'+encodeURIComponent(personId):'')),personId?'PATCH':'POST',input);}
 export async function deleteBusinessPerson(id,personId){return businessRequest(businessPath(id,'people/'+encodeURIComponent(personId)),'DELETE');}
+export async function searchBusinessesForJoin(query){const params=new URLSearchParams({search:String(query||'')});const r=await businessRequest(root+'?'+params.toString());return Array.isArray(r.businesses)?r.businesses:[];}
+export async function requestBusinessJoin(businessId,input){return businessRequest(businessPath(businessId,'join'),'POST',input);}
+export async function getBusinessJoinRequests(businessId){const r=await businessRequest(businessPath(businessId,'join-requests'));return Array.isArray(r.requests)?r.requests:[];}
+export async function reviewBusinessJoinRequest(businessId,requestUid,input){return businessRequest(businessPath(businessId,'join-requests/'+encodeURIComponent(requestUid)),'POST',input);}
+export async function createBusinessInvitation(businessId,input){return businessRequest(businessPath(businessId,'invitations'),'POST',input);}
+export async function getMyBusinessInvitations(){const r=await businessRequest(root+'?invitations=1');return Array.isArray(r.invitations)?r.invitations:[];}
+export async function acceptBusinessInvitation(invitationId){return businessRequest(root,'POST',{action:'acceptInvitation',invitationId});}

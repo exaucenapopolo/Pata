@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { adminAuth } from '@/lib/firebase/admin';
-import { BusinessError, createBusiness, listUserBusinesses } from '@/lib/business/server';
+import { BusinessError, createBusiness, listUserBusinesses, searchBusinessesForJoin, listMyBusinessInvitations, acceptBusinessInvitation } from '@/lib/business/server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,6 +17,9 @@ function respondError(error) {
 export async function GET(request) {
   try {
     const { uid } = await authenticate(request);
+    const url = new URL(request.url);
+    if (url.searchParams.has('search')) return NextResponse.json({ success: true, ...(await searchBusinessesForJoin(uid, url.searchParams.get('search'))) });
+    if (url.searchParams.get('invitations') === '1') return NextResponse.json({ success: true, ...(await listMyBusinessInvitations(uid)) });
     return NextResponse.json({ success: true, ...(await listUserBusinesses(uid)) });
   } catch (error) {
     return respondError(error);
@@ -26,6 +29,7 @@ export async function POST(request) {
   try {
     const { uid } = await authenticate(request);
     const body = await request.json().catch(() => ({}));
+    if (body.action === 'acceptInvitation') return NextResponse.json({ success: true, ...(await acceptBusinessInvitation(uid, body.invitationId)) });
     const business = await createBusiness(uid, body);
     return NextResponse.json({ success: true, business }, { status: 201 });
   } catch (error) {
