@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Building2, Plus, ArrowRight, LockKeyhole, Crown, RefreshCw } from 'lucide-react';
+import { CloudinaryImageField } from '@/components/ui/CloudinaryImageField';
 import { useBusinesses } from '@/hooks/useBusinesses';
 import { createBusiness } from '@/lib/business/client';
 import { useLanguage } from '@/context/LanguageContext';
@@ -16,7 +17,7 @@ export default function BusinessesPage() {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
-  const [form, setForm] = useState({ name: '', activity: '', legalForm: '', city: '', phone: '' });
+  const [form, setForm] = useState({ name: '', activity: '', legalForm: '', city: '', phone: '', logoUrl: '' });
 
   const submit = async (event) => {
     event.preventDefault();
@@ -74,7 +75,10 @@ export default function BusinessesPage() {
 
         {showForm && premiumActive && (
           <form onSubmit={submit} className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2 sm:p-4">
-            <label className="text-xs font-semibold text-slate-700 sm:col-span-2">{en ? 'Business name' : 'Nom de l’entreprise'}<input required minLength={2} maxLength={100} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Ex. KDO Informatique" className="mt-1.5 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal outline-none focus:border-brand-600"/></label>
+            <label className="text-xs font-semibold text-slate-700 sm:col-span-2">{en ? 'Business name' : 'Nom de l’entreprise'}<input required minLength={2} maxLength={100} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="SOCIAL BOOST HORIZON" className="mt-1.5 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal outline-none focus:border-brand-600"/></label>
+            <div className="sm:col-span-2">
+              <CloudinaryImageField value={form.logoUrl || ''} onChange={(logoUrl) => setForm((current) => ({ ...current, logoUrl }))} folder="pata/businesses" language={language} label={en ? 'Business logo (optional)' : 'Logo de l’entreprise (facultatif)'} />
+            </div>
             <label className="text-xs font-semibold text-slate-700">{en ? 'Business activity' : 'Activité'}<input maxLength={120} value={form.activity} onChange={(e) => setForm({ ...form, activity: e.target.value })} placeholder={en ? 'IT services, retail…' : 'Informatique, commerce…'} className="mt-1.5 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal outline-none focus:border-brand-600"/></label>
             <label className="text-xs font-semibold text-slate-700">{en ? 'Legal form (optional)' : 'Forme juridique (facultatif)'}<input maxLength={80} value={form.legalForm} onChange={(e) => setForm({ ...form, legalForm: e.target.value })} placeholder={en ? 'Sole proprietorship, SARL…' : 'Entreprise individuelle, SARL…'} className="mt-1.5 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal outline-none focus:border-brand-600"/></label>
             <label className="text-xs font-semibold text-slate-700">{en ? 'City (optional)' : 'Ville (facultatif)'}<input maxLength={80} value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} className="mt-1.5 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal outline-none focus:border-brand-600"/></label>
@@ -92,7 +96,7 @@ export default function BusinessesPage() {
             {businesses.map((business) => (
               <Link key={business.id} href={'/businesses/' + business.id} className="group rounded-2xl border border-slate-200 p-4 transition hover:border-brand-300 hover:bg-brand-50/30">
                 <div className="flex items-start justify-between gap-3">
-                  <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><Building2 size={21}/></span>
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-100 text-blue-700">{business.logoUrl ? <img src={business.logoUrl} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer"/> : <Building2 size={21}/>}</span>
                   {business.readOnly ? <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-semibold text-amber-800">{en ? 'View only' : 'Consultation'}</span> : <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-800">{en ? 'Active' : 'Actif'}</span>}
                 </div>
                 <h4 className="mt-3 font-bold text-slate-900">{business.name}</h4>

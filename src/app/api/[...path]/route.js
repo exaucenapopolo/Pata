@@ -26,6 +26,7 @@ import { sanitizeNotificationReply } from '@/lib/ai/notificationFormat.mjs';
 import { buildHelpKnowledgeContext } from '@/lib/ai/helpKnowledge.mjs';
 import { computeGoalPlan, GOAL_LATE_PENALTY_RATE, GOAL_PENALTY_EFFECTIVE_DATE } from '@/lib/goalCalc';
 import { isValidCloudinaryAvatarUrl } from '@/lib/profile/cloudinaryAvatar.mjs';
+import { processFapshiBusinessPayment } from '@/lib/business/server';
 import { COTISATION_CHAT_PACK_PRICE, COTISATION_CHAT_PACK_SIZE, summarizeCotisationChatQuota, consumeCotisationChatQuota, sanitizeCotisationChatMessage, cotisationChatExpiry } from '@/lib/cotisations/chatPolicy.mjs';
 import {
   sendPataEmail, welcomeEmail, savingsCreatedEmail, customAdminEmail, pinResetEmail, referralJoinedEmail, referralRewardActivatedEmail,
@@ -947,6 +948,11 @@ async function handleFapshiWebhook(request) {
     const body = await request.json();
     const transId = String(body.transId || '').trim();
     if (!transId) return NextResponse.json({ received: true });
+    const businessPayment = await processFapshiBusinessPayment(transId).catch((error) => {
+      console.error('[FAPSHI BUSINESS PAYMENT]', error?.message || error);
+      return null;
+    });
+    if (businessPayment?.handled) return NextResponse.json({ received: true });
     const depositRef = adminDb.collection('deposits').doc(transId);
     const cotisationPaymentRef = adminDb.collection('cotisationPayments').doc(transId);
     const [depDoc, cotisationDoc] = await Promise.all([depositRef.get(), cotisationPaymentRef.get()]);

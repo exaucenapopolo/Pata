@@ -3,15 +3,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, ArrowDownLeft, ArrowUpRight, Wallet, Plus, Building2, RefreshCw, LockKeyhole, Crown, CreditCard, Receipt, Users, FileText, Handshake, CalendarClock, PiggyBank, Trash2, CheckCircle2, Send, X, BarChart3 } from 'lucide-react';
+import { ArrowLeft, ArrowDownLeft, ArrowUpRight, Wallet, Plus, Building2, RefreshCw, LockKeyhole, Crown, CreditCard, Receipt, Users, FileText, Handshake, CalendarClock, PiggyBank, Trash2, CheckCircle2, Send, X, BarChart3, Link2, Share2, Copy, Pencil } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/context/LanguageContext';
 import { subscribeIncomes } from '@/lib/firestore/incomes';
 import { isIncomeCountedAsSource } from '@/lib/finance/incomeBalances.mjs';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import { CloudinaryImageField } from '@/components/ui/CloudinaryImageField';
 import {
   createBusinessAccount, createBusinessTransaction, deleteBusinessResource,
-  getBusinessAccounts, getBusinessOverview, getBusinessResource,
+  createBusinessPaymentLink, getBusinessPaymentLinks, verifyBusinessPaymentLink,
+  updateBusinessProfile, getBusinessAccounts, getBusinessOverview, getBusinessResource,
   getBusinessTransactions, payBusinessDocument, saveBusinessResource,
   transferPersonalIncome,
 } from '@/lib/business/client';
@@ -20,6 +22,7 @@ const TABS = [
   { id: 'dashboard', fr: 'Vue d’ensemble', en: 'Overview', icon: Building2 },
   { id: 'transactions', fr: 'Opérations', en: 'Transactions', icon: Wallet },
   { id: 'reports', fr: 'Rapports', en: 'Reports', icon: BarChart3 },
+  { id: 'payment-links', fr: 'Liens de paiement', en: 'Payment links', icon: Link2 },
   { id: 'accounts', fr: 'Comptes', en: 'Accounts', icon: CreditCard },
   { id: 'invoices', fr: 'Factures clients', en: 'Customer invoices', icon: Receipt },
   { id: 'obligations', fr: 'Obligations', en: 'Obligations', icon: CalendarClock },
@@ -73,6 +76,12 @@ export default function BusinessWorkspacePage() {
   const [transferForm, setTransferForm] = useState({ incomeId: '', amount: '', accountId: 'main', date: new Date().toISOString().slice(0, 10) });
   const [paymentTarget, setPaymentTarget] = useState(null);
   const [paymentForm, setPaymentForm] = useState({ amount: '', accountId: 'main', date: new Date().toISOString().slice(0, 10) });
+  const [paymentLinks, setPaymentLinks] = useState([]);
+  const [showPaymentLinkForm, setShowPaymentLinkForm] = useState(false);
+  const [paymentLinkForm, setPaymentLinkForm] = useState({ amount: '', title: '', customerName: '', customerEmail: '', accountId: 'main' });
+  const [busyPaymentLinkId, setBusyPaymentLinkId] = useState('');
+  const [profileFormOpen, setProfileFormOpen] = useState(false);
+  const [profileForm, setProfileForm] = useState({ name: '', activity: '', legalForm: '', city: '', phone: '', logoUrl: '' });
   const [actionNotice, setActionNotice] = useState('');
 
   const writable = overview?.readOnly === false;
@@ -109,6 +118,9 @@ export default function BusinessWorkspacePage() {
         } else if (activeTab === 'accounts') {
           const result = await getBusinessAccounts(businessId);
           if (active) setAccounts(result);
+        } else if (activeTab === 'payment-links') {
+          const result = await getBusinessPaymentLinks(businessId);
+          if (active) setPaymentLinks(result);
         } else {
           const result = await getBusinessResource(businessId, activeTab);
           if (active) setItems(result);
@@ -136,6 +148,7 @@ export default function BusinessWorkspacePage() {
       setTransactions(result.transactions || []);
     }
     if (RESOURCE_CONFIG[activeTab]) setItems(await getBusinessResource(businessId, activeTab));
+    if (activeTab === 'payment-links') setPaymentLinks(await getBusinessPaymentLinks(businessId));
   };
 
   const submitTransaction = async (event) => {
@@ -190,6 +203,85 @@ export default function BusinessWorkspacePage() {
       setActionNotice(en ? 'Personal funds transferred to the business.' : 'Fonds personnels transférés vers l’entreprise.');
     } catch (error) { setFormError(error.message || 'Impossible d’effectuer ce transfert.'); }
     finally { setSaving(false); }
+  };
+
+  const submitBusinessProfile = async (event) => {
+    event.preventDefault();
+    setSaving(true); setFormError('');
+    try {
+      await updateBusinessProfile(businessId, profileForm);
+      setProfileFormOpen(false);
+      await refreshOverview();
+      setActionNotice(en ? 'Business profile updated.' : 'Informations et logo de l’entreprise mis à jour.');
+    } catch (error) { setFormError(error.message || 'Impossible de modifier cette entreprise.'); }
+    finally { setSaving(false); }
+  };
+
+  const submitPaymentLink = async (event) => {
+    event.preventDefault();
+    setSaving(true); setFormError(''); setActionNotice('');
+    try {
+      const result = await createBusinessPaymentLink(businessId, paymentLinkForm);
+      setShowPaymentLinkForm(false);
+      setPaymentLinkForm({ amount: '', title: '', customerName: '', customerEmail: '', accountId: accountsForSelect[0]?.id || 'main' });
+      setPaymentLinks((current) => [result.paymentLink, ...current.filter((item) => item.id !== result.paymentLink?.id)]);
+      setActionNotice(en ? 'Payment link created. You can now share it.' : 'Lien de paiement créé. Tu peux maintenant le partager.');
+    } catch (error) { setFormError(error.message || 'Impossible de créer le lien de paiement.'); }
+    finally { setSaving(false); }
+  };
+
+  const sharePaymentLink = async (link) => {
+    const url = String(link.checkoutUrl || '');
+    if (!url) return;
+    const shareData = { title: link.title || overview.business.name, text: (en ? 'Payment for ' : 'Paiement pour ') + overview.business.name + ' · ' + (link.title || ''), url };
+    try {
+      if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+        await navigator.share(shareData);
+        setActionNotice(en ? 'Share dialog opened.' : 'Menu de partage ouvert.');
+        return;
+      }
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+        setActionNotice(en ? 'Payment link copied.' : 'Lien copié dans le presse-papiers.');
+        return;
+      }
+      if (typeof window !== 'undefined') window.prompt(en ? 'Copy this payment link:' : 'Copie ce lien de paiement :', url);
+    } catch (error) {
+      if (error?.name !== 'AbortError') setFormError(en ? 'Could not share the link.' : 'Impossible de partager le lien.');
+    }
+  };
+
+  const copyPaymentLink = async (link) => {
+    const url = String(link.checkoutUrl || '');
+    if (!url) return;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+        setActionNotice(en ? 'Payment link copied.' : 'Lien de paiement copié.');
+      } else if (typeof window !== 'undefined') {
+        window.prompt(en ? 'Copy this payment link:' : 'Copie ce lien de paiement :', url);
+      }
+    } catch {
+      if (typeof window !== 'undefined') window.prompt(en ? 'Copy this payment link:' : 'Copie ce lien de paiement :', url);
+    }
+  };
+
+  const verifyPaymentLink = async (linkId) => {
+    setBusyPaymentLinkId(linkId); setFormError('');
+    try {
+      const result = await verifyBusinessPaymentLink(businessId, linkId);
+      const refreshed = await getBusinessPaymentLinks(businessId);
+      setPaymentLinks(refreshed);
+      if (result.status === 'CONFIRMED') {
+        await refreshOverview();
+        setActionNotice(en ? 'Payment verified and added to business cash.' : 'Paiement vérifié et ajouté à la trésorerie de l’entreprise.');
+      } else if (result.status === 'FAILED' || result.status === 'EXPIRED') {
+        setActionNotice(en ? 'This payment did not complete.' : 'Ce paiement n’a pas abouti ou a expiré.');
+      } else {
+        setActionNotice(en ? 'Payment is still pending with Fapshi.' : 'Le paiement est toujours en attente chez Fapshi.');
+      }
+    } catch (error) { setFormError(error.message || 'Impossible de vérifier le paiement.'); }
+    finally { setBusyPaymentLinkId(''); }
   };
 
   const submitPayment = async (event) => {
@@ -263,12 +355,18 @@ export default function BusinessWorkspacePage() {
     <div className="mx-auto max-w-6xl space-y-4 pb-8">
       <header className="flex items-start gap-3">
         <Link href="/businesses" aria-label={en ? 'Back to businesses' : 'Retour aux entreprises'} className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600"><ArrowLeft size={18}/></Link>
+        <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 text-slate-500">
+          {overview.business.logoUrl ? <img src={overview.business.logoUrl} alt={overview.business.name} className="h-full w-full object-cover" referrerPolicy="no-referrer"/> : <Building2 size={24}/>}
+        </div>
         <div className="min-w-0 flex-1">
           <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-700">{en ? 'Business space' : 'Espace entreprise'}</p>
           <h2 className="truncate text-2xl font-extrabold tracking-tight text-slate-900">{overview.business.name}</h2>
           <p className="mt-1 text-xs text-slate-500">{overview.business.activity || (en ? 'Professional finances' : 'Finances professionnelles')} {overview.business.city ? '· ' + overview.business.city : ''}</p>
         </div>
-        <span className={'mt-1 rounded-full px-2.5 py-1 text-[10px] font-semibold ' + (writable ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800')}>{writable ? (en ? 'Premium active' : 'Premium actif') : (en ? 'View only' : 'Consultation')}</span>
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <span className={'rounded-full px-2.5 py-1 text-[10px] font-semibold ' + (writable ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800')}>{writable ? (en ? 'Premium active' : 'Premium actif') : (en ? 'View only' : 'Consultation')}</span>
+          {writable && ['owner', 'admin'].includes(overview.role) && <button type="button" onClick={() => { setProfileForm({ name: overview.business.name || '', activity: overview.business.activity || '', legalForm: overview.business.legalForm || '', city: overview.business.city || '', phone: overview.business.phone || '', logoUrl: overview.business.logoUrl || '' }); setProfileFormOpen(true); }} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] font-semibold text-slate-600"><Pencil size={12}/>{en ? 'Edit' : 'Modifier'}</button>}
+        </div>
       </header>
 
       {!writable && (
@@ -351,6 +449,47 @@ export default function BusinessWorkspacePage() {
         </section>
       )}
 
+      {activeTab === 'payment-links' && writable && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div><h3 className="font-bold text-slate-900">{en ? 'Payment links' : 'Liens de paiement'}</h3><p className="mt-1 max-w-xl text-xs leading-5 text-slate-500">{en ? 'Create a Fapshi link, share it with a client and verify the payment before it enters your business accounts.' : 'Crée un lien Fapshi, partage-le avec ton client et vérifie le paiement avant son inscription dans les comptes de l’entreprise.'}</p></div>
+            <button type="button" onClick={() => { setFormError(''); setShowPaymentLinkForm((value) => !value); setPaymentLinkForm((current) => ({ ...current, accountId: accountsForSelect[0]?.id || 'main' })); }} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-[#075b43] px-3.5 text-xs font-semibold text-white"><Plus size={15}/>{en ? 'Create a link' : 'Créer un lien'}</button>
+          </div>
+          {showPaymentLinkForm && (
+            <form onSubmit={submitPaymentLink} className="mt-4 grid gap-3 rounded-xl bg-slate-50 p-3 sm:grid-cols-2">
+              <label className="text-xs font-semibold text-slate-600 sm:col-span-2">{en ? 'What is this payment for?' : 'Objet du paiement'}<input required maxLength={100} value={paymentLinkForm.title} onChange={(event) => setPaymentLinkForm({ ...paymentLinkForm, title: event.target.value })} placeholder={en ? 'Example: Website creation' : 'Ex. Création de site web'} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal"/></label>
+              <label className="text-xs font-semibold text-slate-600">{en ? 'Amount (XAF)' : 'Montant (FCFA)'}<input required type="number" min="100" step="1" value={paymentLinkForm.amount} onChange={(event) => setPaymentLinkForm({ ...paymentLinkForm, amount: event.target.value })} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-base font-normal"/><span className="mt-1 block text-[10px] font-normal text-slate-500">{en ? 'Minimum 100 XAF · Fapshi fees are deducted from the payment received.' : 'Minimum 100 FCFA · les frais Fapshi seront déduits du montant reçu. Le lien expire après 24 heures.'}</span></label>
+              <label className="text-xs font-semibold text-slate-600">{en ? 'Business account to credit' : 'Compte professionnel à créditer'}<select required value={paymentLinkForm.accountId} onChange={(event) => setPaymentLinkForm({ ...paymentLinkForm, accountId: event.target.value })} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal">{accountsForSelect.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
+              <label className="text-xs font-semibold text-slate-600">{en ? 'Client name (optional)' : 'Nom du client (facultatif)'}<input maxLength={100} value={paymentLinkForm.customerName} onChange={(event) => setPaymentLinkForm({ ...paymentLinkForm, customerName: event.target.value })} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal"/></label>
+              <label className="text-xs font-semibold text-slate-600">{en ? 'Client email (optional)' : 'E-mail du client (facultatif)'}<input type="email" value={paymentLinkForm.customerEmail} onChange={(event) => setPaymentLinkForm({ ...paymentLinkForm, customerEmail: event.target.value })} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal"/></label>
+              <div className="flex gap-2 sm:col-span-2"><button disabled={saving} className="min-h-11 flex-1 rounded-xl bg-[#075b43] px-3 text-xs font-semibold text-white">{saving ? (en ? 'Creating…' : 'Création…') : (en ? 'Generate Fapshi link' : 'Générer le lien Fapshi')}</button><button type="button" onClick={() => setShowPaymentLinkForm(false)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-600">{en ? 'Cancel' : 'Annuler'}</button></div>
+            </form>
+          )}
+          {listLoading ? <p className="py-8 text-center text-xs text-slate-500">{en ? 'Loading…' : 'Chargement…'}</p> : paymentLinks.length ? (
+            <div className="mt-4 space-y-2">
+              {paymentLinks.map((link) => {
+                const statusLabel = link.status === 'CONFIRMED' ? (en ? 'Paid and verified' : 'Payé et vérifié') : link.status === 'FAILED' ? (en ? 'Failed' : 'Échec') : link.status === 'EXPIRED' ? (en ? 'Expired' : 'Expiré') : (en ? 'Waiting for payment' : 'En attente de paiement');
+                const statusClass = link.status === 'CONFIRMED' ? 'bg-emerald-50 text-emerald-800' : ['FAILED', 'EXPIRED'].includes(link.status) ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-800';
+                return <article key={link.id} className="rounded-xl border border-slate-200 p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0"><h4 className="break-words text-sm font-semibold text-slate-900">{link.title}</h4><p className="mt-1 text-[10px] text-slate-500">{link.customerName || (en ? 'Customer' : 'Client')} · {formatDate(link.createdAt)}</p></div>
+                    <span className={'rounded-full px-2.5 py-1 text-[10px] font-semibold ' + statusClass}>{statusLabel}</span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-end justify-between gap-2">
+                    <div><p className="text-sm font-bold tabular-nums text-slate-900">{money(link.amount)}</p>{link.status === 'CONFIRMED' && <p className="mt-1 text-[10px] text-emerald-700">{en ? 'Credited' : 'Crédité'} : {money(link.receivedAmount)} · {en ? 'fees' : 'frais'} {money(link.providerFeeAmount || 0)}</p>}</div>
+                    <div className="flex gap-2">
+                      {link.checkoutUrl && link.status === 'PENDING' && <button type="button" onClick={() => sharePaymentLink(link)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] font-semibold text-slate-700"><Share2 size={13}/>{en ? 'Share' : 'Partager'}</button>}
+                      {link.status === 'PENDING' && <button type="button" disabled={busyPaymentLinkId === link.id} onClick={() => verifyPaymentLink(link.id)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-blue-50 px-2.5 text-[10px] font-semibold text-blue-800 disabled:opacity-50">{busyPaymentLinkId === link.id ? <RefreshCw size={13} className="animate-spin"/> : <CheckCircle2 size={13}/>}{en ? 'Verify' : 'Vérifier'}</button>}
+                    </div>
+                  </div>
+                  {link.checkoutUrl && link.status === 'PENDING' && <button type="button" onClick={() => copyPaymentLink(link)} className="mt-2 inline-flex min-h-8 items-center gap-1.5 text-[10px] font-semibold text-slate-500"><Copy size={12}/>{en ? 'Copy link' : 'Copier le lien'}</button>}
+                </article>;
+              })}
+            </div>
+          ) : <p className="py-10 text-center text-xs text-slate-500">{en ? 'No payment link yet.' : 'Aucun lien de paiement pour le moment.'}</p>}
+        </section>
+      )}
+
       {activeTab === 'accounts' && (
         <section className="rounded-2xl border border-slate-200 bg-white p-4">
           <div className="flex items-center justify-between gap-2"><div><h3 className="font-bold text-slate-900">{en ? 'Cash and payment accounts' : 'Caisses et comptes de paiement'}</h3><p className="mt-1 text-xs text-slate-500">{en ? 'Balances change when business transactions are recorded.' : 'Les soldes évoluent avec les opérations de l’entreprise.'}</p></div><button type="button" onClick={() => setShowAccountForm((value) => !value)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-[#075b43] px-3 text-xs font-semibold text-white"><Plus size={14}/>{en ? 'Add account' : 'Ajouter'}</button></div>
@@ -366,6 +505,23 @@ export default function BusinessWorkspacePage() {
           {resourceFormOpen && <form onSubmit={submitResource} className="mt-4 grid gap-3 rounded-xl bg-slate-50 p-3 sm:grid-cols-2">{RESOURCE_CONFIG[activeTab].fields.map((field) => <label key={field.key} className="text-[11px] font-semibold text-slate-600">{field.label}<input required={field.required} type={field.type || 'text'} placeholder={field.placeholder || ''} value={resourceForm[field.key] || ''} onChange={(e) => setResourceForm({ ...resourceForm, [field.key]: e.target.value })} className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal"/>{field.key === 'month' && <span className="mt-1 block text-[10px] font-normal text-slate-400">AAAA-MM</span>}</label>)}<div className="flex gap-2 sm:col-span-2"><button disabled={saving} className="min-h-10 flex-1 rounded-lg bg-[#075b43] text-xs font-semibold text-white">{saving ? '…' : (en ? 'Save' : 'Enregistrer')}</button><button type="button" onClick={() => setResourceFormOpen(false)} className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-600">{en ? 'Cancel' : 'Annuler'}</button></div></form>}
           {listLoading ? <p className="py-8 text-xs text-slate-500">Chargement…</p> : items.length ? <div className="mt-3 grid gap-2 sm:grid-cols-2">{items.map((item) => <div key={item.id} className="rounded-xl border border-slate-200 p-3"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="break-words text-sm font-semibold text-slate-800">{item.title || item.name || item.customerName}</p><p className="mt-1 text-[10px] text-slate-500">{item.customerName || item.counterparty || item.role || item.category || item.phone || ''}</p></div><button type="button" onClick={() => removeResource(item)} aria-label={en ? 'Delete item' : 'Supprimer'} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-700"><Trash2 size={14}/></button></div><div className="mt-3 flex flex-wrap items-center justify-between gap-2">{activeTab === 'budgets' ? <div className="w-full"><div className="flex items-center justify-between gap-2"><strong className="text-sm text-slate-900">{money(item.amount)}</strong><span className="text-[10px] font-semibold text-slate-500">{item.overBudget ? (en ? 'Over budget' : 'Budget dépassé') : (en ? 'Allocated' : 'Alloué')}</span></div><div className="mt-2 flex flex-wrap justify-between gap-2 text-[10px] text-slate-500"><span>{en ? 'Spent' : 'Dépensé'} : {money(item.spent || 0)}</span><span>{en ? 'Remaining' : 'Restant'} : {money(item.remaining ?? Math.max(0, Number(item.amount || 0) - Number(item.spent || 0)))}</span></div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className={'h-full rounded-full ' + (item.overBudget ? 'bg-rose-500' : 'bg-emerald-500')} style={{ width: Math.max(0, Math.min(100, Number(item.amount) > 0 ? Number(item.spent || 0) / Number(item.amount) * 100 : 0)) + '%' }}/></div></div> : (item.totalAmount || item.amount) ? <strong className="text-sm text-slate-900">{money(item.remaining ?? item.totalAmount ?? item.amount)}</strong> : <span className="text-[10px] text-slate-500">{item.status || item.address || item.email || item.note || ''}</span>}{['invoices', 'obligations'].includes(activeTab) && Number(item.remaining ?? item.totalAmount ?? item.amount) > 0 && <button type="button" onClick={() => { setPaymentTarget(item); setPaymentForm({ amount: String(item.remaining ?? item.totalAmount ?? item.amount), accountId: accountsForSelect[0]?.id || 'main', date: new Date().toISOString().slice(0, 10) }); }} className="min-h-8 rounded-lg bg-blue-50 px-2.5 text-[10px] font-semibold text-blue-800">{en ? 'Record payment' : 'Enregistrer un paiement'}</button>}</div></div>)}</div> : <p className="py-10 text-center text-xs text-slate-500">{en ? 'No item saved yet.' : 'Aucun élément enregistré.'}</p>}
         </section>
+      )}
+
+      {profileFormOpen && writable && (
+        <div className="fixed inset-0 z-[110] flex items-end justify-center bg-slate-950/50 p-3 sm:items-center">
+          <form onSubmit={submitBusinessProfile} className="max-h-[92dvh] w-full max-w-lg space-y-3 overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl sm:p-5">
+            <div className="flex items-center justify-between"><h3 className="font-bold text-slate-900">{en ? 'Business identity' : 'Identité de l’entreprise'}</h3><button type="button" onClick={() => setProfileFormOpen(false)} className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500"><X size={18}/></button></div>
+            <CloudinaryImageField value={profileForm.logoUrl || ''} onChange={(logoUrl) => setProfileForm({ ...profileForm, logoUrl })} folder="pata/businesses" language={language} label={en ? 'Business logo' : 'Logo de l’entreprise'} />
+            <label className="block text-xs font-semibold text-slate-600">{en ? 'Business name' : 'Nom de l’entreprise'}<input required minLength={2} maxLength={100} value={profileForm.name} onChange={(event) => setProfileForm({ ...profileForm, name: event.target.value })} className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm font-normal"/></label>
+            <label className="block text-xs font-semibold text-slate-600">{en ? 'Business activity' : 'Activité'}<input maxLength={120} value={profileForm.activity} onChange={(event) => setProfileForm({ ...profileForm, activity: event.target.value })} className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm font-normal"/></label>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="text-xs font-semibold text-slate-600">{en ? 'Legal form' : 'Forme juridique'}<input maxLength={80} value={profileForm.legalForm} onChange={(event) => setProfileForm({ ...profileForm, legalForm: event.target.value })} className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm font-normal"/></label>
+              <label className="text-xs font-semibold text-slate-600">{en ? 'City' : 'Ville'}<input maxLength={80} value={profileForm.city} onChange={(event) => setProfileForm({ ...profileForm, city: event.target.value })} className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm font-normal"/></label>
+            </div>
+            <label className="block text-xs font-semibold text-slate-600">{en ? 'Phone' : 'Téléphone'}<input maxLength={30} value={profileForm.phone} onChange={(event) => setProfileForm({ ...profileForm, phone: event.target.value })} className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm font-normal"/></label>
+            <div className="flex gap-2"><button disabled={saving} className="min-h-11 flex-1 rounded-xl bg-[#075b43] text-xs font-semibold text-white">{saving ? (en ? 'Saving…' : 'Enregistrement…') : (en ? 'Save changes' : 'Enregistrer')}</button><button type="button" onClick={() => setProfileFormOpen(false)} className="min-h-11 rounded-xl border border-slate-300 px-3 text-xs font-semibold text-slate-600">{en ? 'Cancel' : 'Annuler'}</button></div>
+          </form>
+        </div>
       )}
 
       {showTransactionForm && writable && (
@@ -387,7 +543,11 @@ export default function BusinessWorkspacePage() {
         <div className="fixed inset-0 z-[100] flex items-end justify-center bg-slate-950/40 p-3 sm:items-center">
           <form onSubmit={submitTransfer} className="w-full max-w-lg space-y-3 rounded-2xl bg-white p-4 shadow-2xl">
             <div className="flex items-center justify-between"><h3 className="font-bold text-slate-900">{en ? 'Personal contribution' : 'Apport depuis tes finances personnelles'}</h3><button type="button" onClick={() => setShowTransferForm(false)}><X size={18}/></button></div>
-            <p className="text-xs leading-5 text-slate-500">{en ? 'The selected amount is reduced from the personal income source and added to the business account as an owner contribution, not as sales.' : 'Le montant choisi sera déduit du solde disponible de ta source personnelle et ajouté au compte de l’entreprise comme apport du propriétaire, pas comme une vente.'}</p>
+            <div className="flex items-center gap-3 rounded-xl bg-slate-50 p-3">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white text-slate-500">{overview.business.logoUrl ? <img src={overview.business.logoUrl} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer"/> : <Building2 size={20}/>}</span>
+              <div className="min-w-0"><p className="text-xs font-semibold text-slate-800">{overview.business.name}</p><p className="text-[10px] text-slate-500">{en ? 'Destination business' : 'Entreprise de destination'}</p></div>
+            </div>
+            <p className="text-xs leading-5 text-slate-500">{en ? 'The selected amount is reduced from the personal income source and added to this business account as an owner contribution, not as sales.' : 'Le montant choisi sera déduit du solde disponible de ta source personnelle et ajouté au compte de cette entreprise comme apport du propriétaire, pas comme une vente.'}</p>
             <label className="block text-xs font-semibold text-slate-600">Source de revenu personnelle<select required value={transferForm.incomeId} onChange={(e) => setTransferForm({ ...transferForm, incomeId: e.target.value })} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="">Choisir un revenu</option>{personalSources.map((income) => <option key={income.id} value={income.id}>{income.source} · {money(income.remaining)} disponibles</option>)}</select></label>
             <label className="block text-xs font-semibold text-slate-600">Montant à transférer (FCFA)<input type="number" min="1" step="1" required value={transferForm.amount} onChange={(e) => setTransferForm({ ...transferForm, amount: e.target.value })} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 px-3 text-base"/></label>
             <label className="block text-xs font-semibold text-slate-600">Compte de destination<select value={transferForm.accountId} onChange={(e) => setTransferForm({ ...transferForm, accountId: e.target.value })} className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm">{accountsForSelect.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>

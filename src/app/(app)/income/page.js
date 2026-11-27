@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   Plus, Trash2, TrendingUp, CheckCircle2, Save, RotateCcw, Percent,
-  PiggyBank, Target, Pencil, AlertTriangle, Calculator, ArrowRight, Clock3, MapPin, Pin
+  PiggyBank, Target, Pencil, AlertTriangle, Calculator, ArrowRight, Clock3, MapPin, Pin, Building2, Wallet
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -1546,15 +1546,22 @@ export default function IncomePage() {
         <form onSubmit={onSubmit} className="space-y-3">
           {!form.id && form.flowType === 'normal' && <div className="rounded-xl border border-slate-200 p-3">
             <label className="mb-1 block text-sm font-semibold text-slate-700">Destination de cet argent</label>
-            <select value={form.destinationBusinessId || ''} onChange={(event) => {
-              const value = event.target.value;
-              if (value === '__manage_businesses__') { router.push('/businesses'); return; }
-              setForm((current) => ({ ...current, destinationBusinessId: value, scheduleEnabled: value ? false : current.scheduleEnabled, projectId: value ? '' : current.projectId }));
-            }} className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm">
-              <option value="">Espace personnel (par défaut)</option>
-              {businesses.map((business) => <option key={business.id} value={business.id}>{business.name}{business.readOnly ? ' · consultation' : ''}</option>)}
-              <option value="__manage_businesses__">{businesses.length ? 'Consulter ou gérer mes entreprises' : 'Découvrir / créer une entreprise'}</option>
-            </select>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <button type="button" aria-pressed={!form.destinationBusinessId} onClick={() => setForm((current) => ({ ...current, destinationBusinessId: '', scheduleEnabled: current.scheduleEnabled }))} className={'flex min-h-[66px] items-center gap-3 rounded-xl border p-2.5 text-left transition ' + (!form.destinationBusinessId ? 'border-brand-500 bg-brand-50/60 ring-1 ring-brand-500/20' : 'border-slate-200 bg-white')}>
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600"><Wallet size={19}/></span>
+                <span className="min-w-0"><span className="block text-xs font-semibold text-slate-800">Espace personnel</span><span className="mt-0.5 block text-[10px] text-slate-500">Par défaut</span></span>
+                {!form.destinationBusinessId && <CheckCircle2 size={16} className="ml-auto shrink-0 text-brand-700"/>}
+              </button>
+              {businesses.map((business) => {
+                const selected = form.destinationBusinessId === business.id;
+                return <button key={business.id} type="button" aria-pressed={selected} onClick={() => setForm((current) => ({ ...current, destinationBusinessId: business.id, scheduleEnabled: false, projectId: '' }))} className={'flex min-h-[66px] items-center gap-3 rounded-xl border p-2.5 text-left transition ' + (selected ? 'border-brand-500 bg-brand-50/60 ring-1 ring-brand-500/20' : 'border-slate-200 bg-white')}>
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-100 text-slate-500">{business.logoUrl ? <img src={business.logoUrl} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer"/> : <Building2 size={19}/>}</span>
+                  <span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold text-slate-800">{business.name}</span><span className="mt-0.5 block truncate text-[10px] text-slate-500">{business.activity || 'Entreprise'}{business.readOnly ? ' · consultation' : ''}</span></span>
+                  {selected && <CheckCircle2 size={16} className="shrink-0 text-brand-700"/>}
+                </button>;
+              })}
+            </div>
+            <Link href="/businesses" className="mt-2 inline-flex min-h-8 items-center gap-1.5 text-[11px] font-semibold text-brand-700">{businesses.length ? 'Consulter ou gérer mes entreprises' : 'Découvrir / créer une entreprise'} <ArrowRight size={13}/></Link>
             {form.destinationBusinessId ? (() => {
               const selectedBusiness = businesses.find((business) => business.id === form.destinationBusinessId);
               const locked = !isPremium || !selectedBusiness || selectedBusiness.readOnly;

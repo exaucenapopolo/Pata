@@ -79,3 +79,22 @@ export async function payBusinessDocument(id, resource, itemId, input) {
     requestId: input.requestId || createRequestId('payment'),
   });
 }
+
+
+export async function updateBusinessProfile(id, input) {
+  const result = await businessRequest(businessPath(id), 'PATCH', input);
+  return result.business;
+}
+export async function getBusinessPaymentLinks(id) {
+  const result = await businessRequest(businessPath(id, 'payment-links'));
+  return Array.isArray(result.paymentLinks) ? result.paymentLinks : [];
+}
+export async function createBusinessPaymentLink(id, input) {
+  return businessRequest(businessPath(id, 'payment-links'), 'POST', {
+    ...input,
+    requestId: input.requestId || createRequestId('plink'),
+  });
+}
+export async function verifyBusinessPaymentLink(id, paymentLinkId) {
+  return businessRequest(businessPath(id, 'payment-links/' + encodeURIComponent(paymentLinkId) + '/verify'), 'POST', {});
+}
