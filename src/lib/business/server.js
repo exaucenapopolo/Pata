@@ -123,6 +123,7 @@ export async function createBusiness(uid, input = {}) {
   const name = cleanText(input.name, 100);
   if (name.length < 2) throw new BusinessError('Indique un nom d’entreprise comportant au moins deux caractères.');
   const activity = cleanText(input.activityCustom || input.activity, 120);
+  const slogan = cleanText(input.slogan, 180);
   const legalForm = cleanText(input.legalForm, 80);
   const city = cleanText(input.city, 80);
   const phone = cleanText(input.phone, 30);
@@ -139,7 +140,7 @@ export async function createBusiness(uid, input = {}) {
     if (!profileSnap.exists) throw new BusinessError('Profil utilisateur introuvable.', 401, 'PROFILE_NOT_FOUND');
     if (!isPremium(profileSnap.data() || {})) premiumRequired();
     transaction.create(businessRef, {
-      name, activity, legalForm, city, phone, logoUrl, currency,
+      name, activity, slogan, legalForm, city, phone, logoUrl, currency,
       country: 'CM', ownerId: uid, status: 'active',
       totalIncome: 0, totalExpense: 0, ownerContributions: 0, ownerWithdrawals: 0,
       cashBalance: 0, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
@@ -173,6 +174,7 @@ export async function getBusinessOverview(uid, businessId) {
     business: {
       id: context.business.id, name: context.business.name, activity: context.business.activity,
       city: context.business.city, currency: context.business.currency || 'XAF',
+      slogan: cleanText(context.business.slogan, 180),
       phone: context.business.phone || '', legalForm: context.business.legalForm || '',
       logoUrl: isValidCloudinaryAvatarUrl(context.business.logoUrl) ? context.business.logoUrl : '',
       status: context.business.status || 'active',
@@ -655,6 +657,7 @@ export async function updateBusinessProfile(uid, businessId, input = {}) {
   const name = cleanText(input.name, 100);
   if (name.length < 2) throw new BusinessError('Le nom de l’entreprise doit comporter au moins deux caractères.');
   const activity = cleanText(input.activityCustom || input.activity, 120);
+  const slogan = cleanText(input.slogan, 180);
   const legalForm = cleanText(input.legalForm, 80);
   const city = cleanText(input.city, 80);
   const phone = cleanText(input.phone, 30);
@@ -675,12 +678,12 @@ export async function updateBusinessProfile(uid, businessId, input = {}) {
       throw new BusinessError('Entreprise indisponible.', 404);
     }
     transaction.update(context.businessRef, {
-      name, activity, legalForm, city, phone,
+      name, activity, slogan, legalForm, city, phone,
       logoUrl: logoUrl || FieldValue.delete(),
       updatedAt: FieldValue.serverTimestamp(),
     });
   });
-  return { id: businessId, name, activity, legalForm, city, phone, logoUrl };
+  return { id: businessId, name, activity, slogan, legalForm, city, phone, logoUrl };
 }
 
 const businessPaymentLinksRef = () => adminDb.collection('businessPaymentLinks');
@@ -723,154 +726,74 @@ async function fetchFapshiPaymentStatus(transId) {
   return data;
 }
 
-export async function listBusinessPaymentLinks(uid, businessId) {
-  const context = await getBusinessContext(uid, businessId);
-  const snapshot = await businessPaymentLinksRef().where('businessId', '==', context.businessId).limit(100).get();
-  const links = snapshot.docs.map(serializeDocument);
-  links.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
-  return { paymentLinks: links, readOnly: !context.premiumActive || context.business.status === 'archived' };
+export async function listBusinessPaymentLinks(uid,businessId){
+ const c=await getBusinessContext(uid,businessId);
+ const snap=await businessPaymentLinksRef().where('businessId','==',c.businessId).limit(100).get();
+ const links=snap.docs.map(serializeDocument).filter(x=>!x.parentLinkId).sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+ return {paymentLinks:links,readOnly:!c.premiumActive||c.business.status==='archived'};
 }
-
-export async function getPublicBusinessPaymentLink(paymentLinkId) {
-  const id = validId(paymentLinkId);
-  const snapshot = await businessPaymentLinksRef().doc(id).get();
-  if (!snapshot.exists) throw new BusinessError('Cette offre de paiement est introuvable.', 404, 'PAYMENT_LINK_NOT_FOUND');
-  const link = snapshot.data() || {};
-  if (link.status !== 'PENDING') return { payment: { id, status: link.status || 'UNAVAILABLE', title: cleanText(link.title, 100), businessName: cleanText(link.businessName, 100) } };
-  const businessSnap = await businessesRef().doc(validId(link.businessId)).get();
-  const business = businessSnap.exists ? businessSnap.data() || {} : {};
-  return { payment: {
-    id, status: 'PENDING', title: cleanText(link.title, 100),
-    description: cleanText(link.description, 1200),
-    imageUrl: isValidCloudinaryAvatarUrl(link.imageUrl) ? link.imageUrl : '',
-    amount: Number(link.amount) || 0,
-    originalAmount: Number(link.originalAmount) || Number(link.amount) || 0,
-    discountAmount: Math.max(0, Number(link.discountAmount) || 0),
-    businessName: cleanText(business.name || link.businessName, 100),
-    businessActivity: cleanText(business.activity, 120),
-    businessLogoUrl: isValidCloudinaryAvatarUrl(business.logoUrl) ? business.logoUrl : '',
-    checkoutUrl: paymentLinkPublicUrl(link.checkoutUrl),
-  } };
+export async function getPublicBusinessPaymentLink(paymentLinkId,visitorId=''){
+ const id=validId(paymentLinkId),ref=businessPaymentLinksRef().doc(id),snap=await ref.get();
+ if(!snap.exists)throw new BusinessError('Cette offre de paiement est introuvable.',404,'PAYMENT_LINK_NOT_FOUND');
+ const link=snap.data()||{},visitor=cleanText(visitorId,100).replace(/[^a-zA-Z0-9_-]/g,'');
+ if(link.status==='ACTIVE'&&visitor.length>=12){
+  const vr=ref.collection('viewers').doc(visitor);
+  await adminDb.runTransaction(async tx=>{const [fresh,seen]=await Promise.all([tx.get(ref),tx.get(vr)]);if(fresh.exists&&fresh.data()?.status==='ACTIVE'&&!seen.exists){tx.create(vr,{firstSeenAt:FieldValue.serverTimestamp()});tx.update(ref,{uniqueViews:FieldValue.increment(1),pageViews:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()});}});
+ }else if(link.status==='ACTIVE')await ref.update({pageViews:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()});
+ const bs=await businessesRef().doc(validId(link.businessId)).get(),b=bs.exists?bs.data()||{}:{};
+ const max=Math.max(0,Number(link.maxPayments)||0),sold=link.status==='SOLD_OUT'||(max>0&&Number(link.successfulPayments||0)>=max);
+ return {payment:{id,status:sold?'SOLD_OUT':link.status||'UNAVAILABLE',title:cleanText(link.title,100),description:cleanText(link.description,1200),imageUrl:isValidCloudinaryAvatarUrl(link.imageUrl)?link.imageUrl:'',amount:Number(link.amount)||0,originalAmount:Number(link.originalAmount)||Number(link.amount)||0,discountAmount:Math.max(0,Number(link.discountAmount)||0),businessName:cleanText(b.name||link.businessName,100),businessSlogan:cleanText(b.slogan,180)}};
 }
-
-export async function createBusinessPaymentLink(uid, businessId, input = {}) {
-  const context = await getBusinessContext(uid, businessId);
-  requireWritable(context);
-  if (typeof input.amount === 'string' && !/^\d+$/.test(input.amount.trim())) throw new BusinessError('Le montant doit être un nombre entier en FCFA.');
-  const amount = parseAmount(input.amount, 'Montant à payer');
-  if (amount < 100) throw new BusinessError('Le montant minimum à demander est de 100 FCFA.');
-  const originalAmount = input.originalAmount ? parseAmount(input.originalAmount, 'Prix normal') : amount;
-  if (originalAmount < amount) throw new BusinessError('Le prix normal ne peut pas être inférieur au montant à payer.');
-  const title = cleanText(input.title, 100);
-  if (title.length < 2) throw new BusinessError('Donne un nom au produit ou service.');
-  const description = cleanText(input.description, 1200);
-  if (description.length < 5) throw new BusinessError('Ajoute une courte description du produit ou service.');
-  const imageUrl = cleanText(input.imageUrl, 2048);
-  if (imageUrl && !isValidCloudinaryAvatarUrl(imageUrl)) throw new BusinessError('La photo du produit doit provenir de la bibliothèque photo Pata.');
-  const customerName = cleanText(input.customerName, 100);
-  const customerEmail = cleanText(input.customerEmail, 160).toLowerCase();
-  if (!validEmail(customerEmail)) throw new BusinessError('Adresse e-mail du client invalide.');
-  const accountId = validId(input.accountId || 'main');
-  const requestId = cleanText(input.requestId, 100).replace(/[^a-zA-Z0-9_-]/g, '_');
-  if (requestId.length < 8) throw new BusinessError('Identifiant de demande invalide. Réessaie depuis Pata.');
-  const paymentLinkId = 'pl_' + requestId;
-  const linkRef = businessPaymentLinksRef().doc(paymentLinkId);
-  const accountRef = context.businessRef.collection('accounts').doc(accountId);
-  let existingLink = null;
-
-  await adminDb.runTransaction(async (transaction) => {
-    const [profileSnap, memberSnap, businessSnap, accountSnap, existingSnap] = await Promise.all([
-      transaction.get(context.userRef), transaction.get(context.memberRef),
-      transaction.get(context.businessRef), transaction.get(accountRef), transaction.get(linkRef),
-    ]);
-    if (!profileSnap.exists || !isPremium(profileSnap.data() || {})) premiumRequired();
-    if (!memberSnap.exists || !['owner', 'admin', 'finance'].includes(memberSnap.data()?.role || '')) {
-      throw new BusinessError('Tu ne disposes pas des droits nécessaires pour créer un lien.', 403, 'READ_ONLY');
-    }
-    if (!businessSnap.exists || businessSnap.data()?.status === 'archived') throw new BusinessError('Entreprise indisponible.', 404);
-    if (!accountSnap.exists || accountSnap.data()?.active === false) throw new BusinessError('Compte de destination introuvable ou désactivé.');
-    if (existingSnap.exists) {
-      existingLink = serializeDocument(existingSnap);
-      return;
-    }
-    transaction.create(linkRef, {
-      businessId: context.businessId,
-      businessName: cleanText(context.business.name, 100),
-      userId: uid,
-      createdBy: uid,
-      accountId,
-      title, description, imageUrl,
-      customerName, customerEmail, amount, originalAmount,
-      discountAmount: Math.max(0, originalAmount - amount),
-      currency: 'XAF',
-      status: 'INITIATING',
-      provider: 'fapshi',
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    });
-  });
-
-  if (existingLink) {
-    if (existingLink.checkoutUrl && existingLink.transId) return { paymentLink: existingLink, duplicate: true };
-    throw new BusinessError('Ce lien est déjà en cours de création. Actualise la liste dans un instant.', 409, 'PAYMENT_LINK_IN_PROGRESS');
-  }
-
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://pata-yam.site';
-  let origin = 'https://pata-yam.site';
-  try { origin = new URL(baseUrl).origin; } catch { /* conserver le domaine public Pata */ }
-  const publicUrl = origin + '/paiement/' + encodeURIComponent(paymentLinkId);
-  const redirectUrl = origin + '/business-payment/return?paymentLinkId=' + encodeURIComponent(paymentLinkId);
-  const payload = {
-    amount,
-    ...(customerEmail ? { email: customerEmail } : {}),
-    redirectUrl,
-    userId: uid,
-    externalId: paymentLinkId,
-    message: title.slice(0, 80),
-  };
-
-  try {
-    const apiUser = process.env.FAPSHI_API_USER;
-    const secretKey = process.env.FAPSHI_SECRET_KEY;
-    if (!apiUser || !secretKey) throw new BusinessError('La configuration du service de paiement est incomplète.', 503, 'PAYMENT_PROVIDER_CONFIG');
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 12000);
-    let response;
-    try {
-      response = await fetch('https://live.fapshi.com/initiate-pay', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', apiuser: apiUser, apikey: secretKey },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-        cache: 'no-store',
-      });
-    } catch {
-      throw new BusinessError('Impossible de préparer le paiement. Aucun encaissement n’a été enregistré.', 502, 'PAYMENT_PROVIDER_UNAVAILABLE');
-    } finally {
-      clearTimeout(timeout);
-    }
-    const providerData = await response.json().catch(() => ({}));
-    if (!response.ok) throw new BusinessError(providerData.message || 'Le service de paiement a refusé la demande.', 502, 'PAYMENT_LINK_REJECTED');
-    const checkoutUrl = paymentLinkPublicUrl(providerData.link || providerData.url || providerData.data?.url);
-    const transId = cleanText(providerData.transId || providerData.data?.transId, 160);
-    if (!checkoutUrl || !transId) throw new BusinessError('Le service de paiement n’a pas retourné une adresse de paiement valide.', 502, 'PAYMENT_LINK_INVALID');
-    await linkRef.set({
-      checkoutUrl, publicUrl, transId, status: 'PENDING',
-      providerMessage: cleanText(providerData.message, 200),
-      updatedAt: FieldValue.serverTimestamp(),
-    }, { merge: true });
-    const fresh = await linkRef.get();
-    return { paymentLink: serializeDocument(fresh), duplicate: false };
-  } catch (error) {
-    await linkRef.set({
-      status: 'FAILED',
-      failureReason: cleanText(error?.message || 'Création impossible', 240),
-      updatedAt: FieldValue.serverTimestamp(),
-    }, { merge: true }).catch(() => {});
-    throw error;
-  }
+export async function createPublicBusinessPaymentCheckout(paymentLinkId,visitorId=''){
+ const id=validId(paymentLinkId),ref=businessPaymentLinksRef().doc(id),attempt=ref.collection('payments').doc(),visitor=cleanText(visitorId,100).replace(/[^a-zA-Z0-9_-]/g,''),clicker=visitor.length>=12?ref.collection('clickers').doc(visitor):null;
+ let link;
+ await adminDb.runTransaction(async tx=>{
+  const reads=[tx.get(ref)];if(clicker)reads.push(tx.get(clicker));const rows=await Promise.all(reads),snap=rows[0],seen=clicker?rows[1]:null;
+  if(!snap.exists)throw new BusinessError('Cette offre est introuvable.',404,'PAYMENT_LINK_NOT_FOUND');
+  link=snap.data()||{};const max=Math.max(0,Number(link.maxPayments)||0),paid=Math.max(0,Number(link.successfulPayments)||0),active=Math.max(0,Number(link.activePaymentCount)||0);
+  if(link.status!=='ACTIVE'||(max>0&&paid+active>=max))throw new BusinessError('Cette offre n’accepte plus de paiement pour le moment.',410,'OFFER_UNAVAILABLE');
+  tx.update(ref,{clickCount:FieldValue.increment(1),activePaymentCount:FieldValue.increment(1),...(clicker&&!seen.exists?{uniqueClickers:FieldValue.increment(1)}:{}),updatedAt:FieldValue.serverTimestamp()});
+  if(clicker&&!seen.exists)tx.create(clicker,{firstClickedAt:FieldValue.serverTimestamp()});
+  tx.create(attempt,{paymentLinkId:id,businessId:link.businessId,userId:link.userId,accountId:link.accountId,amount:Number(link.amount)||0,title:cleanText(link.title,100),customerName:cleanText(link.customerName,100),customerEmail:cleanText(link.customerEmail,160),status:'INITIATING',createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
+ });
+ try{
+  const apiUser=process.env.FAPSHI_API_USER,secret=process.env.FAPSHI_SECRET_KEY;
+  if(!apiUser||!secret)throw new BusinessError('La configuration du service de paiement est incomplète.',503,'PAYMENT_PROVIDER_CONFIG');
+  let origin='https://pata-yam.site';try{origin=new URL(process.env.NEXT_PUBLIC_APP_URL||process.env.NEXT_PUBLIC_SITE_URL||origin).origin;}catch{}
+  const payload={amount:Number(link.amount),...(link.customerEmail?{email:link.customerEmail}:{}),redirectUrl:origin+'/business-payment/return?paymentLinkId='+encodeURIComponent(id),userId:link.userId,externalId:attempt.id,message:cleanText(link.title,80)};
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),12000);let response;
+  try{response=await fetch('https://live.fapshi.com/initiate-pay',{method:'POST',headers:{'Content-Type':'application/json',apiuser,apikey:secret},body:JSON.stringify(payload),signal:controller.signal,cache:'no-store'});}catch{throw new BusinessError('Impossible de préparer le paiement. Réessaie.',502,'PAYMENT_PROVIDER_UNAVAILABLE');}finally{clearTimeout(timeout);}
+  const data=await response.json().catch(()=>({}));if(!response.ok)throw new BusinessError(data.message||'Le paiement ne peut pas être préparé.',502,'PAYMENT_LINK_REJECTED');
+  const checkoutUrl=paymentLinkPublicUrl(data.link||data.url||data.data?.url),transId=cleanText(data.transId||data.data?.transId,160);
+  if(!checkoutUrl||!transId)throw new BusinessError('Adresse de paiement invalide.',502,'PAYMENT_LINK_INVALID');
+  await attempt.set({checkoutUrl,transId,status:'PENDING',updatedAt:FieldValue.serverTimestamp()},{merge:true});return {checkoutUrl};
+ }catch(error){
+  await adminDb.runTransaction(async tx=>{const [l,a]=await Promise.all([tx.get(ref),tx.get(attempt)]);if(a.exists&&!['FAILED','CONFIRMED','EXPIRED'].includes(a.data()?.status)){tx.update(attempt,{status:'FAILED',failureReason:cleanText(error?.message||'Échec',200),updatedAt:FieldValue.serverTimestamp()});if(l.exists)tx.update(ref,{activePaymentCount:FieldValue.increment(-1),updatedAt:FieldValue.serverTimestamp()});}}).catch(()=>{});throw error;
+ }
 }
-
+export async function createBusinessPaymentLink(uid,businessId,input={}){
+ const c=await getBusinessContext(uid,businessId);requireWritable(c);
+ if(typeof input.amount==='string'&&!/^\\d+$/.test(input.amount.trim()))throw new BusinessError('Le montant doit être un nombre entier en FCFA.');
+ const amount=parseAmount(input.amount,'Montant à payer');if(amount<100)throw new BusinessError('Le montant minimum à demander est de 100 FCFA.');
+ const originalAmount=input.originalAmount?parseAmount(input.originalAmount,'Prix normal'):amount;if(originalAmount<amount)throw new BusinessError('Le prix normal ne peut pas être inférieur au montant à payer.');
+ const title=cleanText(input.title,100);if(title.length<2)throw new BusinessError('Donne un nom au produit ou service.');
+ const description=cleanText(input.description,1200);if(description.length<5)throw new BusinessError('Ajoute une courte description du produit ou service.');
+ const imageUrl=cleanText(input.imageUrl,2048);if(imageUrl&&!isValidCloudinaryAvatarUrl(imageUrl))throw new BusinessError('La photo du produit doit provenir de la bibliothèque photo Pata.');
+ const customerName=cleanText(input.customerName,100),customerEmail=cleanText(input.customerEmail,160).toLowerCase();if(!validEmail(customerEmail))throw new BusinessError('Adresse e-mail du client invalide.');
+ const accountId=validId(input.accountId||'main'),maxPayments=input.maxPayments===''||input.maxPayments==null?0:Number(input.maxPayments);
+ if(!Number.isSafeInteger(maxPayments)||maxPayments<0||maxPayments>1000000)throw new BusinessError('Limite de paiements invalide.');
+ const requestId=cleanText(input.requestId,100).replace(/[^a-zA-Z0-9_-]/g,'_');if(requestId.length<8)throw new BusinessError('Identifiant de demande invalide.');
+ const id='pl_'+requestId,ref=businessPaymentLinksRef().doc(id),account=c.businessRef.collection('accounts').doc(accountId);let duplicate=null;
+ await adminDb.runTransaction(async tx=>{const [profile,member,business,acc,existing]=await Promise.all([tx.get(c.userRef),tx.get(c.memberRef),tx.get(c.businessRef),tx.get(account),tx.get(ref)]);
+  if(!profile.exists||!isPremium(profile.data()||{}))premiumRequired();if(!member.exists||!['owner','admin','finance'].includes(member.data()?.role||''))throw new BusinessError('Droits insuffisants pour créer ce lien.',403,'READ_ONLY');
+  if(!business.exists||business.data()?.status==='archived')throw new BusinessError('Entreprise indisponible.',404);if(!acc.exists||acc.data()?.active===false)throw new BusinessError('Compte de destination introuvable.');
+  if(existing.exists){duplicate=serializeDocument(existing);return;}
+  tx.create(ref,{businessId:c.businessId,businessName:cleanText(c.business.name,100),userId:uid,createdBy:uid,accountId,title,description,imageUrl,customerName,customerEmail,amount,originalAmount,discountAmount:Math.max(0,originalAmount-amount),maxPayments,currency:'XAF',status:'ACTIVE',pageViews:0,uniqueViews:0,clickCount:0,uniqueClickers:0,successfulPayments:0,grossRevenue:0,netRevenue:0,feeRevenue:0,activePaymentCount:0,createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
+ });
+ if(duplicate)return {paymentLink:duplicate,duplicate:true};
+ let origin='https://pata-yam.site';try{origin=new URL(process.env.NEXT_PUBLIC_APP_URL||process.env.NEXT_PUBLIC_SITE_URL||origin).origin;}catch{}
+ await ref.update({publicUrl:origin+'/paiement/'+encodeURIComponent(id)});return {paymentLink:serializeDocument(await ref.get()),duplicate:false};
+}
 async function settleBusinessPaymentLink(linkRef, providerData) {
   const transId = cleanText(providerData?.transId || providerData?.trans_id, 160);
   if (!transId) throw new BusinessError('La réponse du service de paiement ne contient pas d’identifiant de transaction.', 502, 'PAYMENT_VERIFICATION_INVALID');
@@ -999,32 +922,61 @@ async function settleBusinessPaymentLink(linkRef, providerData) {
   return { handled: true, status: 'CONFIRMED', paymentLink: serializeDocument(fresh) };
 }
 
+async function settleBusinessPaymentAttempt(attemptRef, providerData) {
+ const attemptSnap=await attemptRef.get();if(!attemptSnap.exists)return {handled:false,status:'NOT_FOUND'};
+ const attempt=attemptSnap.data()||{},linkRef=attemptRef.parent.parent;
+ if(!linkRef)throw new BusinessError('Offre de paiement introuvable.',404);
+ if(attempt.status==='CONFIRMED')return {handled:true,status:'CONFIRMED'};
+ const transId=cleanText(providerData?.transId||providerData?.trans_id,160);
+ if(String(attempt.transId||'')!==transId)throw new BusinessError('Identifiant de transaction incorrect.',409,'PAYMENT_ID_MISMATCH');
+ const providerStatus=cleanText(providerData.status,32).toUpperCase();
+ if(providerStatus!=='SUCCESSFUL'){
+  if(['FAILED','EXPIRED'].includes(providerStatus))await adminDb.runTransaction(async tx=>{const [a,l]=await Promise.all([tx.get(attemptRef),tx.get(linkRef)]);if(!a.exists||['CONFIRMED','FAILED','EXPIRED'].includes(a.data()?.status))return;tx.update(attemptRef,{status:providerStatus,failureReason:cleanText(providerData.reason||providerStatus,200),updatedAt:FieldValue.serverTimestamp()});if(l.exists)tx.update(linkRef,{activePaymentCount:FieldValue.increment(-1),updatedAt:FieldValue.serverTimestamp()});});
+  return {handled:true,status:['FAILED','EXPIRED'].includes(providerStatus)?providerStatus:'PENDING'};
+ }
+ const gross=Number(providerData.amount),net=Number(providerData.revenue);
+ if(!Number.isSafeInteger(gross)||gross!==Number(attempt.amount))throw new BusinessError('Le montant confirmé ne correspond pas à cette offre.',409,'PAYMENT_AMOUNT_MISMATCH');
+ if(!Number.isSafeInteger(net)||net<=0||net>gross)throw new BusinessError('Montant net de règlement invalide.',409,'PAYMENT_REVENUE_INVALID');
+ if(String(providerData.externalId||'')!==attemptRef.id||String(providerData.userId||'')!==String(attempt.userId))throw new BusinessError('La référence de paiement est invalide.',409,'PAYMENT_REFERENCE_MISMATCH');
+ const businessRef=businessesRef().doc(validId(attempt.businessId)),accountRef=businessRef.collection('accounts').doc(validId(attempt.accountId||'main'));
+ const date=parseDate(String(providerData.dateConfirmed||providerData.dateInitiated||todayDouala()).slice(0,10)),month=date.slice(0,7),fee=gross-net;
+ const incomeRef=businessRef.collection('transactions').doc('pay_'+attemptRef.id+'_income'),feeRef=businessRef.collection('transactions').doc('pay_'+attemptRef.id+'_fee'),monthRef=businessRef.collection('monthlySummaries').doc(month);
+ await adminDb.runTransaction(async tx=>{
+  const [a,l,b,acc,income,feeTxn]=await Promise.all([tx.get(attemptRef),tx.get(linkRef),tx.get(businessRef),tx.get(accountRef),tx.get(incomeRef),tx.get(feeRef)]);
+  if(!a.exists)throw new BusinessError('Tentative de paiement introuvable.',404);if(a.data()?.status==='CONFIRMED')return;
+  if(!l.exists||!b.exists||!acc.exists||acc.data()?.active===false)throw new BusinessError('Compte professionnel de destination introuvable. Paiement à régulariser.',409,'BUSINESS_ACCOUNT_MISSING');
+  if(income.exists||(fee>0&&feeTxn.exists))throw new BusinessError('Écriture de paiement déjà existante. Vérification requise.',409,'PAYMENT_LEDGER_CONFLICT');
+  const offer=l.data()||{};
+  tx.create(incomeRef,{type:'income',direction:'income',flowType:'normal',title:cleanText(offer.title,100),categoryId:'sales',amount:gross,grossAmount:gross,receivedAmount:net,providerFeeAmount:fee,date,month,accountId:attempt.accountId,paymentMethod:'fapshi',paymentLinkId:linkRef.id,paymentAttemptId:attemptRef.id,transId,customerName:cleanText(providerData.payerName||attempt.customerName,100),customerEmail:cleanText(providerData.email||attempt.customerEmail,160),note:'Paiement confirmé pour '+cleanText(offer.title,100),status:'posted',createdBy:attempt.userId,createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
+  if(fee>0)tx.create(feeRef,{type:'expense',direction:'expense',flowType:'provider_fee',title:'Frais de traitement · '+cleanText(offer.title,80),categoryId:'payment_fees',amount:fee,date,month,accountId:attempt.accountId,paymentMethod:'fapshi',paymentLinkId:linkRef.id,paymentAttemptId:attemptRef.id,transId,note:'Frais de traitement liés à cet encaissement',status:'posted',createdBy:attempt.userId,createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
+  tx.update(accountRef,{balance:FieldValue.increment(net),updatedAt:FieldValue.serverTimestamp()});
+  tx.update(businessRef,{cashBalance:FieldValue.increment(net),totalIncome:FieldValue.increment(gross),...(fee>0?{totalExpense:FieldValue.increment(fee)}:{}),updatedAt:FieldValue.serverTimestamp(),lastActivityAt:FieldValue.serverTimestamp()});
+  tx.set(monthRef,{month,income:FieldValue.increment(gross),...(fee>0?{expense:FieldValue.increment(fee)}:{}),transactionCount:FieldValue.increment(fee>0?2:1),updatedAt:FieldValue.serverTimestamp()},{merge:true});
+  const link=offer,max=Math.max(0,Number(link.maxPayments)||0),next=Math.max(0,Number(link.successfulPayments)||0)+1;
+  tx.update(linkRef,{successfulPayments:FieldValue.increment(1),grossRevenue:FieldValue.increment(gross),netRevenue:FieldValue.increment(net),feeRevenue:FieldValue.increment(fee),activePaymentCount:FieldValue.increment(-1),status:max>0&&next>=max?'SOLD_OUT':'ACTIVE',updatedAt:FieldValue.serverTimestamp(),lastPaymentAt:FieldValue.serverTimestamp()});
+  tx.update(attemptRef,{status:'CONFIRMED',receivedAmount:net,providerFeeAmount:fee,payerName:cleanText(providerData.payerName||attempt.customerName,100),payerEmail:cleanText(providerData.email||attempt.customerEmail,160),confirmedAt:FieldValue.serverTimestamp(),confirmedDate:date,financeIncomeTransactionId:incomeRef.id,financeFeeTransactionId:fee>0?feeRef.id:'',updatedAt:FieldValue.serverTimestamp()});
+ });
+ return {handled:true,status:'CONFIRMED'};
+}
+
 export async function processFapshiBusinessPayment(transId) {
   const safeTransId = cleanText(transId, 160);
   if (!safeTransId || safeTransId.includes('/')) return { handled: false, status: 'NOT_FOUND' };
+  const data = await fetchFapshiPaymentStatus(safeTransId);
+  const attempts = await adminDb.collectionGroup('payments').where('transId', '==', safeTransId).limit(1).get();
+  if (!attempts.empty) return settleBusinessPaymentAttempt(attempts.docs[0].ref, data);
   const snapshot = await businessPaymentLinksRef().where('transId', '==', safeTransId).limit(1).get();
   if (snapshot.empty) return { handled: false, status: 'NOT_FOUND' };
-  const linkRef = snapshot.docs[0].ref;
-  const data = await fetchFapshiPaymentStatus(safeTransId);
-  return settleBusinessPaymentLink(linkRef, data);
+  return settleBusinessPaymentLink(snapshot.docs[0].ref, data);
 }
 
-export async function verifyBusinessPaymentLink(uid, businessId, paymentLinkId) {
-  const context = await getBusinessContext(uid, businessId);
-  const id = validId(paymentLinkId);
-  const linkRef = businessPaymentLinksRef().doc(id);
-  const snapshot = await linkRef.get();
-  if (!snapshot.exists || snapshot.data()?.businessId !== context.businessId || snapshot.data()?.userId !== uid) {
-    throw new BusinessError('Lien de paiement introuvable pour cette entreprise.', 404, 'PAYMENT_LINK_NOT_FOUND');
-  }
-  const link = snapshot.data() || {};
-  if (link.status === 'CONFIRMED') return { success: true, status: 'CONFIRMED', paymentLink: serializeDocument(snapshot) };
-  if (!link.transId) return { success: true, status: link.status || 'INITIATING', paymentLink: serializeDocument(snapshot) };
-  const result = await processFapshiBusinessPayment(link.transId);
-  const fresh = await linkRef.get();
-  return { success: true, status: result.status || fresh.data()?.status || 'PENDING', paymentLink: serializeDocument(fresh) };
+export async function verifyBusinessPaymentLink(uid,businessId,paymentLinkId){
+ const c=await getBusinessContext(uid,businessId),id=validId(paymentLinkId),ref=businessPaymentLinksRef().doc(id),snap=await ref.get();
+ if(!snap.exists||snap.data()?.businessId!==c.businessId)throw new BusinessError('Lien de paiement introuvable pour cette entreprise.',404,'PAYMENT_LINK_NOT_FOUND');
+ const pending=await ref.collection('payments').where('status','in',['PENDING','INITIATING']).limit(20).get();
+ const results=await Promise.all(pending.docs.map(d=>d.data()?.transId?processFapshiBusinessPayment(d.data().transId):null));
+ return {success:true,status:(await ref.get()).data()?.status||'ACTIVE',checked:results.filter(Boolean).length};
 }
-
 
 const PERSON_TYPES = new Set(['founder','cofounder','employee','partner','associate','contractor']);
 export async function listBusinessPeople(uid,businessId){const c=await getBusinessContext(uid,businessId);const s=await c.businessRef.collection('people').orderBy('createdAt','asc').limit(200).get();return {people:s.docs.map(serializeDocument),readOnly:!c.premiumActive||c.business.status==='archived'||!['owner','admin'].includes(c.role)};}

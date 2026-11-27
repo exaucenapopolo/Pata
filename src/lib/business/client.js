@@ -95,6 +95,7 @@ export async function createBusinessPaymentLink(id, input) {
     requestId: input.requestId || createRequestId('plink'),
   });
 }
+export async function getBusinessPaymentLinkDetails(id, paymentLinkId) { return businessRequest(businessPath(id, 'payment-links/' + encodeURIComponent(paymentLinkId))); }
 export async function verifyBusinessPaymentLink(id, paymentLinkId) {
   return businessRequest(businessPath(id, 'payment-links/' + encodeURIComponent(paymentLinkId) + '/verify'), 'POST', {});
 }

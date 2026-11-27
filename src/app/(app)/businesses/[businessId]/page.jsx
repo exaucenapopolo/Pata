@@ -81,7 +81,7 @@ export default function BusinessWorkspacePage() {
   const [paymentLinkForm, setPaymentLinkForm] = useState({ title: '', description: '', imageUrl: '', originalAmount: '', amount: '', customerName: '', customerEmail: '', accountId: 'main' });
   const [busyPaymentLinkId, setBusyPaymentLinkId] = useState('');
   const [profileFormOpen, setProfileFormOpen] = useState(false);
-  const [profileForm, setProfileForm] = useState({ name: '', activity: '', legalForm: '', city: '', phone: '', logoUrl: '' });
+  const [profileForm, setProfileForm] = useState({ name: '', activity: '', slogan: '', legalForm: '', city: '', phone: '', logoUrl: '' });
   const [actionNotice, setActionNotice] = useState('');
 
   const writable = overview?.readOnly === false;
@@ -361,12 +361,12 @@ export default function BusinessWorkspacePage() {
         <div className="min-w-0 flex-1">
           <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-blue-700">{en ? 'Business space' : 'Espace entreprise'}</p>
           <h2 className="truncate text-2xl font-extrabold tracking-tight text-slate-900">{overview.business.name}</h2>
-          <p className="mt-1 text-xs text-slate-500">{overview.business.activity || (en ? 'Professional finances' : 'Finances professionnelles')} {overview.business.city ? '· ' + overview.business.city : ''}</p>
+          <p className="mt-1 text-xs text-slate-500">{overview.business.slogan || (en ? 'Professional finances' : 'Finances professionnelles')} {overview.business.city ? '· ' + overview.business.city : ''}</p>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-2">
           <span className={'rounded-full px-2.5 py-1 text-[10px] font-semibold ' + (writable ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800')}>{writable ? (en ? 'Premium active' : 'Premium actif') : (en ? 'View only' : 'Consultation')}</span>
           {<Link href={'/businesses/' + businessId + '/team'} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] font-semibold text-slate-600"><Users size={12}/>{en ? 'Team' : 'Équipe'}</Link>}
-          {writable && ['owner', 'admin'].includes(overview.role) && <button type="button" onClick={() => { setProfileForm({ name: overview.business.name || '', activity: overview.business.activity || '', legalForm: overview.business.legalForm || '', city: overview.business.city || '', phone: overview.business.phone || '', logoUrl: overview.business.logoUrl || '' }); setProfileFormOpen(true); }} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] font-semibold text-slate-600"><Pencil size={12}/>{en ? 'Edit' : 'Modifier'}</button>}
+          {writable && ['owner', 'admin'].includes(overview.role) && <button type="button" onClick={() => { setProfileForm({ name: overview.business.name || '', activity: overview.business.activity || '', slogan: overview.business.slogan || '', legalForm: overview.business.legalForm || '', city: overview.business.city || '', phone: overview.business.phone || '', logoUrl: overview.business.logoUrl || '' }); setProfileFormOpen(true); }} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] font-semibold text-slate-600"><Pencil size={12}/>{en ? 'Edit' : 'Modifier'}</button>}
         </div>
       </header>
 
@@ -517,6 +517,7 @@ export default function BusinessWorkspacePage() {
             <CloudinaryImageField value={profileForm.logoUrl || ''} onChange={(logoUrl) => setProfileForm({ ...profileForm, logoUrl })} folder="pata/businesses" language={language} label={en ? 'Business logo' : 'Logo de l’entreprise'} />
             <label className="block text-xs font-semibold text-slate-600">{en ? 'Business name' : 'Nom de l’entreprise'}<input required minLength={2} maxLength={100} value={profileForm.name} onChange={(event) => setProfileForm({ ...profileForm, name: event.target.value })} className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm font-normal"/></label>
             <label className="block text-xs font-semibold text-slate-600">{en ? 'Business activity' : 'Activité'}<input maxLength={120} value={profileForm.activity} onChange={(event) => setProfileForm({ ...profileForm, activity: event.target.value })} className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm font-normal"/></label>
+            <label className="block text-xs font-semibold text-slate-600">{en ? 'Business slogan' : 'Slogan de l’entreprise'}<input maxLength={180} value={profileForm.slogan} onChange={(event) => setProfileForm({ ...profileForm, slogan: event.target.value })} placeholder={en ? 'A short phrase representing your business' : 'Une phrase courte qui représente ton entreprise'} className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm font-normal"/></label>
             <div className="grid grid-cols-2 gap-2">
               <label className="text-xs font-semibold text-slate-600">{en ? 'Legal form' : 'Forme juridique'}<input maxLength={80} value={profileForm.legalForm} onChange={(event) => setProfileForm({ ...profileForm, legalForm: event.target.value })} className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm font-normal"/></label>
               <label className="text-xs font-semibold text-slate-600">{en ? 'City' : 'Ville'}<input maxLength={80} value={profileForm.city} onChange={(event) => setProfileForm({ ...profileForm, city: event.target.value })} className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm font-normal"/></label>

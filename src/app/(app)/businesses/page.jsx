@@ -21,7 +21,7 @@ export default function BusinessesPage() {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
-  const [form, setForm] = useState({ name: '', activity: '', activityCustom: '', legalForm: '', city: '', phone: '', logoUrl: '' });
+  const [form, setForm] = useState({ name: '', activity: '', activityCustom: '', slogan: '', legalForm: '', city: '', phone: '', logoUrl: '' });
 
   const submit = async (event) => {
     event.preventDefault();
@@ -83,6 +83,7 @@ export default function BusinessesPage() {
             <div className="sm:col-span-2">
               <CloudinaryImageField value={form.logoUrl || ''} onChange={(logoUrl) => setForm((current) => ({ ...current, logoUrl }))} folder="pata/businesses" language={language} label={en ? 'Business logo (optional)' : 'Logo de l’entreprise (facultatif)'} />
             </div>
+            <label className="text-xs font-semibold text-slate-700 sm:col-span-2">{en ? 'Business slogan (optional)' : 'Slogan de l’entreprise (facultatif)'}<input maxLength={180} value={form.slogan} onChange={(e) => setForm({ ...form, slogan: e.target.value })} placeholder={en ? 'A short phrase that represents your business' : 'Une phrase courte qui représente ton entreprise'} className="mt-1.5 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal"/></label>
             <label className="text-xs font-semibold text-slate-700">{en ? 'Business activity' : 'Secteur d’activité'}<select value={form.activity} onChange={(e) => setForm({ ...form, activity: e.target.value })} className="mt-1.5 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal outline-none focus:border-brand-600"><option value="">{en ? 'Choose an activity' : 'Choisir une activité'}</option>{BUSINESS_ACTIVITIES.map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label>
             {form.activity === 'other' && <label className="text-xs font-semibold text-slate-700">{en ? 'Describe your activity' : 'Précise ton activité'}<input required maxLength={120} value={form.activityCustom} onChange={(e) => setForm({ ...form, activityCustom: e.target.value })} className="mt-1.5 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal"/></label>}
             <label className="text-xs font-semibold text-slate-700">{en ? 'Legal form (optional)' : 'Forme juridique (facultatif)'}<select value={form.legalForm} onChange={(e) => setForm({ ...form, legalForm: e.target.value })} className="mt-1.5 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-normal outline-none focus:border-brand-600"><option value="">{en ? 'Choose (optional)' : 'Choisir (facultatif)'}</option>{['Entreprise individuelle','SARL','SA','SAS','SNC','Association','Coopérative','Établissement / succursale','Autre'].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
@@ -105,7 +106,7 @@ export default function BusinessesPage() {
                   {business.readOnly ? <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-semibold text-amber-800">{en ? 'View only' : 'Consultation'}</span> : <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-800">{en ? 'Active' : 'Actif'}</span>}
                 </div>
                 <h4 className="mt-3 font-bold text-slate-900">{business.name}</h4>
-                <p className="mt-1 text-xs text-slate-500">{business.activity || (en ? 'Business space' : 'Espace professionnel')} {business.city ? '· ' + business.city : ''}</p>
+                <p className="mt-1 text-xs text-slate-500">{business.slogan || (en ? 'Business space' : 'Espace professionnel')} {business.city ? '· ' + business.city : ''}</p>
                 <span className="mt-4 inline-flex items-center gap-1 text-xs font-semibold text-brand-700">{en ? 'Open space' : 'Ouvrir l’espace'} <ArrowRight size={14} className="transition group-hover:translate-x-1"/></span>
               </Link>
             ))}
