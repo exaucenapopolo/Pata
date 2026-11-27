@@ -759,7 +759,7 @@ export async function getPublicBusinessPaymentLink(paymentLinkId,visitorId=''){
  }
  const bs=await businessesRef().doc(validId(link.businessId)).get(),b=bs.exists?bs.data()||{}:{};
  const max=Math.max(0,Number(link.maxPayments)||0),sold=link.status==='SOLD_OUT'||(max>0&&Number(link.successfulPayments||0)+Number(link.activePaymentCount||0)>=max);
- return {payment:{id,status:sold?'SOLD_OUT':link.status||'UNAVAILABLE',title:cleanText(link.title,100),description:cleanText(link.description,1200),imageUrl:isValidCloudinaryAvatarUrl(link.imageUrl)?link.imageUrl:'',amount:Number(link.amount)||0,originalAmount:Number(link.originalAmount)||Number(link.amount)||0,discountAmount:Math.max(0,Number(link.discountAmount)||0),businessName:cleanText(b.name||link.businessName,100),businessSlogan:cleanText(b.slogan,180)}};
+ return {payment:{id,status:sold?'SOLD_OUT':link.status||'UNAVAILABLE',title:cleanText(link.title,100),description:cleanText(link.description,1200),imageUrl:isValidCloudinaryAvatarUrl(link.imageUrl)?link.imageUrl:'',amount:Number(link.amount)||0,originalAmount:Number(link.originalAmount)||Number(link.amount)||0,discountAmount:Math.max(0,Number(link.discountAmount)||0),businessName:cleanText(b.name||link.businessName,100),businessSlogan:cleanText(b.slogan,180),businessLogoUrl:isValidCloudinaryAvatarUrl(b.logoUrl)?b.logoUrl:''}};
 }
 export async function createPublicBusinessPaymentCheckout(paymentLinkId,visitorId=''){
  const id=validId(paymentLinkId),ref=businessPaymentLinksRef().doc(id),attempt=ref.collection('payments').doc(),visitor=cleanText(visitorId,100).replace(/[^a-zA-Z0-9_-]/g,''),clicker=visitor.length>=12?ref.collection('clickers').doc(visitor):null;
@@ -781,7 +781,7 @@ export async function createPublicBusinessPaymentCheckout(paymentLinkId,visitorI
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),12000);let response;
   try{response=await fetch('https://live.fapshi.com/initiate-pay',{method:'POST',headers:{'Content-Type':'application/json',apiuser,apikey:secret},body:JSON.stringify(payload),signal:controller.signal,cache:'no-store'});}catch{throw new BusinessError('Impossible de préparer le paiement. Réessaie.',502,'PAYMENT_PROVIDER_UNAVAILABLE');}finally{clearTimeout(timeout);}
   const data=await response.json().catch(()=>({}));if(!response.ok)throw new BusinessError(data.message||'Le paiement ne peut pas être préparé.',502,'PAYMENT_LINK_REJECTED');
-  const checkoutUrl=paymentLinkPublicUrl(data.link||data.url||data.data?.url),transId=cleanText(data.transId||data.data?.transId,160);
+  const checkoutUrl=paymentLinkPublicUrl(data.link||data.url||data.paymentLink||data.paymentUrl||data.payment_url||data.data?.link||data.data?.url),transId=cleanText(data.transId||data.trans_id||data.data?.transId||data.data?.trans_id,160);
   if(!checkoutUrl||!transId)throw new BusinessError('Adresse de paiement invalide.',502,'PAYMENT_LINK_INVALID');
   await attempt.set({checkoutUrl,transId,status:'PENDING',updatedAt:FieldValue.serverTimestamp()},{merge:true});return {checkoutUrl};
  }catch(error){
@@ -811,6 +811,32 @@ export async function createBusinessPaymentLink(uid,businessId,input={}){
  let origin='https://pata-yam.site';try{origin=new URL(process.env.NEXT_PUBLIC_APP_URL||process.env.NEXT_PUBLIC_SITE_URL||origin).origin;}catch{}
  await ref.update({publicUrl:origin+'/paiement/'+encodeURIComponent(id)});return {paymentLink:serializeDocument(await ref.get()),duplicate:false};
 }
+export async function updateBusinessPaymentLink(uid,businessId,paymentLinkId,input={}) {
+ const c=await getBusinessContext(uid,businessId);requireWritable(c);
+ const id=validId(paymentLinkId),ref=businessPaymentLinksRef().doc(id),snap=await ref.get();
+ if(!snap.exists||snap.data()?.businessId!==c.businessId||snap.data()?.status==='DELETED')throw new BusinessError('Lien de paiement introuvable.',404,'PAYMENT_LINK_NOT_FOUND');
+ const amount=parseAmount(input.amount,'Montant à payer');
+ if(amount<100)throw new BusinessError('Le montant minimum à demander est de 100 FCFA.');
+ const originalAmount=input.originalAmount?parseAmount(input.originalAmount,'Prix normal'):amount;
+ if(originalAmount<amount)throw new BusinessError('Le prix normal ne peut pas être inférieur au montant à payer.');
+ const title=cleanText(input.title,100);if(title.length<2)throw new BusinessError('Donne un nom au produit ou service.');
+ const description=cleanText(input.description,1200);if(description.length<5)throw new BusinessError('Ajoute une courte description du produit ou service.');
+ const imageUrl=cleanText(input.imageUrl,2048);if(imageUrl&&!isValidCloudinaryAvatarUrl(imageUrl))throw new BusinessError('La photo du produit doit provenir de la bibliothèque photo Pata.');
+ await ref.update({title,description,imageUrl,amount,originalAmount,discountAmount:Math.max(0,originalAmount-amount),updatedAt:FieldValue.serverTimestamp()});
+ return {paymentLink:serializeDocument(await ref.get())};
+}
+
+export async function deleteBusinessPaymentLink(uid,businessId,paymentLinkId,input={}) {
+ const c=await getBusinessContext(uid,businessId);requireWritable(c);
+ const id=validId(paymentLinkId),ref=businessPaymentLinksRef().doc(id),snap=await ref.get();
+ if(!snap.exists||snap.data()?.businessId!==c.businessId)throw new BusinessError('Lien de paiement introuvable.',404,'PAYMENT_LINK_NOT_FOUND');
+ const link=snap.data()||{};
+ if(input.confirmation!=='SUPPRIMER'||input.confirmLinkId!==id)throw new BusinessError('Confirmation insuffisante. Saisis SUPPRIMER et confirme le bon lien.',400,'DELETE_CONFIRMATION_REQUIRED');
+ if(link.status==='DELETED')return {success:true};
+ await ref.update({status:'DELETED',deletedAt:FieldValue.serverTimestamp(),deletedBy:uid,updatedAt:FieldValue.serverTimestamp()});
+ return {success:true};
+}
+
 async function settleBusinessPaymentLink(linkRef, providerData) {
   const transId = cleanText(providerData?.transId || providerData?.trans_id, 160);
   if (!transId) throw new BusinessError('La réponse du service de paiement ne contient pas d’identifiant de transaction.', 502, 'PAYMENT_VERIFICATION_INVALID');
@@ -1010,14 +1036,29 @@ const BUSINESS_JOIN_TYPES = new Set(['founder','cofounder','employee','partner',
 const BUSINESS_ACCESS_ROLES = new Set(['admin','finance','manager','staff','viewer']);
 const businessInvitationsRef = () => adminDb.collection('businessInvitations');
 
+const normalizeBusinessSearch = (value) => cleanText(value, 100).normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLocaleLowerCase('fr').replace(/\\s+/g, ' ').trim();
+
 export async function searchBusinessesForJoin(uid, query) {
-  const term = cleanText(query, 80).toLocaleLowerCase('fr');
+  const term = normalizeBusinessSearch(query);
   if (term.length < 3) return { businesses: [] };
-  const snapshot = await businessesRef().orderBy('nameSearch').startAt(term).endAt(term + '\uf8ff').limit(10).get();
-  const memberships = await userBusinessRefs(uid).limit(50).get();
+  const [snapshot, memberships] = await Promise.all([
+    businessesRef().orderBy('nameSearch').startAt(term).endAt(term + '\\uf8ff').limit(20).get(),
+    userBusinessRefs(uid).limit(50).get(),
+  ]);
   const joined = new Set(memberships.docs.filter(d => d.data()?.active !== false && d.data()?.status !== 'revoked').map(d => d.id));
-  return { businesses: snapshot.docs.filter(d => d.data()?.status !== 'archived' && !joined.has(d.id)).map(d => {
-    const b=d.data()||{};return {id:d.id,name:cleanText(b.name,100),slogan:cleanText(b.slogan,180),city:cleanText(b.city,80),logoUrl:isValidCloudinaryAvatarUrl(b.logoUrl)?b.logoUrl:''};
+  const found = new Map(snapshot.docs.map(d => [d.id, d]));
+  // Always include businesses already linked to this account. The previous filter
+  // hid the user's own company, making a direct name search appear broken.
+  for (const membership of memberships.docs) {
+    if (found.has(membership.id)) continue;
+    const businessSnap = await businessesRef().doc(membership.id).get();
+    if (businessSnap.exists) {
+      const business = businessSnap.data() || {};
+      if (normalizeBusinessSearch(business.name).startsWith(term)) found.set(businessSnap.id, businessSnap);
+    }
+  }
+  return { businesses: [...found.entries()].filter(([, d]) => d.data()?.status !== 'archived' && normalizeBusinessSearch(d.data()?.name).startsWith(term)).slice(0, 20).map(([id, d]) => {
+    const b=d.data()||{};return {id,name:cleanText(b.name,100),slogan:cleanText(b.slogan,180),city:cleanText(b.city,80),logoUrl:isValidCloudinaryAvatarUrl(b.logoUrl)?b.logoUrl:'',alreadyMember:joined.has(id)};
   }) };
 }
 
