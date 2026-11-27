@@ -1061,22 +1061,28 @@ export async function createBusinessInvitation(uid,businessId,input={}) {
 }
 
 export async function listMyBusinessInvitations(uid) {
-  const profile=await usersRef().doc(uid).get(),email=cleanText(profile.data()?.email,160).toLowerCase();
+  const profile=await usersRef().doc(uid).get();
+  let email=cleanText(profile.data()?.email,160).toLowerCase();
+  if(!email){try{email=cleanText((await adminAuth.getUser(uid)).email,160).toLowerCase();}catch{}}
   const [byUid,byEmail]=await Promise.all([
-    businessInvitationsRef().where('targetUid','==',uid).where('status','==','pending').limit(20).get(),
-    email?businessInvitationsRef().where('invitedEmailLower','==',email).where('status','==','pending').limit(20).get():Promise.resolve({docs:[]}),
+    businessInvitationsRef().where('targetUid','==',uid).limit(20).get(),
+    email?businessInvitationsRef().where('invitedEmailLower','==',email).limit(20).get():Promise.resolve({docs:[]}),
   ]);
-  const map=new Map();for(const d of [...byUid.docs,...byEmail.docs])map.set(d.id,serializeDocument(d));
+  const map=new Map();
+  for(const d of [...byUid.docs,...byEmail.docs])if(d.data()?.status==='pending')map.set(d.id,serializeDocument(d));
   return {invitations:[...map.values()]};
 }
 
 export async function acceptBusinessInvitation(uid,invitationId) {
   const id=validId(invitationId),ref=businessInvitationsRef().doc(id),userRef=usersRef().doc(uid);
+  const authUser=await adminAuth.getUser(uid).catch(()=>null);
+  const profileBefore=await userRef.get();
+  const accountEmail=cleanText(profileBefore.data()?.email||authUser?.email,160).toLowerCase();
   await adminDb.runTransaction(async tx=>{
     const [invite,profile]=await Promise.all([tx.get(ref),tx.get(userRef)]);
     if(!invite.exists||invite.data()?.status!=='pending')throw new BusinessError('Cette invitation n’est plus disponible.',404,'INVITATION_UNAVAILABLE');
     if(!profile.exists)throw new BusinessError('Profil utilisateur introuvable.',401);
-    const data=invite.data()||{},email=cleanText(profile.data()?.email,160).toLowerCase();
+    const data=invite.data()||{},email=accountEmail;
     if(data.targetUid&&data.targetUid!==uid)throw new BusinessError('Cette invitation est destinée à un autre compte.',403);
     if(!email||email!==data.invitedEmailLower)throw new BusinessError('Connecte-toi avec l’adresse e-mail qui a reçu cette invitation.',403);
     const businessRef=businessesRef().doc(validId(data.businessId)),memberRef=businessRef.collection('members').doc(uid),reverse=userBusinessRefs(uid).doc(data.businessId),personRef=businessRef.collection('people').doc(uid);
