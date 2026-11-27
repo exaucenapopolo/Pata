@@ -83,7 +83,7 @@ public final class PataMobileMoneyParser {
         if (Pattern.compile("\\b(retrait|retirer|withdrawal|withdrawn|withdraw|cash\\s*out|cashout)\\b").matcher(text).find()) return "withdrawal";
         if (Pattern.compile("(paiement|payment|marchand|merchant|achat\\s+(reussi|effectue)|recharge|airtime|top.?up|achat\\s+(?:de\\s+)?credit|bill\\s+paid|facture\\s+payee)").matcher(text).find()) return "payment";
         if (Pattern.compile("(vous\\s+(avez\\s+recu|venez\\s+de\\s+recevoir)|transfert\\s+recu|recu\\s+de|reception\\s+de|compte.{0,25}credite|credit.{0,20}compte|depot\\s+(recu|effectue|confirme)|cash\\s*in|cashin|received|credited|incoming\\s+transfer)").matcher(text).find()) return "receive";
-        if (Pattern.compile("(vous\\s+avez\\s+envoye|transfert\\s+(?:de.{0,100}vers|effectue|envoye|confirme)|effectue\\s+(un\\s+)?transfert|envoye\\s+(a|au|vers)|compte.{0,25}debite|debite.{0,20}compte|debit|debited|sent\\s+to|paid\\s+to|you\\s+sent|outgoing\\s+transfer|transaction\\s+de.{0,80}effectuee?\\s+par)").matcher(text).find()) return "send";
+        if (Pattern.compile("(vous\\s+avez\\s+envoye|transfert\\s+(?:de.{0,100}vers|de\\s+[0-9][0-9\\s.,]*\\s*(?:fcfa|xaf|cfa|f)\\s+effectue|effectue|envoye|confirme)|effectue\\s+(un\\s+)?transfert|envoye\\s+(a|au|vers)|compte.{0,25}debite|debite.{0,20}compte|debit|debited|sent\\s+to|paid\\s+to|you\\s+sent|outgoing\\s+transfer|transaction\\s+de.{0,80}effectuee?\\s+par)").matcher(text).find()) return "send";
         return null;
     }
 
@@ -196,6 +196,7 @@ public final class PataMobileMoneyParser {
             Pattern.compile("(?:vous\\s+(?:avez\\s+)?recu|recu|received)\\s+[0-9][0-9\\s.,]*\\s*(?:fcfa|xaf|cfa|f)\\s+(?:de|from)\\s+([\\p{L}][\\p{L}'’ .-]{1,50}?)(?=\\s*\\(|[,.;]|$)", Pattern.CASE_INSENSITIVE),
             Pattern.compile("(?:recu|received)\\s+(?:de|from)\\s+([\\p{L}][\\p{L}'’ .-]{1,50}?)(?=\\s*\\(|[,.;]|$)", Pattern.CASE_INSENSITIVE),
             Pattern.compile("effectuee?\\s+par\\s+([\\p{L}][\\p{L}'’ _.-]{1,50}?)(?=\\s*\\(|[,.;]|$)", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("transfert\\s+de\\s+[0-9][0-9\\s.,]*\\s*(?:fcfa|xaf|cfa|f)\\s+effectuee?\\s+avec\\s+succes\\s+a\\s+([\\p{L}][\\p{L}'’ .-]{1,50}?)(?=\\s*\\(|[,.;]|$)", Pattern.CASE_INSENSITIVE),
             Pattern.compile("(?:envoye?\\s+(?:a|au|vers)|transfert\\s+vers|sent\\s+to)\\s+([\\p{L}][\\p{L}'’ .-]{1,50}?)(?=[,.;]|$)", Pattern.CASE_INSENSITIVE)
         };
         for (Pattern pattern : patterns) {
