@@ -78,7 +78,7 @@ export default function BusinessWorkspacePage() {
   const [paymentForm, setPaymentForm] = useState({ amount: '', accountId: 'main', date: new Date().toISOString().slice(0, 10) });
   const [paymentLinks, setPaymentLinks] = useState([]);
   const [showPaymentLinkForm, setShowPaymentLinkForm] = useState(false);
-  const [paymentLinkForm, setPaymentLinkForm] = useState({ title: '', description: '', imageUrl: '', originalAmount: '', amount: '', customerName: '', customerEmail: '', maxPayments: '', accountId: 'main' });
+  const [paymentLinkForm, setPaymentLinkForm] = useState({ title: '', description: '', imageUrl: '', originalAmount: '', amount: '', customerName: '', customerEmail: '', maxPayments: '', accountId: 'main', publicOnStorefront: true });
   const [busyPaymentLinkId, setBusyPaymentLinkId] = useState('');
   const [editingPaymentLinkId, setEditingPaymentLinkId] = useState('');
   const [deletePaymentLinkTarget, setDeletePaymentLinkTarget] = useState(null);
@@ -87,7 +87,7 @@ export default function BusinessWorkspacePage() {
   const [paymentLinkDetails, setPaymentLinkDetails] = useState(null);
   const [paymentDetailsLoading, setPaymentDetailsLoading] = useState(false);
   const [profileFormOpen, setProfileFormOpen] = useState(false);
-  const [profileForm, setProfileForm] = useState({ name: '', activity: '', slogan: '', legalForm: '', city: '', phone: '', logoUrl: '' });
+  const [profileForm, setProfileForm] = useState({ name: '', activity: '', slogan: '', legalForm: '', city: '', phone: '', logoUrl: '', publicProfileEnabled: false, publicOffersEnabled: true });
   const [actionNotice, setActionNotice] = useState('');
 
   const writable = overview?.readOnly === false;
@@ -233,7 +233,7 @@ export default function BusinessWorkspacePage() {
       const saved = result.paymentLink;
       setShowPaymentLinkForm(false);
       setEditingPaymentLinkId('');
-      setPaymentLinkForm({ title: '', description: '', imageUrl: '', originalAmount: '', amount: '', customerName: '', customerEmail: '', maxPayments: '', accountId: accountsForSelect[0]?.id || 'main' });
+      setPaymentLinkForm({ title: '', description: '', imageUrl: '', originalAmount: '', amount: '', customerName: '', customerEmail: '', maxPayments: '', accountId: accountsForSelect[0]?.id || 'main', publicOnStorefront: true });
       setPaymentLinks((current) => editingPaymentLinkId
         ? current.map((item) => item.id === saved?.id ? saved : item)
         : [saved, ...current.filter((item) => item.id !== saved?.id)]);
@@ -244,7 +244,7 @@ export default function BusinessWorkspacePage() {
 
   const beginEditPaymentLink = (link) => {
     setEditingPaymentLinkId(link.id);
-    setPaymentLinkForm({title:link.title||'',description:link.description||'',imageUrl:link.imageUrl||'',originalAmount:String(link.originalAmount||link.amount||''),amount:String(link.amount||''),customerName:link.customerName||'',customerEmail:link.customerEmail||'',maxPayments:String(link.maxPayments||''),accountId:link.accountId||'main'});
+    setPaymentLinkForm({title:link.title||'',description:link.description||'',imageUrl:link.imageUrl||'',originalAmount:String(link.originalAmount||link.amount||''),amount:String(link.amount||''),customerName:link.customerName||'',customerEmail:link.customerEmail||'',maxPayments:String(link.maxPayments||''),accountId:link.accountId||'main',publicOnStorefront:link.publicOnStorefront!==false});
     setFormError('');
     setShowPaymentLinkForm(true);
   };
@@ -398,7 +398,7 @@ export default function BusinessWorkspacePage() {
         <div className="flex shrink-0 flex-col items-end gap-2">
           <span className={'rounded-full px-2.5 py-1 text-[10px] font-semibold ' + (writable ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800')}>{writable ? (en ? 'Premium active' : 'Premium actif') : (en ? 'View only' : 'Consultation')}</span>
           {<Link href={'/businesses/' + businessId + '/team'} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] font-semibold text-slate-600"><Users size={12}/>{en ? 'Team' : 'Équipe'}</Link>}
-          {writable && ['owner', 'admin'].includes(overview.role) && <button type="button" onClick={() => { setProfileForm({ name: overview.business.name || '', activity: overview.business.activity || '', slogan: overview.business.slogan || '', legalForm: overview.business.legalForm || '', city: overview.business.city || '', phone: overview.business.phone || '', logoUrl: overview.business.logoUrl || '' }); setProfileFormOpen(true); }} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] font-semibold text-slate-600"><Pencil size={12}/>{en ? 'Edit' : 'Modifier'}</button>}
+          {writable && ['owner', 'admin'].includes(overview.role) && <button type="button" onClick={() => { setProfileForm({ name: overview.business.name || '', activity: overview.business.activity || '', slogan: overview.business.slogan || '', legalForm: overview.business.legalForm || '', city: overview.business.city || '', phone: overview.business.phone || '', logoUrl: overview.business.logoUrl || '', publicProfileEnabled: overview.business.publicProfileEnabled === true, publicOffersEnabled: overview.business.publicOffersEnabled !== false }); setProfileFormOpen(true); }} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-[10px] font-semibold text-slate-600"><Pencil size={12}/>{en ? 'Edit' : 'Modifier'}</button>}
         </div>
       </header>
 
@@ -496,6 +496,7 @@ export default function BusinessWorkspacePage() {
               <label className="text-xs font-semibold text-slate-600">{en ? 'Regular price (XAF)' : 'Prix normal (FCFA)'}<input type="number" min="100" step="1" value={paymentLinkForm.originalAmount} onChange={(event) => setPaymentLinkForm({ ...paymentLinkForm, originalAmount: event.target.value })} placeholder={en ? 'Optional, before discount' : 'Facultatif, avant réduction'} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal"/></label>
               <label className="text-xs font-semibold text-slate-600">{en ? 'Amount customer pays (XAF)' : 'Montant à payer (FCFA)'}<input required type="number" min="100" step="1" value={paymentLinkForm.amount} onChange={(event) => setPaymentLinkForm({ ...paymentLinkForm, amount: event.target.value })} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-base font-normal"/></label>
               <label className="text-xs font-semibold text-slate-600">{en?'Maximum successful payments':'Nombre maximal de paiements'}<input type="number" min="1" step="1" value={paymentLinkForm.maxPayments||''} onChange={(event)=>setPaymentLinkForm({...paymentLinkForm,maxPayments:event.target.value})} placeholder={en?'Empty = unlimited':'Vide = illimité'} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal"/><span className="mt-1 block text-[10px] font-normal text-slate-500">{en?'Limit counts successful payments only.':'La limite porte uniquement sur les paiements validés.'}</span></label>
+              <label className="flex items-center gap-2 text-xs font-medium text-slate-700 sm:col-span-2"><input type="checkbox" checked={paymentLinkForm.publicOnStorefront!==false} onChange={event=>setPaymentLinkForm({...paymentLinkForm,publicOnStorefront:event.target.checked})}/>{en?'Show this offer in the public company shop':'Afficher cette offre dans la boutique publique'}</label>
               <label className="text-xs font-semibold text-slate-600 sm:col-span-2">{en ? 'Business account to credit' : 'Compte professionnel à créditer'}<select required value={paymentLinkForm.accountId} onChange={(event) => setPaymentLinkForm({ ...paymentLinkForm, accountId: event.target.value })} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal">{accountsForSelect.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
               <details className="sm:col-span-2"><summary className="cursor-pointer text-xs font-semibold text-slate-600">{en ? 'Customer details (optional)' : 'Informations du client (facultatives)'}</summary><div className="mt-2 grid gap-2 sm:grid-cols-2"><label className="text-xs font-semibold text-slate-600">{en ? 'Customer name' : 'Nom du client'}<input maxLength={100} value={paymentLinkForm.customerName} onChange={(event) => setPaymentLinkForm({ ...paymentLinkForm, customerName: event.target.value })} className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal"/></label><label className="text-xs font-semibold text-slate-600">{en ? 'Customer email' : 'E-mail du client'}<input type="email" value={paymentLinkForm.customerEmail} onChange={(event) => setPaymentLinkForm({ ...paymentLinkForm, customerEmail: event.target.value })} className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal"/></label></div></details>
               <div className="flex gap-2 sm:col-span-2"><button disabled={saving} className="min-h-11 flex-1 rounded-xl bg-[#075b43] px-3 text-xs font-semibold text-white">{saving ? (en ? 'Creating…' : 'Création…') : (en ? 'Create my sales page' : 'Créer ma page de vente')}</button><button type="button" onClick={() => { setShowPaymentLinkForm(false); setEditingPaymentLinkId(''); }} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 text-xs font-semibold text-slate-600">{en ? 'Cancel' : 'Annuler'}</button></div>
@@ -552,6 +553,12 @@ export default function BusinessWorkspacePage() {
               <label className="text-xs font-semibold text-slate-600">{en ? 'City' : 'Ville'}<input maxLength={80} value={profileForm.city} onChange={(event) => setProfileForm({ ...profileForm, city: event.target.value })} className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm font-normal"/></label>
             </div>
             <label className="block text-xs font-semibold text-slate-600">{en ? 'Phone' : 'Téléphone'}<input maxLength={30} value={profileForm.phone} onChange={(event) => setProfileForm({ ...profileForm, phone: event.target.value })} className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm font-normal"/></label>
+            <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:col-span-2">
+              <p className="text-xs font-bold text-slate-800">{en?'Public company profile and shop':'Profil public et boutique de l’entreprise'}</p>
+              <label className="flex items-start gap-2 text-xs text-slate-700"><input type="checkbox" checked={profileForm.publicProfileEnabled===true} onChange={e=>setProfileForm({...profileForm,publicProfileEnabled:e.target.checked})} className="mt-0.5"/> <span><b>{en?'Allow customers to view our public profile':'Autoriser les clients à consulter le profil public'}</b><span className="mt-0.5 block text-[10px] text-slate-500">{en?'Customers can open the company profile from payment pages.':'Les clients pourront ouvrir le profil de l’entreprise depuis ses pages de paiement.'}</span></span></label>
+              <label className="flex items-start gap-2 text-xs text-slate-700"><input type="checkbox" checked={profileForm.publicOffersEnabled!==false} onChange={e=>setProfileForm({...profileForm,publicOffersEnabled:e.target.checked})} className="mt-0.5"/> <span><b>{en?'Show public offers in the company shop':'Afficher les offres publiques dans la boutique'}</b><span className="mt-0.5 block text-[10px] text-slate-500">{en?'Only offers individually marked as public will be listed.':'Seules les offres individuellement marquées comme publiques seront affichées.'}</span></span></label>
+              {profileForm.publicProfileEnabled&&<a href={'/entreprise/'+encodeURIComponent(businessId)} target="_blank" rel="noreferrer" className="inline-flex text-[10px] font-semibold text-[#075b43] underline">{en?'Preview public profile':'Prévisualiser le profil public'}</a>}
+            </div>
             <div className="flex gap-2"><button disabled={saving} className="min-h-11 flex-1 rounded-xl bg-[#075b43] text-xs font-semibold text-white">{saving ? (en ? 'Saving…' : 'Enregistrement…') : (en ? 'Save changes' : 'Enregistrer')}</button><button type="button" onClick={() => setProfileFormOpen(false)} className="min-h-11 rounded-xl border border-slate-300 px-3 text-xs font-semibold text-slate-600">{en ? 'Cancel' : 'Annuler'}</button></div>
           </form>
         </div>
