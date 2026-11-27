@@ -104,6 +104,9 @@ export async function listUserBusinesses(uid) {
     const businessSnap = await businessesRef().doc(membership.id).get();
     if (!businessSnap.exists || membership.data()?.active === false || membership.data()?.status === 'revoked') return null;
     const business = businessSnap.data() || {};
+    if (!business.nameSearch && business.name) {
+      await businessSnap.ref.update({ nameSearch: cleanText(business.name, 100).toLocaleLowerCase('fr') }).catch(() => {});
+    }
     return {
       id: businessSnap.id,
       name: cleanText(business.name, 100),
