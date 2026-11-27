@@ -1,4 +1,6 @@
 import { FieldValue } from 'firebase-admin/firestore';
+import { randomBytes } from 'node:crypto';
+import { sendBusinessEmail, escapeEmailHtml } from '@/lib/email/resend';
 import { adminDb, adminAuth } from '@/lib/firebase/admin';
 import { isValidCloudinaryAvatarUrl } from '@/lib/profile/cloudinaryAvatar.mjs';
 
@@ -702,6 +704,50 @@ const validEmail = (value) => {
   return !email || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 };
 
+
+function cleanPublicMediaList(value,maxItems,validator,label){
+ const list=Array.isArray(value)?value:[],cleaned=[];
+ for(const raw of list){const item=cleanText(raw,2048);if(!item)continue;if(!validator(item))throw new BusinessError(label+' contient un lien invalide.');if(!cleaned.includes(item))cleaned.push(item);if(cleaned.length>=maxItems)break;}
+ return cleaned;
+}
+function isValidBusinessVideoUrl(value){
+ try{
+  const url=new URL(String(value||''));if(url.protocol!=='https:'||url.username||url.password)return false;
+  const host=url.hostname.toLowerCase(),supported=['youtube.com','www.youtube.com','m.youtube.com','youtu.be','www.youtu.be','vimeo.com','www.vimeo.com','player.vimeo.com','res.cloudinary.com'];
+  if(!supported.includes(host))return false;
+  if(host==='res.cloudinary.com'&&!/\.(mp4|webm)(?:$|\?)/i.test(url.pathname+url.search))return false;
+  if(host.includes('youtube')||host==='youtu.be'){const id=host==='youtu.be'?url.pathname.split('/').filter(Boolean)[0]:(url.searchParams.get('v')||url.pathname.split('/').filter(Boolean).pop());return Boolean(id&&/^[a-zA-Z0-9_-]{6,20}$/.test(id));}
+  if(host.includes('vimeo.com'))return /\d{5,15}/.test(url.pathname);
+  return true;
+ }catch{return false;}
+}
+function normalizeBusinessPaymentMedia(input={}){
+ return {
+  galleryImageUrls:cleanPublicMediaList(input.galleryImageUrls,6,isValidCloudinaryAvatarUrl,'La galerie photo'),
+  proofImageUrls:cleanPublicMediaList(input.proofImageUrls,6,isValidCloudinaryAvatarUrl,'Les preuves visuelles'),
+  videoUrls:cleanPublicMediaList(input.videoUrls,4,isValidBusinessVideoUrl,'Les vidéos'),
+  sellingPoints:[...new Set((Array.isArray(input.sellingPoints)?input.sellingPoints:[]).map(v=>cleanText(v,180)).filter(Boolean))].slice(0,8),
+  testimonials:[...new Set((Array.isArray(input.testimonials)?input.testimonials:[]).map(v=>cleanText(v,320)).filter(Boolean))].slice(0,6)
+ };
+}
+function businessEmailHtml({business,headline,intro,details=[],ctaUrl,ctaLabel}){
+ const name=escapeEmailHtml(business?.name||'Votre entreprise');
+ const logo=isValidCloudinaryAvatarUrl(business?.logoUrl)?'<img src="'+escapeEmailHtml(business.logoUrl)+'" alt="" width="56" height="56" style="width:56px;height:56px;object-fit:contain;border-radius:12px;border:1px solid #e5e7eb;background:#fff;">':'';
+ const rows=details.filter(row=>row&&row[1]!==undefined&&row[1]!=='').map(row=>'<tr><td style="padding:9px 0;color:#64748b;font-size:12px;border-bottom:1px solid #edf1ee;">'+escapeEmailHtml(row[0])+'</td><td align="right" style="padding:9px 0;color:#172b22;font-size:13px;font-weight:700;border-bottom:1px solid #edf1ee;">'+escapeEmailHtml(row[1])+'</td></tr>').join('');
+ const button=ctaUrl?'<p style="margin:24px 0 0;"><a href="'+escapeEmailHtml(ctaUrl)+'" style="display:inline-block;padding:13px 19px;border-radius:9px;background:#075b43;color:#fff;text-decoration:none;font-size:14px;font-weight:700;">'+escapeEmailHtml(ctaLabel||'Consulter')+'</a></p>':'';
+ return '<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head><body style="margin:0;background:#f3f6f4;font-family:Arial,Helvetica,sans-serif;color:#17231f;padding:24px 10px;"><div style="max-width:580px;margin:0 auto;background:#fff;border:1px solid #e1e9e3;border-radius:18px;overflow:hidden;"><div style="padding:24px 26px;border-bottom:1px solid #edf1ee;">'+logo+'<p style="margin:10px 0 0;color:#075b43;font-size:13px;font-weight:700;">'+name+'</p></div><div style="padding:27px 26px;"><h1 style="margin:0 0 14px;font-size:23px;line-height:1.3;color:#15251c;">'+escapeEmailHtml(headline)+'</h1><p style="margin:0 0 18px;color:#475569;font-size:14px;line-height:1.75;">'+escapeEmailHtml(intro)+'</p>'+(rows?'<table role="presentation" width="100%" cellspacing="0" cellpadding="0">'+rows+'</table>':'')+button+'<p style="margin:25px 0 0;color:#334155;font-size:13px;line-height:1.7;">'+name+'</p></div></div></body></html>';
+}
+async function sendBusinessNotice({business,to,subject,headline,intro,details,ctaUrl,ctaLabel,idempotencyKey}){
+ if(!to||!String(to).includes('@'))return false;
+ try{await sendBusinessEmail({to,subject,html:businessEmailHtml({business,headline,intro,details,ctaUrl,ctaLabel}),businessName:business?.name||'Entreprise',idempotencyKey});return true;}
+ catch(error){console.warn('[PATA BUSINESS EMAIL]',JSON.stringify({subject:String(subject||'').slice(0,100),error:String(error?.message||error).slice(0,250)}));return false;}
+}
+async function getBusinessOwnerEmail(business){
+ const ownerId=cleanText(business?.ownerId||business?.createdBy,128);if(!ownerId)return '';
+ try{const profile=await usersRef().doc(ownerId).get();const email=cleanText(profile.data()?.email,160).toLowerCase();if(email&&validEmail(email))return email;}catch{}
+ try{const authUser=await adminAuth.getUser(ownerId);const email=cleanText(authUser.email,160).toLowerCase();return email&&validEmail(email)?email:'';}catch{return '';}
+}
+
 function paymentLinkPublicUrl(link) {
   try {
     const url = new URL(String(link || ''));
@@ -755,23 +801,28 @@ export async function getPublicBusinessProfile(businessId) {
    if(p.status!=='ACTIVE'||p.publicOnStorefront===false||p.parentLinkId)continue;
    const max=Math.max(0,Number(p.maxPayments)||0);
    if(max>0&&Number(p.successfulPayments||0)+Number(p.activePaymentCount||0)>=max)continue;
-   offers.push({id:doc.id,title:cleanText(p.title,100),description:cleanText(p.description,1200),imageUrl:isValidCloudinaryAvatarUrl(p.imageUrl)?p.imageUrl:'',amount:Number(p.amount)||0,originalAmount:Number(p.originalAmount)||Number(p.amount)||0,publicUrl:cleanText(p.publicUrl,2048)});
+   offers.push({id:doc.id,title:cleanText(p.title,100),description:cleanText(p.description,1200),imageUrl:isValidCloudinaryAvatarUrl(p.imageUrl)?p.imageUrl:'',galleryImageUrls:cleanPublicMediaList(p.galleryImageUrls,6,isValidCloudinaryAvatarUrl,'Galerie'),amount:Number(p.amount)||0,originalAmount:Number(p.originalAmount)||Number(p.amount)||0,ratingCount:Number(p.ratingCount)||0,averageProductRating:Number(p.ratingCount)>0?Math.round((Number(p.productRatingTotal)||0)/Number(p.ratingCount)*10)/10:0,publicUrl:cleanText(p.publicUrl,2048)});
   }
  }
- return {business:{id,name:cleanText(b.name,100),slogan:cleanText(b.slogan,180),activity:cleanText(b.activity,120),city:cleanText(b.city,80),phone:cleanText(b.phone,30),logoUrl:isValidCloudinaryAvatarUrl(b.logoUrl)?b.logoUrl:''},offers};
+ return {business:{id,name:cleanText(b.name,100),slogan:cleanText(b.slogan,180),activity:cleanText(b.activity,120),city:cleanText(b.city,80),phone:cleanText(b.phone,30),logoUrl:isValidCloudinaryAvatarUrl(b.logoUrl)?b.logoUrl:'',ratingCount:Number(b.publicRatingCount)||0,averageRating:Number(b.publicRatingCount)>0?Math.round((Number(b.publicRatingTotal)||0)/Number(b.publicRatingCount)*10)/10:0},offers};
 }
+
 
 export async function getPublicBusinessPaymentLink(paymentLinkId,visitorId=''){
  const id=validId(paymentLinkId),ref=businessPaymentLinksRef().doc(id),snap=await ref.get();
  if(!snap.exists)throw new BusinessError('Cette offre de paiement est introuvable.',404,'PAYMENT_LINK_NOT_FOUND');
  let link=snap.data()||{};
- if(['PENDING','CONFIRMED','FAILED','EXPIRED'].includes(link.status)&&!Object.prototype.hasOwnProperty.call(link,'successfulPayments')){
+ if(['PENDING','CONFIRMED','FAILED','EXPIRED'].includes(link.status)){
   const legacyAttempt=ref.collection('payments').doc(id);
   await adminDb.runTransaction(async tx=>{
-   const [fresh,attempt]=await Promise.all([tx.get(ref),tx.get(legacyAttempt)]);if(!fresh.exists)return;const old=fresh.data()||{};
-   if(old.status==='PENDING'&&old.transId&&old.checkoutUrl&&!attempt.exists)tx.create(legacyAttempt,{paymentLinkId:id,businessId:old.businessId,userId:old.userId,accountId:old.accountId||'main',amount:Number(old.amount)||0,title:cleanText(old.title,100),customerName:cleanText(old.customerName,100),customerEmail:cleanText(old.customerEmail,160),checkoutUrl:old.checkoutUrl,transId:old.transId,status:'PENDING',createdAt:old.createdAt||FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
-   const paid=old.status==='CONFIRMED'?1:0,gross=paid?(Number(old.amount)||0):0,net=paid?(Number(old.receivedAmount)||Number(old.amount)||0):0,fees=paid?(Number(old.providerFeeAmount)||Math.max(0,gross-net)):0;
-   tx.update(ref,{status:'ACTIVE',activePaymentCount:FieldValue.increment(old.status==='PENDING'&&old.transId&&old.checkoutUrl&&!attempt.exists?1:0),pageViews:Number(old.pageViews)||0,uniqueViews:Number(old.uniqueViews)||0,clickCount:Number(old.clickCount)||0,uniqueClickers:Number(old.uniqueClickers)||0,successfulPayments:paid,grossRevenue:gross,netRevenue:net,feeRevenue:fees,updatedAt:FieldValue.serverTimestamp()});
+   const [fresh,attempt]=await Promise.all([tx.get(ref),tx.get(legacyAttempt)]);if(!fresh.exists)return;
+   const old=fresh.data()||{},legacyPending=old.status==='PENDING'&&old.transId&&old.checkoutUrl&&!attempt.exists;
+   if(legacyPending)tx.create(legacyAttempt,{paymentLinkId:id,businessId:old.businessId,userId:old.userId||old.createdBy||'',providerUserId:old.providerUserId||old.userId||'',accountId:old.accountId||'main',amount:Number(old.amount)||0,title:cleanText(old.title,100),customerName:cleanText(old.customerName,100),customerEmail:cleanText(old.customerEmail,160),checkoutUrl:old.checkoutUrl,transId:old.transId,status:'PENDING',createdAt:old.createdAt||FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
+   const priorPaid=Math.max(0,Number(old.successfulPayments)||0),paid=old.status==='CONFIRMED'?Math.max(1,priorPaid):priorPaid;
+   const gross=Math.max(0,Number(old.grossRevenue)||0,old.status==='CONFIRMED'?(Number(old.amount)||0):0);
+   const net=Math.max(0,Number(old.netRevenue)||0,old.status==='CONFIRMED'?(Number(old.receivedAmount)||Number(old.amount)||0):0);
+   const fees=Math.max(0,Number(old.feeRevenue)||0,old.status==='CONFIRMED'?(Number(old.providerFeeAmount)||Math.max(0,gross-net)):0);
+   tx.update(ref,{status:'ACTIVE',legacyPaymentStatus:old.status,activePaymentCount:Math.max(0,Number(old.activePaymentCount)||0)+(legacyPending?1:0),successfulPayments:paid,grossRevenue:gross,netRevenue:net,feeRevenue:fees,pageViews:Number(old.pageViews)||0,uniqueViews:Number(old.uniqueViews)||0,clickCount:Number(old.clickCount)||0,uniqueClickers:Number(old.uniqueClickers)||0,updatedAt:FieldValue.serverTimestamp()});
   });
   link=(await ref.get()).data()||link;
  }
@@ -782,11 +833,19 @@ export async function getPublicBusinessPaymentLink(paymentLinkId,visitorId=''){
  }
  const bs=await businessesRef().doc(validId(link.businessId)).get(),b=bs.exists?bs.data()||{}:{};
  const max=Math.max(0,Number(link.maxPayments)||0),sold=link.status==='SOLD_OUT'||(max>0&&Number(link.successfulPayments||0)+Number(link.activePaymentCount||0)>=max);
- return {payment:{id,status:sold?'SOLD_OUT':link.status||'UNAVAILABLE',title:cleanText(link.title,100),description:cleanText(link.description,1200),imageUrl:isValidCloudinaryAvatarUrl(link.imageUrl)?link.imageUrl:'',amount:Number(link.amount)||0,originalAmount:Number(link.originalAmount)||Number(link.amount)||0,discountAmount:Math.max(0,Number(link.discountAmount)||0),businessName:cleanText(b.name||link.businessName,100),businessSlogan:cleanText(b.slogan,180),businessLogoUrl:isValidCloudinaryAvatarUrl(b.logoUrl)?b.logoUrl:'',businessId:validId(link.businessId),businessProfilePublic:b.publicProfileEnabled===true}};
+ const reviewSnap=Number(link.ratingCount)>0?await ref.collection('reviews').orderBy('createdAt','desc').limit(8).get().catch(()=>({docs:[]})):{docs:[]};
+ const reviews=reviewSnap.docs.map(doc=>{const r=doc.data()||{};return {id:doc.id,name:cleanText(r.customerName||'Client',80),businessRating:Number(r.businessRating)||0,productRating:Number(r.productRating)||0,comment:cleanText(r.comment,1000),date:r.createdAt?.toDate?r.createdAt.toDate().toISOString():''};});
+ const gallery=cleanPublicMediaList(link.galleryImageUrls,6,isValidCloudinaryAvatarUrl,'Galerie'),proofs=cleanPublicMediaList(link.proofImageUrls,6,isValidCloudinaryAvatarUrl,'Preuves'),videos=cleanPublicMediaList(link.videoUrls,4,isValidBusinessVideoUrl,'Vidéos');
+ return {payment:{id,status:sold?'SOLD_OUT':link.status||'UNAVAILABLE',title:cleanText(link.title,100),description:cleanText(link.description,1200),imageUrl:isValidCloudinaryAvatarUrl(link.imageUrl)?link.imageUrl:(gallery[0]||''),galleryImageUrls:gallery,proofImageUrls:proofs,videoUrls:videos,sellingPoints:Array.isArray(link.sellingPoints)?link.sellingPoints.map(x=>cleanText(x,180)).filter(Boolean).slice(0,8):[],testimonials:Array.isArray(link.testimonials)?link.testimonials.map(x=>cleanText(x,320)).filter(Boolean).slice(0,6):[],amount:Number(link.amount)||0,originalAmount:Number(link.originalAmount)||Number(link.amount)||0,discountAmount:Math.max(0,Number(link.discountAmount)||0),businessName:cleanText(b.name||link.businessName,100),businessSlogan:cleanText(b.slogan,180),businessLogoUrl:isValidCloudinaryAvatarUrl(b.logoUrl)?b.logoUrl:'',businessId:validId(link.businessId),businessProfilePublic:b.publicProfileEnabled===true,ratingCount:Math.max(0,Number(link.ratingCount)||0),averageProductRating:Number(link.ratingCount)>0?Math.round((Number(link.productRatingTotal)||0)/Number(link.ratingCount)*10)/10:0,averageBusinessRating:Number(link.ratingCount)>0?Math.round((Number(link.businessRatingTotal)||0)/Number(link.ratingCount)*10)/10:0,reviews}};
 }
-export async function createPublicBusinessPaymentCheckout(paymentLinkId,visitorId=''){
- const id=validId(paymentLinkId),ref=businessPaymentLinksRef().doc(id),attempt=ref.collection('payments').doc(),visitor=cleanText(visitorId,100).replace(/[^a-zA-Z0-9_-]/g,''),clicker=visitor.length>=12?ref.collection('clickers').doc(visitor):null;
- let link;
+
+
+export async function createPublicBusinessPaymentCheckout(paymentLinkId,visitorId='',buyerInput={}){
+ const id=validId(paymentLinkId),ref=businessPaymentLinksRef().doc(id),attempt=ref.collection('payments').doc();
+ const visitor=cleanText(visitorId,100).replace(/[^a-zA-Z0-9_-]/g,''),clicker=visitor.length>=12?ref.collection('clickers').doc(visitor):null;
+ const buyerName=cleanText(buyerInput.customerName,100),buyerEmail=cleanText(buyerInput.customerEmail,160).toLowerCase();
+ if(!validEmail(buyerEmail))throw new BusinessError('Adresse e-mail du client invalide.');
+ const reviewToken=randomBytes(32).toString('hex');let link;
  await adminDb.runTransaction(async tx=>{
   const reads=[tx.get(ref)];if(clicker)reads.push(tx.get(clicker));const rows=await Promise.all(reads),snap=rows[0],seen=clicker?rows[1]:null;
   if(!snap.exists)throw new BusinessError('Cette offre est introuvable.',404,'PAYMENT_LINK_NOT_FOUND');
@@ -794,23 +853,29 @@ export async function createPublicBusinessPaymentCheckout(paymentLinkId,visitorI
   if(link.status!=='ACTIVE'||(max>0&&paid+active>=max))throw new BusinessError('Cette offre n’accepte plus de paiement pour le moment.',410,'OFFER_UNAVAILABLE');
   tx.update(ref,{clickCount:FieldValue.increment(1),activePaymentCount:FieldValue.increment(1),...(clicker&&!seen.exists?{uniqueClickers:FieldValue.increment(1)}:{}),updatedAt:FieldValue.serverTimestamp()});
   if(clicker&&!seen.exists)tx.create(clicker,{firstClickedAt:FieldValue.serverTimestamp()});
-  tx.create(attempt,{paymentLinkId:id,businessId:link.businessId,userId:link.userId,accountId:link.accountId,amount:Number(link.amount)||0,title:cleanText(link.title,100),customerName:cleanText(link.customerName,100),customerEmail:cleanText(link.customerEmail,160),status:'INITIATING',createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
+  tx.create(attempt,{paymentLinkId:id,businessId:link.businessId,userId:link.userId||link.createdBy||'',accountId:link.accountId||'main',amount:Number(link.amount)||0,title:cleanText(link.title,100),customerName:buyerName||cleanText(link.customerName,100),customerEmail:buyerEmail||cleanText(link.customerEmail,160),reviewToken,status:'INITIATING',createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
  });
  try{
   const apiUser=process.env.FAPSHI_API_USER,secret=process.env.FAPSHI_SECRET_KEY;
-  if(!apiUser||!secret)throw new BusinessError('La configuration du service de paiement est incomplète.',503,'PAYMENT_PROVIDER_CONFIG');
-  let origin='https://pata-yam.site';try{origin=new URL(process.env.NEXT_PUBLIC_APP_URL||process.env.NEXT_PUBLIC_SITE_URL||origin).origin;}catch{}
-  const payload={amount:Number(link.amount),...(link.customerEmail?{email:link.customerEmail}:{}),redirectUrl:origin+'/business-payment/return?paymentLinkId='+encodeURIComponent(id),userId:link.userId,externalId:attempt.id,message:cleanText(link.title,80)};
-  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),12000);let response;
-  try{response=await fetch('https://live.fapshi.com/initiate-pay',{method:'POST',headers:{'Content-Type':'application/json',apiuser,apikey:secret},body:JSON.stringify(payload),signal:controller.signal,cache:'no-store'});}catch{throw new BusinessError('Impossible de préparer le paiement. Réessaie.',502,'PAYMENT_PROVIDER_UNAVAILABLE');}finally{clearTimeout(timeout);}
-  const data=await response.json().catch(()=>({}));if(!response.ok)throw new BusinessError(data.message||'Le paiement ne peut pas être préparé.',502,'PAYMENT_LINK_REJECTED');
+  if(!apiUser||!secret)throw new BusinessError('La configuration Fapshi est incomplète sur le serveur. Contacte l’entreprise.',503,'PAYMENT_PROVIDER_CONFIG');
+  let origin='https://www.pata-yam.site';try{origin=new URL(process.env.NEXT_PUBLIC_APP_URL||process.env.NEXT_PUBLIC_SITE_URL||origin).origin;}catch{}
+  const rawUid=cleanText(link.userId||link.createdBy,100),providerUserId=rawUid.replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,100);
+  const payload={amount:Number(link.amount),...(buyerEmail||link.customerEmail?{email:buyerEmail||cleanText(link.customerEmail,160)}:{}),redirectUrl:origin+'/business-payment/return?paymentLinkId='+encodeURIComponent(id),...(providerUserId?{userId:providerUserId}:{}),externalId:attempt.id,message:cleanText(link.title,80)};
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),30000);let response;
+  try{response=await fetch('https://live.fapshi.com/initiate-pay',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json',apiuser,apikey:secret},body:JSON.stringify(payload),signal:controller.signal,cache:'no-store'});}
+  catch(error){console.error('[PATA BUSINESS FAPSHI INITIATE NETWORK]',JSON.stringify({paymentLinkId:id,amount:Number(link.amount),errorName:String(error?.name||'Error').slice(0,80),errorMessage:String(error?.message||error).slice(0,240),aborted:Boolean(controller.signal.aborted)}));throw new BusinessError('Fapshi ne répond pas pour le moment. Le paiement n’a pas pu être préparé ; réessaie dans un instant.',502,'PAYMENT_PROVIDER_UNAVAILABLE');}
+  finally{clearTimeout(timeout);}
+  const rawBody=await response.text();let data={};try{data=rawBody?JSON.parse(rawBody):{};}catch{}
+  if(!response.ok){console.error('[PATA BUSINESS FAPSHI INITIATE RESPONSE]',JSON.stringify({paymentLinkId:id,httpStatus:response.status,providerMessage:String(data?.message||data?.error||rawBody||'Réponse vide').slice(0,300)}));throw new BusinessError(String(data?.message||data?.error||'Fapshi a refusé la préparation du paiement (HTTP '+response.status+').').slice(0,300),502,'PAYMENT_LINK_REJECTED');}
   const checkoutUrl=paymentLinkPublicUrl(data.link||data.url||data.paymentLink||data.paymentUrl||data.payment_url||data.data?.link||data.data?.url),transId=cleanText(data.transId||data.trans_id||data.data?.transId||data.data?.trans_id,160);
-  if(!checkoutUrl||!transId)throw new BusinessError('Adresse de paiement invalide.',502,'PAYMENT_LINK_INVALID');
-  await attempt.set({checkoutUrl,transId,status:'PENDING',updatedAt:FieldValue.serverTimestamp()},{merge:true});return {checkoutUrl};
+  if(!checkoutUrl||!transId){console.error('[PATA BUSINESS FAPSHI INVALID RESPONSE]',JSON.stringify({paymentLinkId:id,keys:Object.keys(data||{}).slice(0,20)}));throw new BusinessError('Fapshi a répondu sans fournir le lien de paiement attendu. Réessaie.',502,'PAYMENT_LINK_INVALID');}
+  await attempt.set({checkoutUrl,transId,providerUserId,status:'PENDING',updatedAt:FieldValue.serverTimestamp()},{merge:true});return {checkoutUrl};
  }catch(error){
-  await adminDb.runTransaction(async tx=>{const [l,a]=await Promise.all([tx.get(ref),tx.get(attempt)]);if(a.exists&&!['FAILED','CONFIRMED','EXPIRED'].includes(a.data()?.status)){tx.update(attempt,{status:'FAILED',failureReason:cleanText(error?.message||'Échec',200),updatedAt:FieldValue.serverTimestamp()});if(l.exists)tx.update(ref,{activePaymentCount:FieldValue.increment(-1),updatedAt:FieldValue.serverTimestamp()});}}).catch(()=>{});throw error;
+  await adminDb.runTransaction(async tx=>{const [l,a]=await Promise.all([tx.get(ref),tx.get(attempt)]);if(a.exists&&!['FAILED','CONFIRMED','EXPIRED'].includes(a.data()?.status)){tx.update(attempt,{status:'FAILED',failureReason:cleanText(error?.message||'Échec',200),updatedAt:FieldValue.serverTimestamp()});if(l.exists)tx.update(ref,{activePaymentCount:FieldValue.increment(-1),updatedAt:FieldValue.serverTimestamp()});}}).catch(()=>{});
+  throw error;
  }
 }
+
 export async function createBusinessPaymentLink(uid,businessId,input={}){
  const c=await getBusinessContext(uid,businessId);requireWritable(c);
  if(typeof input.amount==='string'&&!/^\d+$/.test(input.amount.trim()))throw new BusinessError('Le montant doit être un nombre entier en FCFA.');
@@ -819,6 +884,7 @@ export async function createBusinessPaymentLink(uid,businessId,input={}){
  const title=cleanText(input.title,100);if(title.length<2)throw new BusinessError('Donne un nom au produit ou service.');
  const description=cleanText(input.description,1200);if(description.length<5)throw new BusinessError('Ajoute une courte description du produit ou service.');
  const imageUrl=cleanText(input.imageUrl,2048);if(imageUrl&&!isValidCloudinaryAvatarUrl(imageUrl))throw new BusinessError('La photo du produit doit provenir de la bibliothèque photo Pata.');
+ const media=normalizeBusinessPaymentMedia(input);
  const customerName=cleanText(input.customerName,100),customerEmail=cleanText(input.customerEmail,160).toLowerCase();if(!validEmail(customerEmail))throw new BusinessError('Adresse e-mail du client invalide.');
  const accountId=validId(input.accountId||'main'),maxPayments=input.maxPayments===''||input.maxPayments==null?0:Number(input.maxPayments);
  if(!Number.isSafeInteger(maxPayments)||maxPayments<0||maxPayments>1000000)throw new BusinessError('Limite de paiements invalide.');
@@ -828,7 +894,7 @@ export async function createBusinessPaymentLink(uid,businessId,input={}){
   if(!profile.exists||!isPremium(profile.data()||{}))premiumRequired();if(!member.exists||!['owner','admin','finance','manager'].includes(member.data()?.role||''))throw new BusinessError('Droits insuffisants pour créer ce lien.',403,'READ_ONLY');
   if(!business.exists||business.data()?.status==='archived')throw new BusinessError('Entreprise indisponible.',404);if(!acc.exists||acc.data()?.active===false)throw new BusinessError('Compte de destination introuvable.');
   if(existing.exists){duplicate=serializeDocument(existing);return;}
-  tx.create(ref,{businessId:c.businessId,businessName:cleanText(c.business.name,100),userId:uid,createdBy:uid,accountId,title,description,imageUrl,customerName,customerEmail,amount,originalAmount,discountAmount:Math.max(0,originalAmount-amount),maxPayments,publicOnStorefront:input.publicOnStorefront!==false,currency:'XAF',status:'ACTIVE',pageViews:0,uniqueViews:0,clickCount:0,uniqueClickers:0,successfulPayments:0,grossRevenue:0,netRevenue:0,feeRevenue:0,activePaymentCount:0,createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
+  tx.create(ref,{businessId:c.businessId,businessName:cleanText(c.business.name,100),userId:uid,createdBy:uid,accountId,title,description,imageUrl,...media,customerName,customerEmail,amount,originalAmount,discountAmount:Math.max(0,originalAmount-amount),maxPayments,publicOnStorefront:input.publicOnStorefront!==false,currency:'XAF',status:'ACTIVE',pageViews:0,uniqueViews:0,clickCount:0,uniqueClickers:0,successfulPayments:0,grossRevenue:0,netRevenue:0,feeRevenue:0,activePaymentCount:0,createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
  });
  if(duplicate)return {paymentLink:duplicate,duplicate:true};
  let origin='https://pata-yam.site';try{origin=new URL(process.env.NEXT_PUBLIC_APP_URL||process.env.NEXT_PUBLIC_SITE_URL||origin).origin;}catch{}
@@ -845,7 +911,8 @@ export async function updateBusinessPaymentLink(uid,businessId,paymentLinkId,inp
  const title=cleanText(input.title,100);if(title.length<2)throw new BusinessError('Donne un nom au produit ou service.');
  const description=cleanText(input.description,1200);if(description.length<5)throw new BusinessError('Ajoute une courte description du produit ou service.');
  const imageUrl=cleanText(input.imageUrl,2048);if(imageUrl&&!isValidCloudinaryAvatarUrl(imageUrl))throw new BusinessError('La photo du produit doit provenir de la bibliothèque photo Pata.');
- await ref.update({title,description,imageUrl,amount,originalAmount,discountAmount:Math.max(0,originalAmount-amount),publicOnStorefront:input.publicOnStorefront!==false,updatedAt:FieldValue.serverTimestamp()});
+ const media=normalizeBusinessPaymentMedia(input);
+ await ref.update({title,description,imageUrl,...media,amount,originalAmount,discountAmount:Math.max(0,originalAmount-amount),publicOnStorefront:input.publicOnStorefront!==false,updatedAt:FieldValue.serverTimestamp()});
  return {paymentLink:serializeDocument(await ref.get())};
 }
 
@@ -988,11 +1055,36 @@ async function settleBusinessPaymentLink(linkRef, providerData) {
   return { handled: true, status: 'CONFIRMED', paymentLink: serializeDocument(fresh) };
 }
 
+
+async function sendConfirmedBusinessPaymentEmails(attemptRef){
+ try{
+  const attemptSnap=await attemptRef.get();if(!attemptSnap.exists||attemptSnap.data()?.status!=='CONFIRMED')return;
+  const attempt=attemptSnap.data()||{},linkRef=attemptRef.parent.parent;if(!linkRef)return;
+  const [linkSnap,businessSnap]=await Promise.all([linkRef.get(),businessesRef().doc(validId(attempt.businessId)).get()]);
+  if(!linkSnap.exists||!businessSnap.exists)return;
+  const business=businessSnap.data()||{},link=linkSnap.data()||{},appUrl=(process.env.NEXT_PUBLIC_APP_URL||'https://www.pata-yam.site').replace(/\/$/,'');
+  const amount=(Number(attempt.amount)||0).toLocaleString('fr-FR')+' FCFA',received=(Number(attempt.receivedAmount)||0).toLocaleString('fr-FR')+' FCFA';
+  const rows=[['Produit ou service',cleanText(attempt.title||link.title,100)],['Montant réglé',amount],['Montant net reçu',received],['Référence',cleanText(attempt.transId,160)]];
+  const ownerEmail=await getBusinessOwnerEmail(business);
+  if(ownerEmail&&!attempt.ownerEmailSentAt){
+   const sent=await sendBusinessNotice({business,to:ownerEmail,subject:'Paiement confirmé · '+cleanText(attempt.title||link.title,80),headline:'Un paiement vient d’être confirmé',intro:'Un client vient de régler une commande auprès de votre entreprise. Le montant a été rapproché dans votre espace professionnel.',details:[...rows,['Client',cleanText(attempt.payerName||attempt.customerName||'Non renseigné',100)],['E-mail client',cleanText(attempt.payerEmail||attempt.customerEmail,160)]],ctaUrl:appUrl+'/businesses/'+encodeURIComponent(attempt.businessId),ctaLabel:'Consulter mon espace professionnel',idempotencyKey:'business-payment-'+attemptRef.id+'-owner'});
+   if(sent)await attemptRef.update({ownerEmailSentAt:FieldValue.serverTimestamp()});
+  }
+  const customerEmail=cleanText(attempt.payerEmail||attempt.customerEmail,160).toLowerCase();
+  if(customerEmail&&!attempt.customerEmailSentAt){
+   const reviewUrl=attempt.reviewToken?appUrl+'/avis-paiement/'+encodeURIComponent(linkRef.id)+'?token='+encodeURIComponent(attempt.reviewToken):appUrl+'/paiement/'+encodeURIComponent(linkRef.id);
+   const html=businessEmailHtml({business,headline:'Merci pour votre confiance !',intro:'Votre paiement auprès de '+cleanText(business.name||'notre entreprise',100)+' a été confirmé. Nous vous remercions pour votre achat et restons à votre disposition.',details:[['Article',cleanText(attempt.title||link.title,100)],['Montant payé',amount],['Référence de paiement',cleanText(attempt.transId,160)]],ctaUrl:reviewUrl,ctaLabel:attempt.reviewToken?'Donner mon avis':'Voir mon reçu'});
+   try{await sendBusinessEmail({to:customerEmail,subject:'Confirmation de votre paiement · '+cleanText(business.name,80),html,businessName:business.name||'Entreprise',idempotencyKey:'business-payment-'+attemptRef.id+'-customer'});await attemptRef.update({customerEmailSentAt:FieldValue.serverTimestamp()});}
+   catch(error){console.warn('[PATA BUSINESS CUSTOMER RECEIPT]',JSON.stringify({paymentAttemptId:attemptRef.id,error:String(error?.message||error).slice(0,220)}));}
+  }
+ }catch(error){console.warn('[PATA BUSINESS PAYMENT EMAILS]',JSON.stringify({paymentAttemptId:attemptRef.id,error:String(error?.message||error).slice(0,240)}));}
+}
+
 async function settleBusinessPaymentAttempt(attemptRef, providerData) {
  const attemptSnap=await attemptRef.get();if(!attemptSnap.exists)return {handled:false,status:'NOT_FOUND'};
  const attempt=attemptSnap.data()||{},linkRef=attemptRef.parent.parent;
  if(!linkRef)throw new BusinessError('Offre de paiement introuvable.',404);
- if(attempt.status==='CONFIRMED')return {handled:true,status:'CONFIRMED'};
+ if(attempt.status==='CONFIRMED'){await sendConfirmedBusinessPaymentEmails(attemptRef);return {handled:true,status:'CONFIRMED'};}
  const transId=cleanText(providerData?.transId||providerData?.trans_id,160);
  if(String(attempt.transId||'')!==transId)throw new BusinessError('Identifiant de transaction incorrect.',409,'PAYMENT_ID_MISMATCH');
  const providerStatus=cleanText(providerData.status,32).toUpperCase();
@@ -1003,7 +1095,8 @@ async function settleBusinessPaymentAttempt(attemptRef, providerData) {
  const gross=Number(providerData.amount),net=Number(providerData.revenue);
  if(!Number.isSafeInteger(gross)||gross!==Number(attempt.amount))throw new BusinessError('Le montant confirmé ne correspond pas à cette offre.',409,'PAYMENT_AMOUNT_MISMATCH');
  if(!Number.isSafeInteger(net)||net<=0||net>gross)throw new BusinessError('Montant net de règlement invalide.',409,'PAYMENT_REVENUE_INVALID');
- if(String(providerData.externalId||'')!==attemptRef.id||String(providerData.userId||'')!==String(attempt.userId))throw new BusinessError('La référence de paiement est invalide.',409,'PAYMENT_REFERENCE_MISMATCH');
+ if(String(providerData.externalId||'')!==attemptRef.id)throw new BusinessError('La référence de paiement est invalide.',409,'PAYMENT_REFERENCE_MISMATCH');
+ if(providerData.userId&&attempt.providerUserId&&String(providerData.userId)!==String(attempt.providerUserId))throw new BusinessError('Le propriétaire associé au paiement ne correspond pas.',409,'PAYMENT_OWNER_MISMATCH');
  const businessRef=businessesRef().doc(validId(attempt.businessId)),accountRef=businessRef.collection('accounts').doc(validId(attempt.accountId||'main'));
  const date=parseDate(String(providerData.dateConfirmed||providerData.dateInitiated||todayDouala()).slice(0,10)),month=date.slice(0,7),fee=gross-net;
  const incomeRef=businessRef.collection('transactions').doc('pay_'+attemptRef.id+'_income'),feeRef=businessRef.collection('transactions').doc('pay_'+attemptRef.id+'_fee'),monthRef=businessRef.collection('monthlySummaries').doc(month);
@@ -1024,6 +1117,7 @@ async function settleBusinessPaymentAttempt(attemptRef, providerData) {
   tx.update(linkRef,{successfulPayments:FieldValue.increment(1),grossRevenue:FieldValue.increment(gross),netRevenue:FieldValue.increment(net),feeRevenue:FieldValue.increment(fee),activePaymentCount:FieldValue.increment(-1),status:max>0&&next>=max?'SOLD_OUT':'ACTIVE',updatedAt:FieldValue.serverTimestamp(),lastPaymentAt:FieldValue.serverTimestamp()});
   tx.update(attemptRef,{status:'CONFIRMED',receivedAmount:net,providerFeeAmount:fee,payerName:cleanText(providerData.payerName||attempt.customerName,100),payerEmail:cleanText(providerData.email||attempt.customerEmail,160),confirmedAt:FieldValue.serverTimestamp(),confirmedDate:date,financeIncomeTransactionId:incomeRef.id,financeFeeTransactionId:fee>0?feeRef.id:'',updatedAt:FieldValue.serverTimestamp()});
  });
+ await sendConfirmedBusinessPaymentEmails(attemptRef);
  return {handled:true,status:'CONFIRMED'};
 }
 
@@ -1054,6 +1148,30 @@ export async function verifyBusinessPaymentLink(uid,businessId,paymentLinkId){
  return {success:true,status:(await ref.get()).data()?.status||'ACTIVE',checked:results.filter(Boolean).length};
 }
 
+
+
+export async function submitPublicBusinessPaymentReview(paymentLinkId,input={}){
+ const id=validId(paymentLinkId),token=cleanText(input.token,128);
+ if(!/^[a-f0-9]{64}$/i.test(token))throw new BusinessError('Le lien d’avis est invalide ou incomplet.',403,'REVIEW_TOKEN_INVALID');
+ const linkRef=businessPaymentLinksRef().doc(id),attempts=await linkRef.collection('payments').where('reviewToken','==',token).limit(1).get();
+ if(attempts.empty)throw new BusinessError('Aucun paiement confirmé ne correspond à ce lien d’avis.',404,'REVIEW_PAYMENT_NOT_FOUND');
+ const attemptRef=attempts.docs[0].ref,businessId=validId(attempts.docs[0].data()?.businessId),businessRef=businessesRef().doc(businessId);
+ const businessRating=Number(input.businessRating),productRating=Number(input.productRating),comment=cleanText(input.comment,1000);
+ if(!Number.isInteger(businessRating)||businessRating<1||businessRating>5||!Number.isInteger(productRating)||productRating<1||productRating>5)throw new BusinessError('Choisis une note de 1 à 5 étoiles pour l’entreprise et le produit.');
+ const reviewRef=linkRef.collection('reviews').doc(attemptRef.id),businessReviewRef=businessRef.collection('reviews').doc(attemptRef.id);
+ await adminDb.runTransaction(async tx=>{
+  const [attempt,link,business,existing]=await Promise.all([tx.get(attemptRef),tx.get(linkRef),tx.get(businessRef),tx.get(reviewRef)]);
+  if(!attempt.exists||attempt.data()?.status!=='CONFIRMED')throw new BusinessError('Seuls les paiements confirmés peuvent laisser un avis.',403,'REVIEW_PAYMENT_NOT_CONFIRMED');
+  if(attempt.data()?.reviewSubmittedAt||existing.exists)throw new BusinessError('Un avis a déjà été envoyé pour ce paiement.',409,'REVIEW_ALREADY_SUBMITTED');
+  if(!link.exists||!business.exists)throw new BusinessError('Cette offre ou entreprise n’est plus disponible.',404);
+  const a=attempt.data()||{},review={paymentLinkId:id,businessId,customerName:cleanText(a.payerName||a.customerName||'Client',80),businessRating,productRating,comment,verifiedPurchase:true,createdAt:FieldValue.serverTimestamp()};
+  tx.create(reviewRef,review);tx.create(businessReviewRef,review);
+  tx.update(linkRef,{ratingCount:FieldValue.increment(1),businessRatingTotal:FieldValue.increment(businessRating),productRatingTotal:FieldValue.increment(productRating),updatedAt:FieldValue.serverTimestamp()});
+  tx.update(businessRef,{publicRatingCount:FieldValue.increment(1),publicRatingTotal:FieldValue.increment(businessRating),updatedAt:FieldValue.serverTimestamp()});
+  tx.update(attemptRef,{reviewSubmittedAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
+ });
+ return {success:true};
+}
 
 const BUSINESS_JOIN_TYPES = new Set(['founder','cofounder','employee','partner','associate','contractor']);
 const BUSINESS_ACCESS_ROLES = new Set(['admin','finance','manager','staff','viewer']);
@@ -1090,7 +1208,10 @@ export async function requestBusinessJoin(uid, businessId, input = {}) {
   if(memberSnap.exists&&memberSnap.data()?.active!==false)throw new BusinessError('Tu fais déjà partie de cette entreprise.',409,'ALREADY_MEMBER');
   if(requestSnap.exists&&requestSnap.data()?.status==='pending')throw new BusinessError('Une demande est déjà en attente pour cette entreprise.',409,'REQUEST_PENDING');
   const profile=profileSnap.data()||{};
-  await requestRef.set({uid,personType:type,message:cleanText(input.message,300),name:cleanText(profile.displayName||profile.name||profile.fullName||'Utilisateur Pata',100),imageUrl:isValidCloudinaryAvatarUrl(profile.photoURL||profile.avatarUrl)?(profile.photoURL||profile.avatarUrl):'',email:cleanText(profile.email,160),status:'pending',createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
+  const requestData={uid,personType:type,message:cleanText(input.message,300),name:cleanText(profile.displayName||profile.name||profile.fullName||'Utilisateur Pata',100),imageUrl:isValidCloudinaryAvatarUrl(profile.photoURL||profile.avatarUrl)?(profile.photoURL||profile.avatarUrl):'',email:cleanText(profile.email,160),status:'pending',createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()};
+  await requestRef.set(requestData);
+  const business=businessSnap.data()||{},ownerEmail=await getBusinessOwnerEmail(business),appUrl=(process.env.NEXT_PUBLIC_APP_URL||'https://www.pata-yam.site').replace(/\/$/,'');
+  await sendBusinessNotice({business,to:ownerEmail,subject:'Nouvelle demande pour rejoindre '+cleanText(business.name,80),headline:'Une personne souhaite rejoindre votre équipe',intro:cleanText(requestData.name,100)+' a envoyé une demande pour rejoindre votre entreprise. Connectez-vous pour examiner sa demande et définir ses droits.',details:[['Nom',requestData.name],['E-mail',requestData.email],['Position demandée',type],['Message',requestData.message]],ctaUrl:appUrl+'/businesses/'+encodeURIComponent(id)+'/team',ctaLabel:'Examiner la demande',idempotencyKey:'business-join-'+id+'-'+uid+'-'+Date.now()});
   return {success:true};
 }
 
@@ -1106,19 +1227,21 @@ export async function reviewBusinessJoinRequest(uid,businessId,requestUid,input=
   if(c.business.ownerId!==uid)throw new BusinessError('Seul le fondateur peut valider les demandes d’adhésion.',403,'PERMISSION_DENIED');
   const target=validId(requestUid),requestRef=c.businessRef.collection('joinRequests').doc(target),memberRef=c.businessRef.collection('members').doc(target),reverse=userBusinessRefs(target).doc(c.businessId),personRef=c.businessRef.collection('people').doc(target);
   const approved=input.approved===true,role=BUSINESS_ACCESS_ROLES.has(input.role)?input.role:'staff';
+  let reviewedRequest={};
   await adminDb.runTransaction(async tx=>{
     const [request,member,business]=await Promise.all([tx.get(requestRef),tx.get(memberRef),tx.get(c.businessRef)]);
     if(!request.exists||request.data()?.status!=='pending')throw new BusinessError('Cette demande n’est plus en attente.',409,'REQUEST_NOT_PENDING');
     if(!business.exists||business.data()?.ownerId!==uid)throw new BusinessError('Droits fondateur requis.',403);
     if(approved){
       if(member.exists&&member.data()?.active!==false)throw new BusinessError('Cette personne est déjà membre.',409);
-      const req=request.data()||{};
+      const req=request.data()||{}; reviewedRequest=req;
       tx.set(memberRef,{uid:target,role,personType:BUSINESS_JOIN_TYPES.has(req.personType)?req.personType:'employee',active:true,status:'active',permissions:input.permissions&&typeof input.permissions==='object'?input.permissions:{},invitedBy:uid,joinedAt:FieldValue.serverTimestamp()});
       tx.set(reverse,{businessId:c.businessId,role,active:true,createdAt:FieldValue.serverTimestamp()});
       tx.set(personRef,{name:cleanText(req.name,100),imageUrl:cleanText(req.imageUrl,2048),type:BUSINESS_JOIN_TYPES.has(req.personType)?req.personType:'employee',role,phone:'',email:cleanText(req.email,160),active:true,capitalPercent:0,profitPercent:0,salary:0,commissionRate:0,createdAt:FieldValue.serverTimestamp(),createdBy:uid},{merge:true});
-    }
+    } else { reviewedRequest=request.data()||{}; }
     tx.update(requestRef,{status:approved?'approved':'rejected',reviewedBy:uid,assignedRole:approved?role:'',reviewedAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
   });
+  await sendBusinessNotice({business:c.business,to:cleanText(reviewedRequest.email,160),subject:approved?'Votre demande a été acceptée · '+cleanText(c.business.name,80):'Réponse à votre demande · '+cleanText(c.business.name,80),headline:approved?'Votre demande a été acceptée':'Votre demande n’a pas été retenue',intro:approved?'Votre demande pour rejoindre '+cleanText(c.business.name,100)+' a été acceptée. Vous pouvez maintenant accéder à l’espace professionnel avec les droits attribués.':'Le fondateur de '+cleanText(c.business.name,100)+' a examiné votre demande. Celle-ci n’a pas été acceptée pour le moment.',details:approved?[['Rôle attribué',role]]:[],ctaUrl:(process.env.NEXT_PUBLIC_APP_URL||'https://www.pata-yam.site')+'/businesses/'+encodeURIComponent(c.businessId),ctaLabel:approved?'Accéder à l’entreprise':'Ouvrir mon espace',idempotencyKey:'business-join-result-'+c.businessId+'-'+target});
   return {success:true,approved};
 }
 
@@ -1135,15 +1258,11 @@ export async function createBusinessInvitation(uid,businessId,input={}) {
   const ref=businessInvitationsRef().doc();
   const origin=process.env.NEXT_PUBLIC_APP_URL||process.env.NEXT_PUBLIC_SITE_URL||'https://www.pata-yam.site';
   const invitationUrl=origin+'/businesses/invitation/'+ref.id;
-  const safeBusinessName=cleanText(c.business.name,100).replace(/[&<>\"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[char]));
   await ref.create({businessId:c.businessId,businessName:cleanText(c.business.name,100),businessLogoUrl:isValidCloudinaryAvatarUrl(c.business.logoUrl)?c.business.logoUrl:'',businessSlogan:cleanText(c.business.slogan,180),invitedEmail:email,invitedEmailLower:email,targetUid,role,personType,status:'pending',createdBy:uid,createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
+  const html=businessEmailHtml({business:c.business,headline:'Vous êtes invité(e) à rejoindre notre entreprise',intro:'Nous souhaitons vous accueillir dans l’équipe de '+cleanText(c.business.name,100)+'. Consultez les informations et acceptez l’invitation avec le compte associé à cette adresse e-mail.',details:[['Position proposée',personType],['Accès prévu',role]],ctaUrl:invitationUrl,ctaLabel:'Consulter mon invitation'});
   let emailSent=false;
-  if(process.env.RESEND_API_KEY){
-    try{
-      const response=await fetch('https://api.resend.com/emails',{method:'POST',headers:{Authorization:'Bearer '+process.env.RESEND_API_KEY,'Content-Type':'application/json'},body:JSON.stringify({from:process.env.RESEND_FROM_EMAIL||'notifications@pata-yam.site',to:[email],subject:'Invitation à rejoindre '+safeBusinessName+' sur Pata',html:'<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#17211c"><h2>Tu es invité(e) à rejoindre '+safeBusinessName+'</h2><p>Le fondateur de cette entreprise t’invite à rejoindre son espace professionnel sur Pata.</p><p>Position proposée : <b>'+personType+'</b><br/>Accès prévu : <b>'+role+'</b></p><p><a href="'+invitationUrl+'" style="display:inline-block;padding:12px 18px;background:#075b43;color:#fff;text-decoration:none;border-radius:8px">Consulter et accepter l’invitation</a></p><p>Si tu n’as pas encore de compte Pata, crée ton compte avec cette adresse e-mail puis ouvre ce lien.</p></div>'})});
-      emailSent=response.ok;
-    }catch(error){console.warn('Business invitation email failed:',error?.message||error);}
-  }
+  try{await sendBusinessEmail({to:email,subject:'Invitation à rejoindre '+cleanText(c.business.name,80),html,businessName:c.business.name||'Entreprise',idempotencyKey:'business-invitation-'+ref.id});emailSent=true;}
+  catch(error){console.warn('[PATA BUSINESS INVITATION EMAIL]',String(error?.message||error).slice(0,220));}
   return {invitation:{id:ref.id,email,role,personType,existingAccount:Boolean(targetUid),emailSent,url:invitationUrl}};
 }
 

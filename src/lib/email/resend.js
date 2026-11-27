@@ -408,3 +408,23 @@ export function referralRewardActivatedEmail({ referrerName, invitedName }) {
     ctaUrl: '/settings',
   });
 }
+
+export async function sendBusinessEmail({ to, subject, html, businessName, replyTo, idempotencyKey }) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) throw new Error('RESEND_API_KEY est absente de la configuration serveur.');
+  if (!to || !String(to).includes('@')) throw new Error('Adresse e-mail destinataire invalide.');
+  const configured = getConfiguredFromAddress();
+  const address = configured.match(/<([^<>]+)>/)?.[1] || configured;
+  const displayName = String(businessName || 'Entreprise').replace(/[<>"\r\n]/g, '').trim().slice(0, 80) || 'Entreprise';
+  const headers = { Authorization: 'Bearer ' + apiKey, 'Content-Type': 'application/json' };
+  if (idempotencyKey) headers['Idempotency-Key'] = String(idempotencyKey).slice(0, 256);
+  const payload = { from: '"' + displayName + '" <' + address + '>', to: [String(to).trim()], subject, html };
+  if (replyTo && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(replyTo))) payload.reply_to = String(replyTo).trim();
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST', headers, body: JSON.stringify(payload), cache: 'no-store',
+    signal: AbortSignal.timeout(12000),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(String(data?.message || data?.error || 'Resend a répondu avec le statut ' + response.status).slice(0, 400));
+  return { id: data.id || null };
+}
