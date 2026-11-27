@@ -950,8 +950,9 @@ async function settleBusinessPaymentAttempt(attemptRef, providerData) {
  const businessRef=businessesRef().doc(validId(attempt.businessId)),accountRef=businessRef.collection('accounts').doc(validId(attempt.accountId||'main'));
  const date=parseDate(String(providerData.dateConfirmed||providerData.dateInitiated||todayDouala()).slice(0,10)),month=date.slice(0,7),fee=gross-net;
  const incomeRef=businessRef.collection('transactions').doc('pay_'+attemptRef.id+'_income'),feeRef=businessRef.collection('transactions').doc('pay_'+attemptRef.id+'_fee'),monthRef=businessRef.collection('monthlySummaries').doc(month);
+ const budgetsQuery=fee>0?businessRef.collection('budgets').where('month','==',month).limit(30):null;
  await adminDb.runTransaction(async tx=>{
-  const [a,l,b,acc,income,feeTxn]=await Promise.all([tx.get(attemptRef),tx.get(linkRef),tx.get(businessRef),tx.get(accountRef),tx.get(incomeRef),tx.get(feeRef)]);
+  const reads=[tx.get(attemptRef),tx.get(linkRef),tx.get(businessRef),tx.get(accountRef),tx.get(incomeRef),tx.get(feeRef)];if(budgetsQuery)reads.push(tx.get(budgetsQuery));const rows=await Promise.all(reads),[a,l,b,acc,income,feeTxn]=rows,budgets=budgetsQuery?rows[6]:null;
   if(!a.exists)throw new BusinessError('Tentative de paiement introuvable.',404);if(a.data()?.status==='CONFIRMED')return;
   if(!l.exists||!b.exists||!acc.exists||acc.data()?.active===false)throw new BusinessError('Compte professionnel de destination introuvable. Paiement à régulariser.',409,'BUSINESS_ACCOUNT_MISSING');
   if(income.exists||(fee>0&&feeTxn.exists))throw new BusinessError('Écriture de paiement déjà existante. Vérification requise.',409,'PAYMENT_LEDGER_CONFLICT');
@@ -961,6 +962,7 @@ async function settleBusinessPaymentAttempt(attemptRef, providerData) {
   tx.update(accountRef,{balance:FieldValue.increment(net),updatedAt:FieldValue.serverTimestamp()});
   tx.update(businessRef,{cashBalance:FieldValue.increment(net),totalIncome:FieldValue.increment(gross),...(fee>0?{totalExpense:FieldValue.increment(fee)}:{}),updatedAt:FieldValue.serverTimestamp(),lastActivityAt:FieldValue.serverTimestamp()});
   tx.set(monthRef,{month,income:FieldValue.increment(gross),...(fee>0?{expense:FieldValue.increment(fee)}:{}),transactionCount:FieldValue.increment(fee>0?2:1),updatedAt:FieldValue.serverTimestamp()},{merge:true});
+  if(fee>0&&budgets?.docs?.length){for(const budgetDoc of budgets.docs){const budget=budgetDoc.data()||{};if(String(budget.categoryId||'')!=='payment_fees')continue;const spent=Math.max(0,Number(budget.spent)||0)+fee,allocated=Math.max(0,Number(budget.amount)||0);tx.update(budgetDoc.ref,{spent,remaining:Math.max(0,allocated-spent),overBudget:spent>allocated,updatedAt:FieldValue.serverTimestamp()});}}
   const link=offer,max=Math.max(0,Number(link.maxPayments)||0),next=Math.max(0,Number(link.successfulPayments)||0)+1;
   tx.update(linkRef,{successfulPayments:FieldValue.increment(1),grossRevenue:FieldValue.increment(gross),netRevenue:FieldValue.increment(net),feeRevenue:FieldValue.increment(fee),activePaymentCount:FieldValue.increment(-1),status:max>0&&next>=max?'SOLD_OUT':'ACTIVE',updatedAt:FieldValue.serverTimestamp(),lastPaymentAt:FieldValue.serverTimestamp()});
   tx.update(attemptRef,{status:'CONFIRMED',receivedAmount:net,providerFeeAmount:fee,payerName:cleanText(providerData.payerName||attempt.customerName,100),payerEmail:cleanText(providerData.email||attempt.customerEmail,160),confirmedAt:FieldValue.serverTimestamp(),confirmedDate:date,financeIncomeTransactionId:incomeRef.id,financeFeeTransactionId:fee>0?feeRef.id:'',updatedAt:FieldValue.serverTimestamp()});
