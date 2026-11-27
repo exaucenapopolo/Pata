@@ -739,9 +739,14 @@ export async function getPublicBusinessPaymentLink(paymentLinkId,visitorId=''){
  const id=validId(paymentLinkId),ref=businessPaymentLinksRef().doc(id),snap=await ref.get();
  if(!snap.exists)throw new BusinessError('Cette offre de paiement est introuvable.',404,'PAYMENT_LINK_NOT_FOUND');
  let link=snap.data()||{};
- if(link.status==='PENDING'&&link.transId&&link.checkoutUrl){
+ if(['PENDING','CONFIRMED','FAILED','EXPIRED'].includes(link.status)&&!Object.prototype.hasOwnProperty.call(link,'successfulPayments')){
   const legacyAttempt=ref.collection('payments').doc(id);
-  await adminDb.runTransaction(async tx=>{const [fresh,attempt]=await Promise.all([tx.get(ref),tx.get(legacyAttempt)]);if(!fresh.exists||fresh.data()?.status!=='PENDING')return;const old=fresh.data()||{};if(!attempt.exists)tx.create(legacyAttempt,{paymentLinkId:id,businessId:old.businessId,userId:old.userId,accountId:old.accountId||'main',amount:Number(old.amount)||0,title:cleanText(old.title,100),customerName:cleanText(old.customerName,100),customerEmail:cleanText(old.customerEmail,160),checkoutUrl:old.checkoutUrl,transId:old.transId,status:'PENDING',createdAt:old.createdAt||FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});tx.update(ref,{status:'ACTIVE',activePaymentCount:FieldValue.increment(attempt.exists?0:1),pageViews:Number(old.pageViews)||0,uniqueViews:Number(old.uniqueViews)||0,clickCount:Number(old.clickCount)||0,uniqueClickers:Number(old.uniqueClickers)||0,successfulPayments:Number(old.successfulPayments)||0,grossRevenue:Number(old.grossRevenue)||0,netRevenue:Number(old.netRevenue)||0,feeRevenue:Number(old.feeRevenue)||0,updatedAt:FieldValue.serverTimestamp()});});
+  await adminDb.runTransaction(async tx=>{
+   const [fresh,attempt]=await Promise.all([tx.get(ref),tx.get(legacyAttempt)]);if(!fresh.exists)return;const old=fresh.data()||{};
+   if(old.status==='PENDING'&&old.transId&&old.checkoutUrl&&!attempt.exists)tx.create(legacyAttempt,{paymentLinkId:id,businessId:old.businessId,userId:old.userId,accountId:old.accountId||'main',amount:Number(old.amount)||0,title:cleanText(old.title,100),customerName:cleanText(old.customerName,100),customerEmail:cleanText(old.customerEmail,160),checkoutUrl:old.checkoutUrl,transId:old.transId,status:'PENDING',createdAt:old.createdAt||FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
+   const paid=old.status==='CONFIRMED'?1:0,gross=paid?(Number(old.amount)||0):0,net=paid?(Number(old.receivedAmount)||Number(old.amount)||0):0,fees=paid?(Number(old.providerFeeAmount)||Math.max(0,gross-net)):0;
+   tx.update(ref,{status:'ACTIVE',activePaymentCount:FieldValue.increment(old.status==='PENDING'&&old.transId&&old.checkoutUrl&&!attempt.exists?1:0),pageViews:Number(old.pageViews)||0,uniqueViews:Number(old.uniqueViews)||0,clickCount:Number(old.clickCount)||0,uniqueClickers:Number(old.uniqueClickers)||0,successfulPayments:paid,grossRevenue:gross,netRevenue:net,feeRevenue:fees,updatedAt:FieldValue.serverTimestamp()});
+  });
   link=(await ref.get()).data()||link;
  }
  const visitor=cleanText(visitorId,100).replace(/[^a-zA-Z0-9_-]/g,'');
