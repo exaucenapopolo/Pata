@@ -96,6 +96,8 @@ export async function createBusinessPaymentLink(id, input) {
   });
 }
 export async function getBusinessPaymentLinkDetails(id, paymentLinkId) { return businessRequest(businessPath(id, 'payment-links/' + encodeURIComponent(paymentLinkId))); }
+export async function updateBusinessPaymentLink(id,paymentLinkId,input){return businessRequest(businessPath(id,'payment-links/'+encodeURIComponent(paymentLinkId)),'PATCH',input);}
+export async function deleteBusinessPaymentLink(id,paymentLinkId,confirmation){return businessRequest(businessPath(id,'payment-links/'+encodeURIComponent(paymentLinkId)),'DELETE',{confirmation,confirmLinkId:paymentLinkId});}
 export async function verifyBusinessPaymentLink(id, paymentLinkId) {
   return businessRequest(businessPath(id, 'payment-links/' + encodeURIComponent(paymentLinkId) + '/verify'), 'POST', {});
 }
