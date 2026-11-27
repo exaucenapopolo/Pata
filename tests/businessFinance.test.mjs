@@ -33,3 +33,8 @@ test('identifie les apports et retraits sans les confondre avec le chiffre d’a
   assert.equal(classifyBusinessMovement({ type: 'expense' }), 'expense');
   assert.equal(classifyBusinessMovement({ type: 'income' }), 'income');
 });
+
+
+import { calculateBusinessProfitability, validateBusinessPeoplePercentages } from '../src/lib/business/finance.mjs';
+test('les parts de capital et de bénéfices sont indépendantes et le partage respecte le bénéfice distribuable',()=>{const people=[{id:'f',name:'Fondateur',capitalPercent:70,profitPercent:50},{id:'a',name:'Associé',capitalPercent:30,profitPercent:25},{id:'e',name:'Employé',capitalPercent:0,profitPercent:25}];const totals=validateBusinessPeoplePercentages(people);assert.equal(totals.capitalValid,true);assert.equal(totals.profitValid,true);const r=calculateBusinessProfitability({income:3000000,directCosts:1200000,operatingCosts:160000,salaries:75000,reservePercent:10,people});assert.equal(r.grossMargin,1800000);assert.equal(r.netProfit,1565000);assert.equal(r.reserve,156500);assert.equal(r.distributableProfit,1408500);assert.deepEqual(r.shares.map(x=>x.amount),[704250,352125,352125]);});
+test('les pertes ne génèrent aucun bénéfice distribuable',()=>{const r=calculateBusinessProfitability({income:10000,directCosts:15000,people:[{name:'A',profitPercent:100}]});assert.equal(r.netProfit,-5000);assert.equal(r.distributableProfit,0);assert.equal(r.shares[0].amount,0);});
