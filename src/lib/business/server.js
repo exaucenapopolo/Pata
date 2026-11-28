@@ -579,6 +579,7 @@ function normalizeResource(resource, input = {}) {
       counterpartyType: isLoan && ['personal', 'business', 'supplier', 'investor', 'other'].includes(input.counterpartyType) ? input.counterpartyType : (isLoan ? 'other' : ''),
       linkedBusinessId: isLoan && input.counterpartyType === 'business' ? cleanText(input.linkedBusinessId, 150) : '',
       accountId: isLoan ? validId(input.accountId || 'main') : '',
+      date: isLoan ? parseDate(input.date) : '',
       affectsFinances: isLoan ? true : input.affectsFinances !== false,
       status: ['pending', 'in_progress', 'completed', 'cancelled'].includes(input.status) ? input.status : 'pending',
       note: cleanText(input.note, 500), ...common,
@@ -668,7 +669,8 @@ export async function saveBusinessResource(uid, businessId, resource, input = {}
     const loanMovement = resource === 'obligations' && ['loan_received', 'loan_granted'].includes(data.type);
     const loanAccountRef = loanMovement ? context.businessRef.collection('accounts').doc(data.accountId || 'main') : null;
     const loanTransactionRef = loanMovement ? context.businessRef.collection('transactions').doc('loan_' + ref.id) : null;
-    const loanMonthRef = loanMovement ? context.businessRef.collection('monthlySummaries').doc(monthDouala()) : null;
+    const loanMonth = loanMovement ? data.date.slice(0, 7) : '';
+    const loanMonthRef = loanMovement ? context.businessRef.collection('monthlySummaries').doc(loanMonth) : null;
     if(resource==='contracts'&&data.counterpartyId){
       const type=['clients','suppliers','partners'].includes(data.counterpartyType)?data.counterpartyType:'';
       if(!type)throw new BusinessError('Choisis le type de tiers lié au contrat.');
@@ -707,14 +709,14 @@ export async function saveBusinessResource(uid, businessId, resource, input = {}
             flowType: received ? 'loan_received' : 'loan_granted',
             title: received ? 'Prêt reçu · ' + data.counterpartyName : 'Prêt accordé · ' + data.counterpartyName,
             categoryId: received ? 'loan_received' : 'loan_granted', categoryLabel: received ? 'Prêt reçu' : 'Prêt accordé',
-            amount: data.amount, date: todayDouala(), month: monthDouala(), accountId: data.accountId,
+            amount: data.amount, date: data.date, month: loanMonth, accountId: data.accountId,
             obligationId: ref.id, counterpartyName: data.counterpartyName, counterpartyType: data.counterpartyType,
             status: 'posted', createdBy: uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
             note: data.note || '',
           });
           transaction.update(loanAccountRef,{balance:FieldValue.increment(signedAmount),updatedAt:FieldValue.serverTimestamp()});
           transaction.update(context.businessRef,{cashBalance:FieldValue.increment(signedAmount),updatedAt:FieldValue.serverTimestamp()});
-          transaction.set(loanMonthRef,{month:monthDouala(),...(received?{loansReceived:FieldValue.increment(data.amount)}:{loansGranted:FieldValue.increment(data.amount)}),transactionCount:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()},{merge:true});
+          transaction.set(loanMonthRef,{month:loanMonth,...(received?{loansReceived:FieldValue.increment(data.amount)}:{loansGranted:FieldValue.increment(data.amount)}),transactionCount:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()},{merge:true});
         }
       }
     });
