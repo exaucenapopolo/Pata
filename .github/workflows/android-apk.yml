@@ -282,8 +282,8 @@ jobs:
         if: ${{ (inputs.publish_release == 'true' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[PUBLISH_ANDROID_RELEASE]'))) && env.ANDROID_KEYSTORE_BASE64 != '' && env.ANDROID_KEYSTORE_PASSWORD != '' && env.ANDROID_KEY_ALIAS != '' && env.ANDROID_KEY_PASSWORD != '' }}
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: android-v1.2.4
-          name: Pata Android 1.2.4
+          tag_name: android-v1.2.5
+          name: Pata Android 1.2.5
           target_commitish: main
           generate_release_notes: true
           overwrite_files: true
@@ -307,5 +307,7 @@ jobs:
             echo "Les métadonnées Android sont déjà correctes ; aucun commit supplémentaire."
           else
             git commit -m "Publish Pata Android download metadata"
+            git fetch origin main
+            git rebase origin/main
             git push
           fi
