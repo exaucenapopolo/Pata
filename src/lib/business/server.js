@@ -566,13 +566,19 @@ function normalizeResource(resource, input = {}) {
     const title = cleanText(input.title, 140);
     if (!title) throw new BusinessError('Indique l’obligation à suivre.');
     const amount = input.amount ? parseAmount(input.amount, 'Montant de l’obligation') : 0;
+    const type = cleanText(input.typeCustom || input.type, 80) || 'other';
+    const isLoan = ['loan_received', 'loan_granted'].includes(type);
+    if (isLoan && !cleanText(input.counterpartyName, 120)) throw new BusinessError('Indique le nom de la personne ou de l’entreprise liée au prêt.');
     return {
-      title, type: cleanText(input.typeCustom || input.type, 80) || 'other',
-      amount, amountPaid: 0, remaining: amount,
+      title, type, amount, amountPaid: 0, remaining: amount,
       dueDate: input.dueDate ? parseDate(input.dueDate) : '',
       ...normalizeBusinessCategory(input),
       category: cleanText(input.categoryCustom || input.categoryLabel || input.category, 80),
       supplierId: cleanText(input.supplierId, 150),
+      counterpartyName: isLoan ? cleanText(input.counterpartyName, 120) : '',
+      counterpartyType: isLoan && ['personal', 'business', 'supplier', 'investor', 'other'].includes(input.counterpartyType) ? input.counterpartyType : (isLoan ? 'other' : ''),
+      linkedBusinessId: isLoan && input.counterpartyType === 'business' ? cleanText(input.linkedBusinessId, 150) : '',
+      accountId: isLoan ? validId(input.accountId || 'main') : '',
       affectsFinances: input.affectsFinances !== false,
       status: ['pending', 'in_progress', 'completed', 'cancelled'].includes(input.status) ? input.status : 'pending',
       note: cleanText(input.note, 500), ...common,
@@ -659,20 +665,26 @@ export async function saveBusinessResource(uid, businessId, resource, input = {}
     let relatedRef=null;
     if(resource==='invoices'&&data.customerId)relatedRef=context.businessRef.collection('clients').doc(validId(data.customerId));
     if(resource==='obligations'&&data.supplierId)relatedRef=context.businessRef.collection('suppliers').doc(validId(data.supplierId));
+    const loanMovement = resource === 'obligations' && ['loan_received', 'loan_granted'].includes(data.type);
+    const loanAccountRef = loanMovement ? context.businessRef.collection('accounts').doc(data.accountId || 'main') : null;
+    const loanTransactionRef = loanMovement ? context.businessRef.collection('transactions').doc('loan_' + ref.id) : null;
+    const loanMonthRef = loanMovement ? context.businessRef.collection('monthlySummaries').doc(monthDouala()) : null;
     if(resource==='contracts'&&data.counterpartyId){
       const type=['clients','suppliers','partners'].includes(data.counterpartyType)?data.counterpartyType:'';
       if(!type)throw new BusinessError('Choisis le type de tiers lié au contrat.');
       relatedRef=context.businessRef.collection(type).doc(validId(data.counterpartyId));
     }
     await adminDb.runTransaction(async transaction=>{
-      const [profile,member,business,related]=await Promise.all([
+      const [profile,member,business,related,loanAccount]=await Promise.all([
         transaction.get(context.userRef),transaction.get(context.memberRef),transaction.get(context.businessRef),
         relatedRef?transaction.get(relatedRef):Promise.resolve(null),
+        loanAccountRef?transaction.get(loanAccountRef):Promise.resolve(null),
       ]);
       if(!profile.exists||!isPremium(profile.data()||{}))premiumRequired();
       if(!member.exists||!['owner','admin','finance'].includes(member.data()?.role||''))throw new BusinessError('Accès en lecture seule.',403);
       if(!business.exists||business.data()?.status==='archived')throw new BusinessError('Entreprise indisponible.',404);
       if(relatedRef&&!related?.exists)throw new BusinessError('La fiche du tiers associé est introuvable.',404);
+      if(loanMovement && (!loanAccount?.exists || loanAccount.data()?.active === false)) throw new BusinessError('Compte financier du prêt introuvable ou désactivé.');
       if(resource==='invoices'&&related?.exists)stored.customerName=cleanText(related.data()?.name,120);
       if(resource==='obligations'&&related?.exists)stored.supplierName=cleanText(related.data()?.name,120);
       if(resource==='contracts'&&related?.exists)stored.counterparty=cleanText(related.data()?.name,120);
@@ -681,8 +693,29 @@ export async function saveBusinessResource(uid, businessId, resource, input = {}
         transaction.update(context.businessRef,{totalReceivables:FieldValue.increment(data.totalAmount),updatedAt:FieldValue.serverTimestamp()});
         if(related?.exists)transaction.update(relatedRef,{totalInvoiced:FieldValue.increment(data.totalAmount),outstandingAmount:FieldValue.increment(data.totalAmount),updatedAt:FieldValue.serverTimestamp()});
       }else if(resource==='obligations'){
-        if(data.affectsFinances!==false)transaction.update(context.businessRef,{totalPayables:FieldValue.increment(data.remaining),updatedAt:FieldValue.serverTimestamp()});
+        const isLoanReceived = data.type === 'loan_received';
+        const isLoanGranted = data.type === 'loan_granted';
+        if (isLoanReceived && data.affectsFinances !== false) transaction.update(context.businessRef,{totalPayables:FieldValue.increment(data.remaining),updatedAt:FieldValue.serverTimestamp()});
+        else if (isLoanGranted && data.affectsFinances !== false) transaction.update(context.businessRef,{totalReceivables:FieldValue.increment(data.remaining),updatedAt:FieldValue.serverTimestamp()});
+        else if (!isLoanGranted && !isLoanReceived && data.affectsFinances!==false) transaction.update(context.businessRef,{totalPayables:FieldValue.increment(data.remaining),updatedAt:FieldValue.serverTimestamp()});
         if(related?.exists)transaction.update(relatedRef,{totalCommitted:FieldValue.increment(data.amount),outstandingAmount:FieldValue.increment(data.remaining),updatedAt:FieldValue.serverTimestamp()});
+        if (loanMovement) {
+          const received = isLoanReceived;
+          const signedAmount = received ? data.amount : -data.amount;
+          transaction.create(loanTransactionRef, {
+            type: received ? 'inflow' : 'outflow', direction: received ? 'inflow' : 'outflow',
+            flowType: received ? 'loan_received' : 'loan_granted',
+            title: received ? 'Prêt reçu · ' + data.counterpartyName : 'Prêt accordé · ' + data.counterpartyName,
+            categoryId: received ? 'loan_received' : 'loan_granted', categoryLabel: received ? 'Prêt reçu' : 'Prêt accordé',
+            amount: data.amount, date: todayDouala(), month: monthDouala(), accountId: data.accountId,
+            obligationId: ref.id, counterpartyName: data.counterpartyName, counterpartyType: data.counterpartyType,
+            status: 'posted', createdBy: uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+            note: data.note || '',
+          });
+          transaction.update(loanAccountRef,{balance:FieldValue.increment(signedAmount),updatedAt:FieldValue.serverTimestamp()});
+          transaction.update(context.businessRef,{cashBalance:FieldValue.increment(signedAmount),updatedAt:FieldValue.serverTimestamp()});
+          transaction.set(loanMonthRef,{month:monthDouala(),...(received?{loansReceived:FieldValue.increment(data.amount)}:{loansGranted:FieldValue.increment(data.amount)}),transactionCount:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()},{merge:true});
+        }
       }
     });
   }else await ref.create(stored);
@@ -727,7 +760,11 @@ export async function deleteBusinessResource(uid,businessId,resource,itemId){
     targetRefs.forEach(target=>transaction.delete(target));
     records.forEach(data=>{
       if(resource==='invoices')transaction.update(context.businessRef,{totalReceivables:FieldValue.increment(-Math.max(0,Number(data.remaining??data.totalAmount)||0)),updatedAt:FieldValue.serverTimestamp()});
-      if(resource==='obligations'&&data.affectsFinances!==false)transaction.update(context.businessRef,{totalPayables:FieldValue.increment(-Math.max(0,Number(data.remaining??data.amount)||0)),updatedAt:FieldValue.serverTimestamp()});
+      if(resource==='obligations'&&data.affectsFinances!==false){
+        const remaining=Math.max(0,Number(data.remaining??data.amount)||0);
+        if(data.type==='loan_granted')transaction.update(context.businessRef,{totalReceivables:FieldValue.increment(-remaining),updatedAt:FieldValue.serverTimestamp()});
+        else transaction.update(context.businessRef,{totalPayables:FieldValue.increment(-remaining),updatedAt:FieldValue.serverTimestamp()});
+      }
     });
     related.forEach((item,index)=>{
       const snapshot=relatedSnaps[index];if(!snapshot?.exists)return;const party=snapshot.data()||{};
@@ -776,20 +813,28 @@ export async function recordBusinessDocumentPayment(uid,businessId,resource,item
     const partyName=cleanText(partySnap?.data()?.name||(isInvoice?item.customerName:item.supplierName),120);
     const category=isInvoice?{categoryId:'sales',categoryLabel:'Ventes'}:normalizeBusinessCategory({categoryId:item.categoryId,categoryLabel:item.categoryLabel||item.category});
     transaction.create(transactionRef,{
-      type:isInvoice?'income':'expense',direction:isInvoice?'income':'expense',flowType:'normal',
-      title:(isInvoice?'Paiement facture ':'Paiement obligation ')+cleanText(item.title,100),
+      type:isInvoice?'income':(item.type==='loan_granted'?'income':'expense'),
+      direction:isInvoice?'income':(item.type==='loan_granted'?'income':'expense'),
+      flowType:!isInvoice&&['loan_received','loan_granted'].includes(item.type)?'loan_repayment':'normal',
+      title:(isInvoice?'Paiement facture ':(['loan_received','loan_granted'].includes(item.type)?(item.type==='loan_received'?'Remboursement du prêt reçu ':'Remboursement du prêt accordé '):'Paiement obligation '))+cleanText(item.title,100),
       ...category,amount,date,month,accountId,invoiceId:isInvoice?id:null,obligationId:isInvoice?null:id,
       customerId:isInvoice?partyId:'',supplierId:isInvoice?'':partyId,counterpartyName:partyName,
       note:cleanText(input.note,300),status:'posted',createdBy:uid,createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp(),
     });
-    const signedAmount=isInvoice?amount:-amount;
+    const isLoan = !isInvoice && ['loan_received','loan_granted'].includes(item.type);
+    const loanGranted = item.type === 'loan_granted';
+    const signedAmount = isInvoice || loanGranted ? amount : -amount;
     transaction.update(accountRef,{balance:FieldValue.increment(signedAmount),updatedAt:FieldValue.serverTimestamp()});
     transaction.update(context.businessRef,{
       cashBalance:FieldValue.increment(signedAmount),
-      ...(isInvoice?{totalIncome:FieldValue.increment(amount),totalReceivables:FieldValue.increment(-amount)}:{totalExpense:FieldValue.increment(amount),...(item.affectsFinances!==false?{totalPayables:FieldValue.increment(-amount)}:{})}),
+      ...(isInvoice?{totalIncome:FieldValue.increment(amount),totalReceivables:FieldValue.increment(-amount)}:
+        isLoan ? (item.affectsFinances===false?{}:(loanGranted?{totalReceivables:FieldValue.increment(-amount)}:{totalPayables:FieldValue.increment(-amount)})) :
+        {totalExpense:FieldValue.increment(amount),...(item.affectsFinances!==false?{totalPayables:FieldValue.increment(-amount)}:{})}),
       updatedAt:FieldValue.serverTimestamp(),
     });
-    transaction.set(monthRef,{month,...(isInvoice?{income:FieldValue.increment(amount)}:{expense:FieldValue.increment(amount)}),transactionCount:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()},{merge:true});
+    transaction.set(monthRef,{month,...(isInvoice?{income:FieldValue.increment(amount)}:
+      isLoan ? (loanGranted?{loanRepaymentsReceived:FieldValue.increment(amount)}:{loanRepaymentsMade:FieldValue.increment(amount)}) :
+      {expense:FieldValue.increment(amount)}),transactionCount:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()},{merge:true});
     if(partyRef&&partySnap?.exists){
       const party=partySnap.data()||{};
       transaction.update(partyRef,isInvoice?{totalCollected:FieldValue.increment(amount),outstandingAmount:Math.max(0,(Number(party.outstandingAmount)||0)-amount),updatedAt:FieldValue.serverTimestamp()}:{totalPaid:FieldValue.increment(amount),outstandingAmount:Math.max(0,(Number(party.outstandingAmount)||0)-amount),updatedAt:FieldValue.serverTimestamp()});
