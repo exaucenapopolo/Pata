@@ -236,6 +236,8 @@ export async function getBusinessOverview(uid, businessId) {
       utilitiesDue: commitments.utilitiesDue,
       taxDue: commitments.taxDue,
       otherDue: commitments.otherDue,
+      loanPayableDue: commitments.loanPayableDue,
+      loanReceivableDue: commitments.loanReceivableDue,
       trackedPayables: commitments.payablesTracked,
       budgetAllocated,budgetSpent,budgetRemaining:Math.max(0,budgetAllocated-budgetSpent),budgetCount:monthlyBudgets.length,
       result: (Number(monthly.income) || 0) - (Number(monthly.expense) || 0),
