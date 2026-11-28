@@ -221,3 +221,34 @@ html.dark .text-\[\#075b43\], html.dark .text-\[\#0b5c46\] { color: #8ed6b3 !imp
 @media (prefers-reduced-motion: reduce) {
   .animate-pata-pin-shake, .animate-pata-pin-success { animation: none !important; }
 }
+
+
+/* Espace entreprise : champs et formulaires robustes sur petits écrans. */
+.business-workspace {
+  width: 100%;
+  min-width: 0;
+}
+.business-workspace form,
+.business-workspace form label,
+.business-workspace form > div {
+  min-width: 0;
+}
+.business-workspace form input:not([type='checkbox']):not([type='radio']),
+.business-workspace form select,
+.business-workspace form textarea {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+}
+@media (max-width: 479px) {
+  .business-workspace form .grid-cols-2,
+  .business-workspace form .grid-cols-3,
+  .business-workspace form [class*='grid-cols-[1fr_150px_36px]'],
+  .business-workspace form [class*='grid-cols-[1fr_92px_32px]'] {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  .business-workspace form button[type='submit'] {
+    min-height: 44px;
+    width: 100%;
+  }
+}
