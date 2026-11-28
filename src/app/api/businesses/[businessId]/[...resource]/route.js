@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { adminAuth } from '@/lib/firebase/admin';
 import {
-  BusinessError, createBusinessAccount, createBusinessTransaction,
+  BusinessError, createBusinessAccount, createBusinessTransaction, manageBusinessReserve,
   deleteBusinessResource, getBusinessOverview, listBusinessAccounts, listBusinessPeople, saveBusinessPerson, deleteBusinessPerson,
   listBusinessResource, listBusinessTransactions, recordBusinessDocumentPayment,
   saveBusinessResource, transferPersonalIncomeToBusiness, transferBusinessFundsToPersonal, listBusinessJoinRequests, reviewBusinessJoinRequest, createBusinessInvitation, requestBusinessJoin,
@@ -55,6 +55,10 @@ async function dispatch(request, context) {
     if (method === 'POST' && action === 'transactions' && parts.length === 1) {
       const body = await request.json().catch(() => ({}));
       return NextResponse.json({ success: true, ...(await createBusinessTransaction(uid, businessId, body)) }, { status: 201 });
+    }
+    if (method === 'POST' && action === 'reserve' && parts.length === 1) {
+      const body = await request.json().catch(() => ({}));
+      return NextResponse.json(await manageBusinessReserve(uid, businessId, body), { status: 201 });
     }
     if (method === 'GET' && action === 'accounts' && parts.length === 1) {
       return NextResponse.json({ success: true, ...(await listBusinessAccounts(uid, businessId)) });

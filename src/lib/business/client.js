@@ -57,6 +57,12 @@ export async function getBusinessAccounts(id) {
 export async function createBusinessAccount(id, input) {
   return businessRequest(businessPath(id, 'accounts'), 'POST', input);
 }
+export async function manageBusinessReserve(id, input) {
+  return businessRequest(businessPath(id, 'reserve'), 'POST', {
+    ...input,
+    ...(input.action === 'configure' ? {} : { requestId: input.requestId || createRequestId('reserve') }),
+  });
+}
 export async function transferBusinessFundsToPersonal(id,input){
   return businessRequest(businessPath(id,'transfer/to-personal'),'POST',{...input,requestId:input.requestId||createRequestId('owner-withdrawal')});
 }

@@ -40,6 +40,13 @@ const parseAmount = (value, label = 'Montant') => {
   }
   return amount;
 };
+function assertReserveCoverage(businessData = {}, outflow = 0) {
+  const cash = Math.max(0, Number(businessData.cashBalance) || 0);
+  const reserve = Math.max(0, Number(businessData.reserveBalance) || 0);
+  if (cash - Math.max(0, Number(outflow) || 0) < reserve) {
+    throw new BusinessError('Cette opération utiliserait une partie de la réserve protégée. Libère d’abord le montant nécessaire.');
+  }
+}
 const parseDate = (value, fallback = todayDouala()) => {
   const date = cleanText(value || fallback, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BusinessError('Date invalide. Utilise le format AAAA-MM-JJ.');
@@ -159,7 +166,8 @@ export async function createBusiness(uid, input = {}) {
       name, nameSearch: normalizeBusinessSearch(name), activity, slogan, legalForm, city, phone, logoUrl, currency, publicProfileEnabled: false, publicOffersEnabled: true,
       country: 'CM', ownerId: uid, status: 'active',
       totalIncome: 0, totalExpense: 0, ownerContributions: 0, ownerWithdrawals: 0,
-      cashBalance: 0, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+      cashBalance: 0, reserveBalance: 0, reserveTarget: 0, reservePercent: 0,
+      createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
     });
     const creatorType = input.creatorType === 'cofounder' ? 'cofounder' : 'founder';
     transaction.create(membershipRef, { uid, role: 'owner', personType: creatorType, active: true, status: 'active', joinedAt: FieldValue.serverTimestamp() });
@@ -326,6 +334,7 @@ export async function createBusinessTransaction(uid, businessId, input = {}) {
     if (!businessSnap.exists || businessSnap.data()?.status === 'archived') throw new BusinessError('Entreprise indisponible.', 404);
     if (existingTransactionSnap.exists) { duplicate = true; return; }
     if (!accountSnap.exists || accountSnap.data()?.active === false) throw new BusinessError('Compte financier introuvable ou désactivé.');
+    if (normalized.type === 'expense') assertReserveCoverage(businessSnap.data() || {}, normalized.amount);
     const signedAmount = normalized.type === 'income' ? normalized.amount : -normalized.amount;
     transaction.create(transactionRef, {
       ...normalized, accountId, flowType: 'normal', direction: normalized.type,
@@ -507,6 +516,7 @@ export async function transferBusinessFundsToPersonal(uid,businessId,input={}){
     const account=accountSnap.data()||{},balance=Math.max(0,Number(account.balance)||0);
     if(amount>balance)throw new BusinessError('Le montant dépasse le solde disponible de ce compte professionnel : '+balance.toLocaleString('fr-FR')+' FCFA.');
     const business=businessSnap.data()||{},businessName=cleanText(business.name||'Entreprise',100);
+    assertReserveCoverage(business, amount);
     const transactionNote=cleanText(input.note,250)||'Fonds transférés vers les finances personnelles';
     transaction.create(businessTransactionRef,{
       type:'outflow',direction:'outflow',flowType:'owner_withdrawal',title:'Retrait du propriétaire',
@@ -735,6 +745,7 @@ export async function saveBusinessResource(uid, businessId, resource, input = {}
       if(relatedRef&&!related?.exists)throw new BusinessError('La fiche du tiers associé est introuvable.',404);
       if(resource==='obligations'&&data.personId&&related?.data()?.active===false)throw new BusinessError('Cette personne est inactive. Choisis un membre actif de l’équipe.');
       if(loanMovement && (!loanAccount?.exists || loanAccount.data()?.active === false)) throw new BusinessError('Compte financier du prêt introuvable ou désactivé.');
+      if(loanMovement && data.type === 'loan_granted') assertReserveCoverage(business.data() || {}, data.amount);
       if(resource==='invoices'&&related?.exists)stored.customerName=cleanText(related.data()?.name,120);
       if(resource==='obligations'&&related?.exists){
         if(data.personId)stored.personName=cleanText(related.data()?.name,120);
@@ -881,6 +892,7 @@ export async function recordBusinessDocumentPayment(uid,businessId,resource,item
     const isLoan = !isInvoice && ['loan_received','loan_granted'].includes(item.type);
     const loanGranted = item.type === 'loan_granted';
     const signedAmount = isInvoice || loanGranted ? amount : -amount;
+    if (signedAmount < 0) assertReserveCoverage(business.data() || {}, amount);
     transaction.update(accountRef,{balance:FieldValue.increment(signedAmount),updatedAt:FieldValue.serverTimestamp()});
     transaction.update(context.businessRef,{
       cashBalance:FieldValue.increment(signedAmount),

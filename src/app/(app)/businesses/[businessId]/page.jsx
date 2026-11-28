@@ -14,7 +14,7 @@ import {
   createBusinessAccount, createBusinessTransaction, deleteBusinessResource,
   createBusinessPaymentLink, updateBusinessPaymentLink, deleteBusinessPaymentLink, getBusinessPaymentLinks, verifyBusinessPaymentLink, getBusinessPaymentLinkDetails,
   updateBusinessProfile, getBusinessAccounts, getBusinessOverview, getBusinessResource,
-  getBusinessTransactions, getBusinessPeople, payBusinessDocument, saveBusinessResource,
+  getBusinessTransactions, getBusinessPeople, manageBusinessReserve, payBusinessDocument, saveBusinessResource,
   transferPersonalIncome, transferBusinessFundsToPersonal,
 } from '@/lib/business/client';
 
@@ -84,6 +84,8 @@ export default function BusinessWorkspacePage() {
   const [deepLinkOpenedId, setDeepLinkOpenedId] = useState('');
   const [transferForm, setTransferForm] = useState({ incomeId: '', amount: '', accountId: 'main', date: new Date().toISOString().slice(0, 10), contributionPurpose: 'operations', contributionPurposeLabel: 'Fonds de fonctionnement' });
   const [ownerWithdrawalForm,setOwnerWithdrawalForm]=useState({amount:'',accountId:'main',date:new Date().toISOString().slice(0,10),note:''});
+  const [showReserveForm,setShowReserveForm]=useState(false);
+  const [reserveForm,setReserveForm]=useState({action:'configure',targetAmount:'',reservePercent:'',amount:'',date:new Date().toISOString().slice(0,10),note:''});
   const [paymentTarget, setPaymentTarget] = useState(null);
   const [paymentForm, setPaymentForm] = useState({ amount: '', accountId: 'main', date: new Date().toISOString().slice(0, 10) });
   const [paymentLinks, setPaymentLinks] = useState([]);
@@ -240,6 +242,21 @@ export default function BusinessWorkspacePage() {
       setActionNotice(result.duplicate?(en?'This transfer was already recorded.':'Ce transfert était déjà enregistré.'):(en?'Funds transferred to your personal finances as income.':'Fonds transférés vers tes finances personnelles et ajoutés à tes revenus.'));
     }catch(error){setFormError(error.message||'Impossible de transférer ces fonds vers tes finances personnelles.');}
     finally{setSaving(false);}
+  };
+
+  const submitReserve = async (event) => {
+    event.preventDefault();setSaving(true);setFormError('');
+    try{
+      const result=await manageBusinessReserve(businessId,reserveForm);
+      setShowReserveForm(false);await refreshOverview();
+      setActionNotice(result.duplicate?(en?'This reserve movement was already recorded.':'Ce mouvement de réserve était déjà enregistré.'):(en?'Reserve updated.':'Réserve mise à jour.'));
+    }catch(error){setFormError(error.message||'Impossible de mettre à jour la réserve.');}
+    finally{setSaving(false);}
+  };
+
+  const openReserveForm=()=>{
+    setReserveForm({action:'configure',targetAmount:String(overview?.totals?.reserveTarget||''),reservePercent:String(overview?.totals?.reservePercent||''),amount:'',date:new Date().toISOString().slice(0,10),note:''});
+    setFormError('');setShowReserveForm(true);
   };
 
   const submitBusinessProfile = async (event) => {
@@ -487,6 +504,8 @@ export default function BusinessWorkspacePage() {
               <span className={'shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold ' + (overview.totals.payablesCovered ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-800')}>{overview.totals.payablesCovered ? (en ? 'Covered' : 'Couvert') : (en ? 'Shortfall' : 'Insuffisant')}</span>
             </div>
             <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] text-slate-500">{en?'Actual reserve':'Réserve constituée'}</p><b className="mt-1 block text-base tabular-nums">{money(overview.totals.reserveBalance||0)}</b><p className="mt-1 text-[10px] text-slate-500">{en?'Target':'Objectif'} : {money(overview.totals.reserveTarget||0)}</p></div>
+              <div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] text-slate-500">{en?'Available outside reserve':'Disponible hors réserve'}</p><b className="mt-1 block text-base tabular-nums">{money(overview.totals.availableOutsideReserve||0)}</b><button type="button" onClick={openReserveForm} className="mt-2 min-h-8 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 text-[10px] font-semibold text-emerald-800">{en?'Manage reserve':'Gérer la réserve'}</button></div>
               <div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] text-slate-500">{en ? 'Cash after payables' : 'Après dettes à payer'}</p><b className={'mt-1 block text-base tabular-nums ' + (Number(overview.totals.cashAfterPayables||0)<0?'text-red-700':'text-slate-900')}>{money(overview.totals.cashAfterPayables||0)}</b></div>
               <div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] text-slate-500">{en ? 'Monthly payroll' : 'Masse salariale / mois'}</p><b className="mt-1 block text-base tabular-nums">{money(overview.totals.monthlyPayroll||0)}</b><p className="mt-1 text-[10px] text-slate-500">{overview.totals.peopleCount||0} {en?'active people':'personnes actives'}</p></div>
               <div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] text-slate-500">{en ? 'Unpaid salaries' : 'Salaires restant dus'}</p><b className="mt-1 block text-base tabular-nums">{money(overview.totals.salaryDue||0)}</b></div>
@@ -729,6 +748,20 @@ export default function BusinessWorkspacePage() {
             <label className="block text-xs font-semibold text-slate-600">{en?'Date':'Date'}<input type="date" required value={ownerWithdrawalForm.date} onChange={e=>setOwnerWithdrawalForm(current=>({...current,date:e.target.value}))} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"/></label>
             <label className="block text-xs font-semibold text-slate-600">{en?'Note (optional)':'Note (facultatif)'}<textarea rows={2} maxLength={250} value={ownerWithdrawalForm.note} onChange={e=>setOwnerWithdrawalForm(current=>({...current,note:e.target.value}))} className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"/></label>
             <button disabled={saving||!accountsForSelect.length} className="min-h-11 w-full rounded-xl bg-[#075b43] text-sm font-semibold text-white">{saving?(en?'Transferring…':'Transfert…'):(en?'Confirm transfer':'Confirmer le transfert')}</button>
+          </form>
+        </div>
+      )}
+
+      {showReserveForm&&writable&&(
+        <div className="fixed inset-0 z-[115] flex items-center justify-center bg-slate-950/50 p-3">
+          <form onSubmit={submitReserve} className="max-h-[calc(100dvh-1.5rem)] w-full max-w-md space-y-3 overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl">
+            <div className="flex items-center justify-between gap-3"><div><h3 className="font-bold text-slate-900">{en?'Company reserve':'Réserve de l’entreprise'}</h3><p className="mt-1 text-[10px] text-slate-500">{en?'Earmarking reserve funds does not create an expense or reduce total cash.':'Affecter de l’argent à la réserve ne crée pas une dépense et ne diminue pas la trésorerie totale.'}</p></div><button type="button" onClick={()=>setShowReserveForm(false)} className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500"><X size={18}/></button></div>
+            <div className="grid grid-cols-2 gap-2"><label className="block text-xs font-semibold text-slate-600">{en?'Reserve target (XAF)':'Objectif de réserve (FCFA)'}<input type="number" min="0" step="1" value={reserveForm.targetAmount} onChange={e=>setReserveForm(current=>({...current,targetAmount:e.target.value}))} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"/></label><label className="block text-xs font-semibold text-slate-600">{en?'Target percentage':'Pourcentage cible'}<input type="number" min="0" max="100" step="0.01" value={reserveForm.reservePercent} onChange={e=>setReserveForm(current=>({...current,reservePercent:e.target.value}))} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"/></label></div>
+            <label className="block text-xs font-semibold text-slate-600">{en?'Action':'Action'}<select value={reserveForm.action} onChange={e=>setReserveForm(current=>({...current,action:e.target.value}))} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="configure">{en?'Save target only':'Enregistrer l’objectif uniquement'}</option><option value="allocate">{en?'Add money to reserve':'Affecter à la réserve'}</option><option value="release">{en?'Release from reserve':'Libérer depuis la réserve'}</option></select></label>
+            {reserveForm.action!=='configure'&&<><label className="block text-xs font-semibold text-slate-600">{en?'Amount (XAF)':'Montant (FCFA)'}<input type="number" min="1" step="1" required value={reserveForm.amount} onChange={e=>setReserveForm(current=>({...current,amount:e.target.value}))} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 px-3 text-base"/></label><label className="block text-xs font-semibold text-slate-600">{en?'Date':'Date'}<input type="date" required value={reserveForm.date} onChange={e=>setReserveForm(current=>({...current,date:e.target.value}))} className="mt-1.5 h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"/></label></>}
+            <label className="block text-xs font-semibold text-slate-600">{en?'Note (optional)':'Note (facultatif)'}<textarea rows={2} maxLength={250} value={reserveForm.note} onChange={e=>setReserveForm(current=>({...current,note:e.target.value}))} className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"/></label>
+            <div className="rounded-xl bg-slate-50 p-3 text-xs"><div className="flex justify-between"><span className="text-slate-500">{en?'Current reserve':'Réserve actuelle'}</span><b>{money(overview.totals.reserveBalance||0)}</b></div><div className="mt-1 flex justify-between"><span className="text-slate-500">{en?'Available outside reserve':'Disponible hors réserve'}</span><b>{money(overview.totals.availableOutsideReserve||0)}</b></div></div>
+            <button disabled={saving} className="min-h-11 w-full rounded-xl bg-[#075b43] text-sm font-semibold text-white">{saving?(en?'Saving…':'Enregistrement…'):(en?'Confirm':'Confirmer')}</button>
           </form>
         </div>
       )}
