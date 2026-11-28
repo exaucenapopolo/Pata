@@ -579,7 +579,7 @@ function normalizeResource(resource, input = {}) {
       counterpartyType: isLoan && ['personal', 'business', 'supplier', 'investor', 'other'].includes(input.counterpartyType) ? input.counterpartyType : (isLoan ? 'other' : ''),
       linkedBusinessId: isLoan && input.counterpartyType === 'business' ? cleanText(input.linkedBusinessId, 150) : '',
       accountId: isLoan ? validId(input.accountId || 'main') : '',
-      affectsFinances: input.affectsFinances !== false,
+      affectsFinances: isLoan ? true : input.affectsFinances !== false,
       status: ['pending', 'in_progress', 'completed', 'cancelled'].includes(input.status) ? input.status : 'pending',
       note: cleanText(input.note, 500), ...common,
     };
@@ -751,6 +751,7 @@ export async function deleteBusinessResource(uid,businessId,resource,itemId){
     if(resource==='suppliers'&&linkedFinancial?.docs?.some(doc=>Math.max(0,Number(doc.data()?.remaining??(Number(doc.data()?.amount||0)-Number(doc.data()?.amountPaid||0)))||0)>0))throw new BusinessError('Ce fournisseur possède encore un engagement à payer. Règle ou annule les montants restants avant de supprimer sa fiche.',409,'SUPPLIER_HAS_PAYABLES');
     const records=snapshots.map(snapshot=>snapshot.data()||{});
     if(['invoices','obligations'].includes(resource)&&records.some(data=>Number(data.amountPaid)>0||Boolean(data.paymentLinkId)))throw new BusinessError('Cette pièce a déjà reçu ou effectué un paiement, ou possède un lien de paiement actif. Elle ne peut pas être supprimée.',409);
+    if(resource==='obligations'&&records.some(data=>['loan_received','loan_granted'].includes(data.type)))throw new BusinessError('Ce prêt a déjà provoqué un mouvement réel de trésorerie. Il ne peut pas être supprimé sans écriture de contrepassation ; conserve son historique et enregistre les remboursements.',409,'LOAN_ALREADY_POSTED');
     const related=[];
     for(const data of records){
       if(resource==='invoices'&&data.customerId)related.push({ref:context.businessRef.collection('clients').doc(validId(data.customerId)),resource,data});
