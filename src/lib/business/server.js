@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { sendBusinessEmail, escapeEmailHtml } from '@/lib/email/resend';
 import { adminDb, adminAuth } from '@/lib/firebase/admin';
 import { isValidCloudinaryAvatarUrl } from '@/lib/profile/cloudinaryAvatar.mjs';
-import { calculateBusinessCommitments, calculateBusinessLiquidity, allocateBusinessReceipt } from '@/lib/business/finance.mjs';
+import { calculateBusinessCommitments, calculateBusinessLiquidity, calculateBusinessCashflowForecast, allocateBusinessReceipt } from '@/lib/business/finance.mjs';
 
 const MAX_AMOUNT = 1_000_000_000;
 const RESOURCE_NAMES = new Set(['clients', 'suppliers', 'partners', 'contracts', 'obligations', 'invoices', 'budgets']);
@@ -185,7 +185,7 @@ export async function createBusiness(uid, input = {}) {
 export async function getBusinessOverview(uid, businessId) {
   const context = await getBusinessContext(uid, businessId);
   const month = monthDouala();
-  const [accountsSnap, monthSnap, recentSnap, historySnap, budgetsSnap, obligationsSnap, peopleSnap] = await Promise.all([
+  const [accountsSnap, monthSnap, recentSnap, historySnap, budgetsSnap, obligationsSnap, peopleSnap, invoicesSnap] = await Promise.all([
     context.businessRef.collection('accounts').where('active', '==', true).limit(30).get(),
     context.businessRef.collection('monthlySummaries').doc(month).get(),
     context.businessRef.collection('transactions').orderBy('createdAt', 'desc').limit(6).get(),
@@ -193,6 +193,7 @@ export async function getBusinessOverview(uid, businessId) {
     context.businessRef.collection('budgets').where('month', '==', month).limit(100).get(),
     context.businessRef.collection('obligations').orderBy('updatedAt', 'desc').limit(100).get(),
     context.businessRef.collection('people').limit(100).get(),
+    context.businessRef.collection('invoices').where('status', 'in', ['unpaid', 'partial']).limit(100).get(),
   ]);
   const accounts = accountsSnap.docs.map(serializeDocument);
   const accountBalance = accounts.reduce((sum, account) => sum + (Number(account.balance) || 0), 0);
@@ -202,7 +203,21 @@ export async function getBusinessOverview(uid, businessId) {
   const monthlyBudgets = budgetsSnap.docs.map(doc=>doc.data()||{});
   const budgetAllocated = monthlyBudgets.reduce((sum,row)=>sum+Math.max(0,Number(row.amount)||0),0);
   const budgetSpent = monthlyBudgets.reduce((sum,row)=>sum+Math.max(0,Number(row.spent)||0),0);
-  const commitments = calculateBusinessCommitments(obligationsSnap.docs.map(serializeDocument), peopleSnap.docs.map(serializeDocument));
+  const obligations = obligationsSnap.docs.map(serializeDocument);
+  const invoices = invoicesSnap.docs.map(serializeDocument);
+  const commitments = calculateBusinessCommitments(obligations, peopleSnap.docs.map(serializeDocument));
+  const forecastStart = todayDouala();
+  const forecastEndDate = new Date(forecastStart + 'T12:00:00.000Z');
+  forecastEndDate.setUTCDate(forecastEndDate.getUTCDate() + 30);
+  const forecastEnd = forecastEndDate.toISOString().slice(0, 10);
+  const inForecastWindow = (date) => typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= forecastStart && date <= forecastEnd;
+  const forecastMovements = [
+    ...invoices.filter(item => inForecastWindow(item.dueDate) && Number(item.remaining ?? (Number(item.totalAmount || 0) - Number(item.amountPaid || 0))) > 0)
+      .map(item => ({ date: item.dueDate, direction: 'inflow', amount: item.remaining ?? (Number(item.totalAmount || 0) - Number(item.amountPaid || 0)), status: item.status })),
+    ...obligations.filter(item => item.affectsFinances !== false && inForecastWindow(item.dueDate) && !['completed', 'cancelled'].includes(item.status) && Number(item.remaining ?? (Number(item.amount || 0) - Number(item.amountPaid || 0))) > 0)
+      .map(item => ({ date: item.dueDate, direction: item.type === 'loan_granted' ? 'inflow' : 'outflow', amount: item.remaining ?? (Number(item.amount || 0) - Number(item.amountPaid || 0)), status: item.status })),
+  ];
+  const cashflowForecast = calculateBusinessCashflowForecast({ startingCash: accountBalance, movements: forecastMovements });
   const receivables = Math.max(0, Number(context.business.totalReceivables) || 0);
   const payables = Math.max(0, Number(context.business.totalPayables) || 0);
   const liquidity = calculateBusinessLiquidity({ cash: accountBalance, payables, receivables });
@@ -252,6 +267,7 @@ export async function getBusinessOverview(uid, businessId) {
       result: (Number(monthly.income) || 0) - (Number(monthly.expense) || 0),
     },
     recentTransactions,
+    cashflowForecast: { ...cashflowForecast, horizonEnd: forecastEnd },
     monthlyHistory,
     lockedModules: [...SENSITIVE_RESOURCES],
   };
