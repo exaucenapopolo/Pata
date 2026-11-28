@@ -28,6 +28,8 @@ jobs:
           node-version: "20"
       - name: Tester les règles de gestion financière des entreprises
         run: node --test tests/businessFinance.test.mjs
+      - name: Tester les formulaires professionnels sur mobile
+        run: node --test tests/businessMobileForms.test.mjs
       - name: Tester la validation des formats et tailles de photos
         run: node --test tests/cloudinaryAvatar.test.mjs tests/imageUpload.test.mjs
       - name: Tester les soldes disponibles et le tableau de bord
