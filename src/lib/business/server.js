@@ -386,6 +386,11 @@ export async function transferPersonalIncomeToBusiness(uid, businessId, input = 
   const accountId = validId(input.accountId || 'main');
   const amount = parseAmount(input.amount, 'Montant du transfert');
   const date = parseDate(input.date);
+  const contributionPurpose = cleanText(input.contributionPurpose, 60);
+  const contributionPurposeLabel = cleanText(input.contributionPurposeLabel || contributionPurpose, 100);
+  if (!['reserve', 'operations', 'salaries', 'suppliers', 'equipment', 'other'].includes(contributionPurpose)) {
+    throw new BusinessError('Choisis la destination de cet apport avant de confirmer.');
+  }
   const requestId = cleanText(input.requestId, 100).replace(/[^a-zA-Z0-9_-]/g, '_');
   if (requestId.length < 8) throw new BusinessError('Identifiant de transfert invalide.');
   const businessRef = context.businessRef;
@@ -445,11 +450,13 @@ export async function transferPersonalIncomeToBusiness(uid, businessId, input = 
       title: 'Apport du propriétaire', categoryId: 'owner_contribution',
       amount, date, month, accountId, status: 'posted',
       note: 'Fonds transférés depuis l’espace personnel (' + cleanText(income.source || 'revenu', 100) + ')',
+      contributionPurpose, contributionPurposeLabel,
       personalIncomeId: incomeId, personalExpenseId: personalExpenseRef.id,
       createdBy: uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
     });
     transaction.create(transferRef, {
       amount, date, businessTransactionId: businessTransactionRef.id,
+      contributionPurpose, contributionPurposeLabel,
       personalExpenseId: personalExpenseRef.id, personalIncomeId: incomeId,
       createdBy: uid, createdAt: FieldValue.serverTimestamp(),
     });
