@@ -1092,6 +1092,7 @@ export async function deleteBusinessPaymentLink(uid,businessId,paymentLinkId,inp
   const invoiceRef=link.invoiceId?c.businessRef.collection('invoices').doc(validId(link.invoiceId)):null;
   const [fresh,invoice]=await Promise.all([tx.get(ref),invoiceRef?tx.get(invoiceRef):Promise.resolve(null)]);
   if(!fresh.exists||fresh.data()?.status==='DELETED')return;
+  if(Number(fresh.data()?.activePaymentCount||0)>0)throw new BusinessError('Un paiement est encore en cours. Vérifie son statut avant de supprimer ce lien.',409,'PAYMENT_IN_PROGRESS');
   tx.update(ref,{status:'DELETED',deletedAt:FieldValue.serverTimestamp(),deletedBy:uid,updatedAt:FieldValue.serverTimestamp()});
   if(invoiceRef&&invoice?.exists&&invoice.data()?.paymentLinkId===id)tx.update(invoiceRef,{paymentLinkId:'',updatedAt:FieldValue.serverTimestamp()});
  });
