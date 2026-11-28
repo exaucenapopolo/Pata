@@ -77,6 +77,7 @@ export function calculateBusinessCommitments(obligations = [], people = []) {
     peopleCount: activePeople.length,
     monthlyPayroll,
     salaryDue: byType.salary || 0,
+    commissionDue: byType.commission || 0,
     rentDue: byType.rent || 0,
     supplierDue: byType.supplier || 0,
     utilitiesDue: byType.utility || 0,

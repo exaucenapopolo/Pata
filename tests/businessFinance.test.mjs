@@ -45,6 +45,7 @@ import { calculateBusinessCommitments, calculateBusinessLiquidity } from '../src
 test('calcule la masse salariale et les engagements restant réellement à payer', () => {
   const result = calculateBusinessCommitments([
     { type: 'salary', amount: 180000, amountPaid: 50000, status: 'in_progress' },
+    { type: 'commission', amount: 40000, remaining: 40000, status: 'pending' },
     { type: 'rent', amount: 90000, remaining: 90000, status: 'pending' },
     { type: 'supplier', amount: 120000, remaining: 40000, status: 'in_progress' },
     { type: 'tax', amount: 25000, remaining: 25000, affectsFinances: false, status: 'pending' },
@@ -55,9 +56,9 @@ test('calcule la masse salariale et les engagements restant réellement à payer
     { salary: 30000, active: false },
   ]);
   assert.deepEqual(result, {
-    peopleCount: 2, monthlyPayroll: 135000, salaryDue: 130000,
+    peopleCount: 2, monthlyPayroll: 135000, salaryDue: 130000, commissionDue: 40000,
     rentDue: 90000, supplierDue: 40000, utilitiesDue: 0, taxDue: 25000,
-    otherDue: 0, loanPayableDue: 0, loanReceivableDue: 0, payablesTracked: 260000,
+    otherDue: 0, loanPayableDue: 0, loanReceivableDue: 0, payablesTracked: 300000,
   });
 });
 

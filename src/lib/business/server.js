@@ -231,6 +231,7 @@ export async function getBusinessOverview(uid, businessId) {
       peopleCount: commitments.peopleCount,
       monthlyPayroll: commitments.monthlyPayroll,
       salaryDue: commitments.salaryDue,
+      commissionDue: commitments.commissionDue,
       rentDue: commitments.rentDue,
       supplierDue: commitments.supplierDue,
       utilitiesDue: commitments.utilitiesDue,
@@ -610,6 +611,7 @@ function normalizeResource(resource, input = {}) {
     const amount = input.amount ? parseAmount(input.amount, 'Montant de l’obligation') : 0;
     const type = cleanText(input.typeCustom || input.type, 80) || 'other';
     const isLoan = ['loan_received', 'loan_granted'].includes(type);
+    if (['salary', 'commission'].includes(type) && !cleanText(input.personId, 150)) throw new BusinessError('Sélectionne la personne concernée par ce salaire ou cette commission.');
     if (isLoan && !cleanText(input.counterpartyName, 120)) throw new BusinessError('Indique le nom de la personne ou de l’entreprise liée au prêt.');
     return {
       title, type, amount, amountPaid: 0, remaining: amount,
@@ -731,6 +733,7 @@ export async function saveBusinessResource(uid, businessId, resource, input = {}
       if(!member.exists||!['owner','admin','finance'].includes(member.data()?.role||''))throw new BusinessError('Accès en lecture seule.',403);
       if(!business.exists||business.data()?.status==='archived')throw new BusinessError('Entreprise indisponible.',404);
       if(relatedRef&&!related?.exists)throw new BusinessError('La fiche du tiers associé est introuvable.',404);
+      if(resource==='obligations'&&data.personId&&related?.data()?.active===false)throw new BusinessError('Cette personne est inactive. Choisis un membre actif de l’équipe.');
       if(loanMovement && (!loanAccount?.exists || loanAccount.data()?.active === false)) throw new BusinessError('Compte financier du prêt introuvable ou désactivé.');
       if(resource==='invoices'&&related?.exists)stored.customerName=cleanText(related.data()?.name,120);
       if(resource==='obligations'&&related?.exists){
