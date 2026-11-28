@@ -1,7 +1,7 @@
 {
   "version": "1.2.5",
   "versionCode": 26,
-  "downloadAvailable": false,
+  "downloadAvailable": true,
   "apkUrl": "https://github.com/exaucenapopolo/Pata/releases/latest/download/Pata-Android.apk",
   "releaseNotes": "Pata 1.2.5 : gestion d’entreprise renforcée ; affectation des recettes et des apports, suivi des salaires et commissions par personne, réserve protégée et prévision de trésorerie sur 30 jours."
 }
