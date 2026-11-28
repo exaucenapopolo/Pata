@@ -67,7 +67,9 @@ export function calculateBusinessCommitments(obligations = [], people = []) {
     const amount = remainingOf(item);
     const type = String(item?.type || 'other');
     totals[type] = (totals[type] || 0) + amount;
-    totals.total = (totals.total || 0) + (item?.affectsFinances === false ? 0 : amount);
+    if (item?.affectsFinances !== false && type !== 'loan_granted') {
+      totals.total = (totals.total || 0) + amount;
+    }
     return totals;
   }, { total: 0 });
   const monthlyPayroll = activePeople.reduce((sum, person) => sum + Math.max(0, Number(person?.salary) || 0), 0);
@@ -80,6 +82,8 @@ export function calculateBusinessCommitments(obligations = [], people = []) {
     utilitiesDue: byType.utility || 0,
     taxDue: byType.tax || 0,
     otherDue: Math.max(0, (byType.other || 0) + (byType.subscription || 0) + (byType.loan || 0)),
+    loanPayableDue: byType.loan_received || byType.loan || 0,
+    loanReceivableDue: byType.loan_granted || 0,
     payablesTracked: byType.total,
   };
 }
