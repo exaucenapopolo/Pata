@@ -2,18 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getMoneyKeypadScrollOffset } from '../src/lib/finance/moneyKeypadScroll.mjs';
 
-test('scrolls the active amount field just above the custom keypad', () => {
-  assert.equal(
-    getMoneyKeypadScrollOffset({ bottom: 720 }, { top: 430 }, 16),
-    306,
-  );
-});
-
-test('does not scroll when the amount field is already above the keypad', () => {
-  assert.equal(
-    getMoneyKeypadScrollOffset({ bottom: 390 }, { top: 430 }, 16),
-    0,
-  );
+test('returns a positive offset only when a field would be covered by the legacy keypad', () => {
+  assert.equal(getMoneyKeypadScrollOffset({ bottom: 720 }, { top: 430 }, 16), 306);
+  assert.equal(getMoneyKeypadScrollOffset({ bottom: 390 }, { top: 430 }, 16), 0);
 });
 
 test('handles missing layout measurements without moving the page', () => {
@@ -21,25 +12,19 @@ test('handles missing layout measurements without moving the page', () => {
   assert.equal(getMoneyKeypadScrollOffset({ bottom: 700 }, null), 0);
 });
 
-test('uses a safe non-negative spacing between the input and keypad', () => {
-  assert.equal(
-    getMoneyKeypadScrollOffset({ bottom: 500 }, { top: 480 }, -10),
-    20,
-  );
+test('uses a safe non-negative spacing value', () => {
+  assert.equal(getMoneyKeypadScrollOffset({ bottom: 500 }, { top: 480 }, -10), 20);
 });
 
-test('the calculator repositions the actual scroll container instead of closing its form', async () => {
+test('the amount-entry experience uses the native keyboard and an optional calculator overlay', async () => {
   const fs = await import('node:fs');
-  const component = fs.readFileSync('src/components/layout/MoneyKeypad.jsx', 'utf8');
+  const page = fs.readFileSync('src/app/(app)/expenses/page.js', 'utf8');
+  const calculator = fs.readFileSync('src/components/finance/CalculatorPanel.jsx', 'utf8');
 
-  assert.match(component, /keepActiveInputAboveKeypad/);
-  assert.match(component, /host\.scrollBy\(\{ top: scrollOffset, behavior: 'auto' \}\)/);
-  assert.match(component, /overflowY/);
-  assert.match(component, /new ResizeObserver/);
-  assert.match(component, /restoreKeypadScrollSpace/);
-  assert.match(component, /const scrollHosts = \[\]/);
-  assert.match(component, /while \(ancestor && ancestor !== document\.body/);
-  assert.match(component, /keypadScrollHostsRef/);
-  assert.match(component, /scrollHosts\.forEach/);
-  assert.doesNotMatch(component, /setActiveField\(null\).*scroll/i);
+  assert.match(page, /import \{ CalculatorLauncher \} from '@\/components\/finance\/CalculatorPanel'/);
+  assert.match(page, /<CalculatorLauncher value=\{form\.amount\} onApply=/);
+  assert.match(calculator, /role="dialog" aria-modal="true" aria-label="Calculatrice"/);
+  assert.match(calculator, /onApply\?\.\(result\)/);
+  assert.match(calculator, /setOpen\(false\)/);
+  assert.doesNotMatch(page, /MoneyKeypad\.jsx/);
 });
