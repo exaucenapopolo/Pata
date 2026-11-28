@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { sendBusinessEmail, escapeEmailHtml } from '@/lib/email/resend';
 import { adminDb, adminAuth } from '@/lib/firebase/admin';
 import { isValidCloudinaryAvatarUrl } from '@/lib/profile/cloudinaryAvatar.mjs';
+import { calculateBusinessCommitments, calculateBusinessLiquidity } from '@/lib/business/finance.mjs';
 
 const MAX_AMOUNT = 1_000_000_000;
 const RESOURCE_NAMES = new Set(['clients', 'suppliers', 'partners', 'contracts', 'obligations', 'invoices', 'budgets']);
@@ -176,12 +177,14 @@ export async function createBusiness(uid, input = {}) {
 export async function getBusinessOverview(uid, businessId) {
   const context = await getBusinessContext(uid, businessId);
   const month = monthDouala();
-  const [accountsSnap, monthSnap, recentSnap, historySnap, budgetsSnap] = await Promise.all([
+  const [accountsSnap, monthSnap, recentSnap, historySnap, budgetsSnap, obligationsSnap, peopleSnap] = await Promise.all([
     context.businessRef.collection('accounts').where('active', '==', true).limit(30).get(),
     context.businessRef.collection('monthlySummaries').doc(month).get(),
     context.businessRef.collection('transactions').orderBy('createdAt', 'desc').limit(6).get(),
     context.businessRef.collection('monthlySummaries').orderBy('month', 'desc').limit(12).get(),
     context.businessRef.collection('budgets').where('month', '==', month).limit(100).get(),
+    context.businessRef.collection('obligations').orderBy('updatedAt', 'desc').limit(100).get(),
+    context.businessRef.collection('people').limit(100).get(),
   ]);
   const accounts = accountsSnap.docs.map(serializeDocument);
   const accountBalance = accounts.reduce((sum, account) => sum + (Number(account.balance) || 0), 0);
@@ -191,6 +194,10 @@ export async function getBusinessOverview(uid, businessId) {
   const monthlyBudgets = budgetsSnap.docs.map(doc=>doc.data()||{});
   const budgetAllocated = monthlyBudgets.reduce((sum,row)=>sum+Math.max(0,Number(row.amount)||0),0);
   const budgetSpent = monthlyBudgets.reduce((sum,row)=>sum+Math.max(0,Number(row.spent)||0),0);
+  const commitments = calculateBusinessCommitments(obligationsSnap.docs.map(serializeDocument), peopleSnap.docs.map(serializeDocument));
+  const receivables = Math.max(0, Number(context.business.totalReceivables) || 0);
+  const payables = Math.max(0, Number(context.business.totalPayables) || 0);
+  const liquidity = calculateBusinessLiquidity({ cash: accountBalance, payables, receivables });
   const result = {
     business: {
       id: context.business.id, name: context.business.name, activity: context.business.activity,
@@ -215,8 +222,21 @@ export async function getBusinessOverview(uid, businessId) {
       expense: Math.max(0, Number(monthly.expense) || 0),
       ownerContributions: Math.max(0, Number(monthly.ownerContributions) || 0),
       ownerWithdrawals: Math.max(0, Number(monthly.ownerWithdrawals) || 0),
-      receivables: Math.max(0, Number(context.business.totalReceivables) || 0),
-      payables: Math.max(0, Number(context.business.totalPayables) || 0),
+      receivables,
+      payables,
+      cashAfterPayables: liquidity.cashAfterPayables,
+      projectedAfterReceivablesAndPayables: liquidity.projectedAfterReceivablesAndPayables,
+      payablesCovered: liquidity.canCoverPayables,
+      payablesCoverageRate: liquidity.coverageRate,
+      peopleCount: commitments.peopleCount,
+      monthlyPayroll: commitments.monthlyPayroll,
+      salaryDue: commitments.salaryDue,
+      rentDue: commitments.rentDue,
+      supplierDue: commitments.supplierDue,
+      utilitiesDue: commitments.utilitiesDue,
+      taxDue: commitments.taxDue,
+      otherDue: commitments.otherDue,
+      trackedPayables: commitments.payablesTracked,
       budgetAllocated,budgetSpent,budgetRemaining:Math.max(0,budgetAllocated-budgetSpent),budgetCount:monthlyBudgets.length,
       result: (Number(monthly.income) || 0) - (Number(monthly.expense) || 0),
     },
