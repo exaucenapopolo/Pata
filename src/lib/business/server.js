@@ -1022,16 +1022,36 @@ export async function createBusinessPaymentLink(uid,businessId,input={}){
  const description=cleanText(input.description,1200);if(description.length<5)throw new BusinessError('Ajoute une courte description du produit ou service.');
  const imageUrl=cleanText(input.imageUrl,2048);if(imageUrl&&!isValidCloudinaryAvatarUrl(imageUrl))throw new BusinessError('La photo du produit doit provenir de la bibliothèque photo Pata.');
  const media=normalizeBusinessPaymentMedia(input);
+ const invoiceId=cleanText(input.invoiceId,150);
  const customerName=cleanText(input.customerName,100),customerEmail=cleanText(input.customerEmail,160).toLowerCase();if(!validEmail(customerEmail))throw new BusinessError('Adresse e-mail du client invalide.');
  const accountId=validId(input.accountId||'main'),maxPayments=input.maxPayments===''||input.maxPayments==null?0:Number(input.maxPayments);
  if(!Number.isSafeInteger(maxPayments)||maxPayments<0||maxPayments>1000000)throw new BusinessError('Limite de paiements invalide.');
  const requestId=cleanText(input.requestId,100).replace(/[^a-zA-Z0-9_-]/g,'_');if(requestId.length<8)throw new BusinessError('Identifiant de demande invalide.');
- const id='pl_'+requestId,ref=businessPaymentLinksRef().doc(id),account=c.businessRef.collection('accounts').doc(accountId);let duplicate=null;
- await adminDb.runTransaction(async tx=>{const [profile,member,business,acc,existing]=await Promise.all([tx.get(c.userRef),tx.get(c.memberRef),tx.get(c.businessRef),tx.get(account),tx.get(ref)]);
+ const id='pl_'+requestId,ref=businessPaymentLinksRef().doc(id),account=c.businessRef.collection('accounts').doc(accountId);
+ const invoiceRef=invoiceId?c.businessRef.collection('invoices').doc(validId(invoiceId)):null;let duplicate=null;
+ await adminDb.runTransaction(async tx=>{
+  const [profile,member,business,acc,existing,invoiceSnap]=await Promise.all([tx.get(c.userRef),tx.get(c.memberRef),tx.get(c.businessRef),tx.get(account),tx.get(ref),invoiceRef?tx.get(invoiceRef):Promise.resolve(null)]);
   if(!profile.exists||!isPremium(profile.data()||{}))premiumRequired();if(!member.exists||!['owner','admin','finance','manager'].includes(member.data()?.role||''))throw new BusinessError('Droits insuffisants pour créer ce lien.',403,'READ_ONLY');
   if(!business.exists||business.data()?.status==='archived')throw new BusinessError('Entreprise indisponible.',404);if(!acc.exists||acc.data()?.active===false)throw new BusinessError('Compte de destination introuvable.');
   if(existing.exists){duplicate=serializeDocument(existing);return;}
-  tx.create(ref,{businessId:c.businessId,businessName:cleanText(c.business.name,100),userId:uid,createdBy:uid,accountId,title,description,imageUrl,...media,customerName,customerEmail,amount,originalAmount,discountAmount:Math.max(0,originalAmount-amount),maxPayments,publicOnStorefront:input.publicOnStorefront!==false,currency:'XAF',status:'ACTIVE',pageViews:0,uniqueViews:0,clickCount:0,uniqueClickers:0,successfulPayments:0,grossRevenue:0,netRevenue:0,feeRevenue:0,activePaymentCount:0,createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
+  let linkedInvoice=null,linkedCustomer=null,linkedCustomerRef=null;
+  if(invoiceRef){
+   if(!invoiceSnap||!invoiceSnap.exists)throw new BusinessError('Facture introuvable dans cette entreprise.',404,'INVOICE_NOT_FOUND');
+   linkedInvoice=invoiceSnap.data()||{};
+   const remaining=Math.max(0,Number(linkedInvoice.remaining??(Number(linkedInvoice.totalAmount||0)-Number(linkedInvoice.amountPaid||0)))||0);
+   if(['paid','completed','cancelled'].includes(String(linkedInvoice.status||''))||remaining<=0)throw new BusinessError('Cette facture est déjà réglée ou ne peut plus recevoir de paiement.',409,'INVOICE_NOT_PAYABLE');
+   if(amount>remaining)throw new BusinessError('Le montant du lien dépasse le reste à payer de la facture ('+remaining+' FCFA).');
+   if(linkedInvoice.paymentLinkId&&linkedInvoice.paymentLinkId!==id){
+    const previousLink=await tx.get(businessPaymentLinksRef().doc(validId(linkedInvoice.paymentLinkId)));
+    if(previousLink.exists&&previousLink.data()?.status!=='DELETED')throw new BusinessError('Un lien de paiement actif existe déjà pour cette facture. Utilise-le ou désactive-le avant d’en créer un autre.',409,'INVOICE_PAYMENT_LINK_EXISTS');
+   }
+   const customerId=cleanText(linkedInvoice.customerId,150);
+   if(customerId){linkedCustomerRef=c.businessRef.collection('clients').doc(validId(customerId));const customerSnap=await tx.get(linkedCustomerRef);if(customerSnap.exists)linkedCustomer=customerSnap.data()||{};}
+  }
+  const finalCustomerName=cleanText(customerName||linkedInvoice?.customerName||linkedCustomer?.name,100);
+  const finalCustomerEmail=cleanText(customerEmail||linkedCustomer?.email,160).toLowerCase();
+  tx.create(ref,{businessId:c.businessId,businessName:cleanText(c.business.name,100),userId:uid,createdBy:uid,accountId,title,description,imageUrl,...media,customerName:finalCustomerName,customerEmail:finalCustomerEmail,amount,originalAmount,discountAmount:Math.max(0,originalAmount-amount),maxPayments:invoiceRef?1:maxPayments,...(invoiceRef?{invoiceId,customerId:cleanText(linkedInvoice?.customerId,150),invoiceNumber:cleanText(linkedInvoice?.invoiceNumber,50)}:{}),publicOnStorefront:input.publicOnStorefront!==false,currency:'XAF',status:'ACTIVE',pageViews:0,uniqueViews:0,clickCount:0,uniqueClickers:0,successfulPayments:0,grossRevenue:0,netRevenue:0,feeRevenue:0,activePaymentCount:0,createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
+  if(invoiceRef)tx.update(invoiceRef,{paymentLinkId:id,updatedAt:FieldValue.serverTimestamp()});
  });
  if(duplicate)return {paymentLink:duplicate,duplicate:true};
  let origin='https://pata-yam.site';try{origin=new URL(process.env.NEXT_PUBLIC_APP_URL||process.env.NEXT_PUBLIC_SITE_URL||origin).origin;}catch{}
