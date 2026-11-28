@@ -680,14 +680,22 @@ export async function deleteBusinessResource(uid,businessId,resource,itemId){
     targetRefs=group.docs.map(doc=>doc.ref);
   }
   await adminDb.runTransaction(async transaction=>{
-    const [profile,member,business,snapshots]=await Promise.all([
+    const linkedFinancialQuery=resource==='clients'
+      ?context.businessRef.collection('invoices').where('customerId','==',ref.id).limit(100)
+      :resource==='suppliers'
+        ?context.businessRef.collection('obligations').where('supplierId','==',ref.id).limit(100)
+        :null;
+    const [profile,member,business,snapshots,linkedFinancial]=await Promise.all([
       transaction.get(context.userRef),transaction.get(context.memberRef),transaction.get(context.businessRef),
       Promise.all(targetRefs.map(target=>transaction.get(target))),
+      linkedFinancialQuery?transaction.get(linkedFinancialQuery):Promise.resolve(null),
     ]);
     if(!profile.exists||!isPremium(profile.data()||{}))premiumRequired();
     if(!member.exists||!['owner','admin','finance'].includes(member.data()?.role||''))throw new BusinessError('Accès en lecture seule.',403);
     if(!business.exists||business.data()?.status==='archived')throw new BusinessError('Entreprise indisponible.',404);
     if(snapshots.some(snapshot=>!snapshot.exists))throw new BusinessError('Le contenu a changé. Recharge et réessaie.',409);
+    if(resource==='clients'&&linkedFinancial?.docs?.some(doc=>Math.max(0,Number(doc.data()?.remaining??(Number(doc.data()?.totalAmount||0)-Number(doc.data()?.amountPaid||0)))||0)>0))throw new BusinessError('Ce client possède encore une facture impayée. Règle ou annule ses créances avant de supprimer sa fiche.',409,'CLIENT_HAS_RECEIVABLES');
+    if(resource==='suppliers'&&linkedFinancial?.docs?.some(doc=>Math.max(0,Number(doc.data()?.remaining??(Number(doc.data()?.amount||0)-Number(doc.data()?.amountPaid||0)))||0)>0))throw new BusinessError('Ce fournisseur possède encore un engagement à payer. Règle ou annule les montants restants avant de supprimer sa fiche.',409,'SUPPLIER_HAS_PAYABLES');
     const records=snapshots.map(snapshot=>snapshot.data()||{});
     if(['invoices','obligations'].includes(resource)&&records.some(data=>Number(data.amountPaid)>0||Boolean(data.paymentLinkId)))throw new BusinessError('Cette pièce a déjà reçu ou effectué un paiement, ou possède un lien de paiement actif. Elle ne peut pas être supprimée.',409);
     const related=[];
