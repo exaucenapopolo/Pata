@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { sendBusinessEmail, escapeEmailHtml } from '@/lib/email/resend';
 import { adminDb, adminAuth } from '@/lib/firebase/admin';
 import { isValidCloudinaryAvatarUrl } from '@/lib/profile/cloudinaryAvatar.mjs';
-import { calculateBusinessCommitments, calculateBusinessLiquidity } from '@/lib/business/finance.mjs';
+import { calculateBusinessCommitments, calculateBusinessLiquidity, allocateBusinessReceipt } from '@/lib/business/finance.mjs';
 
 const MAX_AMOUNT = 1_000_000_000;
 const RESOURCE_NAMES = new Set(['clients', 'suppliers', 'partners', 'contracts', 'obligations', 'invoices', 'budgets']);
@@ -285,6 +285,20 @@ export async function createBusinessTransaction(uid, businessId, input = {}) {
   const context = await getBusinessContext(uid, businessId);
   requireWritable(context);
   const normalized = normalizeTransaction(input);
+  let receiptAllocation = null;
+  if (normalized.type === 'income' && Array.isArray(input.allocations) && input.allocations.length) {
+    try {
+      receiptAllocation = allocateBusinessReceipt(normalized.amount, input.allocations.map((row) => ({
+        id: cleanText(row?.id || row?.destination || 'other', 80),
+        label: cleanText(row?.label || row?.beneficiary || row?.destination || 'Autre destination', 100),
+        percent: Number(row?.percent),
+      })));
+    } catch (error) {
+      throw new BusinessError(error?.message || 'Répartition de l’encaissement invalide.');
+    }
+  } else if (normalized.type === 'expense' && Array.isArray(input.allocations) && input.allocations.length) {
+    throw new BusinessError('La répartition des encaissements est disponible uniquement pour une entrée.');
+  }
   const accountId = validId(input.accountId || 'main');
   const flowType = ['owner_contribution', 'owner_withdrawal'].includes(input.flowType) ? input.flowType : 'normal';
   if (flowType === 'owner_contribution' || flowType === 'owner_withdrawal') {
@@ -314,8 +328,27 @@ export async function createBusinessTransaction(uid, businessId, input = {}) {
     const signedAmount = normalized.type === 'income' ? normalized.amount : -normalized.amount;
     transaction.create(transactionRef, {
       ...normalized, accountId, flowType: 'normal', direction: normalized.type,
+      ...(receiptAllocation ? {
+        allocationSummary: {
+          percentAssigned: receiptAllocation.percentAssigned,
+          assignedAmount: receiptAllocation.assignedAmount,
+          unassignedAmount: receiptAllocation.unassignedAmount,
+        },
+        allocations: receiptAllocation.allocations.map((row) => ({ ...row, status: 'earmarked' })),
+      } : {}),
       status: 'posted', createdBy: uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
     });
+    if (receiptAllocation) {
+      receiptAllocation.allocations.forEach((row, index) => {
+        const allocationRef = businessRef.collection('receiptAllocations').doc('alloc_' + requestId + '_' + index);
+        transaction.create(allocationRef, {
+          transactionId: transactionRef.id, requestId, label: row.label, destinationId: row.id,
+          percent: row.percent, amount: row.amount, paidAmount: 0, remainingAmount: row.amount,
+          status: 'earmarked', date: normalized.date, month: normalized.month,
+          createdBy: uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+        });
+      });
+    }
     transaction.update(accountRef, { balance: FieldValue.increment(signedAmount), updatedAt: FieldValue.serverTimestamp() });
     transaction.update(businessRef, {
       cashBalance: FieldValue.increment(signedAmount),
@@ -343,7 +376,7 @@ export async function createBusinessTransaction(uid, businessId, input = {}) {
       }
     }
   });
-  return { id: transactionRef.id, success: true, duplicate, transaction: { ...normalized, accountId, flowType: 'normal', direction: normalized.type } };
+  return { id: transactionRef.id, success: true, duplicate, transaction: { ...normalized, accountId, flowType: 'normal', direction: normalized.type, ...(receiptAllocation ? { allocationSummary: { percentAssigned: receiptAllocation.percentAssigned, assignedAmount: receiptAllocation.assignedAmount, unassignedAmount: receiptAllocation.unassignedAmount }, allocations: receiptAllocation.allocations.map((row) => ({ ...row, status: 'earmarked' })) } : {}) } };
 }
 
 export async function transferPersonalIncomeToBusiness(uid, businessId, input = {}) {
