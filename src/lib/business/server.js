@@ -474,6 +474,7 @@ export async function transferPersonalIncomeToBusiness(uid, businessId, input = 
     transaction.update(businessRef, {
       cashBalance: FieldValue.increment(amount),
       ownerContributions: FieldValue.increment(amount),
+      ...(contributionPurpose === 'reserve' ? { reserveBalance: FieldValue.increment(amount) } : {}),
       updatedAt: FieldValue.serverTimestamp(), lastActivityAt: FieldValue.serverTimestamp(),
     });
     transaction.set(monthRef, {
