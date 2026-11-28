@@ -1,7 +1,7 @@
 {
-  "version": "1.2.3",
-  "versionCode": 24,
-  "downloadAvailable": true,
+  "version": "1.2.4",
+  "versionCode": 25,
+  "downloadAvailable": false,
   "apkUrl": "https://github.com/exaucenapopolo/Pata/releases/latest/download/Pata-Android.apk",
-  "releaseNotes": "Pata 1.2.3 : nouveau widget Android de saisie rapide avec trois actions (dépense, revenu, dictée vocale) ; ouverture et partage avec Pata des images, captures d’écran, PDF et fichiers texte ; confidentialité renforcée des notifications sur écran verrouillé ; widget financier rafraîchi depuis le cache local sans lectures réseau supplémentaires."
+  "releaseNotes": "Pata 1.2.4 : correction de la détection des transferts MTN MoMo ; amélioration du suivi de trésorerie, de la masse salariale et des obligations de l’entreprise."
 }
