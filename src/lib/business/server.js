@@ -617,6 +617,8 @@ function normalizeResource(resource, input = {}) {
       ...normalizeBusinessCategory(input),
       category: cleanText(input.categoryCustom || input.categoryLabel || input.category, 80),
       supplierId: cleanText(input.supplierId, 150),
+      personId: ['salary', 'commission'].includes(type) ? cleanText(input.personId, 150) : '',
+      payrollType: ['salary', 'commission'].includes(type) ? type : '',
       counterpartyName: isLoan ? cleanText(input.counterpartyName, 120) : '',
       counterpartyType: isLoan && ['personal', 'business', 'supplier', 'investor', 'other'].includes(input.counterpartyType) ? input.counterpartyType : (isLoan ? 'other' : ''),
       linkedBusinessId: isLoan && input.counterpartyType === 'business' ? cleanText(input.linkedBusinessId, 150) : '',
@@ -707,7 +709,8 @@ export async function saveBusinessResource(uid, businessId, resource, input = {}
   if(['invoices','obligations','contracts'].includes(resource)){
     let relatedRef=null;
     if(resource==='invoices'&&data.customerId)relatedRef=context.businessRef.collection('clients').doc(validId(data.customerId));
-    if(resource==='obligations'&&data.supplierId)relatedRef=context.businessRef.collection('suppliers').doc(validId(data.supplierId));
+    if(resource==='obligations'&&data.personId)relatedRef=context.businessRef.collection('people').doc(validId(data.personId));
+    else if(resource==='obligations'&&data.supplierId)relatedRef=context.businessRef.collection('suppliers').doc(validId(data.supplierId));
     const loanMovement = resource === 'obligations' && ['loan_received', 'loan_granted'].includes(data.type);
     const loanAccountRef = loanMovement ? context.businessRef.collection('accounts').doc(data.accountId || 'main') : null;
     const loanTransactionRef = loanMovement ? context.businessRef.collection('transactions').doc('loan_' + ref.id) : null;
@@ -730,7 +733,10 @@ export async function saveBusinessResource(uid, businessId, resource, input = {}
       if(relatedRef&&!related?.exists)throw new BusinessError('La fiche du tiers associé est introuvable.',404);
       if(loanMovement && (!loanAccount?.exists || loanAccount.data()?.active === false)) throw new BusinessError('Compte financier du prêt introuvable ou désactivé.');
       if(resource==='invoices'&&related?.exists)stored.customerName=cleanText(related.data()?.name,120);
-      if(resource==='obligations'&&related?.exists)stored.supplierName=cleanText(related.data()?.name,120);
+      if(resource==='obligations'&&related?.exists){
+        if(data.personId)stored.personName=cleanText(related.data()?.name,120);
+        else stored.supplierName=cleanText(related.data()?.name,120);
+      }
       if(resource==='contracts'&&related?.exists)stored.counterparty=cleanText(related.data()?.name,120);
       transaction.create(ref,stored);
       if(resource==='invoices'){
@@ -864,6 +870,9 @@ export async function recordBusinessDocumentPayment(uid,businessId,resource,item
       title:(isInvoice?'Paiement facture ':(['loan_received','loan_granted'].includes(item.type)?(item.type==='loan_received'?'Remboursement du prêt reçu ':'Remboursement du prêt accordé '):'Paiement obligation '))+cleanText(item.title,100),
       ...category,amount,date,month,accountId,invoiceId:isInvoice?id:null,obligationId:isInvoice?null:id,
       customerId:isInvoice?partyId:'',supplierId:isInvoice?'':partyId,counterpartyName:partyName,
+      personId:!isInvoice?cleanText(item.personId,150):'',
+      personName:!isInvoice?cleanText(item.personName,120):'',
+      payrollType:!isInvoice?cleanText(item.payrollType,30):'',
       note:cleanText(input.note,300),status:'posted',createdBy:uid,createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp(),
     });
     const isLoan = !isInvoice && ['loan_received','loan_granted'].includes(item.type);
