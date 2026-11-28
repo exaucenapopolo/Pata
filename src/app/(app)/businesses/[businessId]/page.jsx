@@ -491,11 +491,13 @@ export default function BusinessWorkspacePage() {
               <div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] text-slate-500">{en ? 'Unpaid salaries' : 'Salaires restant dus'}</p><b className="mt-1 block text-base tabular-nums">{money(overview.totals.salaryDue||0)}</b></div>
               <div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] text-slate-500">{en ? 'Rent commitments' : 'Loyers à payer'}</p><b className="mt-1 block text-base tabular-nums">{money(overview.totals.rentDue||0)}</b></div>
             </div>
-            <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+            <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
               <div className="flex justify-between gap-2"><span className="text-slate-500">{en?'Suppliers':'Fournisseurs'}</span><b>{money(overview.totals.supplierDue||0)}</b></div>
               <div className="flex justify-between gap-2"><span className="text-slate-500">{en?'Utilities':'Factures courantes'}</span><b>{money(overview.totals.utilitiesDue||0)}</b></div>
               <div className="flex justify-between gap-2"><span className="text-slate-500">{en?'Taxes':'Impôts / taxes'}</span><b>{money(overview.totals.taxDue||0)}</b></div>
-              <div className="flex justify-between gap-2"><span className="text-slate-500">{en?'Expected receivables':'Créances attendues'}</span><b>{money(overview.totals.receivables||0)}</b></div>
+              <div className="flex justify-between gap-2"><span className="text-slate-500">{en?'Expected receivables':'Créances clients'}</span><b>{money(overview.totals.receivables||0)}</b></div>
+              <div className="flex justify-between gap-2"><span className="text-slate-500">{en?'Loans to repay':'Prêts à rembourser'}</span><b>{money(overview.totals.loanPayableDue||0)}</b></div>
+              <div className="flex justify-between gap-2"><span className="text-slate-500">{en?'Loans to collect':'Prêts à récupérer'}</span><b>{money(overview.totals.loanReceivableDue||0)}</b></div>
             </div>
             <p className="mt-3 text-[10px] leading-relaxed text-slate-500">{en ? 'Payroll is a monthly estimate based on active team records. Unpaid salaries, rent and supplier bills are included only when recorded as obligations. This is a planning indicator, not a bank balance.' : 'La masse salariale est une estimation mensuelle basée sur les personnes actives. Les salaires, loyers et factures fournisseurs impayés ne sont pris en compte que s’ils sont enregistrés dans les obligations. Il s’agit d’un indicateur de pilotage, pas d’un solde bancaire.'}</p>
           </section>
