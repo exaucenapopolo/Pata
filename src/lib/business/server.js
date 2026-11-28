@@ -689,7 +689,7 @@ export async function deleteBusinessResource(uid,businessId,resource,itemId){
     if(!business.exists||business.data()?.status==='archived')throw new BusinessError('Entreprise indisponible.',404);
     if(snapshots.some(snapshot=>!snapshot.exists))throw new BusinessError('Le contenu a changé. Recharge et réessaie.',409);
     const records=snapshots.map(snapshot=>snapshot.data()||{});
-    if(['invoices','obligations'].includes(resource)&&records.some(data=>Number(data.amountPaid)>0))throw new BusinessError('Cette pièce a déjà reçu ou effectué un paiement. Elle ne peut pas être supprimée.',409);
+    if(['invoices','obligations'].includes(resource)&&records.some(data=>Number(data.amountPaid)>0||Boolean(data.paymentLinkId)))throw new BusinessError('Cette pièce a déjà reçu ou effectué un paiement, ou possède un lien de paiement actif. Elle ne peut pas être supprimée.',409);
     const related=[];
     for(const data of records){
       if(resource==='invoices'&&data.customerId)related.push({ref:context.businessRef.collection('clients').doc(validId(data.customerId)),resource,data});
@@ -988,9 +988,16 @@ export async function createPublicBusinessPaymentCheckout(paymentLinkId,visitorI
   if(!snap.exists)throw new BusinessError('Cette offre est introuvable.',404,'PAYMENT_LINK_NOT_FOUND');
   link=snap.data()||{};const max=Math.max(0,Number(link.maxPayments)||0),paid=Math.max(0,Number(link.successfulPayments)||0),active=Math.max(0,Number(link.activePaymentCount)||0);
   if(link.status!=='ACTIVE'||(max>0&&paid+active>=max))throw new BusinessError('Cette offre n’accepte plus de paiement pour le moment.',410,'OFFER_UNAVAILABLE');
+  if(link.invoiceId){
+   const invoiceRef=businessesRef().doc(validId(link.businessId)).collection('invoices').doc(validId(link.invoiceId));
+   const invoiceSnap=await tx.get(invoiceRef);
+   if(!invoiceSnap.exists||invoiceSnap.data()?.paymentLinkId!==id)throw new BusinessError('Le rattachement de cette facture a changé. Contacte l’entreprise avant de payer.',409,'INVOICE_LINK_CHANGED');
+   const invoice=invoiceSnap.data()||{},remaining=Math.max(0,Number(invoice.remaining??(Number(invoice.totalAmount||0)-Number(invoice.amountPaid||0)))||0);
+   if(remaining<Number(link.amount)||remaining<=0)throw new BusinessError('Le reste à payer de cette facture ne couvre plus ce lien.',409,'INVOICE_BALANCE_CHANGED');
+  }
   tx.update(ref,{clickCount:FieldValue.increment(1),activePaymentCount:FieldValue.increment(1),...(clicker&&!seen.exists?{uniqueClickers:FieldValue.increment(1)}:{}),updatedAt:FieldValue.serverTimestamp()});
   if(clicker&&!seen.exists)tx.create(clicker,{firstClickedAt:FieldValue.serverTimestamp()});
-  tx.create(attempt,{paymentLinkId:id,businessId:link.businessId,userId:link.userId||link.createdBy||'',accountId:link.accountId||'main',amount:Number(link.amount)||0,title:cleanText(link.title,100),customerName:buyerName||cleanText(link.customerName,100),customerEmail:buyerEmail||cleanText(link.customerEmail,160),reviewToken,status:'INITIATING',createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
+  tx.create(attempt,{paymentLinkId:id,businessId:link.businessId,userId:link.userId||link.createdBy||'',accountId:link.accountId||'main',amount:Number(link.amount)||0,title:cleanText(link.title,100),customerName:buyerName||cleanText(link.customerName,100),customerEmail:buyerEmail||cleanText(link.customerEmail,160),...(link.invoiceId?{invoiceId:link.invoiceId,customerId:link.customerId||''}:{}),reviewToken,status:'INITIATING',createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
  });
  try{
   const apiUser=process.env.FAPSHI_API_USER,secret=process.env.FAPSHI_SECRET_KEY;
@@ -1061,6 +1068,7 @@ export async function updateBusinessPaymentLink(uid,businessId,paymentLinkId,inp
  const c=await getBusinessContext(uid,businessId);requireWritable(c);
  const id=validId(paymentLinkId),ref=businessPaymentLinksRef().doc(id),snap=await ref.get();
  if(!snap.exists||snap.data()?.businessId!==c.businessId||snap.data()?.status==='DELETED')throw new BusinessError('Lien de paiement introuvable.',404,'PAYMENT_LINK_NOT_FOUND');
+ if(snap.data()?.invoiceId&&Number(input.amount)!==Number(snap.data()?.amount))throw new BusinessError('Le montant d’un lien rattaché à une facture ne peut pas être modifié. Crée un nouveau lien après actualisation du reste à payer.');
  const amount=parseAmount(input.amount,'Montant à payer');
  if(amount<100)throw new BusinessError('Le montant minimum à demander est de 100 FCFA.');
  const originalAmount=input.originalAmount?parseAmount(input.originalAmount,'Prix normal'):amount;
@@ -1080,7 +1088,13 @@ export async function deleteBusinessPaymentLink(uid,businessId,paymentLinkId,inp
  const link=snap.data()||{};
  if(input.confirmation!=='SUPPRIMER'||input.confirmLinkId!==id)throw new BusinessError('Confirmation insuffisante. Saisis SUPPRIMER et confirme le bon lien.',400,'DELETE_CONFIRMATION_REQUIRED');
  if(link.status==='DELETED')return {success:true};
- await ref.update({status:'DELETED',deletedAt:FieldValue.serverTimestamp(),deletedBy:uid,updatedAt:FieldValue.serverTimestamp()});
+ await adminDb.runTransaction(async tx=>{
+  const invoiceRef=link.invoiceId?c.businessRef.collection('invoices').doc(validId(link.invoiceId)):null;
+  const [fresh,invoice]=await Promise.all([tx.get(ref),invoiceRef?tx.get(invoiceRef):Promise.resolve(null)]);
+  if(!fresh.exists||fresh.data()?.status==='DELETED')return;
+  tx.update(ref,{status:'DELETED',deletedAt:FieldValue.serverTimestamp(),deletedBy:uid,updatedAt:FieldValue.serverTimestamp()});
+  if(invoiceRef&&invoice?.exists&&invoice.data()?.paymentLinkId===id)tx.update(invoiceRef,{paymentLinkId:'',updatedAt:FieldValue.serverTimestamp()});
+ });
  return {success:true};
 }
 
@@ -1258,17 +1272,35 @@ async function settleBusinessPaymentAttempt(attemptRef, providerData) {
  const date=parseDate(String(providerData.dateConfirmed||providerData.dateInitiated||todayDouala()).slice(0,10)),month=date.slice(0,7),fee=gross-net;
  const incomeRef=businessRef.collection('transactions').doc('pay_'+attemptRef.id+'_income'),feeRef=businessRef.collection('transactions').doc('pay_'+attemptRef.id+'_fee'),monthRef=businessRef.collection('monthlySummaries').doc(month);
  const productReviewRef=linkRef.collection('reviews').doc(attemptRef.id),businessReviewRef=businessRef.collection('reviews').doc(attemptRef.id);
+ const invoiceId=cleanText(attempt.invoiceId,150),customerId=cleanText(attempt.customerId,150);
+ const invoiceRef=invoiceId?businessRef.collection('invoices').doc(validId(invoiceId)):null,customerRef=customerId?businessRef.collection('clients').doc(validId(customerId)):null;
  const budgetsQuery=fee>0?businessRef.collection('budgets').where('month','==',month).limit(30):null;
  await adminDb.runTransaction(async tx=>{
-  const reads=[tx.get(attemptRef),tx.get(linkRef),tx.get(businessRef),tx.get(accountRef),tx.get(incomeRef),tx.get(feeRef),tx.get(productReviewRef),tx.get(businessReviewRef)];if(budgetsQuery)reads.push(tx.get(budgetsQuery));const rows=await Promise.all(reads),[a,l,b,acc,income,feeTxn,productReview,businessReview]=rows,budgets=budgetsQuery?rows[8]:null;
+  const reads=[tx.get(attemptRef),tx.get(linkRef),tx.get(businessRef),tx.get(accountRef),tx.get(incomeRef),tx.get(feeRef),tx.get(productReviewRef),tx.get(businessReviewRef)];
+  if(invoiceRef)reads.push(tx.get(invoiceRef));if(customerRef)reads.push(tx.get(customerRef));if(budgetsQuery)reads.push(tx.get(budgetsQuery));
+  const rows=await Promise.all(reads),[a,l,b,acc,income,feeTxn,productReview,businessReview]=rows;
+  const invoiceSnap=invoiceRef?rows[8]:null,customerSnap=customerRef?rows[9]:null;
+  const budgets=budgetsQuery?rows[8+(invoiceRef?1:0)+(customerRef?1:0)]:null;
   if(!a.exists)throw new BusinessError('Tentative de paiement introuvable.',404);if(a.data()?.status==='CONFIRMED')return;
   if(!l.exists||!b.exists||!acc.exists||acc.data()?.active===false)throw new BusinessError('Compte professionnel de destination introuvable. Paiement à régulariser.',409,'BUSINESS_ACCOUNT_MISSING');
   if(income.exists||(fee>0&&feeTxn.exists))throw new BusinessError('Écriture de paiement déjà existante. Vérification requise.',409,'PAYMENT_LEDGER_CONFLICT');
   const offer=l.data()||{};
-  tx.create(incomeRef,{type:'income',direction:'income',flowType:'normal',title:cleanText(offer.title,100),categoryId:'sales',amount:gross,grossAmount:gross,receivedAmount:net,providerFeeAmount:fee,date,month,accountId:attempt.accountId,paymentMethod:'fapshi',paymentLinkId:linkRef.id,paymentAttemptId:attemptRef.id,transId,customerName:cleanText(providerData.payerName||nameFromEmail(providerData.email)||attempt.customerName,100),customerEmail:cleanText(providerData.email||attempt.customerEmail,160),note:'Paiement confirmé pour '+cleanText(offer.title,100),status:'posted',createdBy:attempt.userId,createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
+  let invoiceData=null;
+  if(invoiceRef){
+   if(!invoiceSnap?.exists||invoiceSnap.data()?.paymentLinkId!==linkRef.id)throw new BusinessError('La facture liée n’est plus disponible. Paiement à régulariser manuellement.',409,'INVOICE_LINK_CHANGED');
+   invoiceData=invoiceSnap.data()||{};
+   const remaining=Math.max(0,Number(invoiceData.remaining??(Number(invoiceData.totalAmount||0)-Number(invoiceData.amountPaid||0)))||0);
+   if(gross>remaining)throw new BusinessError('Le paiement dépasse le reste à payer de la facture. Régularisation manuelle nécessaire.',409,'INVOICE_BALANCE_CHANGED');
+  }
+  tx.create(incomeRef,{type:'income',direction:'income',flowType:'normal',title:cleanText(offer.title,100),categoryId:'sales',amount:gross,grossAmount:gross,receivedAmount:net,providerFeeAmount:fee,date,month,accountId:attempt.accountId,paymentMethod:'fapshi',paymentLinkId:linkRef.id,paymentAttemptId:attemptRef.id,invoiceId:invoiceId||'',customerId:customerId||'',transId,customerName:cleanText(providerData.payerName||nameFromEmail(providerData.email)||attempt.customerName,100),customerEmail:cleanText(providerData.email||attempt.customerEmail,160),note:'Paiement confirmé pour '+cleanText(offer.title,100),status:'posted',createdBy:attempt.userId,createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
   if(fee>0)tx.create(feeRef,{type:'expense',direction:'expense',flowType:'provider_fee',title:'Frais de traitement · '+cleanText(offer.title,80),categoryId:'payment_fees',amount:fee,date,month,accountId:attempt.accountId,paymentMethod:'fapshi',paymentLinkId:linkRef.id,paymentAttemptId:attemptRef.id,transId,note:'Frais de traitement liés à cet encaissement',status:'posted',createdBy:attempt.userId,createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()});
   tx.update(accountRef,{balance:FieldValue.increment(net),updatedAt:FieldValue.serverTimestamp()});
-  tx.update(businessRef,{cashBalance:FieldValue.increment(net),totalIncome:FieldValue.increment(gross),...(fee>0?{totalExpense:FieldValue.increment(fee)}:{}),updatedAt:FieldValue.serverTimestamp(),lastActivityAt:FieldValue.serverTimestamp()});
+  tx.update(businessRef,{cashBalance:FieldValue.increment(net),totalIncome:FieldValue.increment(gross),...(invoiceRef?{totalReceivables:FieldValue.increment(-gross)}:{}),...(fee>0?{totalExpense:FieldValue.increment(fee)}:{}),updatedAt:FieldValue.serverTimestamp(),lastActivityAt:FieldValue.serverTimestamp()});
+  if(invoiceRef){
+   const paid=Math.max(0,Number(invoiceData.amountPaid)||0)+gross,remaining=Math.max(0,Number(invoiceData.totalAmount||0)-paid);
+   tx.update(invoiceRef,{amountPaid:paid,remaining,status:remaining===0?'paid':'partial',paymentLinkId:'',updatedAt:FieldValue.serverTimestamp()});
+   if(customerRef&&customerSnap?.exists){const customer=customerSnap.data()||{};tx.update(customerRef,{totalCollected:FieldValue.increment(gross),outstandingAmount:Math.max(0,(Number(customer.outstandingAmount)||0)-gross),updatedAt:FieldValue.serverTimestamp()});}
+  }
   tx.set(monthRef,{month,income:FieldValue.increment(gross),...(fee>0?{expense:FieldValue.increment(fee)}:{}),transactionCount:FieldValue.increment(fee>0?2:1),updatedAt:FieldValue.serverTimestamp()},{merge:true});
   if(fee>0&&budgets?.docs?.length){for(const budgetDoc of budgets.docs){const budget=budgetDoc.data()||{};if(String(budget.categoryId||'')!=='payment_fees')continue;const spent=Math.max(0,Number(budget.spent)||0)+fee,allocated=Math.max(0,Number(budget.amount)||0);tx.update(budgetDoc.ref,{spent,remaining:Math.max(0,allocated-spent),overBudget:spent>allocated,updatedAt:FieldValue.serverTimestamp()});}}
   const link=offer,max=Math.max(0,Number(link.maxPayments)||0),next=Math.max(0,Number(link.successfulPayments)||0)+1;
