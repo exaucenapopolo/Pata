@@ -57,7 +57,7 @@ test('calcule la masse salariale et les engagements restant réellement à payer
   assert.deepEqual(result, {
     peopleCount: 2, monthlyPayroll: 135000, salaryDue: 130000,
     rentDue: 90000, supplierDue: 40000, utilitiesDue: 0, taxDue: 25000,
-    otherDue: 0, payablesTracked: 260000,
+    otherDue: 0, loanPayableDue: 0, loanReceivableDue: 0, payablesTracked: 260000,
   });
 });
 
