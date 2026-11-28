@@ -79,3 +79,41 @@ test('les prêts reçus sont des dettes et les prêts accordés des créances, s
   assert.equal(result.loanReceivableDue, 150000);
   assert.equal(result.payablesTracked, 430000);
 });
+
+
+import { allocateBusinessReceipt, calculateBusinessReservePosition, calculateBusinessCashflowForecast } from '../src/lib/business/finance.mjs';
+
+test('répartit une recette entre réserve, salaires et tiers sans dépasser le montant encaissé', () => {
+  const result = allocateBusinessReceipt(500000, [
+    { id: 'reserve', label: 'Réserve', percent: 20 },
+    { id: 'salary', label: 'Salariés', percent: 30 },
+    { id: 'supplier', label: 'Fournisseur', percent: 25 },
+    { id: 'partners', label: 'Associés', percent: 15 },
+  ]);
+  assert.equal(result.assignedAmount, 450000);
+  assert.equal(result.unassignedAmount, 50000);
+  assert.deepEqual(result.allocations.map(row => row.amount), [100000, 150000, 125000, 75000]);
+});
+
+test('refuse une répartition qui dépasse 100 % et conserve le reste non affecté', () => {
+  assert.throws(() => allocateBusinessReceipt(500000, [{ percent: 70 }, { percent: 40 }]), /100/);
+  assert.equal(allocateBusinessReceipt(1000, [{ percent: 33.33 }]).unassignedAmount, 667);
+});
+
+test('suit la réserve réellement constituée et le disponible hors réserve', () => {
+  assert.deepEqual(calculateBusinessReservePosition({ cashBalance: 400000, reserveBalance: 120000, targetAmount: 200000 }), {
+    cashBalance: 400000, reserveBalance: 120000, targetAmount: 200000,
+    targetGap: 80000, targetReached: false, availableOutsideReserve: 280000, reserveShareOfCash: 30,
+  });
+});
+
+test('prévoit les tensions de trésorerie en ordonnant les encaissements et échéances', () => {
+  const forecast = calculateBusinessCashflowForecast({ startingCash: 200000, movements: [
+    { date: '2026-12-02', direction: 'outflow', amount: 250000 },
+    { date: '2026-12-05', direction: 'inflow', amount: 180000 },
+    { date: '2026-12-10', direction: 'outflow', amount: 50000, status: 'paid' },
+  ] });
+  assert.equal(forecast.firstShortfallDate, '2026-12-02');
+  assert.equal(forecast.minimumProjectedCash, -50000);
+  assert.equal(forecast.projectedEndingCash, 130000);
+});
