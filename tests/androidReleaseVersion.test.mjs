@@ -12,7 +12,7 @@ test('la mise à jour Android utilise un code supérieur à la version distribu�
   assert.equal(version.version, '1.2.4');
   assert.equal(version.versionCode, 25);
   assert.match(prepare, /versionCode 25/);
-  assert.match(prepare, /versionName "1.2.3"/);
+  assert.match(prepare, /versionName "1.2.4"/);
   assert.match(workflow, /tag_name: android-v1.2.4/);
   assert.match(workflow, /name: Pata Android 1.2.4/);
 });
