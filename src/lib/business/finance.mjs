@@ -55,3 +55,46 @@ export function validateBusinessPeoplePercentages(people = []) {
   const capitalTotal=rows.reduce((s,p)=>s+Math.max(0,Number(p.capitalPercent)||0),0), profitTotal=rows.reduce((s,p)=>s+Math.max(0,Number(p.profitPercent)||0),0);
   return {capitalTotal,profitTotal,capitalValid:capitalTotal<=100.0001,profitValid:profitTotal<=100.0001};
 }
+
+// Aide à transformer les engagements en indicateurs de trésorerie sans
+// confondre les salaires prévisionnels, les dettes exigibles et les dépenses payées.
+export function calculateBusinessCommitments(obligations = [], people = []) {
+  const rows = Array.isArray(obligations) ? obligations : [];
+  const activePeople = (Array.isArray(people) ? people : []).filter(person => person && person.active !== false);
+  const remainingOf = item => Math.max(0, Number(item?.remaining ?? (Number(item?.amount || 0) - Number(item?.amountPaid || 0))) || 0);
+  const byType = rows.reduce((totals, item) => {
+    if (['completed', 'cancelled'].includes(item?.status)) return totals;
+    const amount = remainingOf(item);
+    const type = String(item?.type || 'other');
+    totals[type] = (totals[type] || 0) + amount;
+    totals.total = (totals.total || 0) + (item?.affectsFinances === false ? 0 : amount);
+    return totals;
+  }, { total: 0 });
+  const monthlyPayroll = activePeople.reduce((sum, person) => sum + Math.max(0, Number(person?.salary) || 0), 0);
+  return {
+    peopleCount: activePeople.length,
+    monthlyPayroll,
+    salaryDue: byType.salary || 0,
+    rentDue: byType.rent || 0,
+    supplierDue: byType.supplier || 0,
+    utilitiesDue: byType.utility || 0,
+    taxDue: byType.tax || 0,
+    otherDue: Math.max(0, (byType.other || 0) + (byType.subscription || 0) + (byType.loan || 0)),
+    payablesTracked: byType.total,
+  };
+}
+
+export function calculateBusinessLiquidity({ cash = 0, payables = 0, receivables = 0 } = {}) {
+  const availableCash = Math.max(0, Number(cash) || 0);
+  const outstandingPayables = Math.max(0, Number(payables) || 0);
+  const outstandingReceivables = Math.max(0, Number(receivables) || 0);
+  return {
+    cash: availableCash,
+    payables: outstandingPayables,
+    receivables: outstandingReceivables,
+    cashAfterPayables: availableCash - outstandingPayables,
+    projectedAfterReceivablesAndPayables: availableCash + outstandingReceivables - outstandingPayables,
+    canCoverPayables: availableCash >= outstandingPayables,
+    coverageRate: outstandingPayables > 0 ? Math.round(availableCash / outstandingPayables * 100) : null,
+  };
+}
