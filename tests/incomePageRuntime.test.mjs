@@ -79,10 +79,12 @@ test('les prêts accordés depuis un revenu affichent le bénéficiaire, la date
   assert.match(incomePage, /loan\.dueDate/);
 });
 
-test('le solde affiche la formule historique entrées cumulées moins sorties cumulées', () => {
+test('le disponible du tableau de bord reprend les soldes vérifiés des sources de revenus', () => {
   const dashboardPage = fs.readFileSync(new URL('../src/app/(app)/dashboard/page.js', import.meta.url), 'utf8');
   const apiRoute = fs.readFileSync(new URL('../src/app/api/[...path]/route.js', import.meta.url), 'utf8');
-  assert.match(dashboardPage, /const globalBalance = totalIncome - totalExpense;/);
+  assert.match(dashboardPage, /periodIncomeSources = useMemo\(\(\) => periodIncomes\.filter/);
+  assert.match(dashboardPage, /isIncomeCountedAsSource\(income\)/);
+  assert.match(dashboardPage, /const globalBalance = sumAvailableIncomeBalances\(periodIncomeSources, balancesReady\);/);
   assert.match(apiRoute, /globalBalance: totalIncome - totalExpense/);
   assert.doesNotMatch(apiRoute, /buildDashboardMoneySummary/);
 });
@@ -176,8 +178,9 @@ test('les emprunts reçus en argent comptent comme revenus encaissés sans perdr
   assert.match(apiRoute, /const neutralFlow = flowType === 'debt_borrowed' && availableAsFunding !== true/);
   assert.match(apiRoute, /if \(!neutralFlow\) \{[\s\S]{0,400}profilePatch\.lifetimeIncomeAmount = FieldValue\.increment\(amount\)/);
   assert.match(incomePage, /monthIncomes\.filter\(isIncomeCountedAsSource\)/);
-  assert.match(dashboardPage, /periodIncomes\.filter\(isIncomeCountedAsSource\)/);
-  assert.match(reportsPage, /periodIncomes\.filter\(isIncomeCountedAsSource\)/);
+  assert.match(dashboardPage, /periodIncomeSources = useMemo\(\(\) => periodIncomes\.filter/);
+  assert.match(dashboardPage, /isIncomeCountedAsSource\(income\)/);
+  assert.match(reportsPage, /financialIncomes = periodIncomes\.filter\(isIncomeCountedAsSource\)/);
   assert.match(budgetsPage, /isIncomeCountedAsSource\(income\)/);
   assert.match(incomePage, /Elle reste toutefois une dette à rembourser/);
 });
