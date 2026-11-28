@@ -68,3 +68,14 @@ test('sépare la trésorerie réelle des créances attendues et des dettes à pa
   assert.equal(result.canCoverPayables, false);
   assert.equal(result.coverageRate, 77);
 });
+
+test('les prêts reçus sont des dettes et les prêts accordés des créances, sans gonfler les dettes fournisseurs', () => {
+  const result = calculateBusinessCommitments([
+    { type: 'loan_received', amount: 500000, remaining: 350000, status: 'in_progress' },
+    { type: 'loan_granted', amount: 200000, remaining: 150000, status: 'in_progress' },
+    { type: 'supplier', amount: 80000, remaining: 80000, status: 'pending' },
+  ], []);
+  assert.equal(result.loanPayableDue, 350000);
+  assert.equal(result.loanReceivableDue, 150000);
+  assert.equal(result.payablesTracked, 430000);
+});
