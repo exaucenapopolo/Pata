@@ -102,3 +102,82 @@ export function calculateBusinessLiquidity({ cash = 0, payables = 0, receivables
     coverageRate: outstandingPayables > 0 ? Math.round(availableCash / outstandingPayables * 100) : null,
   };
 }
+
+
+// Répartit une entrée sans transformer les affectations en dépenses :
+// elles restent des destinations de trésorerie jusqu'au décaissement réel.
+export function allocateBusinessReceipt(amount, allocations = []) {
+  const total = normalizeBusinessAmount(amount);
+  if (!total) throw new Error('Montant encaissé invalide.');
+  if (!Array.isArray(allocations) || allocations.length > 30) throw new Error('Répartition invalide.');
+  const rows = allocations.map((row, index) => {
+    const percent = Number(row?.percent);
+    if (!Number.isFinite(percent) || percent < 0 || percent > 100) throw new Error('Chaque pourcentage doit être compris entre 0 et 100.');
+    return {
+      id: String(row?.id || row?.categoryId || ('allocation_' + index)).slice(0, 100),
+      label: String(row?.label || row?.name || row?.categoryLabel || 'Autre destination').trim().slice(0, 100),
+      percent: Math.round(percent * 100) / 100,
+    };
+  }).filter(row => row.percent > 0);
+  const percentTotal = rows.reduce((sum, row) => sum + row.percent, 0);
+  if (percentTotal > 100.0001) throw new Error('La somme des affectations ne peut pas dépasser 100 %.');
+  let assigned = 0;
+  const result = rows.map((row, index) => {
+    const value = index === rows.length - 1
+      ? Math.round(total * percentTotal / 100) - assigned
+      : Math.round(total * row.percent / 100);
+    assigned += value;
+    return { ...row, amount: value };
+  });
+  return {
+    total,
+    percentAssigned: Math.round(percentTotal * 100) / 100,
+    assignedAmount: assigned,
+    unassignedAmount: Math.max(0, total - assigned),
+    allocations: result,
+  };
+}
+
+export function calculateBusinessReservePosition({ cashBalance = 0, reserveBalance = 0, targetAmount = 0 } = {}) {
+  const cash = Number(cashBalance) || 0;
+  const reserve = Math.max(0, Number(reserveBalance) || 0);
+  const target = Math.max(0, Number(targetAmount) || 0);
+  return {
+    cashBalance: cash,
+    reserveBalance: reserve,
+    targetAmount: target,
+    targetGap: Math.max(0, target - reserve),
+    targetReached: target > 0 && reserve >= target,
+    availableOutsideReserve: cash - reserve,
+    reserveShareOfCash: cash > 0 ? Math.round(reserve / cash * 10000) / 100 : null,
+  };
+}
+
+export function calculateBusinessCashflowForecast({ startingCash = 0, movements = [] } = {}) {
+  const opening = Number(startingCash) || 0;
+  const byDate = new Map();
+  for (const movement of Array.isArray(movements) ? movements : []) {
+    if (!movement || movement.status === 'cancelled' || movement.status === 'paid' || movement.status === 'completed') continue;
+    const date = String(movement.date || movement.dueDate || '');
+    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) continue;
+    const amount = Math.max(0, Number(movement.amount ?? movement.remaining) || 0);
+    if (!amount) continue;
+    const direction = ['inflow', 'income', 'receivable', 'expected_income'].includes(movement.direction || movement.type) ? 1 : -1;
+    byDate.set(date, (byDate.get(date) || 0) + direction * amount);
+  }
+  let balance = opening, minimumBalance = opening, firstShortfallDate = null;
+  const timeline = [...byDate.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, netMovement]) => {
+    balance += netMovement;
+    minimumBalance = Math.min(minimumBalance, balance);
+    if (balance < 0 && !firstShortfallDate) firstShortfallDate = date;
+    return { date, netMovement, projectedBalance: balance, shortfall: balance < 0 };
+  });
+  return {
+    startingCash: opening,
+    projectedEndingCash: balance,
+    minimumProjectedCash: minimumBalance,
+    firstShortfallDate,
+    hasProjectedShortfall: minimumBalance < 0,
+    timeline,
+  };
+}
