@@ -65,6 +65,8 @@ jobs:
         run: npm run test:offline-quick-capture
       - name: Vérifier la version Android et la préparation de la release
         run: npm run test:android-release-version
+      - name: Tester les calculs de trésorerie, salaires et obligations de l’entreprise
+        run: npm run test:business-finance
 
       - name: Tester la reconnaissance des saisies rapides
         run: npm run test:quick-capture
