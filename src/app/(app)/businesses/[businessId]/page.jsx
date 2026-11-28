@@ -445,7 +445,7 @@ export default function BusinessWorkspacePage() {
   const visibleTabs = writable ? TABS : TABS.filter((tab) => ['dashboard', 'transactions', 'reports'].includes(tab.id));
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4 pb-8">
+    <div className="business-workspace mx-auto w-full min-w-0 max-w-6xl space-y-4 px-3 pb-8 sm:px-0">
       <header className="flex items-start gap-3">
         <Link href="/businesses" aria-label={en ? 'Back to businesses' : 'Retour aux entreprises'} className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600"><ArrowLeft size={18}/></Link>
         <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 text-slate-500">
