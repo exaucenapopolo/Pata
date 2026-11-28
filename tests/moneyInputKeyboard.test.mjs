@@ -21,11 +21,9 @@ function createInput({ readOnly = false, inputMode = null } = {}) {
 test('hides the native keyboard but keeps the original field settings for restoration', () => {
   const input = createInput({ inputMode: 'decimal' });
   const original = hideNativeMoneyKeyboard(input);
-
   assert.equal(input.readOnly, true);
   assert.equal(input.getAttribute('inputmode'), 'none');
   assert.deepEqual(original, { readOnly: false, inputMode: 'decimal' });
-
   restoreNativeMoneyKeyboard(input, original);
   assert.equal(input.readOnly, false);
   assert.equal(input.getAttribute('inputmode'), 'decimal');
@@ -34,7 +32,6 @@ test('hides the native keyboard but keeps the original field settings for restor
 test('restores a field that had no explicit inputmode attribute', () => {
   const input = createInput();
   const original = hideNativeMoneyKeyboard(input);
-
   restoreNativeMoneyKeyboard(input, original);
   assert.equal(input.readOnly, false);
   assert.equal(input.getAttribute('inputmode'), null);
@@ -43,35 +40,31 @@ test('restores a field that had no explicit inputmode attribute', () => {
 test('preserves fields that were already read-only', () => {
   const input = createInput({ readOnly: true, inputMode: 'numeric' });
   const original = hideNativeMoneyKeyboard(input);
-
   restoreNativeMoneyKeyboard(input, original);
   assert.equal(input.readOnly, true);
   assert.equal(input.getAttribute('inputmode'), 'numeric');
 });
 
-
-test('the multiple-expense form gives Android amounts to the custom keypad and avoids nested scrolling', () => {
+test('the multiple-expense form keeps numeric entry and applies calculator results to the selected row', () => {
   const page = fs.readFileSync('src/app/(app)/expenses/page.js', 'utf8');
   const start = page.indexOf('<Modal open={batchModalOpen}');
   const end = page.indexOf('<Modal open={bulkSourceOpen}', start);
   assert.ok(start >= 0 && end > start);
   const batchModal = page.slice(start, end);
   assert.match(batchModal, /type="text" inputMode="numeric" data-pata-money="true"/);
-  assert.doesNotMatch(batchModal, /type="number"[^>]*inputMode="numeric"/);
-  assert.doesNotMatch(batchModal, /max-h-\[55vh\].*overflow-y-auto/);
-  const keypad = fs.readFileSync('src/components/layout/MoneyKeypad.jsx', 'utf8');
-  assert.match(keypad, /input\.dataset\.pataMoney === 'true'/);
-  assert.match(keypad, /host\.scrollBy\(\{ top: scrollOffset, behavior: 'auto' \}\)/);
+  assert.match(batchModal, /<CalculatorLauncher value={row\.amount}/);
+  assert.match(batchModal, /onApply=\{\(result\) => updateBatchRow\(row\.id, \{ amount: result \}\)\}/);
+  assert.doesNotMatch(batchModal, /MoneyKeypad/);
 });
 
-test('keeps keypad taps clickable and routes each key into the expression state', () => {
-  const component = fs.readFileSync('src/components/layout/MoneyKeypad.jsx', 'utf8');
-  const pointerHandler = component.match(/const handlePointerDown = \(event\) => \{([\s\S]*?)\n    \};/);
-
-  assert.ok(pointerHandler, 'Android pointer handler must exist');
-  assert.doesNotMatch(pointerHandler[1], /preventDefault\(/);
-  assert.match(component, /onClick=\{\(\) => appendKey\(key\.action \|\| key\.label\)\}/);
-  assert.match(component, /setExpression\(\(current\) => applyMoneyKey\(current, key\)\)/);
+test('the regular expense amount keeps the native keyboard and has a separate calculator action', () => {
+  const page = fs.readFileSync('src/app/(app)/expenses/page.js', 'utf8');
+  const amount = page.indexOf('label="Montant (FCFA)"');
+  assert.ok(amount >= 0);
+  const section = page.slice(amount, amount + 900);
+  assert.match(section, /type="number"/);
+  assert.match(section, /<CalculatorLauncher value=\{form\.amount\}/);
+  assert.match(section, /onApply=\{\(result\) => setForm\(\(current\) => \(\{ \.\.\.current, amount: result \}\)\)\}/);
 });
 
 test('writes calculator values into the real controlled field and forces React to observe the change', () => {
@@ -132,7 +125,6 @@ test('temporarily unlocks the active read-only field while synchronizing its con
 test('les champs de montant des pages Budget et Revenus sont reliés à la calculatrice, sans traiter les pourcentages comme des montants', () => {
   const budgets = fs.readFileSync('src/app/(app)/budgets/page.js', 'utf8');
   const income = fs.readFileSync('src/app/(app)/income/page.js', 'utf8');
-
   assert.match(budgets, /data-pata-money="true"/);
   assert.match(budgets, /data-pata-money=\{item\.calculationType === 'amount' \? 'true' : 'false'\}/);
   assert.match(income, /label="Montant \(FCFA\)" type="number" data-pata-money="true"/);
