@@ -747,6 +747,7 @@ export async function recordBusinessDocumentPayment(uid,businessId,resource,item
     if(!itemSnap.exists||!account.exists||!business.exists)throw new BusinessError('Élément ou compte financier introuvable.',404);
     if(existing.exists){duplicate=true;return;}
     const item=itemSnap.data()||{},remaining=isInvoice?Math.max(0,Number(item.totalAmount)-Number(item.amountPaid||0)):Math.max(0,Number(item.remaining??(Number(item.amount)-Number(item.amountPaid||0)))||0);
+    if(isInvoice&&item.paymentLinkId)throw new BusinessError('Un lien de paiement est associé à cette facture. Utilise ce lien ou supprime-le avant d’enregistrer un paiement manuel.',409,'INVOICE_PAYMENT_LINK_ACTIVE');
     if(amount>remaining)throw new BusinessError('Le paiement dépasse le montant restant.');
     const partyId=cleanText(isInvoice?item.customerId:item.supplierId,150),partyType=isInvoice?'clients':'suppliers';
     const partyRef=partyId?context.businessRef.collection(partyType).doc(validId(partyId)):null;
