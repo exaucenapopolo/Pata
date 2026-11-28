@@ -32,6 +32,8 @@ jobs:
         run: node --test tests/cloudinaryAvatar.test.mjs tests/imageUpload.test.mjs
       - name: Tester les soldes disponibles et le tableau de bord
         run: node --test tests/incomeBalances.test.mjs tests/dashboard-income-balance.test.mjs
+      - name: Tester les parseurs SMS MTN MoMo et Orange Money
+        run: npm run test:sms
       - name: Tester les budgets, les enveloppes et leurs prévisions
         run: npm run test:budget-spend-summary
       - name: Installer les dépendances
