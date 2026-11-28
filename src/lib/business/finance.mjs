@@ -159,7 +159,7 @@ export function calculateBusinessCashflowForecast({ startingCash = 0, movements 
   for (const movement of Array.isArray(movements) ? movements : []) {
     if (!movement || movement.status === 'cancelled' || movement.status === 'paid' || movement.status === 'completed') continue;
     const date = String(movement.date || movement.dueDate || '');
-    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) continue;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
     const amount = Math.max(0, Number(movement.amount ?? movement.remaining) || 0);
     if (!amount) continue;
     const direction = ['inflow', 'income', 'receivable', 'expected_income'].includes(movement.direction || movement.type) ? 1 : -1;
