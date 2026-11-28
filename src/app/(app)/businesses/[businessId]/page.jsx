@@ -79,7 +79,7 @@ export default function BusinessWorkspacePage() {
   const [transactionForm, setTransactionForm] = useState({ type: 'income', amount: '', title: '', categoryId: 'sales', date: new Date().toISOString().slice(0, 10), accountId: 'main', note: '', paymentMethod: '' });
   const [accountForm, setAccountForm] = useState({ name: '', type: 'cash', openingBalance: '0' });
   const [resourceForm, setResourceForm] = useState({});
-  const [relatedRecords, setRelatedRecords] = useState({clients:[],suppliers:[],partners:[]});
+  const [relatedRecords, setRelatedRecords] = useState({clients:[],suppliers:[],partners:[],invoices:[]});
   const [deepLinkPaymentLinkId, setDeepLinkPaymentLinkId] = useState('');
   const [deepLinkOpenedId, setDeepLinkOpenedId] = useState('');
   const [transferForm, setTransferForm] = useState({ incomeId: '', amount: '', accountId: 'main', date: new Date().toISOString().slice(0, 10) });
@@ -88,7 +88,7 @@ export default function BusinessWorkspacePage() {
   const [paymentForm, setPaymentForm] = useState({ amount: '', accountId: 'main', date: new Date().toISOString().slice(0, 10) });
   const [paymentLinks, setPaymentLinks] = useState([]);
   const [showPaymentLinkForm, setShowPaymentLinkForm] = useState(false);
-  const [paymentLinkForm, setPaymentLinkForm] = useState({ title: '', description: '', imageUrl: '', galleryImageUrls: [], proofImageUrls: [], videoUrlsText: '', sellingPointsText: '', originalAmount: '', amount: '', customerName: '', customerEmail: '', maxPayments: '', accountId: 'main', publicOnStorefront: true });
+  const [paymentLinkForm, setPaymentLinkForm] = useState({ title: '', description: '', imageUrl: '', galleryImageUrls: [], proofImageUrls: [], videoUrlsText: '', sellingPointsText: '', originalAmount: '', amount: '', invoiceId: '', customerName: '', customerEmail: '', maxPayments: '', accountId: 'main', publicOnStorefront: true });
   const [busyPaymentLinkId, setBusyPaymentLinkId] = useState('');
   const [editingPaymentLinkId, setEditingPaymentLinkId] = useState('');
   const [deletePaymentLinkTarget, setDeletePaymentLinkTarget] = useState(null);
@@ -139,7 +139,8 @@ export default function BusinessWorkspacePage() {
           const result = await getBusinessAccounts(businessId);
           if (active) setAccounts(result);
         } else if(activeTab==='payment-links'){
-          const result=await getBusinessPaymentLinks(businessId);if(active)setPaymentLinks(result);
+          const [result,invoices]=await Promise.all([getBusinessPaymentLinks(businessId),getBusinessResource(businessId,'invoices')]);
+          if(active){setPaymentLinks(result);setRelatedRecords(current=>({...current,invoices}));}
         }else{
           const result=await getBusinessResource(businessId,activeTab);if(active)setItems(result);
           const required=activeTab==='invoices'?['clients']:activeTab==='obligations'?['suppliers']:activeTab==='contracts'?['clients','suppliers','partners']:[];
@@ -263,7 +264,7 @@ export default function BusinessWorkspacePage() {
       const saved = result.paymentLink;
       setShowPaymentLinkForm(false);
       setEditingPaymentLinkId('');
-      setPaymentLinkForm({ title: '', description: '', imageUrl: '', galleryImageUrls: [], proofImageUrls: [], videoUrlsText: '', sellingPointsText: '', originalAmount: '', amount: '', customerName: '', customerEmail: '', maxPayments: '', accountId: accountsForSelect[0]?.id || 'main', publicOnStorefront: true });
+      setPaymentLinkForm({ title: '', description: '', imageUrl: '', galleryImageUrls: [], proofImageUrls: [], videoUrlsText: '', sellingPointsText: '', originalAmount: '', amount: '', invoiceId: '', customerName: '', customerEmail: '', maxPayments: '', accountId: accountsForSelect[0]?.id || 'main', publicOnStorefront: true });
       setPaymentLinks((current) => editingPaymentLinkId
         ? current.map((item) => item.id === saved?.id ? saved : item)
         : [saved, ...current.filter((item) => item.id !== saved?.id)]);
@@ -274,7 +275,7 @@ export default function BusinessWorkspacePage() {
 
   const beginEditPaymentLink = (link) => {
     setEditingPaymentLinkId(link.id);
-    setPaymentLinkForm({title:link.title||'',description:link.description||'',imageUrl:link.imageUrl||'',galleryImageUrls:Array.isArray(link.galleryImageUrls)?link.galleryImageUrls:[],proofImageUrls:Array.isArray(link.proofImageUrls)?link.proofImageUrls:[],videoUrlsText:Array.isArray(link.videoUrls)?link.videoUrls.join('\n'):'',sellingPointsText:Array.isArray(link.sellingPoints)?link.sellingPoints.join('\n'):'',originalAmount:String(link.originalAmount||link.amount||''),amount:String(link.amount||''),customerName:link.customerName||'',customerEmail:link.customerEmail||'',maxPayments:String(link.maxPayments||''),accountId:link.accountId||'main',publicOnStorefront:link.publicOnStorefront!==false});
+    setPaymentLinkForm({title:link.title||'',description:link.description||'',imageUrl:link.imageUrl||'',galleryImageUrls:Array.isArray(link.galleryImageUrls)?link.galleryImageUrls:[],proofImageUrls:Array.isArray(link.proofImageUrls)?link.proofImageUrls:[],videoUrlsText:Array.isArray(link.videoUrls)?link.videoUrls.join('\n'):'',sellingPointsText:Array.isArray(link.sellingPoints)?link.sellingPoints.join('\n'):'',originalAmount:String(link.originalAmount||link.amount||''),amount:String(link.amount||''),invoiceId:link.invoiceId||'',customerName:link.customerName||'',customerEmail:link.customerEmail||'',maxPayments:String(link.maxPayments||''),accountId:link.accountId||'main',publicOnStorefront:link.publicOnStorefront!==false});
     setFormError('');
     setShowPaymentLinkForm(true);
   };
@@ -530,7 +531,7 @@ export default function BusinessWorkspacePage() {
         <section className="rounded-2xl border border-slate-200 bg-white p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div><h3 className="font-bold text-slate-900">{en ? 'Payment links' : 'Liens de paiement'}</h3><p className="mt-1 max-w-xl text-xs leading-5 text-slate-500">{en ? 'Create a branded product or service page, share it with anyone and receive payments into your selected business account.' : 'Crée une page de vente à l’identité de ton entreprise, partage-la avec tes clients et reçois les paiements dans le compte professionnel choisi.'}</p></div>
-            <button type="button" onClick={() => { setFormError(''); setShowPaymentLinkForm((value) => !value); setEditingPaymentLinkId(''); setPaymentLinkForm({ title: '', description: '', imageUrl: '', galleryImageUrls: [], proofImageUrls: [], videoUrlsText: '', sellingPointsText: '', originalAmount: '', amount: '', customerName: '', customerEmail: '', maxPayments: '', accountId: accountsForSelect[0]?.id || 'main', publicOnStorefront: true }); }} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-[#075b43] px-3.5 text-xs font-semibold text-white"><Plus size={15}/>{en ? 'Create a link' : 'Créer un lien'}</button>
+            <button type="button" onClick={() => { setFormError(''); setShowPaymentLinkForm((value) => !value); setEditingPaymentLinkId(''); setPaymentLinkForm({ title: '', description: '', imageUrl: '', galleryImageUrls: [], proofImageUrls: [], videoUrlsText: '', sellingPointsText: '', originalAmount: '', amount: '', invoiceId: '', customerName: '', customerEmail: '', maxPayments: '', accountId: accountsForSelect[0]?.id || 'main', publicOnStorefront: true }); }} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-[#075b43] px-3.5 text-xs font-semibold text-white"><Plus size={15}/>{en ? 'Create a link' : 'Créer un lien'}</button>
           </div>
           {showPaymentLinkForm && (
             <form onSubmit={submitPaymentLink} className="mt-4 grid gap-3 rounded-xl bg-slate-50 p-3 sm:grid-cols-2">
@@ -551,6 +552,7 @@ export default function BusinessWorkspacePage() {
               
               <label className="text-xs font-semibold text-slate-600">{en ? 'Regular price (XAF)' : 'Prix normal (FCFA)'}<input type="number" min="100" step="1" value={paymentLinkForm.originalAmount} onChange={(event) => setPaymentLinkForm({ ...paymentLinkForm, originalAmount: event.target.value })} placeholder={en ? 'Optional, before discount' : 'Facultatif, avant réduction'} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal"/></label>
               <label className="text-xs font-semibold text-slate-600">{en ? 'Amount customer pays (XAF)' : 'Montant à payer (FCFA)'}<input required type="number" min="100" step="1" value={paymentLinkForm.amount} onChange={(event) => setPaymentLinkForm({ ...paymentLinkForm, amount: event.target.value })} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-base font-normal"/></label>
+              <label className="text-xs font-semibold text-slate-600 sm:col-span-2">{en?'Link to an unpaid customer invoice (optional)':'Rattacher à une facture client impayée (facultatif)'}<select disabled={Boolean(editingPaymentLinkId)} value={paymentLinkForm.invoiceId||''} onChange={event=>{const invoice=relatedRecords.invoices.find(row=>row.id===event.target.value);const remaining=invoice?Math.max(0,Number(invoice.remaining??(Number(invoice.totalAmount||0)-Number(invoice.amountPaid||0)))||0):0;setPaymentLinkForm(current=>({...current,invoiceId:event.target.value,amount:invoice?String(remaining):current.amount,customerName:invoice?(invoice.customerName||current.customerName):current.customerName,title:invoice?(current.title||invoice.title):current.title}));}} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal"><option value="">{en?'No invoice linked':'Aucune facture liée'}</option>{relatedRecords.invoices.filter(invoice=>Math.max(0,Number(invoice.remaining??(Number(invoice.totalAmount||0)-Number(invoice.amountPaid||0)))||0)>0&&(!invoice.paymentLinkId||invoice.paymentLinkId===paymentLinkForm.invoiceId)).map(invoice=><option key={invoice.id} value={invoice.id}>{invoice.invoiceNumber?invoice.invoiceNumber+' · ':''}{invoice.customerName||'Client'} · {invoice.title} · {money(invoice.remaining??(Number(invoice.totalAmount||0)-Number(invoice.amountPaid||0)))}</option>)}</select><span className="mt-1 block text-[10px] font-normal text-slate-500">{en?'After Fapshi confirms payment, the invoice and customer receivable are updated automatically.':'Après confirmation Fapshi, la facture et la créance du client seront mises à jour automatiquement.'}</span></label>
               <label className="text-xs font-semibold text-slate-600">{en?'Maximum successful payments':'Nombre maximal de paiements'}<input type="number" min="1" step="1" value={paymentLinkForm.maxPayments||''} onChange={(event)=>setPaymentLinkForm({...paymentLinkForm,maxPayments:event.target.value})} placeholder={en?'Empty = unlimited':'Vide = illimité'} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal"/><span className="mt-1 block text-[10px] font-normal text-slate-500">{en?'Limit counts successful payments only.':'La limite porte uniquement sur les paiements validés.'}</span></label>
               <label className="flex items-center gap-2 text-xs font-medium text-slate-700 sm:col-span-2"><input type="checkbox" checked={paymentLinkForm.publicOnStorefront!==false} onChange={event=>setPaymentLinkForm({...paymentLinkForm,publicOnStorefront:event.target.checked})}/>{en?'Show this offer in the public company shop':'Afficher cette offre dans la boutique publique'}</label>
               <label className="text-xs font-semibold text-slate-600 sm:col-span-2">{en ? 'Business account to credit' : 'Compte professionnel à créditer'}<select required value={paymentLinkForm.accountId} onChange={(event) => setPaymentLinkForm({ ...paymentLinkForm, accountId: event.target.value })} className="mt-1.5 h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-normal">{accountsForSelect.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
